@@ -929,7 +929,7 @@ func waitAndVerifyCnsVolumeMetadata4GCVol(volHandle string, svcPVCName string, p
 	return waitErr
 }
 
-//verifyCnsVolumeMetadata4GCVol verifies cns volume metadata for a GC volume
+// verifyCnsVolumeMetadata4GCVol verifies cns volume metadata for a GC volume
 // if gcPvc, gcPv or pod are nil we skip verification for them altogether and wont check if they are absent in CNS entry
 func verifyCnsVolumeMetadata4GCVol(volumeID string, svcPVCName string, gcPvc *v1.PersistentVolumeClaim,
 	gcPv *v1.PersistentVolume, pod *v1.Pod) bool {

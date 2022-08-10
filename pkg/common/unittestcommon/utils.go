@@ -130,7 +130,7 @@ func (c *FakeK8SOrchestrator) InitTopologyServiceInController(ctx context.Contex
 }
 
 // InitTopologyServiceInNode returns a singleton implementation of the
-//commoncotypes.NodeTopologyService interface for the FakeK8SOrchestrator.
+// commoncotypes.NodeTopologyService interface for the FakeK8SOrchestrator.
 func (c *FakeK8SOrchestrator) InitTopologyServiceInNode(ctx context.Context) (commoncotypes.NodeTopologyService,
 	error) {
 	// TODO: Mock the custom k8sClients and watchers.

@@ -63,10 +63,13 @@ type StorageClassWatch struct {
 //
 // The goal is two fold:
 // a) Keep a in-memory cache of all storage classes so when we remediate
-//    other things, like StoragePool, we have cheap access to the
-//    classes.
+//
+//	other things, like StoragePool, we have cheap access to the
+//	classes.
+//
 // b) Put annotations on the StorageClass that contain information
-//    about the underlying Storage Policy in VC.
+//
+//	about the underlying Storage Policy in VC.
 //
 // This function starts a go-routine which processes watch fires.
 func startStorageClassWatch(ctx context.Context,

@@ -37,7 +37,7 @@ type vSphere struct {
 	CnsClient *cnsClient
 }
 
-//VsanClient struct holds vim and soap client
+// VsanClient struct holds vim and soap client
 type VsanClient struct {
 	vim25Client   *vim25.Client
 	serviceClient *soap.Client
@@ -589,7 +589,7 @@ func verifyVolPropertiesFromCnsQueryResults(e2eVSphere vSphere, volHandle string
 
 }
 
-//getClusterName methods returns the cluster and vsan client of the testbed
+// getClusterName methods returns the cluster and vsan client of the testbed
 func getClusterName(ctx context.Context, vs *vSphere) ([]*object.ClusterComputeResource, *VsanClient, error) {
 	c := newClient(ctx, vs)
 	datacenter := e2eVSphere.Config.Global.Datacenters
@@ -609,8 +609,8 @@ func getClusterName(ctx context.Context, vs *vSphere) ([]*object.ClusterComputeR
 	return clusterComputeResource, vsanHealthClient, err
 }
 
-//getHostUUID takes input of the HostInfo which has host uuid
-//with the host uuid it maps the corresponding host IP and returns it
+// getHostUUID takes input of the HostInfo which has host uuid
+// with the host uuid it maps the corresponding host IP and returns it
 func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 	var result map[string]interface{}
 	computeCluster := os.Getenv("CLUSTER_NAME")
@@ -665,9 +665,9 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 	return ""
 }
 
-//VsanQueryObjectIdentities return list of vsan uuids
-//example: For a PVC, It returns the vSAN object UUIDs to their identities
-//It return vsanObjuuid like [4336525f-7813-d78a-e3a4-02005456da7e]
+// VsanQueryObjectIdentities return list of vsan uuids
+// example: For a PVC, It returns the vSAN object UUIDs to their identities
+// It return vsanObjuuid like [4336525f-7813-d78a-e3a4-02005456da7e]
 func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context,
 	cluster vim25types.ManagedObjectReference) (*vsantypes.VsanObjectIdentityAndHealth, error) {
 	req := vsantypes.VsanQueryObjectIdentities{
@@ -686,8 +686,9 @@ func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context,
 // QueryVsanObjects takes vsan uuid as input and returns the vSANObj related
 // information like lsom_objects and disk_objects.
 // Example return values:
-//  "{"disk_objects": {"525a9aa5-1142-4004-ad6f-2389eef25f06":
-//     ....lsom_objects": {"e7945f5f-4267-3e5d-334a-020063a7a5c4":......}
+//
+//	"{"disk_objects": {"525a9aa5-1142-4004-ad6f-2389eef25f06":
+//	   ....lsom_objects": {"e7945f5f-4267-3e5d-334a-020063a7a5c4":......}
 func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *vSphere) (string, error) {
 	computeCluster := os.Getenv("CLUSTER_NAME")
 	if computeCluster == "" {
@@ -730,7 +731,7 @@ func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *v
 	return res.Returnval, nil
 }
 
-//queryCNSVolumeWithWait gets the cns volume health status
+// queryCNSVolumeWithWait gets the cns volume health status
 func queryCNSVolumeWithWait(ctx context.Context, client clientset.Interface, volHandle string) error {
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
 		framework.Logf("wait for next poll %v", pollTimeoutShort)

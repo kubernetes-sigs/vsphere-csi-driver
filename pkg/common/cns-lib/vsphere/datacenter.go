@@ -84,11 +84,12 @@ func (dc *Datacenter) GetDatastoreByURL(ctx context.Context, datastoreURL string
 // GetVirtualMachineByUUID returns the VirtualMachine instance given its UUID
 // in a datacenter.
 // If instanceUUID is set to true, then UUID is an instance UUID.
-//  - In this case, this function searches for virtual machines whose instance
-//    UUID matches the given uuid.
+//   - In this case, this function searches for virtual machines whose instance
+//     UUID matches the given uuid.
+//
 // If instanceUUID is set to false, then UUID is BIOS UUID.
-//  - In this case, this function searches for virtual machines whose BIOS UUID
-//    matches the given uuid.
+//   - In this case, this function searches for virtual machines whose BIOS UUID
+//     matches the given uuid.
 func (dc *Datacenter) GetVirtualMachineByUUID(ctx context.Context,
 	uuid string, instanceUUID bool) (*VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
