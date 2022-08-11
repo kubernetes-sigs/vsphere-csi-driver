@@ -720,7 +720,7 @@ func updateSVPVC(ctx context.Context, client client.Client,
 			// The callers of updateSVPVC are only updating the instance finalizers
 			// Hence we add/remove the finalizers on the latest PVC object from API server.
 			if removeCnsPvcFinalizer {
-				for i, finalizer := range pvc.Finalizers {
+				for i, finalizer := range latestPVCObject.Finalizers {
 					if finalizer == cnsoperatortypes.CNSPvcFinalizer {
 						log.Debugf("Removing %q finalizer from PersistentVolumeClaim: %q on namespace: %q",
 							cnsoperatortypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
