@@ -240,6 +240,14 @@ var (
 	lztAllocType  = "Reserve space"
 )
 
+// For Preferential datatsore
+var (
+	envAllowedPreferentialTopology = "ALLOWED_PREFERENTIAL_TOPOLOGY"
+	envTopologyDomainForSite1      = "TOPOLOGY_DOMAIN_WITH_NON_SHARED_PREFERRED_SITE_1"
+	envTopologyDomainForSite2      = "TOPOLOGY_DOMAIN_WITH_NON_SHARED_PREFERRED_SITE_2"
+	envTopologyDomainForSite3      = "TOPOLOGY_DOMAIN_WITH_NON_SHARED_PREFERRED_SITE_3"
+)
+
 // GetAndExpectStringEnvVar parses a string from env variable.
 func GetAndExpectStringEnvVar(varName string) string {
 	varValue := os.Getenv(varName)

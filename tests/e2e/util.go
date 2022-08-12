@@ -4424,9 +4424,9 @@ TOPOLOGY_MAP = "region:region1;zone:zone1;building:building1;level:level1;rack:r
 func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]string, []string) {
 	topologyMap := make(map[string][]string)
 	var categories []string
-	if level != 5 {
-		return nil, categories
-	}
+	// if level != 5 {
+	// 	return nil, categories
+	// }
 	topologyCategories := strings.Split(topologyMapStr, ";")
 	for _, category := range topologyCategories {
 		categoryVal := strings.Split(category, ":")
