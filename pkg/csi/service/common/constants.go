@@ -305,6 +305,15 @@ const (
 	// VolumeSnapshotInfoKey represents the annotation key of the fcd-id + snapshot-id
 	// on the VolumeSnapshot CR
 	VolumeSnapshotInfoKey = "csi.vsphere.volume/snapshot"
+
+	// AttributeSupervisorVolumeSnapshotClass represents name of VolumeSnapshotClass
+	AttributeSupervisorVolumeSnapshotClass = "svvolumesnapshotclass"
+
+	// VolumeSnapshotApiGroup represents the VolumeSnapshot API Group name
+	VolumeSnapshotApiGroup = "snapshot.storage.k8s.io"
+
+	// VolumeSnapshotKind represents the VolumeSnapshot Kind name
+	VolumeSnapshotKind = "VolumeSnapshot"
 )
 
 // Supported container orchestrators.

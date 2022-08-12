@@ -142,7 +142,7 @@ roleRef:
 ---
 apiVersion: v1
 data:
-  "csi-migration": "false"
+  "csi-migration": "true"
   "csi-auth-check": "true"
   "online-volume-extend": "true"
   "trigger-csi-fullsync": "false"
