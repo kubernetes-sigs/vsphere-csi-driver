@@ -25,6 +25,8 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	snap "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
 	"google.golang.org/grpc/codes"
@@ -418,4 +420,21 @@ func getAttacherTimeoutInMin(ctx context.Context) int {
 		}
 	}
 	return attacherTimeoutInMin
+}
+
+func constructListSnapshotEntry(vs snap.VolumeSnapshot) *csi.ListSnapshotsResponse_Entry {
+	snapshotCreateTimeInProto := timestamppb.New(vs.Status.CreationTime.Time)
+	snapshotSize := vs.Status.RestoreSize.Value()
+	volumeID := *vs.Spec.Source.PersistentVolumeClaimName
+	csiSnapshotInfo := &csi.Snapshot{
+		SnapshotId:     vs.Name,
+		SourceVolumeId: volumeID,
+		CreationTime:   snapshotCreateTimeInProto,
+		SizeBytes:      snapshotSize,
+		ReadyToUse:     true,
+	}
+	entry := &csi.ListSnapshotsResponse_Entry{
+		Snapshot: csiSnapshotInfo,
+	}
+	return entry
 }
