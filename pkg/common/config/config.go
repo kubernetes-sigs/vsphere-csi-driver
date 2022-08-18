@@ -183,7 +183,7 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 	if v := os.Getenv("VSPHERE_VCENTER"); v != "" {
 		cfg.Global.VCenterIP = v
 	}
-	if v := os.Getenv("VSPHERE_VCENTER_PORT"); v != "" {
+	if v := os.Getenv("VSPHERE_PORT"); v != "" {
 		cfg.Global.VCenterPort = v
 	}
 	if v := os.Getenv("VSPHERE_USER"); v != "" {
