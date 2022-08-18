@@ -242,10 +242,11 @@ var (
 
 // For Preferential datatsore
 var (
-	envAllowedPreferentialTopology = "ALLOWED_PREFERENTIAL_TOPOLOGY"
-	envTopologyDomainForSite1      = "TOPOLOGY_DOMAIN_WITH_NON_SHARED_PREFERRED_SITE_1"
-	envTopologyDomainForSite2      = "TOPOLOGY_DOMAIN_WITH_NON_SHARED_PREFERRED_SITE_2"
-	envTopologyDomainForSite3      = "TOPOLOGY_DOMAIN_WITH_NON_SHARED_PREFERRED_SITE_3"
+	//envAllowedPreferentialTopology   = "ALLOWED_PREFERENTIAL_TOPOLOGY"
+	envTopologyDomainForRegion1Zone1 = "TOPOLOGY_DOMAIN_FOR_REGION1_ZONE1"
+	envTopologyDomainForRegion2Zone2 = "TOPOLOGY_DOMAIN_FOR_REGION2_ZONE2"
+	envTopologyDomainForRegion3Zone3 = "TOPOLOGY_DOMAIN_FOR_REGION3_ZONE3"
+	preferredDsRefreshTimeInterval   = 3 * time.Minute
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.
