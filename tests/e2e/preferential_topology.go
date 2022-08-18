@@ -1099,9 +1099,178 @@ var _ = ginkgo.Describe("[preferential-topology] Preferential-Topology-Level2", 
 		preferredDatastoreChosen = 1
 
 		// fetching topology domains of region-2/zone-2
-		topologyDomainForRegion1Zone1 := GetAndExpectStringEnvVar(envTopologyDomainForRegion1Zone1)
+		topologyDomainForRegion2Zone2 := GetAndExpectStringEnvVar(envTopologyDomainForRegion2Zone2)
 		regionValues, zoneValues, allowedTopologies :=
-			topologyParameterForStorageClass(topologyDomainForRegion1Zone1)
+			topologyParameterForStorageClass(topologyDomainForRegion2Zone2)
+
+		// fetching list of datastores available in region-2/zone-2
+		ginkgo.By("Fetching list of datastores available in region-2/zone-2")
+		ClusterdatastoreListMap = getDatastoreListByCluster(vcAddress, vCenterPort, vCenterUIUser,
+			vCenterUIPassword, sshClientConfig, masterIp, clusters[1])
+
+		// Create tag of zone-2  for preferred datastore
+		ginkgo.By("Create tag of zone-2 for datastore chosen for volume provisioning")
+		createTagForPreferredDatastore(vcAddress, vCenterPort, vCenterUIUser, vCenterUIPassword,
+			sshClientConfig, masterIp, zoneValues[0])
+
+		// choose preferred datastore
+		ginkgo.By("Choosing datastore as a preference for volume provisioning in region-2/zone-2")
+		datastoreNames = choosePreferredDatastore(vcAddress, vCenterPort, vCenterUIUser, vCenterUIPassword,
+			sshClientConfig, masterIp, zoneValues[0], preferredDatastoreChosen, ClusterdatastoreListMap)
+
+		/* Restarting csi driver and wait for sometime for csi driver to pick up the selected
+		datastore as a preference choice */
+		ginkgo.By("Restarting csi driver and wait for sometime for csi driver to pick up the " +
+			"selected datastore as a preference choice")
+		restartCSIDriver(ctx, client, namespace, csiReplicas)
+		time.Sleep(preferredDsRefreshTimeInterval)
+
+		ginkgo.By("Creating StorageClass for Statefulset")
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies,
+			"", "", false)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// Creating statefulset with 3 replicas
+		ginkgo.By("Creating statefulset with 3 replica")
+		statefulset := GetStatefulSetFromManifest(namespace)
+		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+		ginkgo.By("Creating statefulset")
+		CreateStatefulSet(namespace, statefulset, client)
+		replicas := *(statefulset.Spec.Replicas)
+
+		// Waiting for pods status to be Ready.
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+
+		// verifying volume is provisioned on the preferred datastore
+		ginkgo.By("Verify volume is provisioned on the specified datatsore")
+		verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace, datastoreNames,
+			ClusterdatastoreListMap)
+
+		// Verify node and pv topology affinity should contains specified zone and region details of SC
+		ginkgo.By("Verify node and pv topology affinity should contains specified zone and region details of SC")
+		verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx, client, statefulset, namespace, zoneValues,
+			regionValues)
+
+		ginkgo.By("Remove the datastore preference chosen for volume provisioning")
+		detachTagCreatedOnPreferredDatastore(vcAddress, vCenterPort, vCenterUIUser, vCenterUIPassword,
+			sshClientConfig, masterIp, datastoreNames[0], zoneValues[0])
+
+		ginkgo.By("Choose a new datastore as a prefernce for volume provisioning")
+		preferredDsList := changeDatastorePreference(vcAddress, vCenterPort, vCenterUIUser, vCenterUIPassword,
+			sshClientConfig, masterIp, zoneValues[0], preferredDatastoreChosen, ClusterdatastoreListMap,
+			datastoreNames)
+		defer func() {
+			deleteTagCreatedForPreferredDatastore(vcAddress, vCenterPort, vCenterUIUser, vCenterUIPassword,
+				sshClientConfig, masterIp, zoneValues[0])
+		}()
+
+		/* Restarting csi driver and wait for sometime for csi driver to pick up the selected
+		datastore as a preference choice */
+		ginkgo.By("Restarting csi driver and wait for sometime for csi driver to pick up the " +
+			"selected datastore as a preference choice")
+		restartCSIDriver(ctx, client, namespace, csiReplicas)
+		time.Sleep(preferredDsRefreshTimeInterval)
+
+		// Creating statefulset1 with 3 replicas
+		ginkgo.By("Creating statefulset1 with 3 replica")
+		statefulset1 := GetStatefulSetFromManifest(namespace)
+		statefulset1.Name = "sts-1"
+		ginkgo.By("Creating statefulset1")
+		CreateStatefulSet(namespace, statefulset1, client)
+		replicas = *(statefulset1.Spec.Replicas)
+		defer func() {
+			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
+
+		// Waiting for pods status to be Ready.
+		fss.WaitForStatusReadyReplicas(client, statefulset1, replicas)
+		gomega.Expect(fss.CheckMount(client, statefulset1, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown = fss.GetPodList(client, statefulset1)
+		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset1.Name))
+		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+
+		// verifying volume is provisioned on the preferred datastore
+		ginkgo.By("Verify volume is provisioned on the specified datatsore")
+		verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset1, namespace, preferredDsList,
+			shareddatastoreListMap)
+
+		// Verify node and pv topology affinity should contains specified zone and region details of SC
+		ginkgo.By("Verify node and pv topology affinity should contains specified zone and region details of SC")
+		verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx, client, statefulset1, namespace, zoneValues,
+			regionValues)
+
+		// perform statefulset scaleup
+		replicas = 7
+		ginkgo.By("Scale up statefulset replica count from 3 to 7")
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		datastoreNames = append(datastoreNames, preferredDsList...)
+
+		// verifying volume is provisioned on the preferred datastore
+		ginkgo.By("Verify volume is provisioned on the specified datatsore")
+		verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset1, namespace, datastoreNames,
+			ClusterdatastoreListMap)
+
+		// Verify node and pv topology affinity should contains specified zone and region details of SC
+		ginkgo.By("Verify node and pv topology affinity should contains specified zone and region details of SC")
+		verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx, client, statefulset1, namespace, zoneValues,
+			regionValues)
+	})
+
+	/*
+		Testcase-10:
+		Change  datastore preference  multiple times and  perform Scaleup/ScaleDown operation on StatefulSet
+
+			Steps
+			1. Assign Tag "site-1', Category "cns.vmware.topology-preferred-datastores" to datastore shared across site-1 and site-2 (ex- NFS-12)
+			2. Create SC with WFC Binding mode and allowed topologies set to region-1 and site-1 in the SC
+			3. Create StatefulSet with parallel pod management policy and replica 3 with the above SC
+			4. Wait for all the StatefulSet to come up
+			5. Wait for PV , PVC to bound and POD to reach running state
+			6. Describe PV and verify node affinity details should contain both region-1 and site-1 details.
+			7. Verify volume should be provisioned on the selected preferred datastore of site-1
+			8. Make sure POD is running on the same node as mentioned in the node affinity details
+			9. Remove tag from preferred datastore and assign tag 'site-1'  and category "cns.vmware.topology-preferred-datastores" to new datastore specific to site-1  (ex - vSAN-1).
+			10. Wait for preference of datastore to be updated by default. (By default wait time is 5 mins)
+			11. Perform Scaleup operation, Increase the replica count of StatefulSet from 3 to 13.
+			12. Wait for all the StatefulSet to come up
+			13. Wait for PV , PVC to bound and POD to reach running state
+			14. Describe PV and verify node affinity details should contain both region-1 and site-1 details.
+			15. Verify volume should be provisioned on the newly selected preferred datastore.
+			16. Perform Scaledown operation. Decrease the replica count from 13 to 6.
+			17. Remove tag from preferred datastore and assign tag 'site-1' and  category "cns.vmware.topology-preferred-datastores" to new datastore which is shared specific to site-1. (ex- NFS-1)
+			18. Wait for preference of datastore to be updated by default. (By default wait time is 5 mins)
+			19. Perform Scaleup operation again and increase the replica count from 6 to 20.
+			20. Wait for all the StatefulSet to come up
+			21. Wait for PV , PVC to bound and POD to reach running state
+			22. Describe PV and verify node affinity details should contain both region-1 and site-1 details.
+			23. Verify volume should be provisioned on the newly selected preferred datastore of site-1
+			24. Make sure POD is running on the same node as mentioned in the node affinity details
+			25. Perform cleanup. Delete StatefulSet, PVC, PV and SC.
+			26. Remove datastore preference tags as part of cleanup.
+	*/
+	ginkgo.It("Change datastore preference multiple times and perform Scaleup/ScaleDown operation on StatefulSet", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		preferredDatastoreChosen = 1
+
+		// fetching topology domains of region-2/zone-2
+		topologyDomainForRegion2Zone2 := GetAndExpectStringEnvVar(envTopologyDomainForRegion2Zone2)
+		regionValues, zoneValues, allowedTopologies :=
+			topologyParameterForStorageClass(topologyDomainForRegion2Zone2)
 
 		// fetching list of datastores available in region-2/zone-2
 		ginkgo.By("Fetching list of datastores available in region-2/zone-2")
