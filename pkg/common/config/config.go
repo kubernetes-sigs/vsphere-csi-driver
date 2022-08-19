@@ -357,6 +357,9 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		if !insecure {
 			vcConfig.InsecureFlag = cfg.Global.InsecureFlag
 		}
+		// Print out the config. WARNING: This will print the password used in plain text
+		log.Debugf("vc server %s config: %+v", vcServer, vcConfig)
+		
 	}
 	clusterFlavor, err := GetClusterFlavor(ctx)
 	if err != nil {
