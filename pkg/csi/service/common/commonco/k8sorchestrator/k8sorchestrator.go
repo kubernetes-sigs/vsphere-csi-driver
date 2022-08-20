@@ -772,11 +772,9 @@ func initVolumeHandleToPvcMap(ctx context.Context, controllerClusterFlavor cnsty
 		items:   make(map[string]string),
 	}
 
-	if k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes) {
-		k8sOrchestratorInstance.volumeIDToNameMap = &volumeIDToNameMap{
-			RWMutex: &sync.RWMutex{},
-			items:   make(map[string]string),
-		}
+	k8sOrchestratorInstance.volumeIDToNameMap = &volumeIDToNameMap{
+		RWMutex: &sync.RWMutex{},
+		items:   make(map[string]string),
 	}
 
 	// Set up kubernetes resource listener to listen events on PersistentVolumes
@@ -835,21 +833,17 @@ func pvAdded(obj interface{}) {
 			k8sOrchestratorInstance.volumeIDToPvcMap.add(objKey, objVal)
 			log.Debugf("pvAdded: Added '%s -> %s' pair to volumeIDToPvcMap", objKey, objVal)
 		}
-		if k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.ListVolumes) {
-			k8sOrchestratorInstance.volumeIDToNameMap.add(pv.Spec.CSI.VolumeHandle, pv.Name)
-			log.Debugf("pvAdded: Added '%s -> %s' pair to volumeIDToNameMap", pv.Spec.CSI.VolumeHandle, pv.Name)
-		}
+		k8sOrchestratorInstance.volumeIDToNameMap.add(pv.Spec.CSI.VolumeHandle, pv.Name)
+		log.Debugf("pvAdded: Added '%s -> %s' pair to volumeIDToNameMap", pv.Spec.CSI.VolumeHandle, pv.Name)
 	}
 	// Add VCP-CSI migrated volumes to the volumeIDToNameMap map.
 	// Since cns query will return all the volumes including the migrated ones, the map would need to be a
 	// union of migrated VCP-CSI volumes and CSI volumes, as well.
-	if k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.ListVolumes) {
-		if pv.Spec.CSI == nil && (k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) &&
-			pv.Spec.VsphereVolume != nil && isValidMigratedvSphereVolume(context.Background(), pv.ObjectMeta)) {
-			if pv.Status.Phase == v1.VolumeBound {
-				k8sOrchestratorInstance.volumeIDToNameMap.add(pv.Spec.CSI.VolumeHandle, pv.Name)
-				log.Debugf("Migrated pvAdded: Added '%s -> %s' pair to volumeIDToNameMap", pv.Spec.CSI.VolumeHandle, pv.Name)
-			}
+	if pv.Spec.CSI == nil && (k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) &&
+		pv.Spec.VsphereVolume != nil && isValidMigratedvSphereVolume(context.Background(), pv.ObjectMeta)) {
+		if pv.Status.Phase == v1.VolumeBound {
+			k8sOrchestratorInstance.volumeIDToNameMap.add(pv.Spec.CSI.VolumeHandle, pv.Name)
+			log.Debugf("Migrated pvAdded: Added '%s -> %s' pair to volumeIDToNameMap", pv.Spec.CSI.VolumeHandle, pv.Name)
 		}
 	}
 }
@@ -884,24 +878,20 @@ func pvUpdated(oldObj, newObj interface{}) {
 				k8sOrchestratorInstance.volumeIDToPvcMap.add(objKey, objVal)
 				log.Debugf("pvUpdated: Added '%s -> %s' pair to volumeIDToPvcMap", objKey, objVal)
 			}
-			if k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.ListVolumes) {
-				k8sOrchestratorInstance.volumeIDToNameMap.add(newPv.Spec.CSI.VolumeHandle, newPv.Name)
-				log.Debugf("pvUpdated: Added '%s -> %s' pair to volumeIDToNameMap", newPv.Spec.CSI.VolumeHandle, newPv.Name)
-			}
+			k8sOrchestratorInstance.volumeIDToNameMap.add(newPv.Spec.CSI.VolumeHandle, newPv.Name)
+			log.Debugf("pvUpdated: Added '%s -> %s' pair to volumeIDToNameMap", newPv.Spec.CSI.VolumeHandle, newPv.Name)
 		}
 	}
 
 	// Update VCP-CSI migrated volumes to the volumeIDToNameMap map.
 	// Since cns query will return all the volumes including the migrated ones, the map would need to be a
 	// union of migrated VCP-CSI volumes and CSI volumes, as well.
-	if k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.ListVolumes) {
-		if newPv.Spec.CSI == nil && (k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) &&
-			newPv.Spec.VsphereVolume != nil && isValidMigratedvSphereVolume(context.Background(), newPv.ObjectMeta)) {
-			if oldPv.Status.Phase != v1.VolumeBound && newPv.Status.Phase == v1.VolumeBound {
-				k8sOrchestratorInstance.volumeIDToNameMap.add(newPv.Spec.CSI.VolumeHandle, newPv.Name)
-				log.Debugf("Migrated pvUpdated: Added '%s -> %s' pair to volumeIDToNameMap",
-					newPv.Spec.CSI.VolumeHandle, newPv.Name)
-			}
+	if newPv.Spec.CSI == nil && (k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) &&
+		newPv.Spec.VsphereVolume != nil && isValidMigratedvSphereVolume(context.Background(), newPv.ObjectMeta)) {
+		if oldPv.Status.Phase != v1.VolumeBound && newPv.Status.Phase == v1.VolumeBound {
+			k8sOrchestratorInstance.volumeIDToNameMap.add(newPv.Spec.CSI.VolumeHandle, newPv.Name)
+			log.Debugf("Migrated pvUpdated: Added '%s -> %s' pair to volumeIDToNameMap",
+				newPv.Spec.CSI.VolumeHandle, newPv.Name)
 		}
 	}
 }
@@ -919,18 +909,16 @@ func pvDeleted(obj interface{}) {
 	if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
 		k8sOrchestratorInstance.volumeIDToPvcMap.remove(pv.Spec.CSI.VolumeHandle)
 		log.Debugf("k8sorchestrator: Deleted key %s from volumeIDToPvcMap", pv.Spec.CSI.VolumeHandle)
-		if k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.ListVolumes) {
-			k8sOrchestratorInstance.volumeIDToNameMap.remove(pv.Spec.CSI.VolumeHandle)
-			log.Debugf("k8sorchestrator: Deleted key %s from volumeIDToNameMap", pv.Spec.CSI.VolumeHandle)
-		}
+		k8sOrchestratorInstance.volumeIDToNameMap.remove(pv.Spec.CSI.VolumeHandle)
+		log.Debugf("k8sorchestrator: Deleted key %s from volumeIDToNameMap", pv.Spec.CSI.VolumeHandle)
+
 	}
-	if k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.ListVolumes) {
-		if pv.Spec.CSI == nil && k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) {
-			k8sOrchestratorInstance.volumeIDToNameMap.remove(pv.Spec.CSI.VolumeHandle)
-			log.Debugf("k8sorchestrator migrated volume: Deleted key %s from volumeIDToNameMap",
-				pv.Spec.CSI.VolumeHandle)
-		}
+	if pv.Spec.CSI == nil && k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) {
+		k8sOrchestratorInstance.volumeIDToNameMap.remove(pv.Spec.CSI.VolumeHandle)
+		log.Debugf("k8sorchestrator migrated volume: Deleted key %s from volumeIDToNameMap",
+			pv.Spec.CSI.VolumeHandle)
 	}
+
 }
 
 // GetAllK8sVolumes returns list of volumes in a bound state
