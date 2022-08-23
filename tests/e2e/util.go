@@ -2150,12 +2150,12 @@ func deleteResourceQuota(client clientset.Interface, namespace string) {
 }
 
 // checks if resource quota gets updated or not
-func checkResourceQuota(client clientset.Interface, namespace string, size string) error {
+func checkResourceQuota(client clientset.Interface, namespace string, name string, size string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
-		currentResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace, metav1.GetOptions{})
+		currentResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("currentResourceQuota %v", currentResourceQuota)
 		if err != nil {
@@ -2186,7 +2186,7 @@ func setResourceQuota(client clientset.Interface, namespace string, size string)
 			ctx, requestStorageQuota, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
-		err = checkResourceQuota(client, namespace, size)
+		err = checkResourceQuota(client, namespace, existingResourceQuota.GetName(), size)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -4806,6 +4806,13 @@ required for creating Storage Class specific to testcase scenarios.
 func getTopologySelector(topologyAffinityDetails map[string][]string,
 	topologyCategories []string, level int,
 	position ...int) []v1.TopologySelectorLabelRequirement {
+	topologyFeature := GetAndExpectStringEnvVar(topologyFeature)
+	var key string
+	if topologyFeature == topologyTkgHaName {
+		key = tkgHATopologyKey
+	} else {
+		key = topologykey
+	}
 	allowedTopologyForSC := []v1.TopologySelectorLabelRequirement{}
 	updateLvl := -1
 	var rnges []int
@@ -4821,10 +4828,15 @@ func getTopologySelector(topologyAffinityDetails map[string][]string,
 				values = append(values, topologyAffinityDetails[category][rng])
 			}
 		} else {
-			values = topologyAffinityDetails[category]
+			if topologyFeature == topologyTkgHaName {
+				values = topologyAffinityDetails[key+"/"+category]
+			} else {
+				values = topologyAffinityDetails[category]
+			}
 		}
+
 		topologySelector := v1.TopologySelectorLabelRequirement{
-			Key:    topologykey + "/" + category,
+			Key:    key + "/" + category,
 			Values: values,
 		}
 		allowedTopologyForSC = append(allowedTopologyForSC, topologySelector)
