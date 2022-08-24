@@ -37,7 +37,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/cns/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
@@ -115,18 +114,17 @@ func validateWCPControllerUnpublishVolumeRequest(ctx context.Context, req *csi.C
 	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
 }
 
-// ValidateWCPControllerExpandVolumeRequest is the helper function to validate
-// ExpandVolumeRequest for WCP CSI driver.
+// validateWCPControllerExpandVolumeRequest is the helper function to validate
+// ExpandVolumeRequest for WCP CSI driver. Function returns error if validation
+// fails otherwise returns nil.
 func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest,
-	manager *common.Manager, isOnlineExpansionSupported bool) error {
+	manager *common.Manager, isOnlineExpansionEnabled bool) error {
 	log := logger.GetLogger(ctx)
 	if err := common.ValidateControllerExpandVolumeRequest(ctx, req); err != nil {
 		return err
 	}
 
-	// If online expansion is not supported (VC below 7.0U2),
-	// we need to determine if requested operation is online or offline.
-	if !isOnlineExpansionSupported {
+	if !isOnlineExpansionEnabled {
 		var nodes []*vsphere.VirtualMachine
 
 		// TODO: Currently we only check if disk is attached to TKG nodes
@@ -177,6 +175,54 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 		}
 
 		return common.IsOnlineExpansion(ctx, req.GetVolumeId(), nodes)
+	}
+	return nil
+}
+
+// validateWCPCreateSnapshotRequest is the helper function to
+// validate CreateSnapshotRequest for CSI driver.
+// Function returns error if validation fails otherwise returns nil.
+func validateWCPCreateSnapshotRequest(ctx context.Context, req *csi.CreateSnapshotRequest) error {
+	log := logger.GetLogger(ctx)
+	volumeID := req.GetSourceVolumeId()
+	if len(volumeID) == 0 {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"CreateSnapshot Source Volume ID must be provided")
+	}
+
+	if len(req.Name) == 0 {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"Snapshot name must be provided")
+	}
+	return nil
+}
+
+// validateWCPListSnapshotRequest validates ListSnapshotRequest on supervisor
+func validateWCPListSnapshotRequest(ctx context.Context, req *csi.ListSnapshotsRequest) error {
+	log := logger.GetLogger(ctx)
+	maxEntries := req.MaxEntries
+	if maxEntries < 0 {
+		return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"ListSnapshots MaxEntries: %d cannot be negative", maxEntries)
+	}
+	// validate the starting token by verifying that it can be converted to a int
+	if req.StartingToken != "" {
+		_, err := strconv.Atoi(req.StartingToken)
+		if err != nil {
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"ListSnapshots StartingToken: %s cannot be parsed", req.StartingToken)
+		}
+	}
+	// validate snapshot-id conforms to vSphere CSI driver format if specified.
+	// The expected format is "fcd-id+snapshot-id"
+	if req.SnapshotId != "" {
+		// check for the delimiter "+" in the snapshot-id.
+		check := strings.Contains(req.SnapshotId, common.VSphereCSISnapshotIdDelimiter)
+		if !check {
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"ListSnapshots SnapshotId: %s is incorrectly formatted for vSphere CSI driver",
+				req.SnapshotId)
+		}
 	}
 	return nil
 }
@@ -334,6 +380,7 @@ func getVMByInstanceUUIDInDatacenter(ctx context.Context,
 	vc *vsphere.VirtualCenter,
 	datacenter string,
 	vmInstanceUUID string) (*vsphere.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
 	var dc *vsphere.Datacenter
 	var vm *vsphere.VirtualMachine
 	dc = &vsphere.Datacenter{
@@ -347,8 +394,9 @@ func getVMByInstanceUUIDInDatacenter(ctx context.Context,
 	// Get VM by UUID from datacenter.
 	vm, err := dc.GetVirtualMachineByUUID(ctx, vmInstanceUUID, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to the VM from the VM Instance UUID: %s in datacenter: %+v with err: %+v",
+		log.Errorf("failed to find the VM from the VM Instance UUID: %s in datacenter: %+v with err: %+v",
 			vmInstanceUUID, dc, err)
+		return nil, err
 	}
 	return vm, nil
 }
@@ -525,9 +573,12 @@ func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]str
 	for _, info := range vmMoList {
 		vmMoID := info.Reference().Value
 
-		host := info.Runtime.Host
-		vmMoIDToHostMoID[vmMoID] = host.Reference().Value
-
+		if info.Runtime.Host != nil {
+			vmMoIDToHostMoID[vmMoID] = info.Runtime.Host.Reference().Value
+		}
+		if info.Config == nil {
+			continue
+		}
 		devices := info.Config.Hardware.Device
 		vmDevices := object.VirtualDeviceList(devices)
 		for _, device := range vmDevices {

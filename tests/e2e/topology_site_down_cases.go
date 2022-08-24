@@ -28,22 +28,22 @@ import (
 	"github.com/vmware/govmomi/object"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
-	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provisioning-With-SiteDown-Cases", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                  clientset.Interface
 		namespace               string
@@ -57,7 +57,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		topologyClusterList     []string
 		powerOffHostsList       []string
 		noOfHostToBringDown     int
-		topologyLength          int
 		sshClientConfig         *ssh.ClientConfig
 	)
 	ginkgo.BeforeEach(func() {
@@ -76,7 +75,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
-		topologyLength = 5
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
 		topologyMap := GetAndExpectStringEnvVar(topologyMap)
 		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap, topologyLength)
@@ -179,27 +177,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
-		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		/* here passing any one statefulset name created in a namespace, waitForPodToBeInRunningState
-		will fetch all the 3 statefulset pods running in a given namespace */
-		err = waitForPodsToBeInRunningState(ctx, client, namespace, statefulSets[1])
+		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
-		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
-		for i := 0; i < len(statefulSets); i++ {
-			// verify that the StatefulSets pods are in ready state
-			fss.WaitForStatusReadyReplicas(client, statefulSets[i], statefulSetReplicaCount)
-			gomega.Expect(CheckMountForStsPods(client, statefulSets[i], mountPath)).NotTo(gomega.HaveOccurred())
-
-			// Get list of Pods in each StatefulSet and verify the replica count
-			ssPods = GetListOfPodsInSts(client, statefulSets[i])
-			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
-				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulSets[i].Name))
-			gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
-				"Number of Pods in the statefulset should match with number of replicas")
-		}
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
@@ -402,27 +382,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
-		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		/* here passing any one statefulset name created in a namespace, waitForPodToBeInRunningState
-		will fetch all the sts pods running in a given namespace */
-		err = waitForPodsToBeInRunningState(ctx, client, namespace, statefulSets[1])
+		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
-		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
-		for i := 0; i < len(statefulSets); i++ {
-			// verify that the StatefulSets pods are in ready state
-			fss.WaitForStatusReadyReplicas(client, statefulSets[i], statefulSetReplicaCount)
-			gomega.Expect(CheckMountForStsPods(client, statefulSets[i], mountPath)).NotTo(gomega.HaveOccurred())
-
-			// Get list of Pods in each StatefulSet and verify the replica count
-			ssPods = GetListOfPodsInSts(client, statefulSets[i])
-			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
-				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulSets[i].Name))
-			gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
-				"Number of Pods in the statefulset should match with number of replicas")
-		}
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
@@ -576,7 +538,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		defer cancel()
 		sts_count = 3
 		statefulSetReplicaCount = 7
-		var ssPods *v1.PodList
+		noOfHostToBringDown = 1
 
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -617,27 +579,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
-		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		/* here passing any one statefulset name created in a namespace, waitForPodToBeInRunningState
-		will fetch all the sts pods running in a given namespace */
-		err = waitForPodsToBeInRunningState(ctx, client, namespace, statefulSets[1])
+		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
-		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
-		for i := 0; i < len(statefulSets); i++ {
-			// verify that the StatefulSets pods are in ready state
-			fss.WaitForStatusReadyReplicas(client, statefulSets[i], statefulSetReplicaCount)
-			gomega.Expect(CheckMountForStsPods(client, statefulSets[i], mountPath)).NotTo(gomega.HaveOccurred())
-
-			// Get list of Pods in each StatefulSet and verify the replica count
-			ssPods = GetListOfPodsInSts(client, statefulSets[i])
-			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
-				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulSets[i].Name))
-			gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
-				"Number of Pods in the statefulset should match with number of replicas")
-		}
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
@@ -825,27 +769,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
-		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		/* here passing any one statefulset name created in a namespace, waitForPodToBeInRunningState
-		will fetch all the sts pods running in a given namespace */
-		err = waitForPodsToBeInRunningState(ctx, client, namespace, statefulSets[1])
+		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
-		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
-		for i := 0; i < len(statefulSets); i++ {
-			// verify that the StatefulSets pods are in ready state
-			fss.WaitForStatusReadyReplicas(client, statefulSets[i], statefulSetReplicaCount)
-			gomega.Expect(CheckMountForStsPods(client, statefulSets[i], mountPath)).NotTo(gomega.HaveOccurred())
-
-			// Get list of Pods in each StatefulSet and verify the replica count
-			ssPods = GetListOfPodsInSts(client, statefulSets[i])
-			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
-				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulSets[i].Name))
-			gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
-				"Number of Pods in the statefulset should match with number of replicas")
-		}
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
@@ -1034,27 +960,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
-		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		/* here passing any one statefulset name created in a namespace, waitForPodToBeInRunningState
-		will fetch all the sts pods running in a given namespace */
-		err = waitForPodsToBeInRunningState(ctx, client, namespace, statefulSets[1])
+		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
-		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
-		for i := 0; i < len(statefulSets); i++ {
-			// verify that the StatefulSets pods are in ready state
-			fss.WaitForStatusReadyReplicas(client, statefulSets[i], statefulSetReplicaCount)
-			gomega.Expect(CheckMountForStsPods(client, statefulSets[i], mountPath)).NotTo(gomega.HaveOccurred())
-
-			// Get list of Pods in each StatefulSet and verify the replica count
-			ssPods = GetListOfPodsInSts(client, statefulSets[i])
-			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
-				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulSets[i].Name))
-			gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
-				"Number of Pods in the statefulset should match with number of replicas")
-		}
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
@@ -1239,27 +1147,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
-		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
-		/* here passing any one statefulset name created in a namespace, waitForPodToBeInRunningState
-		will fetch all the sts pods running in a given namespace */
-		err = waitForPodsToBeInRunningState(ctx, client, namespace, statefulSets[1])
+		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// Verify that all parallel triggered StatefulSets Pods creation should be in up and running state
-		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
-		for i := 0; i < len(statefulSets); i++ {
-			// verify that the StatefulSets pods are in ready state
-			fss.WaitForStatusReadyReplicas(client, statefulSets[i], statefulSetReplicaCount)
-			gomega.Expect(CheckMountForStsPods(client, statefulSets[i], mountPath)).NotTo(gomega.HaveOccurred())
-
-			// Get list of Pods in each StatefulSet and verify the replica count
-			ssPods = GetListOfPodsInSts(client, statefulSets[i])
-			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
-				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulSets[i].Name))
-			gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
-				"Number of Pods in the statefulset should match with number of replicas")
-		}
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
@@ -1414,19 +1304,3 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		}
 	})
 })
-
-func waitForPodsToBeInRunningState(ctx context.Context, client clientset.Interface, namespace string,
-	statefulset *appsv1.StatefulSet) error {
-	waitErr := wait.Poll(healthStatusPollInterval, healthStatusPollTimeout, func() (bool, error) {
-		pods := fss.GetPodList(client, statefulset)
-		for _, sspod := range pods.Items {
-			err := fpod.WaitForPodNameRunningInNamespace(client, sspod.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			if err != nil {
-				return false, nil
-			}
-		}
-		return true, nil
-	})
-	return waitErr
-}

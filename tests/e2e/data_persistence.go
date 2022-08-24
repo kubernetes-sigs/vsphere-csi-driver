@@ -36,6 +36,7 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 // Steps
@@ -56,6 +57,7 @@ import (
 var _ = ginkgo.Describe("Data Persistence", func() {
 
 	f := framework.NewDefaultFramework("e2e-data-persistence")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client            clientset.Interface
 		defaultDatacenter *object.Datacenter

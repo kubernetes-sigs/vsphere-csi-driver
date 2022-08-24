@@ -32,10 +32,12 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine after VC Reboots", func() {
 	f := framework.NewDefaultFramework("e2e-volume-life-cycle")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client            clientset.Interface
 		namespace         string
@@ -183,8 +185,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		} else {
 			essentialServices = []string{spsServiceName, vsanhealthServiceName, vpxdServiceName, wcpServiceName}
 		}
-		err = checkVcenterServicesRunning(vcAddress, essentialServices)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
 
 		//After reboot
 		bootstrap()

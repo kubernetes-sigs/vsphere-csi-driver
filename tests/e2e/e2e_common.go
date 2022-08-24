@@ -33,9 +33,11 @@ const (
 	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
 	nginxImage                                 = "k8s.gcr.io/nginx-slim:0.8"
 	configSecret                               = "vsphere-config-secret"
+	contollerClusterKubeConfig                 = "CONTROLLER_CLUSTER_KUBECONFIG"
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
 	crdCNSVolumeMetadatas                      = "cnsvolumemetadatas"
 	crdCNSFileAccessConfig                     = "cnsfileaccessconfigs"
+	crdtriggercsifullsyncsName                 = "csifullsync"
 	crdGroup                                   = "cns.vmware.com"
 	crdVersion                                 = "v1alpha1"
 	csiSystemNamespace                         = "vmware-system-csi"
@@ -50,11 +52,13 @@ const (
 	destinationDatastoreURL                    = "DESTINATION_VSPHERE_DATASTORE_URL"
 	disklibUnlinkErr                           = "DiskLib_Unlink"
 	diskSize                                   = "2Gi"
+	diskSizeLarge                              = "100Gi"
 	diskSizeInMb                               = int64(2048)
 	diskSizeInMinMb                            = int64(200)
 	e2eTestPassword                            = "E2E-test-password!23"
 	e2evSphereCSIDriverName                    = "csi.vsphere.vmware.com"
 	envClusterFlavor                           = "CLUSTER_FLAVOR"
+	envDiskSizeLarge                           = "LARGE_DISK_SIZE"
 	envCSINamespace                            = "CSI_NAMESPACE"
 	envEsxHostIP                               = "ESX_TEST_HOST_IP"
 	envFileServiceDisabledSharedDatastoreURL   = "FILE_SERVICE_DISABLED_SHARED_VSPHERE_DATASTORE_URL"
@@ -95,6 +99,7 @@ const (
 	ext4FSType                                = "ext4"
 	fcdName                                   = "BasicStaticFCD"
 	fileSizeInMb                              = int64(2048)
+	fullSyncFss                               = "trigger-csi-fullsync"
 	healthGreen                               = "green"
 	healthRed                                 = "red"
 	healthStatusAccessible                    = "accessible"
@@ -128,6 +133,7 @@ const (
 	quotaName                                 = "cns-test-quota"
 	regionKey                                 = "failure-domain.beta.kubernetes.io/region"
 	resizePollInterval                        = 2 * time.Second
+	restartOperation                          = "restart"
 	rqLimit                                   = "200Gi"
 	rqLimitScaleTest                          = "900Gi"
 	defaultrqLimit                            = "20Gi"
@@ -160,6 +166,7 @@ const (
 	vanillaClusterDistributionWithSpecialChar = "CSI-\tVanilla-#Test"
 	vcClusterAPI                              = "/api/vcenter/namespace-management/clusters"
 	vpxdServiceName                           = "vpxd"
+	vpxdReducedTaskTimeoutSecsInt             = 90
 	vSphereCSIControllerPodNamePrefix         = "vsphere-csi-controller"
 	vmUUIDLabel                               = "vmware-system-vm-uuid"
 	vsanDefaultStorageClassInSVC              = "vsan-default-storage-policy"
@@ -186,6 +193,7 @@ const (
 	datastoreUrlSpecificToCluster              = "DATASTORE_URL_SPECIFIC_TO_CLUSTER"
 	storagePolicyForDatastoreSpecificToCluster = "STORAGE_POLICY_FOR_DATASTORE_SPECIFIC_TO_CLUSTER"
 	topologyCluster                            = "TOPOLOGY_CLUSTERS"
+	topologyLength                             = 5
 	vmcPrdEndpoint                             = "https://vmc.vmware.com/vmc/api/orgs/"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
@@ -223,6 +231,13 @@ var (
 // CSI Internal FSSs
 var (
 	useCsiNodeID = "use-csinode-id"
+)
+
+// volume allocation types for cns volumes
+var (
+	thinAllocType = "Conserve space when possible"
+	eztAllocType  = "Fully initialized"
+	lztAllocType  = "Reserve space"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.

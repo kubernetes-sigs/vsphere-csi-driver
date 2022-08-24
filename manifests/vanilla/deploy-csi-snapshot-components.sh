@@ -59,7 +59,7 @@ else
         exit 1
 fi
 
-qualified_version="v5.0.1"
+qualified_version="v6.0.1"
 volumesnapshotclasses_crd="volumesnapshotclasses.snapshot.storage.k8s.io"
 volumesnapshotcontents_crd="volumesnapshotcontents.snapshot.storage.k8s.io"
 volumesnapshots_crd="volumesnapshots.snapshot.storage.k8s.io"
@@ -161,10 +161,10 @@ deploy_snapshot_controller(){
 	kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml 2>/dev/null || true
 	echo -e "✅ Created  RBACs for snapshot-controller"
 	kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml 2>/dev/null || true
-	# The released yaml for v5.0.1 does not have v5.0.1 image for snapshot-controller, explicitly updating it.
+	# The released yaml for v6.0.1 does not have v6.0.1 image for snapshot-controller, explicitly updating it.
 	snapshot_controller_image="gcr.io/k8s-staging-sig-storage/snapshot-controller:"${qualified_version}
 	kubectl -n kube-system set image deployment/snapshot-controller snapshot-controller=$snapshot_controller_image
-	kubectl patch deployment -n kube-system snapshot-controller --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/master": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"}]}}}}'
+	kubectl patch deployment -n kube-system snapshot-controller --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/control-plane": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","operator":"Exists", "effect":"NoSchedule"}]}}}}'
 	kubectl patch deployment -n kube-system snapshot-controller --type=json \
 	-p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kube-api-qps=100"},{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kube-api-burst=100"}]'
 	kubectl -n kube-system rollout status deploy/snapshot-controller
@@ -225,7 +225,7 @@ EOF
 	kubectl delete deployment snapshot-validation-deployment --namespace "${namespace}" 2>/dev/null || true
 	# patch csi-snapshot-validatingwebhook.yaml with CA_BUNDLE and create service and validatingwebhookconfiguration
 	curl https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/vanilla/csi-snapshot-validatingwebhook.yaml | sed "s/caBundle: .*$/caBundle: ${CA_BUNDLE}/g" | kubectl apply -f -
-	kubectl patch deployment -n kube-system snapshot-validation-deployment --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/master": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"}]}}}}'
+	kubectl patch deployment -n kube-system snapshot-validation-deployment --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/control-plane": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","operator":"Exists", "effect":"NoSchedule"}]}}}}'
 	kubectl -n kube-system rollout status deploy/snapshot-validation-deployment
 	echo -e "\n✅ Successfully deployed snapshot-validation-deployment\n"
 }

@@ -174,3 +174,27 @@ func TestUseVslmAPIsFuncForVC70u1(t *testing.T) {
 		t.Fatal("Received error from UseVslmAPIs method")
 	}
 }
+
+// TestCheckAPIForVC8 tests CheckAPI method for VC version 8.
+func TestCheckAPIForVC8(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vcVersion := "8.0.0.1.0"
+	err := CheckAPI(ctx, vcVersion, MinSupportedVCenterMajor, MinSupportedVCenterMinor,
+		MinSupportedVCenterPatch)
+	if err != nil {
+		t.Fatalf("CheckAPI method failing for VC %q", vcVersion)
+	}
+}
+
+// TestCheckAPIForVC70u3 tests CheckAPI method for VC version 7.0U3.
+func TestCheckAPIForVC70u3(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vcVersion := "7.0.3.0"
+	err := CheckAPI(ctx, vcVersion, MinSupportedVCenterMajor, MinSupportedVCenterMinor,
+		MinSupportedVCenterPatch)
+	if err != nil {
+		t.Fatalf("CheckAPI method failing for VC %q", vcVersion)
+	}
+}

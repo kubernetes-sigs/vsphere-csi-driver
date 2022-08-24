@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -73,6 +72,9 @@ const (
 	// DefaultCSIAuthCheckIntervalInMin is the default time interval to refresh
 	// DatastoreMap.
 	DefaultCSIAuthCheckIntervalInMin = 5
+	// DefaultCSIFetchPreferredDatastoresIntervalInMin is the default time interval
+	// after which the preferred datastores list is refreshed in the driver.
+	DefaultCSIFetchPreferredDatastoresIntervalInMin = 5
 	// DefaultCnsVolumeOperationRequestCleanupIntervalInMin is the default time
 	// interval after which stale CnsVSphereVolumeMigration CRs will be cleaned up.
 	// Current default value is set to 24 hours.
@@ -93,6 +95,10 @@ const (
 	// supervisorIDPrefix is added before the SupervisorID
 	// Using this CNS UI can form an appropriate URL to navigate from CNS UI to WCP UI
 	supervisorIDPrefix = "vSphereSupervisorID-"
+	// TKCKind refers to the kind of TKC cluster being used.
+	TKCKind = "TanzuKubernetesCluster"
+	// TKCAPIVersion refers to the version of TanzuKubernetesCluster object currently being used.
+	TKCAPIVersion = "run.tanzu.vmware.com/v1alpha1"
 )
 
 // Errors
@@ -387,6 +393,9 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 	if cfg.Global.CSIAuthCheckIntervalInMin == 0 {
 		cfg.Global.CSIAuthCheckIntervalInMin = DefaultCSIAuthCheckIntervalInMin
 	}
+	if cfg.Global.CSIFetchPreferredDatastoresIntervalInMin == 0 {
+		cfg.Global.CSIFetchPreferredDatastoresIntervalInMin = DefaultCSIFetchPreferredDatastoresIntervalInMin
+	}
 	if cfg.Global.CnsVolumeOperationRequestCleanupIntervalInMin == 0 {
 		cfg.Global.CnsVolumeOperationRequestCleanupIntervalInMin =
 			DefaultCnsVolumeOperationRequestCleanupIntervalInMin
@@ -580,6 +589,15 @@ func validateGCConfig(ctx context.Context, cfg *Config) error {
 		log.Error(ErrMissingTanzuKubernetesClusterUID)
 		return ErrMissingTanzuKubernetesClusterUID
 	}
+	// ClusterAPIVersion and ClusterKind parameters have been introduced for the uTKGS effort.
+	// To maintain backward compatibility with GCs created with TKC objects,
+	// we will default to the old configuration if these values are not present.
+	if cfg.GC.ClusterAPIVersion == "" {
+		cfg.GC.ClusterAPIVersion = TKCAPIVersion
+	}
+	if cfg.GC.ClusterKind == "" {
+		cfg.GC.ClusterKind = TKCKind
+	}
 	return nil
 }
 
@@ -590,7 +608,7 @@ func GetSupervisorNamespace(ctx context.Context) (string, error) {
 	const (
 		namespaceFile = DefaultpvCSIProviderPath + "/namespace"
 	)
-	namespace, err := ioutil.ReadFile(namespaceFile)
+	namespace, err := os.ReadFile(namespaceFile)
 	if err != nil {
 		log.Errorf("Expected to load namespace from %s, but got err: %v", namespaceFile, err)
 		return "", err

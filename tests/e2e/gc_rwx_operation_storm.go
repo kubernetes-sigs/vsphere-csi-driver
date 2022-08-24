@@ -34,10 +34,12 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func() {
 	f := framework.NewDefaultFramework("rwx-tkg-operation-storm")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client            clientset.Interface
 		namespace         string
@@ -488,8 +490,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 
 		for index := range fileAccessCRD {
 			framework.Logf("Checking if the CRD %s is completely deleted or not", fileAccessCRD[index])
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, fileAccessCRD[index],
+			err = waitTillCNSFileAccesscrdDeleted(ctx, f, fileAccessCRD[index],
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
 })

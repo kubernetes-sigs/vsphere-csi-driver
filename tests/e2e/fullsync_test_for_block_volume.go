@@ -30,6 +30,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
+	admissionapi "k8s.io/pod-security-admission/api"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -59,6 +60,7 @@ import (
 
 var _ bool = ginkgo.Describe("full-sync-test", func() {
 	f := framework.NewDefaultFramework("e2e-full-sync-test")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                     clientset.Interface
 		namespace                  string
@@ -74,7 +76,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		datacenters                []string
 		storagePolicyName          string
 		scParameters               map[string]string
-		isVsanhealthServiceStopped bool
+		isVsanHealthServiceStopped bool
 	)
 
 	const (
@@ -123,17 +125,13 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 	ginkgo.AfterEach(func() {
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
 		}
-		if isVsanhealthServiceStopped {
-			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-			err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again",
-				vsanHealthServiceWaitTime))
-			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		if isVsanHealthServiceStopped {
+			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 	})
 
@@ -172,7 +170,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isVsanhealthServiceStopped = true
+		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
@@ -189,11 +187,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		}
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanhealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -264,7 +258,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isVsanhealthServiceStopped = true
+		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
@@ -287,11 +281,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanhealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -368,7 +358,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(datastore).NotTo(gomega.BeNil())
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isVsanhealthServiceStopped = true
+		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
@@ -384,11 +374,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanhealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -443,7 +429,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		}
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isVsanhealthServiceStopped = true
+		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
@@ -479,11 +465,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanhealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -580,7 +562,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isVsanhealthServiceStopped = true
+		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
@@ -596,11 +578,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv, pvc))
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanhealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -669,7 +647,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isVsanhealthServiceStopped = true
+		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
@@ -681,11 +659,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanhealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -725,6 +699,14 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
 
+		c := client
+		controllerClusterConfig := os.Getenv(contollerClusterKubeConfig)
+		if controllerClusterConfig != "" {
+			framework.Logf("Creating client for remote kubeconfig")
+			remoteC, err := createKubernetesClientFromConfig(controllerClusterConfig)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			c = remoteC
+		}
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		finder := find.NewFinder(e2eVSphere.Client.Client, false)
 
@@ -745,14 +727,14 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
 		ginkgo.By("Get controller replica count before scaling down")
-		deployment, err := client.AppsV1().Deployments(csiControllerNamespace).Get(ctx,
+		deployment, err := c.AppsV1().Deployments(csiControllerNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		replica_before_scale_down := *deployment.Spec.Replicas
 		framework.Logf("Replica before scale down %d", replica_before_scale_down)
 
 		ginkgo.By("Scaling down the csi driver to zero replica")
-		deployment = updateDeploymentReplica(client, 0, vSphereCSIControllerPodNamePrefix, csiControllerNamespace)
+		deployment = updateDeploymentReplica(c, 0, vSphereCSIControllerPodNamePrefix, csiControllerNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled down the csi driver deployment:%s to zero replicas", deployment.Name))
 
 		ginkgo.By(fmt.Sprintf("Creating the PV with the fcdID %s", fcdID))
@@ -762,10 +744,10 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Scaling up the csi driver to one replica")
-		deployment = updateDeploymentReplica(client, replica_before_scale_down,
+		ginkgo.By("Scaling up the csi driver")
+		deployment = updateDeploymentReplica(c, replica_before_scale_down,
 			vSphereCSIControllerPodNamePrefix, csiControllerNamespace)
-		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
+		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s", deployment.Name))
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -845,7 +827,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		ginkgo.By("Stopping vsan-health on the vCenter host")
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isVsanhealthServiceStopped = true
+		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -869,13 +851,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		}()
 
 		ginkgo.By("Starting vsan-health on the vCenter host")
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// TODO: Replace static wait with polling
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanhealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -938,14 +914,14 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 func waitAndVerifyCnsVolumeMetadata4GCVol(volHandle string, svcPVCName string, pvc *v1.PersistentVolumeClaim,
 	pv *v1.PersistentVolume, pod *v1.Pod) error {
 
-	waitErr := wait.PollImmediate(poll*5, pollTimeoutShort, func() (bool, error) {
+	waitErr := wait.PollImmediate(healthStatusPollInterval, pollTimeoutSixMin, func() (bool, error) {
 		matches := verifyCnsVolumeMetadata4GCVol(volHandle, svcPVCName, pvc, pv, pod)
 		return matches, nil
 	})
 	return waitErr
 }
 
-//verifyCnsVolumeMetadata4GCVol verifies cns volume metadata for a GC volume
+// verifyCnsVolumeMetadata4GCVol verifies cns volume metadata for a GC volume
 // if gcPvc, gcPv or pod are nil we skip verification for them altogether and wont check if they are absent in CNS entry
 func verifyCnsVolumeMetadata4GCVol(volumeID string, svcPVCName string, gcPvc *v1.PersistentVolumeClaim,
 	gcPv *v1.PersistentVolume, pod *v1.Pod) bool {

@@ -36,6 +36,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	pkgtypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -44,6 +45,8 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 )
 
 type FaultDomains struct {
@@ -57,7 +60,7 @@ type FaultDomains struct {
 
 var fds FaultDomains
 
-//initialiseFdsVar initialise fds variable
+// initialiseFdsVar initialise fds variable
 func initialiseFdsVar(ctx context.Context) {
 	fdMap := createFaultDomainMap(ctx, &e2eVSphere)
 	hostsWithoutFD := []string{}
@@ -83,7 +86,7 @@ func siteFailureInParallel(primarySite bool, wg *sync.WaitGroup) {
 	siteFailover(primarySite)
 }
 
-//siteFailover causes a site failover by powering off hosts of the given site
+// siteFailover causes a site failover by powering off hosts of the given site
 func siteFailover(primarySite bool) {
 	hostsToPowerOff := fds.secondarySiteHosts
 	if primarySite {
@@ -93,7 +96,7 @@ func siteFailover(primarySite bool) {
 	powerOffHostParallel(hostsToPowerOff)
 }
 
-//powerOffHostParallel powers off given hosts
+// powerOffHostParallel powers off given hosts
 func powerOffHostParallel(hostsToPowerOff []string) {
 	hostlist := ""
 	for _, host := range hostsToPowerOff {
@@ -105,7 +108,7 @@ func powerOffHostParallel(hostsToPowerOff []string) {
 		fds.hostsDown = append(fds.hostsDown, host)
 	}
 
-	err := vMPowerMgmt(tbinfo.user, tbinfo.location, hostlist, false)
+	err := vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, hostlist, false)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	for _, host := range hostsToPowerOff {
@@ -114,7 +117,7 @@ func powerOffHostParallel(hostsToPowerOff []string) {
 	}
 }
 
-//siteRestore restores a site by powering on hosts of the given site
+// siteRestore restores a site by powering on hosts of the given site
 func siteRestore(primarySite bool) {
 	hostsToPowerOn := fds.secondarySiteHosts
 	if primarySite {
@@ -124,7 +127,7 @@ func siteRestore(primarySite bool) {
 	powerOnHostParallel(hostsToPowerOn)
 }
 
-//powerOnHostParallel powers on given hosts
+// powerOnHostParallel powers on given hosts
 func powerOnHostParallel(hostsToPowerOn []string) {
 	hostlist := ""
 	for _, host := range hostsToPowerOn {
@@ -135,7 +138,7 @@ func powerOnHostParallel(hostsToPowerOn []string) {
 		}
 		fds.hostsDown = append(fds.hostsDown, host)
 	}
-	err := vMPowerMgmt(tbinfo.user, tbinfo.location, hostlist, true)
+	err := vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, hostlist, true)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for _, host := range hostsToPowerOn {
 		err = waitForHostToBeUp(host)
@@ -187,7 +190,7 @@ func createFaultDomainMap(ctx context.Context, vs *vSphere) map[string]string {
 	return fdMap
 }
 
-//waitForHostToBeDown wait for host to be down
+// waitForHostToBeDown wait for host to be down
 func waitForHostToBeDown(ip string) error {
 	framework.Logf("checking host status of %s", ip)
 	gomega.Expect(ip).NotTo(gomega.BeNil())
@@ -244,7 +247,7 @@ func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout
 	return err
 }
 
-//wait4AllK8sNodesToBeUp wait for all k8s nodes to be reachable
+// wait4AllK8sNodesToBeUp wait for all k8s nodes to be reachable
 func wait4AllK8sNodesToBeUp(
 	ctx context.Context, client clientset.Interface, k8sNodes *v1.NodeList) {
 	var nodeIp string
@@ -530,7 +533,7 @@ func changeLeaderOfContainerToComeUpOnMaster(ctx context.Context, client clients
 }
 
 // invokeDockerPauseNKillOnContainerInParallel invokes docker pause and kill command on
-//the particular CSI container on the master node in parallel
+// the particular CSI container on the master node in parallel
 func invokeDockerPauseNKillOnContainerInParallel(sshClientConfig *ssh.ClientConfig, k8sMasterIp string,
 	csiContainerName string, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -785,7 +788,7 @@ func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interf
 		// After scale up, verify all vSphere volumes are attached to node VMs.
 		framework.Logf("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
 		for _, sspod := range ssPodsAfterScaleUp.Items {
-			err := fpod.WaitForPodsReady(client, statefulset.Namespace, sspod.Name, 0)
+			err := fpod.WaitTimeoutForPodReadyInNamespace(client, sspod.Name, statefulset.Namespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -912,4 +915,74 @@ func createStaticPvAndPvcInParallel(client clientset.Interface, ctx context.Cont
 		ch <- pvc
 
 	}
+}
+
+// triggerFullSyncInParallel triggers full sync on demand in parallel. Here, we are
+// ignoring full sync failures due to site failover/failback. Hence, we are not
+// using triggerFullSync() here
+func triggerFullSyncInParallel(ctx context.Context, client clientset.Interface,
+	cnsOperatorClient client.Client, wg *sync.WaitGroup) {
+	defer wg.Done()
+	err := waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
+	if err != nil {
+		framework.Logf("Full sync did not finish in given time, ignoring this error: %v", err)
+	}
+
+	crd := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	framework.Logf("INFO: full sync crd details: %v", crd)
+	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
+	if err != nil {
+		framework.Logf("Full sync did not finish in given time, ignoring this error: %v", err)
+	}
+	crd = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	framework.Logf("INFO: full sync crd details: %v", crd)
+	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
+	if err != nil {
+		framework.Logf("Full sync did not finish in given time, ignoring this error: %v", err)
+	}
+}
+
+// getTriggerFullSyncCrd fetches full sync crd from the list of crds in k8s cluster
+func getTriggerFullSyncCrd(ctx context.Context, client clientset.Interface,
+	cnsOperatorClient client.Client) *triggercsifullsyncv1alpha1.TriggerCsiFullSync {
+	fullSyncCrd := &triggercsifullsyncv1alpha1.TriggerCsiFullSync{}
+	err := cnsOperatorClient.Get(ctx,
+		pkgtypes.NamespacedName{Name: crdtriggercsifullsyncsName}, fullSyncCrd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(fullSyncCrd).NotTo(gomega.BeNil(), "couldn't find full sync crd: %s", crdtriggercsifullsyncsName)
+	return fullSyncCrd
+}
+
+// updateTriggerFullSyncCrd triggers full sync by updating TriggerSyncID
+// value to  LastTriggerSyncID +1 in full sync crd
+func updateTriggerFullSyncCrd(ctx context.Context, cnsOperatorClient client.Client,
+	crd triggercsifullsyncv1alpha1.TriggerCsiFullSync) {
+	framework.Logf("instance is %v before update", crd)
+	lastSyncId := crd.Status.LastTriggerSyncID
+	triggerSyncID := lastSyncId + 1
+	crd.Spec.TriggerSyncID = triggerSyncID
+	err := cnsOperatorClient.Update(ctx, &crd)
+	framework.Logf("Error is %v", err)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("instance is %v after update", crd)
+}
+
+// waitForFullSyncToFinish waits for a given full sync to finish by checking
+// InProgress field in trigger full sync crd
+func waitForFullSyncToFinish(client clientset.Interface, ctx context.Context,
+	cnsOperatorClient client.Client) error {
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		crd := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+		framework.Logf("crd is: %v", crd)
+		if !crd.Status.InProgress {
+			return true, nil
+		}
+		if crd.Status.Error != "" {
+			return false, fmt.Errorf("full sync failed with error: %s", crd.Status.Error)
+		}
+		return false, nil
+	})
+	return waitErr
 }

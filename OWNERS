@@ -4,24 +4,27 @@ reviewers:
 - divyenpatel
 - SandeepPissay
 - xing-yang
-- BaluDontu
-- RaunakShah
 - chethanv28
 - deepakkinni
 - shalini-b
+- gnufied
+- gohilankit
+- lipingxue
 
 approvers:
 - divyenpatel
 - SandeepPissay
 - xing-yang
-- BaluDontu
 - RaunakShah
 - chethanv28
 - deepakkinni
 - shalini-b
+- gohilankit
+- lipingxue
 
 emeritus_approvers:
 - codenrhoden
 - dougm
 - dvonthenen
 - frapposelli
+- BaluDontu

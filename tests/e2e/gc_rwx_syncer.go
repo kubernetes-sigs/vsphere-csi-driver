@@ -3,7 +3,9 @@ Copyright 2021 The Kubernetes Authors.
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
-    http://www.apache.org/licenses/LICENSE-2.0
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -29,24 +31,26 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func() {
 	f := framework.NewDefaultFramework("rwx-tkg-sync")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client               clientset.Interface
-		namespace            string
-		scParameters         map[string]string
-		storagePolicyName    string
-		volHealthCheck       bool
-		isVsanServiceStopped bool
+		client                     clientset.Interface
+		namespace                  string
+		scParameters               map[string]string
+		storagePolicyName          string
+		volHealthCheck             bool
+		isVsanHealthServiceStopped bool
 	)
 
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		// TODO: Read value from command line
 		volHealthCheck = false
-		isVsanServiceStopped = false
+		isVsanHealthServiceStopped = false
 		namespace = getNamespaceToRunTests(f)
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		scParameters = make(map[string]string)
@@ -62,14 +66,13 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
-		if isVsanServiceStopped {
+		if isVsanHealthServiceStopped {
 			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
-			err := invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 	})
 
@@ -579,7 +582,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 	/*
 		Create a Pod mounted with a PVC while the csi-controller in the Supervisor cluster is down.
 		1. Create a SC
-		2. Create a PVC with "ReadWriteMany" using the storage policy created above GC
+		2. Create a PVC with "ReadWriteMany" using the storage policy created above GC
 		3. Wait for PVC to be Bound
 		4. Verify if the mapping PVC is bound in the SV cluster using the volume handler
 		5. Verify CnsVolumeMetadata crd
@@ -592,9 +595,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		12. Bring up csi-controller pod in the SV
 		13. Verify Pod is in the Running phase
 		14. Verify ACL net permission set by calling CNSQuery for the file volume
-		15. Create a file (file1.txt) at the mount path. Check if the creation is successful
+		15. Create a file (file1.txt) at the mount path. Check if the creation is successful
 		16. Delete Pod
-		17. Verify CnsFileAccessConfig CRD is deleted
+		17. Verify CnsFileAccessConfig CRD is deleted
 		18. Verify if all the Pods are successfully deleted
 		19. Delete PVC in GC
 		20. Verify if PVC and PV also deleted in the SV cluster and GC
@@ -670,12 +673,18 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
+		// Get CSI Controller's replica count from the setup
+		deployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
+
 		ginkgo.By("Bring down csi-controller pod in SV")
 		isControllerUp = false
 		bringDownCsiController(svcClient)
 		defer func() {
 			if !isControllerUp {
-				bringUpCsiController(svcClient)
+				bringUpCsiController(svcClient, csiReplicaCount)
 				isControllerUp = true
 			}
 		}()
@@ -714,7 +723,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 
 		ginkgo.By("Bring up csi-controller pod in SV")
 		isControllerUp = true
-		bringUpCsiController(svcClient)
+		bringUpCsiController(svcClient, csiReplicaCount)
 
 		ginkgo.By("Wait for pod to be up and running")
 		err = fpod.WaitForPodRunningInNamespace(client, pod)
@@ -826,12 +835,18 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		err = waitAndVerifyCnsVolumeMetadata4GCVol(fcdIDInCNS, pvcNameInSV, pvclaim, pv, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Get CSI Controller's replica count from the setup
+		deployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
+
 		ginkgo.By("Bring down csi-controller pod in SV")
 		isControllerUp = false
 		bringDownCsiController(svcClient)
 		defer func() {
 			if !isControllerUp {
-				bringUpCsiController(svcClient)
+				bringUpCsiController(svcClient, csiReplicaCount)
 				isControllerUp = true
 			}
 		}()
@@ -862,7 +877,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 
 		ginkgo.By("Bring up csi-controller pod in SV")
 		isControllerUp = true
-		bringUpCsiController(svcClient)
+		bringUpCsiController(svcClient, csiReplicaCount)
 		time.Sleep(oneMinuteWaitTimeInSeconds * time.Second)
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",

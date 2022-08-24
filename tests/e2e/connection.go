@@ -24,7 +24,10 @@ import (
 
 	gomega "github.com/onsi/gomega"
 	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/pbm"
 	"github.com/vmware/govmomi/session"
+	vapic "github.com/vmware/govmomi/vapi/rest"
+	"github.com/vmware/govmomi/vapi/tags"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -58,6 +61,7 @@ func connect(ctx context.Context, vs *vSphere) {
 	var err error
 	defer clientLock.Unlock()
 	if vs.Client == nil {
+		framework.Logf("Creating new VC session")
 		vs.Client = newClient(ctx, vs)
 	}
 	manager := session.NewManager(vs.Client.Client)
@@ -66,9 +70,12 @@ func connect(ctx context.Context, vs *vSphere) {
 	if userSession != nil {
 		return
 	}
-	framework.Logf("Creating new client session since the existing session is not valid or not authenticated")
+	framework.Logf("Current session is not valid or not authenticated, trying to logout from it")
 	err = vs.Client.Logout(ctx)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		framework.Logf("Ignoring the log out error: %v", err)
+	}
+	framework.Logf("Creating new client session after attempting to logout from existing session")
 	vs.Client = newClient(ctx, vs)
 }
 
@@ -104,8 +111,29 @@ func connectCns(ctx context.Context, vs *vSphere) error {
 	return nil
 }
 
-//newVsanHealthSvcClient returns vSANhealth client.
+// newVsanHealthSvcClient returns vSANhealth client.
 func newVsanHealthSvcClient(ctx context.Context, c *vim25.Client) (*VsanClient, error) {
 	sc := c.Client.NewServiceClient(vsanHealthPath, vsanNamespace)
 	return &VsanClient{c, sc}, nil
+}
+
+// newPbmClient returns new pbm client
+func newPbmClient(ctx context.Context, c *govmomi.Client) *pbm.Client {
+	pbmClient, err := pbm.NewClient(ctx, c.Client)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return pbmClient
+}
+
+// newVapiRestClient returns vapi rest client
+func newVapiRestClient(ctx context.Context, c *govmomi.Client) *vapic.Client {
+	vapiC := vapic.NewClient(c.Client)
+	usr := neturl.UserPassword(e2eVSphere.Config.Global.User, e2eVSphere.Config.Global.Password)
+	err := vapiC.Login(ctx, usr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return vapiC
+}
+
+// newTagMgr returns tag manager
+func newTagMgr(ctx context.Context, c *govmomi.Client) *tags.Manager {
+	return tags.NewManager(newVapiRestClient(ctx, c))
 }

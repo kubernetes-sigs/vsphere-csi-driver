@@ -34,6 +34,7 @@ import (
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	admissionapi "k8s.io/pod-security-admission/api"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,6 +51,7 @@ import (
 var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 	f := framework.NewDefaultFramework("e2e-csistaticprovision")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	var (
 		client                     clientset.Interface
@@ -66,7 +68,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		err                        error
 		datastoreURL               string
 		storagePolicyName          string
-		isVsanhealthServiceStopped bool
+		isVsanHealthServiceStopped bool
 		isSPSserviceStopped        bool
 		ctx                        context.Context
 		nonSharedDatastoreURL      string
@@ -90,7 +92,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
 		deleteFCDRequired = false
-		isVsanhealthServiceStopped = false
+		isVsanHealthServiceStopped = false
 		isSPSserviceStopped = false
 		var datacenters []string
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
@@ -144,7 +146,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle))
 		}
 
-		if isVsanhealthServiceStopped {
+		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 			err = invokeVCenterServiceControl("start", vsanhealthServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1174,7 +1176,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		isVsanhealthServiceStopped = true
+		isVsanHealthServiceStopped = true
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl("stop", vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1201,7 +1203,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanhealthServiceStopped = false
+		isVsanHealthServiceStopped = false
 
 		ginkgo.By("Wait for some time for the CRD to create PV , PVC")
 		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,

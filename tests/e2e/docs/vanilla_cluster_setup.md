@@ -67,6 +67,9 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     # To run e2e test for file volume, need to set the following env variable
     export GINKGO_FOCUS="csi-file-vanilla"
 
+    # Optional size to use while creating large PVCs, defaults to 50Gi
+    export LARGE_DISK_SIZE="100Gi"
+
     # For VCP to CSI migration tests following are needed as well
     export SHARED_VSPHERE_DATASTORE_NAME="vsanDatastore"
     export ESX_TEST_HOST_IP="<esx_host_ip>"  # for static provisioning tests
@@ -80,6 +83,9 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
 
     # To run common e2e tests (block & file), need to set the following env variable to identify the file volume setup
     export ACCESS_MODE="RWX"
+
+    # If CSI controller is running on a different k8s cluster, we need to pass the kubeconfig for that cluster using
+    export CONTROLLER_CLUSTER_KUBECONFIG="/path/to/remote/kubeconfig"
 
 ### To run full sync test, need do extra following steps
 

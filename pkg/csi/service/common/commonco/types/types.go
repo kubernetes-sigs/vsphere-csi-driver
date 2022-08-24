@@ -39,6 +39,12 @@ type VanillaTopologyFetchDSParams struct {
 	// TopologyRequirement represents the topology conditions
 	// which need to be satisfied during volume provisioning.
 	TopologyRequirement *csi.TopologyRequirement
+	// Vc is the vcenter instance using which storage policy
+	// compatibility will be calculated.
+	Vc *cnsvsphere.VirtualCenter
+	// StoragePolicyName is the policy name specified in the storage class
+	// to which the volume should be compatible.
+	StoragePolicyName string
 }
 
 // WCPTopologyFetchDSParams represents the params required to call
@@ -62,6 +68,9 @@ type VanillaRetrieveTopologyInfoParams struct {
 	// DatastoreURL is the selected datastore for which the topology
 	// information needs to be retrieved.
 	DatastoreURL string
+	// TopologyRequirement represents the topology conditions
+	// which need to be satisfied during volume provisioning.
+	TopologyRequirement *csi.TopologyRequirement
 }
 
 // WCPRetrieveTopologyInfoParams represents the params required to call

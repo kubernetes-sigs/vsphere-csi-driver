@@ -18,6 +18,7 @@ package volume
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -109,6 +110,8 @@ type Manager interface {
 	RegisterDisk(ctx context.Context, path string, name string) (string, error)
 	// RetrieveVStorageObject helps in retreiving virtual disk information for a given volume id.
 	RetrieveVStorageObject(ctx context.Context, volumeID string) (*vim25types.VStorageObject, error)
+	// ProtectVolumeFromVMDeletion sets keepAfterDeleteVm control flag on migrated volume
+	ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error
 	// CreateSnapshot helps create a snapshot for a block volume
 	CreateSnapshot(ctx context.Context, volumeID string, desc string) (*CnsSnapshotInfo, error)
 	// DeleteSnapshot helps delete a snapshot for a block volume
@@ -787,7 +790,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 				volumeID, vm, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 		}
 		log.Infof("DetachVolume: Volume detached successfully. volumeID: %q, vm: %q, opId: %q",
-			volumeID, taskInfo.ActivationId, vm.String())
+			volumeID, vm.String(), taskInfo.ActivationId)
 		return "", nil
 	}
 	start := time.Now()
@@ -1062,6 +1065,12 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 		if err != nil {
 			log.Errorf("failed to get usersession with err: %v", err)
 			return err
+		}
+		// Refer to this issue - https://github.com/vmware/govmomi/issues/2922
+		// Session Manager -> UserSession can return nil user session with nil error
+		// so handling the case for nil session.
+		if s == nil {
+			return errors.New("nil session obtained from session manager")
 		}
 		if s.UserName != spec.Metadata.ContainerCluster.VSphereUser {
 			log.Debugf("Update VSphereUser from %s to %s", spec.Metadata.ContainerCluster.VSphereUser, s.UserName)
@@ -2259,4 +2268,29 @@ func (m *defaultManager) DeleteSnapshot(ctx context.Context, volumeID string, sn
 			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
 	return err
+}
+
+// ProtectVolumeFromVMDeletion helps set keepAfterDeleteVm control flag for given volumeID
+func (m *defaultManager) ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	err := validateManager(ctx, m)
+	if err != nil {
+		log.Errorf("failed to validate volume manager with err: %+v", err)
+		return err
+	}
+	// Set up the VC connection
+	err = m.virtualCenter.ConnectVslm(ctx)
+	if err != nil {
+		log.Errorf("ConnectVslm failed with err: %+v", err)
+		return err
+	}
+	globalObjectManager := vslm.NewGlobalObjectManager(m.virtualCenter.VslmClient)
+	err = globalObjectManager.SetControlFlags(ctx, vim25types.ID{Id: volumeID}, []string{
+		string(vim25types.VslmVStorageObjectControlFlagKeepAfterDeleteVm)})
+	if err != nil {
+		log.Errorf("failed to set control flag keepAfterDeleteVm  for volumeID %q with err: %v", volumeID, err)
+		return err
+	}
+	log.Infof("Successfully set keepAfterDeleteVm control flag for volumeID: %q", volumeID)
+	return nil
 }

@@ -43,10 +43,12 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	f := framework.NewDefaultFramework("gc-volume-expansion")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                     clientset.Interface
 		pandoraSyncWaitTime        int
@@ -64,7 +66,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		svNamespace                string
 		defaultDatastore           *object.Datastore
 		restConfig                 *restclient.Config
-		isVsanhealthServiceStopped bool
+		isVsanHealthServiceStopped bool
 		isGCCSIDeploymentPODdown   bool
 	)
 	ginkgo.BeforeEach(func() {
@@ -126,13 +128,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		if isVsanhealthServiceStopped {
-			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-			err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again",
-				vsanHealthServiceWaitTime))
-			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+		if isVsanHealthServiceStopped {
+			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 		if !pvcDeleted {
 			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
@@ -630,22 +627,17 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	ginkgo.It("Verify volume expansion eventually succeeds when CNS is unavailable during initial expansion", func() {
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
 			vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanhealthServiceStopped := true
+		isVsanHealthServiceStopped := true
 		defer func() {
-			if isVsanhealthServiceStopped {
-				ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host (cleanup)"))
-				vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-				err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again",
-					vsanHealthServiceWaitTime))
-				time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-				isVsanhealthServiceStopped = false
+			if isVsanHealthServiceStopped {
+				startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 			}
 		}()
 
@@ -676,11 +668,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanhealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By("Waiting for controller volume resize to finish")
 		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
@@ -740,22 +728,19 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		"the volume can deleted with pending resize operation", func() {
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
 			vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanhealthServiceStopped := true
+		isVsanHealthServiceStopped := true
 		defer func() {
-			if isVsanhealthServiceStopped {
+			if isVsanHealthServiceStopped {
 				ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host (cleanup)"))
 				vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-				err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again",
-					vsanHealthServiceWaitTime))
-				time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-				isVsanhealthServiceStopped = false
+				startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 			}
 		}()
 
@@ -789,11 +774,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
-		isVsanhealthServiceStopped = false
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By("Verify volume is deleted in Supervisor Cluster")
 		volumeExists := verifyVolumeExistInSupervisorCluster(svcPVCName)

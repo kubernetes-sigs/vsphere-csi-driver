@@ -63,6 +63,9 @@ type Config struct {
 		// CnsVolumeOperationRequestCleanupIntervalInMin specifies the interval after which
 		// stale CnsVolumeOperationRequest instances will be cleaned up.
 		CnsVolumeOperationRequestCleanupIntervalInMin int `gcfg:"cnsvolumeoperationrequest-cleanup-intervalinmin"`
+		// CSIFetchPreferredDatastoresIntervalInMin specifies the interval
+		// after which the preferred datastores cache is refreshed in the driver.
+		CSIFetchPreferredDatastoresIntervalInMin int `gcfg:"csi-fetch-preferred-datastores-intervalinmin"`
 
 		// QueryLimit specifies the number of volumes that can be fetched by CNS QueryAll API at a time
 		QueryLimit int `gcfg:"query-limit"`
@@ -160,6 +163,10 @@ type GCConfig struct {
 	TanzuKubernetesClusterName string `gcfg:"tanzukubernetescluster-name"`
 	// Cluster Distribution Name
 	ClusterDistribution string `gcfg:"cluster-distribution"`
+	// ClusterAPIVersion refers to the API version of the object guest cluster is created from.
+	ClusterAPIVersion string `gcfg:"cluster-api-version"`
+	// ClusterKind refers to the kind of object guest cluster is created from.
+	ClusterKind string `gcfg:"cluster-kind"`
 }
 
 // SnapshotConfig contains snapshot configuration.

@@ -20,11 +20,9 @@ const (
 	// CNSFinalizer is the finalizer on CNSNodeVmAttachment and CnsVolumeMetadata controllers
 	CNSFinalizer = "cns.vmware.com"
 
-	// GCAPIVersion is the APIVersion for TanzuKubernetes Cluster
-	GCAPIVersion = "run.tanzu.vmware.com/v1alpha1"
-
-	// GCKind is the Kind value for TanzuKubernetes Cluster
-	GCKind = "TanzuKubernetesCluster"
+	// CNSPvcFinalizer is the finalizer on Supervisor PVC managed by CNsNodeVMAttachment controller
+	// to avoid Detach-Delete race which in-turn avoids ResourceInUse errors
+	CNSPvcFinalizer = "cns.vmware.com/pvc-protection"
 
 	// VSphereCSIDriverName is the vsphere CSI driver name
 	VSphereCSIDriverName = "csi.vsphere.vmware.com"

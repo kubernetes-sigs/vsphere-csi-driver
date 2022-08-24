@@ -3,7 +3,9 @@ Copyright 2021 The Kubernetes Authors.
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
-    http://www.apache.org/licenses/LICENSE-2.0
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -32,21 +34,21 @@ import (
 var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 	f := framework.NewDefaultFramework("rwx-tkg-health")
 	var (
-		client                   clientset.Interface
-		namespace                string
-		scParameters             map[string]string
-		storagePolicyName        string
-		volHealthCheck           bool
-		isVsanServiceStopped     bool
-		volumeHealthAnnotation   string = "volumehealth.storage.kubernetes.io/health"
-		nonVsanStoragePolicyName string
+		client                     clientset.Interface
+		namespace                  string
+		scParameters               map[string]string
+		storagePolicyName          string
+		volHealthCheck             bool
+		isVsanHealthServiceStopped bool
+		volumeHealthAnnotation     string = "volumehealth.storage.kubernetes.io/health"
+		nonVsanStoragePolicyName   string
 	)
 
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		// TODO: Read value from command line
-		volHealthCheck = false
-		isVsanServiceStopped = false
+		volHealthCheck = true
+		isVsanHealthServiceStopped = false
 		namespace = getNamespaceToRunTests(f)
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		scParameters = make(map[string]string)
@@ -63,14 +65,13 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
-		if isVsanServiceStopped {
+		if isVsanHealthServiceStopped {
 			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
-			err := invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 	})
 
@@ -288,7 +289,7 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", vsanhealthServiceName))
 
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isVsanServiceStopped = true
+		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -296,13 +297,9 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			if isVsanServiceStopped {
+			if isVsanHealthServiceStopped {
 				ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
-				err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				isVsanServiceStopped = false
+				startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 			}
 		}()
 
@@ -317,15 +314,7 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 		gomega.Expect(pvc.Annotations[volumeHealthAnnotation]).Should(gomega.BeEmpty())
 
 		ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
-		err = invokeVCenterServiceControl(startOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isVsanServiceStopped = false
-
-		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered",
-			healthStatusWaitTime))
-		time.Sleep(healthStatusWaitTime)
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		if volHealthCheck {
 			ginkgo.By("poll for health status annotation")

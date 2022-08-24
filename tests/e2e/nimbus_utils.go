@@ -19,7 +19,7 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"os/exec"
 
 	"github.com/davecgh/go-spew/spew"
@@ -34,18 +34,20 @@ type TestbedBasicInfo struct {
 	vcIp     string
 	vcVmName string
 	esxHosts []map[string]string
+	podname  string
 }
 
 var tbinfo TestbedBasicInfo
 
-//vMPowerMgmt power on/off given nimbus VMs (space separated list)
-func vMPowerMgmt(user string, location string, hostList string, shouldBePoweredOn bool) error {
+// vMPowerMgmt power on/off given nimbus VMs (space separated list)
+func vMPowerMgmt(user string, location string, podname string, hostList string, shouldBePoweredOn bool) error {
 	var err error
 	op := "off"
 	if shouldBePoweredOn {
 		op = "on"
 	}
-	nimbusCmd := fmt.Sprintf("USER=%s /mts/git/bin/nimbus-ctl --nimbusLocation %s %s %s", user, location, op, hostList)
+	nimbusCmd := fmt.Sprintf("USER=%s /mts/git/bin/nimbus-ctl --nimbusLocation %s --nimbus %s %s %s", user,
+		location, podname, op, hostList)
 	framework.Logf("Running command: %s", nimbusCmd)
 	cmd := exec.Command("/bin/bash", "-c", nimbusCmd)
 	err = cmd.Start()
@@ -58,11 +60,11 @@ func vMPowerMgmt(user string, location string, hostList string, shouldBePoweredO
 	return err
 }
 
-//readVcEsxIpsViaTestbedInfoJson read basic testbed info from the json file
+// readVcEsxIpsViaTestbedInfoJson read basic testbed info from the json file
 func readVcEsxIpsViaTestbedInfoJson(filePath string) {
 	tbinfo = TestbedBasicInfo{}
 
-	file, err := ioutil.ReadFile(filePath)
+	file, err := os.ReadFile(filePath)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	framework.Logf("Fetching basic testbed info from json file")
@@ -90,6 +92,7 @@ func readVcEsxIpsViaTestbedInfoJson(filePath string) {
 	tbinfo.name = tb["name"].(string)
 	tbinfo.user = tb["user_name"].(string)
 	tbinfo.location = tb["nimbusLocation"].(string)
+	tbinfo.podname = tb["podname"].(string)
 
 	framework.Logf("Basic testbed info:\n%s\n", spew.Sdump(tbinfo))
 }

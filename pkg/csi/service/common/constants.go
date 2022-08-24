@@ -289,6 +289,31 @@ const (
 	// PVtoBackingDiskObjectIdSupportedVCenterPatch is the minimum patch version of vCenter
 	// on which PV to BackingDiskObjectId mapping feature is supported.
 	PVtoBackingDiskObjectIdSupportedVCenterPatch int = 2
+
+	// PreferredDatastoresCategory points to the vSphere Category
+	// created to tag preferred datastores in a topology-aware environment.
+	PreferredDatastoresCategory = "cns.vmware.topology-preferred-datastores"
+
+	// VolumeSnapshotNameKey represents the volumesnapshot CR name within
+	// the request parameters
+	VolumeSnapshotNameKey = "csi.storage.k8s.io/volumesnapshot/name"
+
+	// VolumeSnapshotNamespaceKey represents the volumesnapshot CR namespace within
+	// the request parameters
+	VolumeSnapshotNamespaceKey = "csi.storage.k8s.io/volumesnapshot/namespace"
+
+	// VolumeSnapshotInfoKey represents the annotation key of the fcd-id + snapshot-id
+	// on the VolumeSnapshot CR
+	VolumeSnapshotInfoKey = "csi.vsphere.volume/snapshot"
+
+	// AttributeSupervisorVolumeSnapshotClass represents name of VolumeSnapshotClass
+	AttributeSupervisorVolumeSnapshotClass = "svvolumesnapshotclass"
+
+	// VolumeSnapshotApiGroup represents the VolumeSnapshot API Group name
+	VolumeSnapshotApiGroup = "snapshot.storage.k8s.io"
+
+	// VolumeSnapshotKind represents the VolumeSnapshot Kind name
+	VolumeSnapshotKind = "VolumeSnapshot"
 )
 
 // Supported container orchestrators.
@@ -305,6 +330,8 @@ const (
 	VolumeHealth = "volume-health"
 	// VolumeExtend is feature flag name for volume expansion.
 	VolumeExtend = "volume-extend"
+	// OnlineVolumeExtend guards the feature for online volume expansion.
+	OnlineVolumeExtend = "online-volume-extend"
 	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI.
 	CSIMigration = "csi-migration"
 	// CSIAuthCheck is feature flag for auth check.
@@ -352,4 +379,9 @@ const (
 	PVtoBackingDiskObjectIdMapping = "pv-to-backingdiskobjectid-mapping"
 	// Block Create Volume for datastores that are in suspended mode
 	CnsMgrSuspendCreateVolume = "cnsmgr-suspend-create-volume"
+	// TopologyPreferentialDatastores is the feature gate for preferential
+	// datastore deployment in topology aware environments.
+	TopologyPreferentialDatastores = "topology-preferential-datastores"
+	// MaxPVSCSITargetsPerVM enables support for 255 volumes per node vm
+	MaxPVSCSITargetsPerVM = "max-pvscsi-targets-per-vm"
 )

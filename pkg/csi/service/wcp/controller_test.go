@@ -20,12 +20,14 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"strings"
 	"sync"
 	"testing"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/google/uuid"
@@ -107,7 +109,7 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"",
 		cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password,
 		cfg.Global.Datacenters, cfg.Global.VCenterPort))
-	err = ioutil.WriteFile("test_vsphere.conf", conf, 0644)
+	err = os.WriteFile("test_vsphere.conf", conf, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -120,6 +122,12 @@ func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.
 		InsecureFlag: cfg.Global.InsecureFlag,
 		Datacenters:  cfg.Global.Datacenters,
 	}
+
+	// set up the default global maximum of number of snapshots if unset
+	if cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume == 0 {
+		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume = config.DefaultGlobalMaxSnapshotsPerBlockVolume
+	}
+
 	return cfg, func() {
 		s.Close()
 		model.Remove()
@@ -471,5 +479,1061 @@ func TestWCPCreateVolumeWithZonalLabelPresentButNoStorageTopoType(t *testing.T) 
 			}
 		}()
 		t.Fatal("expected error is not thrown")
+	}
+}
+
+// TestWCPCreateDeleteSnapshot creates snapshot and deletes a snapshot.
+func TestWCPCreateDeleteSnapshot(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+
+	profileID := os.Getenv("VSPHERE_STORAGE_POLICY_ID")
+	if profileID == "" {
+		storagePolicyName := os.Getenv("VSPHERE_STORAGE_POLICY_NAME")
+		if storagePolicyName == "" {
+			// PBM simulator defaults.
+			storagePolicyName = "vSAN Default Storage Policy"
+		}
+
+		// Verify the volume has been create with corresponding storage policy ID.
+		pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		profileID, err = pc.ProfileIDByName(ctx, storagePolicyName)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	params[common.AttributeStoragePolicyID] = profileID
+
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Requisite: []*csi.Topology{},
+			Preferred: []*csi.Topology{},
+		},
+	}
+
+	getCandidateDatastores = getFakeDatastores
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	if queryResult.Volumes[0].StoragePolicyId != profileID {
+		t.Fatalf("failed to match volume policy ID: %s", profileID)
+	}
+
+	// QueryAll.
+	queryFilter = cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	querySelection := cnstypes.CnsQuerySelection{}
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	defer func() {
+		// Delete volume.
+		reqDelete := &csi.DeleteVolumeRequest{
+			VolumeId: volID,
+		}
+		_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify the volume has been deleted.
+		queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(queryResult.Volumes) != 0 {
+			t.Fatalf("volume should not exist after deletion with ID: %s", volID)
+		}
+	}()
+
+	// Snapshot a volume
+	reqCreateSnapshot := &csi.CreateSnapshotRequest{
+		SourceVolumeId: volID,
+		Name:           "snapshot-" + uuid.New().String(),
+	}
+
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+
+	defer func() {
+		// Delete the snapshot
+		reqDeleteSnapshot := &csi.DeleteSnapshotRequest{
+			SnapshotId: snapID,
+		}
+
+		_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
+}
+
+func TestListSnapshots(t *testing.T) {
+	ct := getControllerTest(t)
+	numOfSnapshots := ct.config.Snapshot.GlobalMaxSnapshotsPerBlockVolume
+	// Create.
+	params := make(map[string]string)
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		params[common.AttributeDatastoreURL] = v
+	}
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	// Verify the volume has been created.
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+	// Map to track all the snapshots created.
+	snapshots := make(map[string]string)
+	var deleteSnapshotList []string
+
+	for i := 0; i < numOfSnapshots; i++ {
+		// Snapshot a volume
+		reqCreateSnapshot := &csi.CreateSnapshotRequest{
+			SourceVolumeId: volID,
+			Name:           "snapshot-" + uuid.New().String(),
+		}
+
+		respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("Created snapshot-%d snaphot-id: %s", i, respCreateSnapshot.Snapshot.SnapshotId)
+		snapshots[respCreateSnapshot.Snapshot.SnapshotId] = ""
+		deleteSnapshotList = append(deleteSnapshotList, respCreateSnapshot.Snapshot.SnapshotId)
+	}
+
+	// Invoke ListSnapshot without specifying vol or snap-id.
+	listSnapshotRequest := &csi.ListSnapshotsRequest{
+		MaxEntries:    0,
+		StartingToken: "",
+	}
+
+	listSnapshotsResponse, err := ct.controller.ListSnapshots(ctx, listSnapshotRequest)
+	if err != nil {
+		t.Logf("ListSnapshot invocation failed with err: %+v", err)
+		t.Fatal(err)
+	}
+
+	if len(listSnapshotsResponse.Entries) == 0 {
+		t.Fatalf("ListSnapshot did not return any results")
+	}
+
+	// Iterate through response removing entries from the original map.
+	for i, entry := range listSnapshotsResponse.Entries {
+		snapshot := entry.Snapshot
+		// log the specific snapshot information
+		t.Logf("=====================Snapshot-%d===============================", i)
+		t.Logf("SourceVolumeId: %s", snapshot.SourceVolumeId)
+		t.Logf("SnapshotId: %s", snapshot.SnapshotId)
+		t.Logf("CreationTime: %s", snapshot.CreationTime)
+		t.Logf("Size: %d", snapshot.SizeBytes)
+		t.Logf("ReadyToUse: %t", snapshot.ReadyToUse)
+		t.Log("================================================================")
+		delete(snapshots, snapshot.SnapshotId)
+	}
+	// Expect returned snapshots to be deleted from map, the remaining snapshots were not returned in response.
+	if len(snapshots) != 0 {
+		t.Fatalf("Not all snapshots were returned, missing snapshots: %+v", snapshots)
+	}
+	// delete snapshots as part of cleanup.
+	for i := len(deleteSnapshotList) - 1; i >= 0; i-- {
+		// Delete the snapshot
+		reqDeleteSnapshot := &csi.DeleteSnapshotRequest{
+			SnapshotId: deleteSnapshotList[i],
+		}
+		_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Delete the volume.
+	reqDelete := &csi.DeleteVolumeRequest{
+		VolumeId: volID,
+	}
+	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListSnapshotsOnSpecificVolume(t *testing.T) {
+	ct := getControllerTest(t)
+	numOfSnapshots := ct.config.Snapshot.GlobalMaxSnapshotsPerBlockVolume
+	// Create.
+	params := make(map[string]string)
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		params[common.AttributeDatastoreURL] = v
+	}
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	// Verify the volume has been created.
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+	// Map to track all the snapshots created.
+	snapshots := make(map[string]string)
+	var deleteSnapshotList []string
+
+	for i := 0; i < numOfSnapshots; i++ {
+		// Snapshot a volume
+		reqCreateSnapshot := &csi.CreateSnapshotRequest{
+			SourceVolumeId: volID,
+			Name:           "snapshot-" + uuid.New().String(),
+		}
+
+		respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("Created snapshot-%d snaphot-id: %s", i, respCreateSnapshot.Snapshot.SnapshotId)
+		snapshots[respCreateSnapshot.Snapshot.SnapshotId] = ""
+		deleteSnapshotList = append(deleteSnapshotList, respCreateSnapshot.Snapshot.SnapshotId)
+	}
+
+	// Invoke ListSnapshot
+	listSnapshotRequest := &csi.ListSnapshotsRequest{
+		MaxEntries:     0,
+		StartingToken:  "",
+		SourceVolumeId: volID,
+	}
+
+	listSnapshotsResponse, err := ct.controller.ListSnapshots(ctx, listSnapshotRequest)
+	if err != nil {
+		t.Logf("ListSnapshot invocation failed with err: %+v", err)
+		t.Fatal(err)
+	}
+
+	if len(listSnapshotsResponse.Entries) == 0 {
+		t.Fatalf("ListSnapshot did not return and results for volume-id: %s", volID)
+	}
+
+	// Iterate through response removing entries from the original map.
+	for i, entry := range listSnapshotsResponse.Entries {
+		snapshot := entry.Snapshot
+		// log the specific snapshot information
+		t.Logf("=====================Snapshot-%d===============================", i)
+		t.Logf("SourceVolumeId: %s", snapshot.SourceVolumeId)
+		t.Logf("SnapshotId: %s", snapshot.SnapshotId)
+		t.Logf("CreationTime: %s", snapshot.CreationTime)
+		t.Logf("Size: %d", snapshot.SizeBytes)
+		t.Logf("ReadyToUse: %t", snapshot.ReadyToUse)
+		t.Log("================================================================")
+		delete(snapshots, snapshot.SnapshotId)
+	}
+	// Expect all snapshots to be deleted, the remaining snapshots were not returned in response.
+	if len(snapshots) != 0 {
+		t.Fatalf("Not all snapshots were returned, missing snapshots: %+v", snapshots)
+	}
+	// delete snapshots as part of cleanup.
+	for i := len(deleteSnapshotList) - 1; i >= 0; i-- {
+		// Delete the snapshot
+		reqDeleteSnapshot := &csi.DeleteSnapshotRequest{
+			SnapshotId: deleteSnapshotList[i],
+		}
+		_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Delete the volume.
+	reqDelete := &csi.DeleteVolumeRequest{
+		VolumeId: volID,
+	}
+	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListSnapshotsWithToken(t *testing.T) {
+	ct := getControllerTest(t)
+	numOfSnapshots := ct.config.Snapshot.GlobalMaxSnapshotsPerBlockVolume
+	// Create.
+	params := make(map[string]string)
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		params[common.AttributeDatastoreURL] = v
+	}
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	// Verify the volume has been created.
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	// Map to track all the snapshots created.
+	snapshots := make(map[string]string)
+	var deleteSnapshotList []string
+
+	for i := 0; i < numOfSnapshots; i++ {
+		// Snapshot a volume
+		reqCreateSnapshot := &csi.CreateSnapshotRequest{
+			SourceVolumeId: volID,
+			Name:           "snapshot-" + uuid.New().String(),
+		}
+
+		respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("Created snapshot-%d snaphot-id: %s", i, respCreateSnapshot.Snapshot.SnapshotId)
+		snapshots[respCreateSnapshot.Snapshot.SnapshotId] = ""
+		deleteSnapshotList = append(deleteSnapshotList, respCreateSnapshot.Snapshot.SnapshotId)
+	}
+
+	var listSnapshotsResponseEntries []*csi.ListSnapshotsResponse_Entry
+	tok := ""
+	for {
+		// Specify max entries as 1 to trigger paginated results.
+		listSnapshotRequest := &csi.ListSnapshotsRequest{
+			MaxEntries:    1,
+			StartingToken: tok,
+		}
+
+		listSnapshotsResponse, err := ct.controller.ListSnapshots(ctx, listSnapshotRequest)
+		if err != nil {
+			t.Logf("ListSnapshot invocation failed with err: %+v", err)
+			t.Fatal(err)
+		}
+		listSnapshotsResponseEntries = append(listSnapshotsResponseEntries, listSnapshotsResponse.Entries...)
+		// Use the next token returned.
+		tok = listSnapshotsResponse.NextToken
+		if len(tok) == 0 {
+			break
+		}
+	}
+
+	if len(listSnapshotsResponseEntries) == 0 {
+		t.Fatalf("ListSnapshot did not return any results")
+	}
+
+	// Iterate through response removing entries from the original map.
+	for i, entry := range listSnapshotsResponseEntries {
+		snapshot := entry.Snapshot
+		// log the specific snapshot information
+		t.Logf("=====================Snapshot-%d===============================", i)
+		t.Logf("SourceVolumeId: %s", snapshot.SourceVolumeId)
+		t.Logf("SnapshotId: %s", snapshot.SnapshotId)
+		t.Logf("CreationTime: %s", snapshot.CreationTime)
+		t.Logf("Size: %d", snapshot.SizeBytes)
+		t.Logf("ReadyToUse: %t", snapshot.ReadyToUse)
+		t.Log("================================================================")
+		delete(snapshots, snapshot.SnapshotId)
+	}
+	// Expect returned snapshots to be deleted from map, the remaining snapshots were not returned in response.
+	if len(snapshots) != 0 {
+		t.Fatalf("Not all snapshots were returned, missing snapshots: %+v", snapshots)
+	}
+	// delete snapshots as part of cleanup.
+	for i := len(deleteSnapshotList) - 1; i >= 0; i-- {
+		// Delete the snapshot
+		reqDeleteSnapshot := &csi.DeleteSnapshotRequest{
+			SnapshotId: deleteSnapshotList[i],
+		}
+		_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Delete the volume.
+	reqDelete := &csi.DeleteVolumeRequest{
+		VolumeId: volID,
+	}
+	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListSnapshotsOnSpecificVolumeAndSnapshot(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		params[common.AttributeDatastoreURL] = v
+	}
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	// Verify the volume has been created.
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	// Snapshot a volume
+	reqCreateSnapshot := &csi.CreateSnapshotRequest{
+		SourceVolumeId: volID,
+		Name:           "snapshot-" + uuid.New().String(),
+	}
+
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+	// Invoke ListSnapshot
+	listSnapshotRequest := &csi.ListSnapshotsRequest{
+		MaxEntries:     00,
+		StartingToken:  "",
+		SourceVolumeId: volID,
+		SnapshotId:     snapID,
+	}
+
+	listSnapshotsRespone, err := ct.controller.ListSnapshots(ctx, listSnapshotRequest)
+	if err != nil {
+		t.Logf("ListSnapshot invocation failed with err: %+v", err)
+		t.Fatal(err)
+	}
+
+	if len(listSnapshotsRespone.Entries) == 0 {
+		t.Fatalf("ListSnapshot did not return and results for volume-id: %s and snapshot-id: %s", volID, snapID)
+	}
+
+	snapshotReturned := listSnapshotsRespone.Entries[0]
+	if snapshotReturned.Snapshot.SnapshotId != snapID || snapshotReturned.Snapshot.SourceVolumeId != volID {
+		t.Fatalf("failed to returned the specific snapshot for ListSnapshot, received: %+v", snapshotReturned)
+	}
+
+	// log the specific snapshot information
+	t.Log("==============================================================")
+	t.Logf("SourceVolumeId: %s", snapshotReturned.Snapshot.SourceVolumeId)
+	t.Logf("SnapshotId: %s", snapshotReturned.Snapshot.SnapshotId)
+	t.Logf("CreationTime: %s", snapshotReturned.Snapshot.CreationTime)
+	t.Logf("Size: %d", snapshotReturned.Snapshot.SizeBytes)
+	t.Logf("ReadyToUse: %t", snapshotReturned.Snapshot.ReadyToUse)
+	t.Log("==============================================================")
+	// Delete the snapshot
+	reqDeleteSnapshot := &csi.DeleteSnapshotRequest{
+		SnapshotId: snapID,
+	}
+
+	_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Delete.
+	reqDelete := &csi.DeleteVolumeRequest{
+		VolumeId: volID,
+	}
+	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the volume has been deleted.
+	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 0 {
+		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
+	}
+}
+
+func TestCreateVolumeFromSnapshot(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		params[common.AttributeDatastoreURL] = v
+	}
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	// Verify the volume has been created.
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	// QueryAll.
+	queryFilter = cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	querySelection := cnstypes.CnsQuerySelection{}
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	defer func() {
+		// Delete.
+		reqDelete := &csi.DeleteVolumeRequest{
+			VolumeId: volID,
+		}
+		_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify the volume has been deleted.
+		queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(queryResult.Volumes) != 0 {
+			t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
+		}
+	}()
+
+	// Snapshot a volume
+	reqCreateSnapshot := &csi.CreateSnapshotRequest{
+		SourceVolumeId: volID,
+		Name:           "snapshot-" + uuid.New().String(),
+	}
+
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+
+	defer func() {
+		// Delete the snapshot
+		reqDeleteSnapshot := &csi.DeleteSnapshotRequest{
+			SnapshotId: snapID,
+		}
+
+		_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	// Create a new volume from the snapshot with expected request
+	reqCreateFromSnapshot := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+		VolumeContentSource: &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Snapshot{
+				Snapshot: &csi.VolumeContentSource_SnapshotSource{
+					SnapshotId: snapID,
+				},
+			},
+		},
+	}
+
+	respCreateFromSnapshot, err := ct.controller.CreateVolume(ctx, reqCreateFromSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredVolID := respCreateFromSnapshot.Volume.VolumeId
+
+	// Verify the volume has been created.
+	queryFilter = cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: restoredVolID,
+			},
+		},
+	}
+	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != restoredVolID {
+		t.Fatalf("failed to find the newly created volume from snapshot with ID: %s", restoredVolID)
+	}
+
+	defer func() {
+		// Delete the restored volume
+		reqDelete := &csi.DeleteVolumeRequest{
+			VolumeId: restoredVolID,
+		}
+		_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify the volume has been deleted.
+		queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(queryResult.Volumes) != 0 {
+			t.Fatalf("Volume should not exist after deletion with ID: %s", restoredVolID)
+		}
+	}()
+
+	// Create a new volume from the snapshot with unexpected request
+	reqCreateFromSnapshot = &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 2 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+		VolumeContentSource: &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Snapshot{
+				Snapshot: &csi.VolumeContentSource_SnapshotSource{
+					SnapshotId: snapID,
+				},
+			},
+		},
+	}
+
+	_, err = ct.controller.CreateVolume(ctx, reqCreateFromSnapshot)
+	if err != nil {
+		statusErr, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("unable to convert the error: %+v into a grpc status error type", err)
+		}
+		if statusErr.Code() == codes.InvalidArgument {
+			t.Logf("received error as expected when attempting to create volume from snapshot, error: %+v", err)
+		} else {
+			t.Fatalf("unexpected error code received, expected: %s received: %s",
+				codes.InvalidArgument.String(), statusErr.Code().String())
+		}
+	} else {
+		t.Fatal("expected error was not received when creating volume from snapshot")
+	}
+}
+
+func TestWCPDeleteVolumeWithSnapshots(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		params[common.AttributeDatastoreURL] = v
+	}
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	// Verify the volume has been created.
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	// Snapshot a volume
+	reqCreateSnapshot := &csi.CreateSnapshotRequest{
+		SourceVolumeId: volID,
+		Name:           "snapshot-" + uuid.New().String(),
+	}
+
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+
+	// Attempt to Delete volume.
+	reqDelete := &csi.DeleteVolumeRequest{
+		VolumeId: volID,
+	}
+	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+	if err != nil {
+		delErr, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("unable to convert the error: %+v into a grpc status error type", err)
+		}
+		if delErr.Code() == codes.FailedPrecondition {
+			t.Logf("received error as expected when attempting to delete volume with snapshot, error: %+v", err)
+		} else {
+			t.Fatalf("unexpected error code received, expected: %s received: %s",
+				codes.FailedPrecondition.String(), delErr.Code().String())
+		}
+	} else {
+		t.Fatal("expected error was not received when expanding volume with snapshot")
+	}
+
+	// Delete the snapshot
+	reqDeleteSnapshot := &csi.DeleteSnapshotRequest{
+		SnapshotId: snapID,
+	}
+	_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete the volume
+	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the volume has been deleted.
+	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 0 {
+		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
+	}
+}
+
+func TestWCPExpandVolumeWithSnapshots(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		params[common.AttributeDatastoreURL] = v
+	}
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	// Verify the volume has been created.
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	// Snapshot a volume
+	reqCreateSnapshot := &csi.CreateSnapshotRequest{
+		SourceVolumeId: volID,
+		Name:           "snapshot-" + uuid.New().String(),
+	}
+
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+
+	// Attempt to expand the volume
+	reqExpand := &csi.ControllerExpandVolumeRequest{
+		VolumeId: volID,
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 2 * common.GbInBytes,
+		},
+		VolumeCapability: capabilities[0],
+	}
+
+	_, err = ct.controller.ControllerExpandVolume(ctx, reqExpand)
+	if err != nil {
+		delErr, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("unable to convert the error: %+v into a grpc status error type", err)
+		}
+		if delErr.Code() == codes.FailedPrecondition {
+			t.Logf("received error as expected when attempting to expand volume with snapshot, error: %+v", err)
+		} else {
+			t.Fatalf("unexpected error code received, expected: %s received: %s",
+				codes.FailedPrecondition.String(), delErr.Code().String())
+		}
+	} else {
+		t.Fatal("expected error was not received when expanding volume with snapshot")
+	}
+
+	// Delete the snapshot
+	reqDeleteSnapshot := &csi.DeleteSnapshotRequest{
+		SnapshotId: snapID,
+	}
+	_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete the volume
+	reqDelete := &csi.DeleteVolumeRequest{
+		VolumeId: volID,
+	}
+	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the volume has been deleted.
+	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 0 {
+		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
 	}
 }

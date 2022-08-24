@@ -38,7 +38,7 @@ type vSphere struct {
 	CnsClient *cnsClient
 }
 
-//VsanClient struct holds vim and soap client
+// VsanClient struct holds vim and soap client
 type VsanClient struct {
 	vim25Client   *vim25.Client
 	serviceClient *soap.Client
@@ -389,40 +389,12 @@ func (vs *vSphere) getLabelsForCNSVolume(volumeID string, entityType string,
 func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[string]string,
 	entityType string, entityName string, entityNamespace string) error {
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
-		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
-		framework.Logf("queryResult: %s", spew.Sdump(queryResult))
-		if err != nil {
-			return true, err
+		err := vs.verifyLabelsAreUpdated(volumeID, matchLabels, entityType, entityName, entityNamespace)
+		if err == nil {
+			return true, nil
+		} else {
+			return false, nil
 		}
-		if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
-			return true, fmt.Errorf("failed to query cns volume %s", volumeID)
-		}
-		gomega.Expect(queryResult.Volumes[0].Metadata).NotTo(gomega.BeNil())
-		for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
-			if metadata == nil {
-				continue
-			}
-			kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
-			k8sEntityName := kubernetesMetadata.EntityName
-			if guestCluster {
-				k8sEntityName = kubernetesMetadata.CnsEntityMetadata.EntityName
-			}
-			if kubernetesMetadata.EntityType == entityType && k8sEntityName == entityName &&
-				kubernetesMetadata.Namespace == entityNamespace {
-				if matchLabels == nil {
-					return true, nil
-				}
-				labelsMatch := reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.Labels), matchLabels)
-				if guestCluster {
-					labelsMatch = reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.CnsEntityMetadata.Labels),
-						matchLabels)
-				}
-				if labelsMatch {
-					return true, nil
-				}
-			}
-		}
-		return false, nil
 	})
 	if err != nil {
 		if err == wait.ErrWaitTimeout {
@@ -667,7 +639,7 @@ func verifyVolPropertiesFromCnsQueryResults(e2eVSphere vSphere, volHandle string
 
 }
 
-//getClusterName methods returns the cluster and vsan client of the testbed
+// getClusterName methods returns the cluster and vsan client of the testbed
 func getClusterName(ctx context.Context, vs *vSphere) ([]*object.ClusterComputeResource, *VsanClient, error) {
 	c := newClient(ctx, vs)
 	datacenter := e2eVSphere.Config.Global.Datacenters
@@ -687,8 +659,8 @@ func getClusterName(ctx context.Context, vs *vSphere) ([]*object.ClusterComputeR
 	return clusterComputeResource, vsanHealthClient, err
 }
 
-//getHostUUID takes input of the HostInfo which has host uuid
-//with the host uuid it maps the corresponding host IP and returns it
+// getHostUUID takes input of the HostInfo which has host uuid
+// with the host uuid it maps the corresponding host IP and returns it
 func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 	var result map[string]interface{}
 	computeCluster := os.Getenv("CLUSTER_NAME")
@@ -743,7 +715,7 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 	return ""
 }
 
-//getVsanClusterResource returns the vsan cluster's details
+// getVsanClusterResource returns the vsan cluster's details
 func (vs *vSphere) getVsanClusterResource(ctx context.Context, forceRefresh ...bool) *object.ClusterComputeResource {
 	refresh := false
 	var cluster *object.ClusterComputeResource
@@ -794,7 +766,7 @@ func (vs *vSphere) getVsanClusterResource(ctx context.Context, forceRefresh ...b
 	return defaultCluster
 }
 
-//getAllHostsIP reads cluster, gets hosts in it and returns IP array
+// getAllHostsIP reads cluster, gets hosts in it and returns IP array
 func getAllHostsIP(ctx context.Context) []string {
 	var result []string
 	cluster := e2eVSphere.getVsanClusterResource(ctx)
@@ -807,7 +779,7 @@ func getAllHostsIP(ctx context.Context) []string {
 	return result
 }
 
-//getHostConnectionState reads cluster, gets hosts in it and returns connection state of host
+// getHostConnectionState reads cluster, gets hosts in it and returns connection state of host
 func getHostConnectionState(ctx context.Context, addr string) (string, error) {
 	var state string
 	cluster := e2eVSphere.getVsanClusterResource(ctx)
@@ -828,9 +800,9 @@ func getHostConnectionState(ctx context.Context, addr string) (string, error) {
 	return "host not found", fmt.Errorf("host not found %s", addr)
 }
 
-//VsanQueryObjectIdentities return list of vsan uuids
-//example: For a PVC, It returns the vSAN object UUIDs to their identities
-//It return vsanObjuuid like [4336525f-7813-d78a-e3a4-02005456da7e]
+// VsanQueryObjectIdentities return list of vsan uuids
+// example: For a PVC, It returns the vSAN object UUIDs to their identities
+// It return vsanObjuuid like [4336525f-7813-d78a-e3a4-02005456da7e]
 func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context,
 	cluster vim25types.ManagedObjectReference) (*vsantypes.VsanObjectIdentityAndHealth, error) {
 	req := vsantypes.VsanQueryObjectIdentities{
@@ -849,8 +821,9 @@ func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context,
 // QueryVsanObjects takes vsan uuid as input and returns the vSANObj related
 // information like lsom_objects and disk_objects.
 // Example return values:
-//  "{"disk_objects": {"525a9aa5-1142-4004-ad6f-2389eef25f06":
-//     ....lsom_objects": {"e7945f5f-4267-3e5d-334a-020063a7a5c4":......}
+//
+//	"{"disk_objects": {"525a9aa5-1142-4004-ad6f-2389eef25f06":
+//	   ....lsom_objects": {"e7945f5f-4267-3e5d-334a-020063a7a5c4":......}
 func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *vSphere) (string, error) {
 	computeCluster := os.Getenv("CLUSTER_NAME")
 	if computeCluster == "" {
@@ -893,7 +866,7 @@ func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *v
 	return res.Returnval, nil
 }
 
-//queryCNSVolumeWithWait gets the cns volume health status
+// queryCNSVolumeWithWait gets the cns volume health status
 func queryCNSVolumeWithWait(ctx context.Context, client clientset.Interface, volHandle string) error {
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
 		framework.Logf("wait for next poll %v", pollTimeoutShort)
@@ -1035,4 +1008,73 @@ func (vs *vSphere) createVolumeSnapshotInCNS(fcdID string) (string, error) {
 		fcdID, snapshotId, snapshotCreateTime)
 
 	return snapshotId, err
+}
+
+// verifyVolumeCompliance verifies the volume policy compliance status
+func (vs *vSphere) verifyVolumeCompliance(volumeID string, shouldBeCompliant bool) {
+	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Volume id: %v compliance status: %v", volumeID, queryResult.Volumes[0].ComplianceStatus)
+	if shouldBeCompliant {
+		gomega.Expect(queryResult.Volumes[0].ComplianceStatus == "compliant").To(gomega.BeTrue())
+	} else {
+		gomega.Expect(queryResult.Volumes[0].ComplianceStatus == "compliant").To(gomega.BeFalse())
+	}
+}
+
+// verifyLabelsAreUpdated executes cns QueryVolume API on vCenter and verifies if
+// volume labels are updated by metadata-syncer
+func (vs *vSphere) verifyLabelsAreUpdated(volumeID string, matchLabels map[string]string,
+	entityType string, entityName string, entityNamespace string) error {
+
+	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+	framework.Logf("queryResult: %s", spew.Sdump(queryResult))
+	if err != nil {
+		return err
+	}
+	if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
+		return fmt.Errorf("failed to query cns volume %s", volumeID)
+	}
+	gomega.Expect(queryResult.Volumes[0].Metadata).NotTo(gomega.BeNil())
+	for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
+		if metadata == nil {
+			continue
+		}
+		kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
+		k8sEntityName := kubernetesMetadata.EntityName
+		if guestCluster {
+			k8sEntityName = kubernetesMetadata.CnsEntityMetadata.EntityName
+		}
+		if kubernetesMetadata.EntityType == entityType && k8sEntityName == entityName &&
+			kubernetesMetadata.Namespace == entityNamespace {
+			if matchLabels == nil {
+				return nil
+			}
+			labelsMatch := reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.Labels), matchLabels)
+			if guestCluster {
+				labelsMatch = reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.CnsEntityMetadata.Labels),
+					matchLabels)
+			}
+			if labelsMatch {
+				return nil
+			} else {
+				return fmt.Errorf("labels are not updated to %+v for %s %q for volume %s",
+					matchLabels, entityType, entityName, volumeID)
+			}
+		}
+	}
+	return nil
+}
+
+// verifyDatastoreMatch verify is dsurl matches with given one for the volumeid
+func (vs *vSphere) verifyDatastoreMatch(volumeID string, dsUrl string) bool {
+	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("queryResult: %s", spew.Sdump(queryResult))
+	gomega.Expect(len(queryResult.Volumes)).NotTo(
+		gomega.BeZero(), "QueryCNSVolumeWithResult returned no volume for id:%v", volumeID)
+
+	framework.Logf("dsUrl from QueryCNSVolumeWithResult: %s, expected: %s", queryResult.Volumes[0].DatastoreUrl, dsUrl)
+	return queryResult.Volumes[0].DatastoreUrl == dsUrl
 }

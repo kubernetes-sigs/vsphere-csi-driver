@@ -66,6 +66,9 @@ type e2eTestConfig struct {
 	// Multiple sets of Net Permissions applied to all file shares
 	// The string can uniquely represent each Net Permissions config
 	NetPermissions map[string]*NetPermissionConfig
+
+	// Snapshot configurations.
+	Snapshot SnapshotConfig
 }
 
 // NetPermissionConfig consists of information used to restrict the
@@ -77,6 +80,18 @@ type NetPermissionConfig struct {
 	Permissions vsanfstypes.VsanFileShareAccessType `gcfg:"permissions"`
 	// Disallow root access for this IP range. Defaults to "false" if not specified
 	RootSquash bool `gcfg:"rootsquash"`
+}
+
+// SnapshotConfig contains snapshot configuration.
+type SnapshotConfig struct {
+	// GlobalMaxSnapshotsPerBlockVolume specifies the maximum number of block volume snapshots per volume.
+	GlobalMaxSnapshotsPerBlockVolume int `gcfg:"global-max-snapshots-per-block-volume"`
+	// GranularMaxSnapshotsPerBlockVolumeInVSAN specifies the maximum number of block volume snapshots
+	// per volume in VSAN datastores.
+	GranularMaxSnapshotsPerBlockVolumeInVSAN int `gcfg:"granular-max-snapshots-per-block-volume-vsan"`
+	// GranularMaxSnapshotsPerBlockVolumeInVVOL specifies the maximum number of block volume snapshots
+	// per volume in VVOL datastores.
+	GranularMaxSnapshotsPerBlockVolumeInVVOL int `gcfg:"granular-max-snapshots-per-block-volume-vvol"`
 }
 
 // getConfig returns e2eTestConfig struct for e2e tests to help establish vSphere connection.

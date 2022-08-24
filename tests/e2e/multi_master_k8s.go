@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
+	admissionapi "k8s.io/pod-security-admission/api"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -44,6 +45,7 @@ import (
 
 var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-multi-master-k8s")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		namespace           string
 		controllerNamespace string

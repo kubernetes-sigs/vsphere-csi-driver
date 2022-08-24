@@ -34,10 +34,12 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	f := framework.NewDefaultFramework("e2e-node-vm-attachments")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client            clientset.Interface
 		clientNewGc       clientset.Interface
@@ -288,12 +290,18 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
+		// Get CSI Controller's replica count from the setup
+		deployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
+
 		ginkgo.By("Bring down csi-controller pod in SV")
 		bringDownCsiController(svcClient)
 		isControllerUp = false
 		defer func() {
 			if !isControllerUp {
-				bringUpCsiController(svcClient)
+				bringUpCsiController(svcClient, csiReplicaCount)
 			}
 		}()
 
@@ -317,7 +325,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 			To(gomega.BeTrue())
 
 		ginkgo.By("Bring up csi-controller pod in SV")
-		bringUpCsiController(svcClient)
+		bringUpCsiController(svcClient, csiReplicaCount)
 		isControllerUp = true
 
 		err = fpod.WaitForPodRunningInNamespace(client, pod)
@@ -455,7 +463,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		// After scale up, verify all vSphere volumes are attached to node VMs.
 		ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
 		for _, sspod := range ssPodsAfterScaleUp.Items {
-			err := fpod.WaitForPodsReady(client, statefulset.Namespace, sspod.Name, 0)
+			err := fpod.WaitTimeoutForPodReadyInNamespace(client, sspod.Name, statefulset.Namespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
