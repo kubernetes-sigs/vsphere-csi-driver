@@ -42,7 +42,7 @@ import (
 // 7. Delete all PVCs from the tests namespace.
 // 8. Delete the storage class.
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor] [csi-guest] "+
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor-serialized] [csi-guest] "+
 	"[csi-block-vanilla-parallelized] CNS-CSI Cluster Distribution for StatefulSets", func() {
 	f := framework.NewDefaultFramework("csi-cns-telemetry")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged

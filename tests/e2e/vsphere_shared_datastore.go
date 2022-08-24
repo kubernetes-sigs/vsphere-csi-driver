@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 	// 9. Delete Pod
 	// 10. Delete PVC and SC
 
-	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-supervisor] "+
+	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-supervisor-serialized] "+
 		"Verify impact on existing pv pvc when sc recreated with different binding mode", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

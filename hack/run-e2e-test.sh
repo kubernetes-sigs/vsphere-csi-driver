@@ -59,14 +59,35 @@ then
     if [[ $TEST_PASS -ne 0 ]]; then
         exit 1
     fi
+    
     ginkgo -mod=mod "${OPTS[@]}" --focus="csi-block-vanilla-serialized" tests/e2e
     # Checking for serialized test status
     TEST_PASS=$?
     if [[ $TEST_PASS -ne 0 ]]; then
         exit 1
     fi
+
     OPTS+=(-p)
     ginkgo -mod=mod "${OPTS[@]}" --focus="csi-block-vanilla-parallelized" tests/e2e
+
+elif [ "$FOCUS" == "csi-supervisor" ]
+then
+    ginkgo -mod=mod "${OPTS[@]}" --focus="csi-supervisor-destructive" tests/e2e
+    # Checking for destructive test status
+    TEST_PASS=$?
+    if [[ $TEST_PASS -ne 0 ]]; then
+        exit 1
+    fi
+    
+    ginkgo -mod=mod "${OPTS[@]}" --focus="csi-supervisor-serialized" tests/e2e
+    # Checking for serialized test status
+    TEST_PASS=$?
+    if [[ $TEST_PASS -ne 0 ]]; then
+        exit 1
+    fi
+    
+    OPTS+=(-p)
+    ginkgo -mod=mod "${OPTS[@]}" --focus="csi-supervisor-parallelized" tests/e2e
 else
     ginkgo -mod=mod "${OPTS[@]}" --focus="$FOCUS" tests/e2e
 fi

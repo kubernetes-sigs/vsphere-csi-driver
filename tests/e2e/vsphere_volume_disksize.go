@@ -43,7 +43,7 @@ import (
 	4. Verify disk size specified is being honored
 */
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor] [csi-guest] "+
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor-serialized] [csi-guest] "+
 	"[csi-block-vanilla-parallelized] Volume Disk Size ", func() {
 	f := framework.NewDefaultFramework("volume-disksize")
 	var (
