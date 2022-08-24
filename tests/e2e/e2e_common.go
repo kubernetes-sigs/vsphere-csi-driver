@@ -185,7 +185,7 @@ const (
 	vmOperatorAPI                             = "/apis/vmoperator.vmware.com/v1alpha1/"
 	devopsUser                                = "testuser"
 	zoneKey                                   = "failure-domain.beta.kubernetes.io/zone"
-	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha1/namespaces" +
+	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha3/namespaces" +
 		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"
 	topologykey                                = "topology.csi.vmware.com"
 	topologyMap                                = "TOPOLOGY_MAP"
