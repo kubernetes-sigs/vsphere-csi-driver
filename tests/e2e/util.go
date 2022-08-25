@@ -4424,7 +4424,9 @@ TOPOLOGY_MAP = "region:region1;zone:zone1;building:building1;level:level1;rack:r
 func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]string, []string) {
 	topologyMap := make(map[string][]string)
 	var categories []string
-	if level != 5 {
+	topologyFeature := os.Getenv(topologyFeature)
+
+	if level != 5 && topologyFeature != topologyTkgHaName {
 		return nil, categories
 	}
 	topologyCategories := strings.Split(topologyMapStr, ";")
@@ -4442,11 +4444,18 @@ func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]str
 This wrapper method is used to create allowed topologies set required for creating Storage Class.
 */
 func createAllowedTopolgies(topologyMapStr string, level int) []v1.TopologySelectorLabelRequirement {
+	topologyFeature := os.Getenv(topologyFeature)
 	topologyMap, _ := createTopologyMapLevel5(topologyMapStr, level)
 	allowedTopologies := []v1.TopologySelectorLabelRequirement{}
+	topoKey := ""
+	if topologyFeature == topologyTkgHaName {
+		topoKey = tkgHATopologyKey
+	} else {
+		topoKey = topologykey
+	}
 	for key, val := range topologyMap {
 		allowedTopology := v1.TopologySelectorLabelRequirement{
-			Key:    topologykey + "/" + key,
+			Key:    topoKey + "/" + key,
 			Values: val,
 		}
 		allowedTopologies = append(allowedTopologies, allowedTopology)
@@ -4491,14 +4500,27 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 	if pv.Spec.NodeAffinity == nil || len(pv.Spec.NodeAffinity.Required.NodeSelectorTerms) == 0 {
 		return false, fmt.Errorf("node Affinity rules for PV should exist in topology aware provisioning")
 	}
+	topologyFeature := os.Getenv(topologyFeature)
 	for _, nodeSelector := range pv.Spec.NodeAffinity.Required.NodeSelectorTerms {
 		for _, topology := range nodeSelector.MatchExpressions {
 			if val, ok := allowedTopologiesMap[topology.Key]; ok {
 				if !compareStringLists(val, topology.Values) {
-					return false, fmt.Errorf("PV node affinity details does not exist in the allowed topologies specified in SC")
+					if topologyFeature == topologyTkgHaName {
+						return false, fmt.Errorf("pv node affinity details: %v does not match"+
+							"with: %v in the allowed topologies", topology.Values, val)
+					} else {
+						return false, fmt.Errorf("PV node affinity details does not exist in the allowed " +
+							"topologies specified in SC")
+					}
 				}
 			} else {
-				return false, fmt.Errorf("PV node affinity details does not exist in the allowed topologies specified in SC")
+				if topologyFeature == topologyTkgHaName {
+					return false, fmt.Errorf("pv node affinity key: %v does not does not exist in the"+
+						"allowed topologies map: %v", topology.Key, allowedTopologiesMap)
+				} else {
+					return false, fmt.Errorf("PV node affinity details does not exist in the allowed " +
+						"topologies specified in SC")
+				}
 			}
 		}
 	}
@@ -4594,7 +4616,7 @@ func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList,
 			for labelKey, labelValue := range node.Labels {
 				if topologyValue, ok := allowedTopologiesMap[labelKey]; ok {
 					if !contains(topologyValue, labelValue) {
-						return false, fmt.Errorf("Pod is not running on node located in %s" + labelValue)
+						return false, fmt.Errorf("pod: %s is not running on node located in %s", pod.Name, labelValue)
 					}
 				}
 			}
