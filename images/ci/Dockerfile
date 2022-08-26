@@ -17,7 +17,7 @@
 ################################################################################
 # The golang image is used to create the project's module and build caches
 # and is also the image on which this image is based.
-ARG GOLANG_IMAGE=golang:1.18
+ARG GOLANG_IMAGE=golang:1.19
 
 ################################################################################
 ##                            GO MOD CACHE STAGE                              ##
