@@ -138,7 +138,7 @@ func (authManager *AuthManager) refreshDatastoreMapForBlockVolumes() {
 		authManager.rwMutex.Lock()
 		defer authManager.rwMutex.Unlock()
 		authManager.datastoreMapForBlockVolumes = newDatastoreMapForBlockVolumes
-		log.Debugf("auth manager: datastoreMapForBlockVolumes is updated to %v", newDatastoreMapForBlockVolumes)
+		log.Infof("auth manager: datastoreMapForBlockVolumes is updated to %v", newDatastoreMapForBlockVolumes)
 	} else {
 		log.Warnf("auth manager: failed to get updated datastoreMapForBlockVolumes, Err: %v", err)
 	}
@@ -155,7 +155,7 @@ func (authManager *AuthManager) refreshFSEnabledClustersToDsMap() {
 		defer authManager.rwMutex.Unlock()
 
 		authManager.fsEnabledClusterToDsMap = newFsEnabledClusterToDsMap
-		log.Debugf("auth manager: newFsEnabledClusterToDsMap is updated to %v", newFsEnabledClusterToDsMap)
+		log.Infof("auth manager: newFsEnabledClusterToDsMap is updated to %v", newFsEnabledClusterToDsMap)
 	} else {
 		log.Warnf("auth manager: failed to get updated datastoreMapForFileVolumes, Err: %v", err)
 	}
@@ -243,7 +243,7 @@ func GenerateFSEnabledClustersToDsMap(ctx context.Context,
 	}
 	// Return empty map if no vSAN datastores are found.
 	if len(vsanDsURLToInfoMap) == 0 {
-		log.Debug("No vSAN datastores found")
+		log.Info("No vSAN datastores found")
 		return clusterToDsInfoListMap, nil
 	}
 
@@ -447,7 +447,7 @@ func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCen
 		clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
 		if err != nil {
 			if _, ok := err.(*find.NotFoundError); ok {
-				log.Debugf("No clusterComputeResource found in dc: %+v. error: %+v", datacenter, err)
+				log.Errorf("No clusterComputeResource found in datacenter: %+v. error: %+v", datacenter, err)
 				continue
 			}
 			log.Errorf("Error occurred while getting clusterComputeResource. error: %+v", err)
@@ -505,7 +505,7 @@ func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCen
 			return nil, err
 		}
 		if !(*config.Enabled) {
-			log.Debugf("cluster: %+v is a non-vSAN cluster. Skipping this cluster", cluster)
+			log.Infof("cluster: %+v is a non-vSAN cluster. Skipping this cluster", cluster)
 			continue
 		} else if config.FileServiceConfig == nil {
 			log.Debugf("VsanClusterGetConfig.FileServiceConfig is empty. Skipping this cluster: %+v with config: %+v",
