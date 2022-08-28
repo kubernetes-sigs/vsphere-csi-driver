@@ -467,12 +467,9 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
 		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// Waiting for some time for PVC to be deleted correctly
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow PVC deletion", oneMinuteWaitTimeInSeconds))
-		time.Sleep(time.Duration(oneMinuteWaitTimeInSeconds) * time.Second)
-
-		_, err = e2eVSphere.getLabelsForCNSVolume(pv.Spec.CSI.VolumeHandle,
-			string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, namespace)
+		
+		ginkgo.By(fmt.Sprintf("Waiting for PVC %s to be deleted", pvc.Name))
+		err = waitForPVCDeletion(pv.Spec.CSI.VolumeHandle, pvc.Name, namespace)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting pv %s", pv.Name))
@@ -782,4 +779,18 @@ func waitForPodNameLabelRemoval(volumeID string, podname string, namespace strin
 		return nil
 	}
 	return fmt.Errorf("pod name label is not removed from cns")
+}
+
+func waitForPVCDeletion(volumeHandle string, pvcName string, namespace string) error {
+	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+		_, err := e2eVSphere.getLabelsForCNSVolume(volumeHandle,
+			string(cnstypes.CnsKubernetesEntityTypePOD), pvcName, namespace)
+		if err != nil {
+			framework.Logf("PVC is successfully deleted")
+			return true, err
+		}
+		framework.Logf("waiting for PVC to be deleted from namespace: %q", namespace)
+		return false, nil
+	})
+	return err
 }
