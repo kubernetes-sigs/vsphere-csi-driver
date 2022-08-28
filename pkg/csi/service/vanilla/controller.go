@@ -590,6 +590,10 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to get shared datastores in kubernetes cluster. Error: %+v", err)
 		}
+		if len(sharedDatastores) == 0 {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+				"No datastore found for volume provisioning.")
+		}
 	}
 
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
@@ -1575,23 +1579,22 @@ func (c *controller) processQueryResultsListVolumes(ctx context.Context, startin
 		} else {
 			volumeType = prometheus.PrometheusBlockVolumeType
 			blockVolID := queryResult.Volumes[i].VolumeId.Id
-			for volID, nodeVMUUID := range volumeIDToNodeUUIDMap {
-				if blockVolID == volID {
-					//Populate csi.Volume info for the given volume
-					blockVolumeInfo := &csi.Volume{
-						VolumeId: blockVolID,
-					}
-					// Getting published nodes
-					volStatus := &csi.ListVolumesResponse_VolumeStatus{
-						PublishedNodeIds: []string{nodeVMUUID},
-					}
-					entry := &csi.ListVolumesResponse_Entry{
-						Volume: blockVolumeInfo,
-						Status: volStatus,
-					}
-					// Populate List Volumes Entry Response
-					entries = append(entries, entry)
+			nodeVMUUID, found := volumeIDToNodeUUIDMap[blockVolID]
+			if found {
+				//Populate csi.Volume info for the given volume
+				blockVolumeInfo := &csi.Volume{
+					VolumeId: blockVolID,
 				}
+				// Getting published nodes
+				volStatus := &csi.ListVolumesResponse_VolumeStatus{
+					PublishedNodeIds: []string{nodeVMUUID},
+				}
+				entry := &csi.ListVolumesResponse_Entry{
+					Volume: blockVolumeInfo,
+					Status: volStatus,
+				}
+				// Populate List Volumes Entry Response
+				entries = append(entries, entry)
 			}
 		}
 	}
