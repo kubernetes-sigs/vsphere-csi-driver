@@ -1059,7 +1059,13 @@ func createMultiplePods(ctx context.Context, client clientset.Interface,
 						gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel),
 					)
 				}
-				volHandle := getVolHandle4Pvc(ctx, client, pvc)
+				var volHandle string
+				volHandle = getVolHandle4Pvc(ctx, client, pvc)
+				if guestCluster {
+					pv := getPvFromClaim(client, pvc.Namespace, pvc.Name)
+					volHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+					gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+				}
 				ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s, VMUUID : %s",
 					volHandle, pod.Spec.NodeName, vmUUID))
 				isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)

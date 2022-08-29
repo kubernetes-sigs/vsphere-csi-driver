@@ -73,6 +73,7 @@ const (
 	envSharedVVOLDatastoreURL                  = "SHARED_VVOL_DATASTORE_URL"
 	envSharedNFSDatastoreURL                   = "SHARED_NFS_DATASTORE_URL"
 	envSharedVMFSDatastoreURL                  = "SHARED_VMFS_DATASTORE_URL"
+	envSharedVMFSDatastore2URL                 = "SHARED_VMFS_DATASTORE2_URL"
 	envStoragePolicyNameForNonSharedDatastores = "STORAGE_POLICY_FOR_NONSHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores    = "STORAGE_POLICY_FOR_SHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores2   = "STORAGE_POLICY_FOR_SHARED_DATASTORES_2"
