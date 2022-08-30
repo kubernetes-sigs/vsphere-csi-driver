@@ -2780,7 +2780,9 @@ func verifyEntityReferenceInCRDInSupervisor(ctx context.Context, f *framework.Fr
 // trimQuotes takes a quoted string as input and returns the same string unquoted.
 func trimQuotes(str string) string {
 	str = strings.TrimPrefix(str, "\"")
+	str = strings.TrimSuffix(str, " ")
 	str = strings.TrimSuffix(str, "\"")
+
 	return str
 }
 
@@ -2809,9 +2811,16 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			continue
 		}
 		words := strings.Split(line, " = ")
+		if strings.Contains(words[0], "topology-categories=") {
+			words = strings.Split(line, "=")
+		}
+
 		if len(words) == 1 {
 			// Case Snapshot
 			if strings.Contains(words[0], "Snapshot") {
+				continue
+			}
+			if strings.Contains(words[0], "Labels") {
 				continue
 			}
 			// Case VirtualCenter.
@@ -2851,9 +2860,12 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			config.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "topology-categories":
-			config.Global.TopologyCategories = value
+			config.Labels.TopologyCategories = value
 		case "global-max-snapshots-per-block-volume":
 			config.Snapshot.GlobalMaxSnapshotsPerBlockVolume, strconvErr = strconv.Atoi(value)
+			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
+		case "csi-fetch-preferred-datastores-intervalinmin":
+			config.Global.CSIFetchPreferredDatastoresIntervalInMin, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
@@ -2866,11 +2878,16 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 // that into a string.
 func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
 	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
-		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n"+
-		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d",
+		"csi-fetch-preferred-datastores-intervalinmin = %d\n\n"+
+		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n\n"+
+		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n"+
+		"[Labels]\ntopology-categories = \"%s\"",
 		cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
+		cfg.Global.CSIFetchPreferredDatastoresIntervalInMin,
 		cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
-		cfg.Global.Datacenters, cfg.Global.VCenterPort, cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
+		cfg.Global.Datacenters, cfg.Global.VCenterPort,
+		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume,
+		cfg.Labels.TopologyCategories)
 	return result, nil
 }
 
@@ -5557,7 +5574,7 @@ func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object
 	}
 	for _, cluster := range clusterComputeResource {
 		framework.Logf("clusterComputeResource %v", clusterComputeResource)
-		if strings.Contains(cluster.Name(), computeCluster) {
+		if strings.Contains(computeCluster, cluster.Name()) {
 			hosts, err = cluster.Hosts(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -5673,7 +5690,7 @@ func waitForEventWithReason(client clientset.Interface, namespace string,
 
 // stopCSIPods function stops all the running csi pods
 func stopCSIPods(ctx context.Context, client clientset.Interface) (bool, error) {
-	collectPodLogs(ctx, client, csiSystemNamespace)
+	//collectPodLogs(ctx, client, csiSystemNamespace)
 	isServiceStopped := false
 	err := updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix,
 		csiSystemNamespace)

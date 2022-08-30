@@ -1137,3 +1137,15 @@ func fetchDsUrl4CnsVol(e2eVSphere vSphere, volHandle string) string {
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 	return queryResult.Volumes[0].DatastoreUrl
 }
+
+/* verifyPreferredDatastoreMatch executes CNS volume to get the datastore where the
+volume is Present */
+func (vs *vSphere) verifyPreferredDatastoreMatch(volumeID string, dsUrl string) bool {
+	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("queryResult: %s", spew.Sdump(queryResult))
+	gomega.Expect(len(queryResult.Volumes)).NotTo(
+		gomega.BeZero(), "QueryCNSVolumeWithResult returned no volume for id:%v", volumeID)
+	framework.Logf("dsUrl from QueryCNSVolumeWithResult: %s, expected: %s", queryResult.Volumes[0].DatastoreUrl, dsUrl)
+	return queryResult.Volumes[0].DatastoreUrl == dsUrl
+}
