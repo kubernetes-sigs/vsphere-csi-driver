@@ -3540,7 +3540,7 @@ func getPVCSpecWithPVandStorageClass(pvcName string, namespace string, labels ma
 // object name.
 func waitForEvent(ctx context.Context, client clientset.Interface,
 	namespace string, substr string, name string) error {
-	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
 		eventList, err := client.CoreV1().Events(namespace).List(ctx,
 			metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
 		if err != nil {
@@ -5226,8 +5226,14 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 	csiControllerPodName, grepCmdForFindingCurrentLeader := "", ""
 	csiPods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	k8sMasterIPs := getK8sMasterIPs(ctx, client)
-	k8sMasterIP := k8sMasterIPs[0]
+	var k8sMasterIP, kubeConfigPath string
+	if guestCluster {
+		k8sMasterIP = GetAndExpectStringEnvVar(svcMasterIP)
+		kubeConfigPath = GetAndExpectStringEnvVar(gcKubeConfigPath)
+	} else {
+		k8sMasterIPs := getK8sMasterIPs(ctx, client)
+		k8sMasterIP = k8sMasterIPs[0]
+	}
 	for _, csiPod := range csiPods {
 		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) {
 			// Putting the grepped logs for leader of container of different CSI pods
@@ -5237,6 +5243,11 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 			grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
 				csiSystemNamespace + " " + containerName + " | grep 'successfully acquired lease' | " +
 				"tail -1` 'podName:" + csiPod.Name + "' | tee -a leader.log"
+			if guestCluster {
+				grepCmdForFindingCurrentLeader = fmt.Sprintf("echo `kubectl logs "+csiPod.Name+" -n "+
+					csiSystemNamespace+" "+containerName+" --kubeconfig %s "+" | grep 'successfully acquired lease' | "+
+					"tail -1` 'podName:"+csiPod.Name+"' | tee -a leader.log", kubeConfigPath)
+			}
 
 			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
 				k8sMasterIP)
@@ -5428,12 +5439,13 @@ func createParallelStatefulSets(client clientset.Interface, namespace string,
 func createParallelStatefulSetSpec(namespace string, no_of_sts int, replicas int32) []*appsv1.StatefulSet {
 	stss := []*appsv1.StatefulSet{}
 	var statefulset *appsv1.StatefulSet
+
 	for i := 0; i < no_of_sts; i++ {
 		statefulset = GetStatefulSetFromManifest(namespace)
 		statefulset.Name = "thread-" + strconv.Itoa(i) + "-" + statefulset.Name
 		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = "nginx-sc"
+			Annotations["volume.beta.kubernetes.io/storage-class"] = defaultNginxStorageClassName
 		statefulset.Spec.Replicas = &replicas
 		stss = append(stss, statefulset)
 	}
@@ -5492,8 +5504,7 @@ func ExecInStsPodsInNs(c clientset.Interface, ss *appsv1.StatefulSet, cmd string
 This method is used to delete the CSI Controller Pod
 */
 func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
-	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
-	csi_controller_pod string) error {
+	client clientset.Interface, csi_controller_pod string) error {
 	ignoreLabels := make(map[string]string)
 	csiPods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5510,7 +5521,6 @@ func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
 	// wait for csi Pods to be in running ready state
 	err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	return nil
 }
 
