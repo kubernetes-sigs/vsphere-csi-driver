@@ -532,7 +532,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 						msg := fmt.Sprintf("failed to remove %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 							cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
 						recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
-						return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
+						return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 					}
 				}
 				removeFinalizerFromCRDInstance(ctx, instance, request)
