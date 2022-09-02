@@ -1231,11 +1231,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		//       This may fail if the environment on which this test is run is a
 		//       lot faster than our minimal test infra.
 		ginkgo.By("Checking GC pvc is having 'Resizing' status condition")
-		pvc, err = checkPvcHasGivenStatusCondition(client, namespace, pvc.Name, true, v1.PersistentVolumeClaimResizing)
+		pvc, err = waitForPvctoGetStatusCondition(client, namespace, pvc.Name, pollTimeout, true, v1.PersistentVolumeClaimResizing)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking for 'Resizing' status condition on SVC PVC")
-		_, err = checkSvcPvcHasGivenStatusCondition(svcPvcName, true, v1.PersistentVolumeClaimResizing)
+		_, err = waitForSvcPvcToReachStatusCondition(svcPvcName, true, v1.PersistentVolumeClaimResizing)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bringing GC CSI controller down...")
@@ -1261,8 +1261,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		time.Sleep(2 * time.Second)
 
 		ginkgo.By("Checking for conditions on pvc")
-		pvc, err = checkPvcHasGivenStatusCondition(client,
-			namespace, pvc.Name, true, v1.PersistentVolumeClaimFileSystemResizePending)
+		pvc, err = waitForPvctoGetStatusCondition(client,
+			namespace, pvc.Name, pollTimeout, true, v1.PersistentVolumeClaimFileSystemResizePending)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandleSvc))
@@ -1372,6 +1372,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		// Modify PVC spec to trigger volume expansion.
 		// We expand the PVC while no pod is using it to ensure offline expansion.
+
 		ginkgo.By("Expanding current pvc")
 		currentPvcSize := pvc.Spec.Resources.Requests[v1.ResourceStorage]
 		newSize := currentPvcSize.DeepCopy()
@@ -1391,11 +1392,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking GC pvc is have 'Resizing' status condition")
-		pvc, err = checkPvcHasGivenStatusCondition(client, namespace, pvc.Name, true, v1.PersistentVolumeClaimResizing)
+		pvc, err = waitForPvctoGetStatusCondition(client, namespace, pvc.Name, pollTimeout, true, v1.PersistentVolumeClaimResizing)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking for 'Resizing' status condition on SVC PVC")
-		_, err = checkSvcPvcHasGivenStatusCondition(svcPvcName, true, v1.PersistentVolumeClaimResizing)
+		_, err = waitForSvcPvcToReachStatusCondition(svcPvcName, true, v1.PersistentVolumeClaimResizing)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// PVC deletion happens in the defer block.
@@ -2079,8 +2080,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		pvclaim, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
-		pvclaim, err = checkPvcHasGivenStatusCondition(client,
-			namespace, pvclaim.Name, true, v1.PersistentVolumeClaimResizing)
+		pvclaim, err = waitForPvctoGetStatusCondition(client,
+			namespace, pvclaim.Name, pollTimeout, true, v1.PersistentVolumeClaimResizing)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 		_, err = checkSvcPvcHasGivenStatusCondition(svcPVCName, false, "")
@@ -2230,8 +2231,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		//  Note: This may fail if the environment on which this test is run is a
 		//  lot faster than our minimal test infra.
 		ginkgo.By("Checking GC pvc is having 'Resizing' status condition")
-		pvclaim, err = checkPvcHasGivenStatusCondition(client, namespace,
-			pvclaim.Name, true, v1.PersistentVolumeClaimResizing)
+		pvclaim, err = waitForPvctoGetStatusCondition(client, namespace,
+			pvclaim.Name, pollTimeout, true, v1.PersistentVolumeClaimResizing)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
@@ -2351,6 +2352,14 @@ func checkSvcPvcHasGivenStatusCondition(pvcName string, conditionsPresent bool,
 	return checkPvcHasGivenStatusCondition(svcClient, svcNamespace, pvcName, conditionsPresent, condition)
 }
 
+// waitForSvcPvcToReachStatusCondition checks and waits till  the status condition in SVC PVC
+// matches with the one we want.
+func waitForSvcPvcToReachStatusCondition(pvcName string, conditionsPresent bool,
+	condition v1.PersistentVolumeClaimConditionType) (*v1.PersistentVolumeClaim, error) {
+	svcClient, svcNamespace := getSvcClientAndNamespace()
+	return waitForPvctoGetStatusCondition(svcClient, svcNamespace, pvcName, pollTimeout, true, condition)
+}
+
 // waitForSvcPvcToReachFileSystemResizePendingCondition waits for SVC PVC to
 // reach FileSystemResizePendingCondition status condition.
 func waitForSvcPvcToReachFileSystemResizePendingCondition(svcPvcName string, timeout time.Duration) error {
@@ -2445,6 +2454,42 @@ func checkPvcHasGivenStatusCondition(client clientset.Interface, namespace strin
 			pvcName, inProgressConditions[0].Type, condition)
 	}
 	return pvclaim, nil
+}
+
+// waitForPvctoGetStatusCondition checks & waits till specified time out
+// if the status condition in PVC matches with the one we want
+func waitForPvctoGetStatusCondition(client clientset.Interface, namespace string, pvcName string,
+	timeout time.Duration, conditionsPresent bool, condition v1.PersistentVolumeClaimConditionType) (*v1.PersistentVolumeClaim, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var pvclaim *v1.PersistentVolumeClaim
+	var err error
+	waitErr := wait.PollImmediate(resizePollInterval, timeout, func() (bool, error) {
+		pvclaim, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+
+		inProgressConditions := pvclaim.Status.Conditions
+		// If there are conditions on the PVC, it must be of
+		// given condition type.
+
+		if len(inProgressConditions) == 0 {
+			if conditionsPresent {
+				return false, fmt.Errorf("no status conditions found on PVC: %v", pvcName)
+			}
+			return true, nil
+		}
+		expectEqual(len(inProgressConditions), 1, fmt.Sprintf("PVC '%v' has more than one status condition", pvcName))
+
+		if inProgressConditions[0].Type == condition {
+			return true, nil
+		}
+
+		return false, fmt.Errorf(
+			"status condition found on PVC '%v' is '%v', and is not matching with expected status condition '%v'",
+			pvcName, inProgressConditions[0].Type, condition)
+	})
+	return pvclaim, waitErr
 }
 
 // convertGiStrToMibInt64 returns integer numbers of Mb equivalent to string
