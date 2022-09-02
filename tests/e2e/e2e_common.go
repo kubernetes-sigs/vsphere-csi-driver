@@ -73,6 +73,7 @@ const (
 	envSharedVVOLDatastoreURL                  = "SHARED_VVOL_DATASTORE_URL"
 	envSharedNFSDatastoreURL                   = "SHARED_NFS_DATASTORE_URL"
 	envSharedVMFSDatastoreURL                  = "SHARED_VMFS_DATASTORE_URL"
+	envSharedVMFSDatastore2URL                 = "SHARED_VMFS_DATASTORE2_URL"
 	envStoragePolicyNameForNonSharedDatastores = "STORAGE_POLICY_FOR_NONSHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores    = "STORAGE_POLICY_FOR_SHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores2   = "STORAGE_POLICY_FOR_SHARED_DATASTORES_2"
@@ -155,6 +156,8 @@ const (
 	svcStoppedMessage                         = "Stopped"
 	stopOperation                             = "stop"
 	statusOperation                           = "status"
+	envZonalStoragePolicyName                 = "ZONAL_STORAGECLASS"
+	envZonalWffcStoragePolicyName             = "ZONAL_WFFC_STORAGECLASS"
 	supervisorClusterOperationsTimeout        = 3 * time.Minute
 	svClusterDistribution                     = "SupervisorCluster"
 	svOperationTimeout                        = 240 * time.Second
@@ -189,11 +192,18 @@ const (
 		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"
 	topologykey                                = "topology.csi.vmware.com"
 	topologyMap                                = "TOPOLOGY_MAP"
+	topologyHaMap                              = "TOPOLOGY_HA_MAP"
+	topologyFeature                            = "TOPOLOGY_FEATURE"
+	topologyTkgHaName                          = "tkgs_ha"
+	tkgHATopologyKey                           = "topology.kubernetes.io"
+	tkgHAccessibleAnnotationKey                = "csi.vsphere.volume-accessible-topology"
+	tkgHARequestedAnnotationKey                = "csi.vsphere.volume-requested-topology"
 	datstoreSharedBetweenClusters              = "DATASTORE_SHARED_BETWEEN_TWO_CLUSTERS"
 	datastoreUrlSpecificToCluster              = "DATASTORE_URL_SPECIFIC_TO_CLUSTER"
 	storagePolicyForDatastoreSpecificToCluster = "STORAGE_POLICY_FOR_DATASTORE_SPECIFIC_TO_CLUSTER"
 	topologyCluster                            = "TOPOLOGY_CLUSTERS"
 	topologyLength                             = 5
+	tkgshaTopologyLevels                       = 1
 	vmcPrdEndpoint                             = "https://vmc.vmware.com/vmc/api/orgs/"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"

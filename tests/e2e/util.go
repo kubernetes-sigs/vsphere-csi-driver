@@ -4424,7 +4424,9 @@ TOPOLOGY_MAP = "region:region1;zone:zone1;building:building1;level:level1;rack:r
 func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]string, []string) {
 	topologyMap := make(map[string][]string)
 	var categories []string
-	if level != 5 {
+	topologyFeature := os.Getenv(topologyFeature)
+
+	if level != 5 && topologyFeature != topologyTkgHaName {
 		return nil, categories
 	}
 	topologyCategories := strings.Split(topologyMapStr, ";")
@@ -4442,11 +4444,18 @@ func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]str
 This wrapper method is used to create allowed topologies set required for creating Storage Class.
 */
 func createAllowedTopolgies(topologyMapStr string, level int) []v1.TopologySelectorLabelRequirement {
+	topologyFeature := os.Getenv(topologyFeature)
 	topologyMap, _ := createTopologyMapLevel5(topologyMapStr, level)
 	allowedTopologies := []v1.TopologySelectorLabelRequirement{}
+	topoKey := ""
+	if topologyFeature == topologyTkgHaName {
+		topoKey = tkgHATopologyKey
+	} else {
+		topoKey = topologykey
+	}
 	for key, val := range topologyMap {
 		allowedTopology := v1.TopologySelectorLabelRequirement{
-			Key:    topologykey + "/" + key,
+			Key:    topoKey + "/" + key,
 			Values: val,
 		}
 		allowedTopologies = append(allowedTopologies, allowedTopology)
@@ -4491,14 +4500,27 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 	if pv.Spec.NodeAffinity == nil || len(pv.Spec.NodeAffinity.Required.NodeSelectorTerms) == 0 {
 		return false, fmt.Errorf("node Affinity rules for PV should exist in topology aware provisioning")
 	}
+	topologyFeature := os.Getenv(topologyFeature)
 	for _, nodeSelector := range pv.Spec.NodeAffinity.Required.NodeSelectorTerms {
 		for _, topology := range nodeSelector.MatchExpressions {
 			if val, ok := allowedTopologiesMap[topology.Key]; ok {
 				if !compareStringLists(val, topology.Values) {
-					return false, fmt.Errorf("PV node affinity details does not exist in the allowed topologies specified in SC")
+					if topologyFeature == topologyTkgHaName {
+						return false, fmt.Errorf("pv node affinity details: %v does not match"+
+							"with: %v in the allowed topologies", topology.Values, val)
+					} else {
+						return false, fmt.Errorf("PV node affinity details does not exist in the allowed " +
+							"topologies specified in SC")
+					}
 				}
 			} else {
-				return false, fmt.Errorf("PV node affinity details does not exist in the allowed topologies specified in SC")
+				if topologyFeature == topologyTkgHaName {
+					return false, fmt.Errorf("pv node affinity key: %v does not does not exist in the"+
+						"allowed topologies map: %v", topology.Key, allowedTopologiesMap)
+				} else {
+					return false, fmt.Errorf("PV node affinity details does not exist in the allowed " +
+						"topologies specified in SC")
+				}
 			}
 		}
 	}
@@ -4594,7 +4616,7 @@ func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList,
 			for labelKey, labelValue := range node.Labels {
 				if topologyValue, ok := allowedTopologiesMap[labelKey]; ok {
 					if !contains(topologyValue, labelValue) {
-						return false, fmt.Errorf("Pod is not running on node located in %s" + labelValue)
+						return false, fmt.Errorf("pod: %s is not running on node located in %s", pod.Name, labelValue)
 					}
 				}
 			}
@@ -5749,4 +5771,93 @@ func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service strin
 	err = waitVCenterServiceToBeInState(service, vcAddress, svcRunningMessage)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	*isSvcStopped = false
+}
+
+// assignPolicyToWcpNamespace assigns a set of storage policies to a wcp namespace
+func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
+	namespace string, policyNames []string) {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	vcAddress := vcIp + ":" + sshdPort
+	sessionId := createVcSession4RestApis()
+
+	curlStr := ""
+	policyNamesArrLength := len(policyNames)
+	defRqLimit := strings.Split(defaultrqLimit, "Gi")[0]
+	limit, err := strconv.Atoi(defRqLimit)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	limit *= 953 //to convert gb to mebibytes
+	if policyNamesArrLength >= 1 {
+		curlStr += fmt.Sprintf(`{ "limit": %d, "policy": "%s"}`, limit, e2eVSphere.GetSpbmPolicyID(policyNames[0]))
+	}
+	if policyNamesArrLength >= 2 {
+		for i := 1; i < policyNamesArrLength; i++ {
+			profileID := e2eVSphere.GetSpbmPolicyID(policyNames[i])
+			curlStr += "," + fmt.Sprintf(`{ "limit": %d, "policy": "%s"}`, limit, profileID)
+		}
+	}
+
+	httpCodeStr := `%{http_code}`
+	curlCmd := fmt.Sprintf(`curl -s -o /dev/null -w "%s" -k -X PATCH`+
+		` 'https://%s/api/vcenter/namespaces/instances/%s' -H `+
+		`'vmware-api-session-id: %s' -H 'Content-type: application/json' -d `+
+		`'{ "access_list": [ { "domain": "", "role": "OWNER", "subject": "", "subject_type": "USER" } ], `+
+		`"description": "", "resource_spec": { }, "storage_specs": [ %s ], `+
+		`"vm_service_spec": { } }'`, httpCodeStr, vcIp, namespace, sessionId, curlStr)
+
+	framework.Logf("Running command: %s", curlCmd)
+	result, err := fssh.SSH(curlCmd, vcAddress, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			"couldn't execute command: %v due to err %v", curlCmd, err)
+	}
+	gomega.Expect(result.Stdout).To(gomega.Equal("204"))
+
+	// wait for sc to get created in SVC
+	for _, policyName := range policyNames {
+		err = waitForScToGetCreated(client, ctx, policyName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+}
+
+// createVcSession4RestApis generates session ID for VC to use in rest API calls
+func createVcSession4RestApis() string {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	vcAddress := vcIp + ":" + sshdPort
+	curlCmd := fmt.Sprintf("curl -k -X POST https://%s/rest/com/vmware/cis/session"+
+		" -u 'Administrator@vsphere.local:%s'", vcIp, adminPassword)
+	framework.Logf("Running command: %s", curlCmd)
+	result, err := fssh.SSH(curlCmd, vcAddress, framework.TestContext.Provider)
+	fssh.LogResult(result)
+	if err != nil || result.Code != 0 {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			"couldn't execute command: %v due to err %v", curlCmd, err)
+	}
+
+	var session map[string]interface{}
+	res := []byte(result.Stdout)
+	err = json.Unmarshal(res, &session)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	sessionId := session["value"].(string)
+	framework.Logf("sessionID is: %v", sessionId)
+	return sessionId
+}
+
+// waitForScToGetCreated waits for a particular storageclass to get created
+func waitForScToGetCreated(client clientset.Interface, ctx context.Context, policyName string) error {
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort*5, func() (bool, error) {
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			return false, fmt.Errorf("couldn't find storageclass: %s due to error: %v", policyName, err)
+		}
+		if storageclass != nil {
+			return true, nil
+		}
+		return false, nil
+	})
+	if waitErr == wait.ErrWaitTimeout {
+		return fmt.Errorf("couldn't find storageclass: %s in SVC", policyName)
+	}
+	return nil
+
 }

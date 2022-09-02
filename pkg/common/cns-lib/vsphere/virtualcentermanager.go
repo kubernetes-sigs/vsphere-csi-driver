@@ -119,7 +119,8 @@ func (m *defaultVirtualCenterManager) RegisterVirtualCenter(ctx context.Context,
 	// Note that the Client isn't initialized here.
 	vc := &VirtualCenter{Config: config}
 	m.virtualCenters.Store(config.Host, vc)
-	log.Infof("Successfully registered VC %q", vc.Config.Host)
+	// Adding the port to the message here so errors are more obvious
+	log.Infof("Successfully registered VC %s:%d", vc.Config.Host, vc.Config.Port)
 	return vc, nil
 }
 
