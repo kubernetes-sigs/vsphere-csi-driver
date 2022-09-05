@@ -1207,9 +1207,12 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests",
 					framework.Failf("Unable to find ready and schedulable Node")
 				}
 
-				createResourceQuota(client, namespace, rqLimit, zonalWffcPolicy)
+				createResourceQuota(svcClient, svcNamespace, "10Mi", zonalPolicy)
+				defer deleteResourceQuota(svcClient, svcNamespace)
+
 				scParameters[svStorageClassName] = zonalWffcPolicy
-				storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalWffcPolicy, metav1.GetOptions{})
+				//createResourceQuota(client, namespace, rqLimit, zonalWffcPolicy)
+				storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
 				if !apierrors.IsNotFound(err) {
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -1221,22 +1224,23 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests",
 					deleteService(namespace, client, service)
 				}()
 
-				ginkgo.By("Delete existing resource quota")
+				//ginkgo.By("Delete existing resource quota")
 				//deleteResourceQuota(client, namespace)
 				//framework.Logf("Sleeping for 5 mins")
 				//time.Sleep(time.Minute * 5)
-				svcClient, svNamespace := getSvcClientAndNamespace()
-				quotaName := svNamespace + "-storagequota"
-				size := "10Mi"
-				framework.Logf("quotaName: %s", quotaName)
+				//svcClient, svNamespace := getSvcClientAndNamespace()
+				//quotaName := svNamespace + "-storagequota"
+				//size := "10Mi"
+				//framework.Logf("quotaName: %s", quotaName)
 				//setResourceQuota(svcClient, svNamespace, "10Mi")
-				requestStorageQuota := updatedSpec4ExistingResourceQuota(quotaName, size)
-				testResourceQuota, err := svcClient.CoreV1().ResourceQuotas(svNamespace).Update(
-					ctx, requestStorageQuota, metav1.UpdateOptions{})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
-				err = checkResourceQuota(svcClient, svNamespace, quotaName, size)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				//createResourceQuota(svcClient, svcNamespace, "10Mi", storagePolicyName)
+				//requestStorageQuota := updatedSpec4ExistingResourceQuota(quotaName, size)
+				//testResourceQuota, err := svcClient.CoreV1().ResourceQuotas(svNamespace).Update(
+				//	ctx, requestStorageQuota, metav1.UpdateOptions{})
+				//gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				//ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
+				//err = checkResourceQuota(svcClient, svNamespace, quotaName, size)
+				//gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				//framework.Logf("Sleeping for 5 mins")
 				//time.Sleep(time.Minute * 5)
 				//err = svcClient.CoreV1().ResourceQuotas(svNamespace).Delete(ctx, quotaName, *metav1.NewDeleteOptions(0))
@@ -1298,11 +1302,12 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests",
 
 				ginkgo.By("Create resource quota")
 				framework.Logf("quotaName: %s", quotaName)
-				requestStorageQuota = updatedSpec4ExistingResourceQuota(quotaName, rqLimit)
-				testResourceQuota, err = svcClient.CoreV1().ResourceQuotas(svNamespace).Update(
-					ctx, requestStorageQuota, metav1.UpdateOptions{})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
+				// requestStorageQuota = updatedSpec4ExistingResourceQuota(quotaName, rqLimit)
+				// testResourceQuota, err = svcClient.CoreV1().ResourceQuotas(svNamespace).Update(
+				// 	ctx, requestStorageQuota, metav1.UpdateOptions{})
+				// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				// ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
+				createResourceQuota(svcClient, svcNamespace, rqLimit, zonalPolicy)
 				err = checkResourceQuota(svcClient, svNamespace, quotaName, rqLimit)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				//framework.Logf("Sleeping for 5 mins")
