@@ -1210,7 +1210,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests",
 				createResourceQuota(svcClient, svcNamespace, "10Mi", zonalPolicy)
 				defer deleteResourceQuota(svcClient, svcNamespace)
 
-				scParameters[svStorageClassName] = zonalWffcPolicy
+				scParameters[svStorageClassName] = zonalPolicy
 				//createResourceQuota(client, namespace, rqLimit, zonalWffcPolicy)
 				storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
 				if !apierrors.IsNotFound(err) {
@@ -1247,14 +1247,14 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests",
 				//gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				//framework.Logf("Deleted Resource quota: %+v", quotaName)
 
-				ginkgo.By("Create statefulset with parallel pod management policy with replica 3")
+				ginkgo.By("Create statefulset with immediate pod management policy with replica 3")
 
 				statefulset := GetStatefulSetFromManifest(namespace)
 				ginkgo.By("Creating statefulset")
-				statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+				//statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 				statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 					Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
-				*statefulset.Spec.Replicas = 3
+				*statefulset.Spec.Replicas = 1
 				replicas := *(statefulset.Spec.Replicas)
 
 				_, err = client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
