@@ -445,24 +445,10 @@ func getMasterIpOnSite(ctx context.Context, client clientset.Interface, primaryS
 	}
 	allMasterIps := getK8sMasterIPs(ctx, client)
 	framework.Logf("all master ips : %v", allMasterIps)
-	sshClientConfig := &ssh.ClientConfig{
-		User: "root",
-		Auth: []ssh.AuthMethod{
-			ssh.Password(k8sVmPasswd),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
 	framework.Logf("Site esx map : %v", siteEsxMap)
 	// Assuming atleast one master is on that site
-	vcAddress := e2eVSphere.Config.Global.VCenterHostname
 	for _, masterIp := range allMasterIps {
-		cmd := "export GOVC_INSECURE=1;"
-		cmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:Admin!23@%s';", vcAddress)
-		cmd += fmt.Sprintf("govc vm.info --vm.ip=%s;", masterIp)
-		result, err := sshExec(sshClientConfig, masterIp, cmd)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		hostIp := strings.Split(result.Stdout, "Host:")
-		host := strings.TrimSpace(hostIp[1])
+		host := getHostIpWhereVmIsPresent(masterIp)
 		if siteEsxMap[host] {
 			masterIpOnSite = masterIp
 			break
