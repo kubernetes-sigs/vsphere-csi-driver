@@ -1208,7 +1208,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests",
 				}
 
 				createResourceQuota(svcClient, svcNamespace, "10Mi", zonalPolicy)
-				defer deleteResourceQuota(svcClient, svcNamespace)
+				//defer deleteResourceQuota(svcClient, svcNamespace)
 
 				scParameters[svStorageClassName] = zonalPolicy
 				//createResourceQuota(client, namespace, rqLimit, zonalWffcPolicy)
