@@ -1198,6 +1198,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests",
 		*/
 		ginkgo.It("Provision volume with zonal storage when no resource quota available",
 			func() {
+				waitTime := 15
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				svcClient, svNamespace := getSvcClientAndNamespace()
@@ -1212,7 +1213,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests",
 				//defer deleteResourceQuota(svcClient, svcNamespace)
 
 				resourceQuota := newTestResourceQuota(svcNamespace+"-storagequota", "10Mi", zonalPolicy)
-				resourceQuota, err := client.CoreV1().ResourceQuotas(svcNamespace).Create(ctx, resourceQuota, metav1.CreateOptions{})
+				resourceQuota, err = client.CoreV1().ResourceQuotas(svcNamespace).Create(ctx, resourceQuota, metav1.CreateOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By(fmt.Sprintf("Create Resource quota: %+v", resourceQuota))
 				ginkgo.By(fmt.Sprintf("Waiting for %v seconds to allow resourceQuota to be claimed", waitTime))
@@ -1310,8 +1311,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests",
 
 				ginkgo.By("Create resource quota")
 				framework.Logf("resourceQuota: %s", resourceQuota)
-				resourceQuota := newTestResourceQuota(svcNamespace+"-storagequota", "100Gi", zonalPolicy)
-				resourceQuota, err := client.CoreV1().ResourceQuotas(svcNamespace).Create(ctx, resourceQuota, metav1.CreateOptions{})
+				resourceQuota = newTestResourceQuota(svcNamespace+"-storagequota", "100Gi", zonalPolicy)
+				resourceQuota, err = client.CoreV1().ResourceQuotas(svcNamespace).Create(ctx, resourceQuota, metav1.CreateOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By(fmt.Sprintf("Create Resource quota: %+v", resourceQuota))
 				ginkgo.By(fmt.Sprintf("Waiting for %v seconds to allow resourceQuota to be claimed", waitTime))
