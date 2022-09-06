@@ -1256,7 +1256,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests",
 				//gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				//framework.Logf("Deleted Resource quota: %+v", quotaName)
 
-				ginkgo.By("Create statefulset with immediate pod management policy with replica 3")
+				ginkgo.By("Create statefulset with immediate pod management policy with replica 1")
 
 				statefulset := GetStatefulSetFromManifest(namespace)
 				ginkgo.By("Creating statefulset")
@@ -1311,7 +1311,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests",
 
 				ginkgo.By("Create resource quota")
 				framework.Logf("resourceQuota: %s", resourceQuota)
-				resourceQuota = newTestResourceQuota(svcNamespace+"-storagequota", "100Gi", zonalPolicy)
+				resourceQuota = newTestResourceQuota(svcNamespace+"-storagequota", rqLimit, zonalPolicy)
 				resourceQuota, err = svcClient.CoreV1().ResourceQuotas(svcNamespace).Update(ctx, resourceQuota, metav1.UpdateOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By(fmt.Sprintf("Create Resource quota: %+v", resourceQuota))
