@@ -4806,6 +4806,13 @@ required for creating Storage Class specific to testcase scenarios.
 func getTopologySelector(topologyAffinityDetails map[string][]string,
 	topologyCategories []string, level int,
 	position ...int) []v1.TopologySelectorLabelRequirement {
+	topologyFeature := os.Getenv(topologyFeature)
+	var key string
+	if topologyFeature == topologyTkgHaName {
+		key = tkgHATopologyKey
+	} else {
+		key = topologykey
+	}
 	allowedTopologyForSC := []v1.TopologySelectorLabelRequirement{}
 	updateLvl := -1
 	var rnges []int
@@ -4821,10 +4828,15 @@ func getTopologySelector(topologyAffinityDetails map[string][]string,
 				values = append(values, topologyAffinityDetails[category][rng])
 			}
 		} else {
-			values = topologyAffinityDetails[category]
+			if topologyFeature == topologyTkgHaName {
+				values = topologyAffinityDetails[key+"/"+category]
+			} else {
+				values = topologyAffinityDetails[category]
+			}
 		}
+
 		topologySelector := v1.TopologySelectorLabelRequirement{
-			Key:    topologykey + "/" + category,
+			Key:    key + "/" + category,
 			Values: values,
 		}
 		allowedTopologyForSC = append(allowedTopologyForSC, topologySelector)
