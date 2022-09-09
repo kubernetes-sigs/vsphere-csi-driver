@@ -5270,32 +5270,47 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 
 // execDockerPauseNKillOnContainer pauses and then kills the particular CSI container on given master node
 func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
-	containerName string) error {
-	containerID, err := waitAndGetContainerID(sshClientConfig, k8sMasterNodeIP, containerName)
+	containerName string, k8sVersion string) error {
+	containerPauseCmd := ""
+	containerKillCmd := ""
+	k8sVer, err := strconv.ParseFloat(k8sVersion, 64)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	containerID, err := waitAndGetContainerID(sshClientConfig, k8sMasterNodeIP, containerName, k8sVer)
 	if err != nil {
 		return err
 	}
-	dockerContainerPauseCmd := "docker pause " + containerID
-	framework.Logf("Invoking command '%v' on host %v", dockerContainerPauseCmd,
+	if k8sVer <= 1.23 {
+		containerPauseCmd = "docker pause " + containerID
+	} else {
+		containerPauseCmd = "nerdctl pause --namespace k8s.io " + containerID
+	}
+	framework.Logf("Invoking command '%v' on host %v", containerPauseCmd,
 		k8sMasterNodeIP)
 	cmdResult, err := sshExec(sshClientConfig, k8sMasterNodeIP,
-		dockerContainerPauseCmd)
+		containerPauseCmd)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			dockerContainerPauseCmd, k8sMasterNodeIP, err)
+			containerPauseCmd, k8sMasterNodeIP, err)
 	}
 	framework.Logf("Waiting for 5 seconds as leader election happens every 5 secs")
 	time.Sleep(5 * time.Second)
-	dockerContainerKillCmd := "docker kill " + containerID
-	framework.Logf("Invoking command '%v' on host %v", dockerContainerKillCmd,
+	if k8sVer <= 1.23 {
+		containerKillCmd = "docker kill " + containerID
+	} else {
+		containerKillCmd = "nerdctl kill --namespace k8s.io " + containerID
+	}
+	framework.Logf("Invoking command '%v' on host %v", containerKillCmd,
 		k8sMasterNodeIP)
 	cmdResult, err = sshExec(sshClientConfig, k8sMasterNodeIP,
-		dockerContainerKillCmd)
+		containerKillCmd)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
+		if strings.Contains(cmdResult.Stderr, "OCI runtime resume failed") {
+			return nil
+		}
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			dockerContainerKillCmd, k8sMasterNodeIP, err)
+			containerKillCmd, k8sMasterNodeIP, err)
 	}
 	return nil
 }
@@ -5749,15 +5764,21 @@ func triggerFullSync(ctx context.Context, client clientset.Interface,
 
 // waitAndGetContainerID waits and fetches containerID of a given containerName
 func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string,
-	containerName string) (string, error) {
+	containerName string, k8sVersion float64) (string, error) {
 	containerId := ""
+	cmdToGetContainerId := ""
 	waitErr := wait.PollImmediate(poll, pollTimeoutShort*3, func() (bool, error) {
-		grepCmdForGettingDockerContainerId := "docker ps | grep " + containerName + " | " +
-			"awk '{print $1}' |  tr -d '\n'"
-		framework.Logf("Invoking command '%v' on host %v", grepCmdForGettingDockerContainerId,
+		if k8sVersion <= 1.23 {
+			cmdToGetContainerId = "docker ps | grep " + containerName + " | " +
+				"awk '{print $1}' |  tr -d '\n'"
+		} else {
+			cmdToGetContainerId = "nerdctl --namespace k8s.io ps -a | grep -E " + containerName + ".*Up  | " +
+				"awk '{print $1}' |  tr -d '\n'"
+		}
+		framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerId,
 			k8sMasterIP)
 		dockerContainerInfo, err := sshExec(sshClientConfig, k8sMasterIP,
-			grepCmdForGettingDockerContainerId)
+			cmdToGetContainerId)
 		fssh.LogResult(dockerContainerInfo)
 		containerId = dockerContainerInfo.Stdout
 		if containerId != "" {
@@ -5765,7 +5786,7 @@ func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string
 		}
 		if err != nil || dockerContainerInfo.Code != 0 {
 			return false, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-				grepCmdForGettingDockerContainerId, k8sMasterIP, err)
+				cmdToGetContainerId, k8sMasterIP, err)
 		}
 		return false, nil
 	})
