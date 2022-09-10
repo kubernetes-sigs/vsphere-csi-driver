@@ -40,7 +40,7 @@ const (
 	crdtriggercsifullsyncsName                 = "csifullsync"
 	crdGroup                                   = "cns.vmware.com"
 	crdVersion                                 = "v1alpha1"
-	csiSystemNamespace                         = "vmware-system-csi"
+	csiSystemNamespace                         = "custom-csi"
 	csiFssCM                                   = "internal-feature-states.csi.vsphere.vmware.com"
 	csiVolAttrVolType                          = "vSphere CNS Block Volume"
 	csiDriverContainerName                     = "vsphere-csi-controller"
