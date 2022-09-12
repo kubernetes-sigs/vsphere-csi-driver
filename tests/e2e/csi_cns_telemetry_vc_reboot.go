@@ -19,8 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/onsi/ginkgo"
@@ -94,15 +92,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		var pvclaim *v1.PersistentVolumeClaim
 		var storageclass2 *storagev1.StorageClass
 		var pvclaim2 *v1.PersistentVolumeClaim
-		var fullSyncWaitTime int
 		var err error
-
-		// Read full-sync value.
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
 
 		ginkgo.By("Creating Storage Class and PVC")
 		// Decide which test setup is available to run.
@@ -279,15 +269,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		defer cancel()
 		var storageclass *storagev1.StorageClass
 		var pvclaim *v1.PersistentVolumeClaim
-		var fullSyncWaitTime int
 		var err error
-
-		// Read full-sync value.
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
 
 		ginkgo.By("Rebooting VC")
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort

@@ -47,7 +47,9 @@ import (
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration/v1alpha1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func() {
@@ -71,7 +73,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		labelValue                 string
 		vmdks                      []string
 		pvsToDelete                []*v1.PersistentVolume
-		fullSyncWaitTime           int
 		podsToDelete               []*v1.Pod
 	)
 
@@ -99,16 +100,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		labelValue = "label-value"
 		pvsToDelete = []*v1.PersistentVolume{}
 
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// Full sync interval can be 1 min at minimum so full sync wait time has to be more than 120s
-			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
 		vcpPvcsPreMig = []*v1.PersistentVolumeClaim{}
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
 		vcpPvsPreMig = nil
@@ -499,8 +490,12 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
 		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync to finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Triggering 2 full syncs")
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on PVC1")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)

@@ -22,7 +22,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -36,6 +35,8 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
@@ -165,8 +166,12 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		deployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Triggering 2 full syncs")
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(client, pod)
@@ -262,8 +267,12 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		deployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync to finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Triggering 2 full syncs")
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		fmt.Println("PVC name in SV", volumeID)
 		pvcUID := string(pvc.GetUID())

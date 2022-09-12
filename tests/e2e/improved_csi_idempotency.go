@@ -39,6 +39,8 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
@@ -50,7 +52,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 	var (
 		client            clientset.Interface
 		c                 clientset.Interface
-		fullSyncWaitTime  int
 		namespace         string
 		scParameters      map[string]string
 		storagePolicyName string
@@ -94,17 +95,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 			}
 		}
 		framework.Logf("VOLUME_OPS_SCALE is set to %v", volumeOpsScale)
-
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// Full sync interval can be 1 min at minimum so full sync wait time has to be more than 120s
-			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
 
 		// Get CSI Controller's replica count from the setup
 		controllerClusterConfig := os.Getenv(contollerClusterKubeConfig)
@@ -431,7 +421,6 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 	var persistentvolumes []*v1.PersistentVolume
 	var pvclaims []*v1.PersistentVolumeClaim
 	var err error
-	var fullSyncWaitTime int
 	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 
 	// Decide which test setup is available to run
@@ -521,19 +510,12 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// Full sync interval can be 1 min at minimum so full sync wait time has to be more than 120s
-			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
-
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Triggering 2 full syncs")
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 	} else if serviceName == hostdServiceName {
 		ginkgo.By("Fetch IPs for the all the hosts in the cluster")
 		hostIPs := getAllHostsIP(ctx)
@@ -594,8 +576,15 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Sleeping for full sync interval")
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Sleeping for 5 mins")
+		time.Sleep(time.Minute * 5)
+
+		ginkgo.By("Triggering 2 full syncs")
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 	}
 
 	//After service restart
@@ -638,7 +627,6 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 	var persistentvolumes []*v1.PersistentVolume
 	var pvclaims []*v1.PersistentVolumeClaim
 	var err error
-	var fullSyncWaitTime int
 	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 
 	// Decide which test setup is available to run
@@ -779,19 +767,12 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// Full sync interval can be 1 min at minimum so full sync wait time has to be more than 120s
-			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
-
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Triggering 2 full syncs")
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 	} else {
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort

@@ -19,8 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -58,7 +56,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		isVsanHealthServiceStopped bool
 		vmdks                      []string
 		pvsToDelete                []*v1.PersistentVolume
-		fullSyncWaitTime           int
 		podsToDelete               []*v1.Pod
 		csiNamespace               string
 	)
@@ -84,17 +81,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		kcmMigEnabled = false
 
 		pvsToDelete = []*v1.PersistentVolume{}
-
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// Full sync interval can be 1 min at minimum so full sync wait time has to be more than 120s
-			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 	})
 

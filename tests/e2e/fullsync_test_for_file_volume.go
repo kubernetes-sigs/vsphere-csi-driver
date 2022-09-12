@@ -19,12 +19,12 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
@@ -53,7 +53,6 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 		namespace                  string
 		labelKey                   string
 		labelValue                 string
-		fullSyncWaitTime           int
 		isVsanHealthServiceStopped bool
 	)
 
@@ -66,15 +65,6 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		bootstrap()
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			if fullSyncWaitTime <= 0 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
 
 		labelKey = "app"
 		labelValue = "e2e-fullsync"
@@ -169,8 +159,12 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Triggering 2 full syncs")
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
 			labels, pvc.Name, pvc.Namespace))

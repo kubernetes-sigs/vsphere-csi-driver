@@ -957,6 +957,9 @@ func getTriggerFullSyncCrd(ctx context.Context, client clientset.Interface,
 		pkgtypes.NamespacedName{Name: crdtriggercsifullsyncsName}, fullSyncCrd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(fullSyncCrd).NotTo(gomega.BeNil(), "couldn't find full sync crd: %s", crdtriggercsifullsyncsName)
+	framework.Logf("TRIGGER LAST SYNC ID: %v", fullSyncCrd.Status.LastTriggerSyncID)
+	framework.Logf("TRIGGER SYNC ID: %v", fullSyncCrd.Spec.TriggerSyncID)
+	framework.Logf("TRIGGER CRD: %v", fullSyncCrd)
 	return fullSyncCrd
 }
 
@@ -968,8 +971,12 @@ func updateTriggerFullSyncCrd(ctx context.Context, cnsOperatorClient client.Clie
 	lastSyncId := crd.Status.LastTriggerSyncID
 	triggerSyncID := lastSyncId + 1
 	crd.Spec.TriggerSyncID = triggerSyncID
+	framework.Logf("TRIGGER LAST SYNC ID: %v", crd.Status.LastTriggerSyncID)
+	framework.Logf("TRIGGER SYNC ID: %v", crd.Spec.TriggerSyncID)
+	framework.Logf("TRIGGER CRD: %v", crd)
 	err := cnsOperatorClient.Update(ctx, &crd)
 	framework.Logf("Error is %v", err)
+	//if err
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("instance is %v after update", crd)
 }
@@ -984,6 +991,7 @@ func waitForFullSyncToFinish(client clientset.Interface, ctx context.Context,
 		if !crd.Status.InProgress {
 			return true, nil
 		}
+		framework.Logf("error is: %s", crd.Status.Error)
 		if crd.Status.Error != "" {
 			return false, fmt.Errorf("full sync failed with error: %s", crd.Status.Error)
 		}

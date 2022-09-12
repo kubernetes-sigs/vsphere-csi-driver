@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/onsi/ginkgo"
@@ -34,6 +33,8 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("File Volume Test on Service down", func() {
@@ -45,7 +46,6 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		storagePolicyName          string
 		volHealthCheck             bool
 		isVsanHealthServiceStopped bool
-		fullSyncWaitTime           int
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -63,17 +63,6 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
-		}
-
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// Full sync interval can be 1 min at minimum so full sync wait time has to be more than 120s
-			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
 		}
 	})
 
@@ -611,8 +600,12 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		bringUpCsiController(svcClient, csiReplicaCount)
 		isControllerUp = true
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v * 2seconds to allow double full sync to finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime*2) * time.Second)
+		ginkgo.By("Triggering 2 full syncs")
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		//Add a check to validate CnsVolumeMetadata crd
 		verifyCRDInSupervisorWithWait(ctx, f, pvcNameInSV, crdCNSVolumeMetadatas, crdVersion, crdGroup, false)
@@ -811,8 +804,12 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		bringUpCsiController(svcClient, csiReplicaCount)
 		isControllerUp = true
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v * 2seconds to allow double full sync to finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime*2) * time.Second)
+		ginkgo.By("Triggering 2 full syncs")
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		// Wait for PV and PVC to Bind
 		framework.ExpectNoError(fpv.WaitOnPVandPVC(client,
@@ -988,8 +985,12 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		bringUpCsiController(svcClient, csiReplicaCount)
 		isControllerUp = true
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v * 2seconds to allow double full sync to finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime*2) * time.Second)
+		ginkgo.By("Triggering 2 full syncs")
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By(fmt.Sprintf("Expecting error for labels %+v to be updated for pvc %s in namespace %s",
 			labels, pvclaim.Name, pvclaim.Namespace))

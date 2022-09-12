@@ -19,8 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/onsi/ginkgo"
@@ -32,6 +30,8 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanilla-parallelized] "+
@@ -90,15 +90,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		var pvclaim1 *v1.PersistentVolumeClaim
 		var storageclasspvc2 *storagev1.StorageClass
 		var pvclaim2 *v1.PersistentVolumeClaim
-		var fullSyncWaitTime int
 		var err error
-
-		// Read full-sync value.
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
 
 		ginkgo.By("Creating a PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
@@ -183,9 +175,13 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 
 		// For Old PVCs to reflect the latest Cluster-Distribution Value, wait for
 		// full sync.
-		framework.Logf("Sleeping full-sync interval for all the volumes Metadata " +
+		framework.Logf("Trigger 2 full syncs for all the volumes Metadata " +
 			"to reflect the cluster-distribution value to = Empty")
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		// Add additional safe wait time for cluster-distribution to reflect on
 		// metadata.
@@ -208,9 +204,10 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 
 		// For Old PVCs to reflect the latest Cluster-Distribution Value, wait for
 		// full sync.
-		framework.Logf("Sleeping full-sync interval for all the volumes Metadata to reflect "+
+		framework.Logf("Triggering 2 full syncs for all the volumes Metadata to reflect "+
 			"the cluster-distribution value to = %s", vanillaClusterDistributionWithSpecialChar)
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Triggering 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		// Add additional safe wait time for cluster-distribution to reflect on
 		// metadata.

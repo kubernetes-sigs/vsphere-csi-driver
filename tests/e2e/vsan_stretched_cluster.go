@@ -62,7 +62,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		scParameters               map[string]string
 		storageClassName           string
 		csiNs                      string
-		fullSyncWaitTime           int
 		volumeOpsScale             int
 		storageThickPolicyName     string
 		labelKey                   string
@@ -475,13 +474,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
 		storageClassName = "nginx-sc-default"
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
+
 		var pods []*v1.Pod
 		var pvclaims []*v1.PersistentVolumeClaim = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 
@@ -565,9 +558,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		err = fpod.WaitForPodsRunningReady(client, csiNs, int32(csipods.Size()), 0, pollTimeout, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		framework.Logf("Sleeping full-sync interval for all the pod Metadata " +
-			"to be deleted")
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Triggering 2 full syncs")
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By("Verify volume is detached from the node")
 		for i := 0; i < volumeOpsScale; i++ {
@@ -1090,13 +1086,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		scParameters["StoragePolicyName"] = storageThickPolicyName
 		storageClassName = "nginx-sc-default"
 		var pvclaims []*v1.PersistentVolumeClaim
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -1156,9 +1145,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		err = waitForAllNodes2BeReady(ctx, client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		framework.Logf("Sleeping full-sync interval for volumes to be updated " +
+		framework.Logf("Triggering 2 full syncs for volumes to be updated " +
 			"with labels in CNS")
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		// Check if csi pods are running fine after site failure
 		err = fpod.WaitForPodsRunningReady(client, csiNs, int32(csipods.Size()), 0, pollTimeout, nil)
@@ -2202,13 +2195,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		scParameters["StoragePolicyName"] = storageThickPolicyName
 		storageClassName = "nginx-sc-default"
 		var pvclaims []*v1.PersistentVolumeClaim
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -2273,9 +2259,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		framework.Logf("Sleeping full-sync interval for volumes to be updated " +
+		framework.Logf("Triggering 2 full syncs for volumes to be updated " +
 			"with labels in CNS")
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		// Check if csi pods are running fine after site failure
 		err = fpod.WaitForPodsRunningReady(client, csiNs, int32(csipods.Size()), 0, pollTimeout, nil)

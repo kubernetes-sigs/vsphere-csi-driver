@@ -45,6 +45,8 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provisioning-With-MultiReplica-Level5",
@@ -77,7 +79,6 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			pandoraSyncWaitTime        int
 			defaultDatacenter          *object.Datacenter
 			defaultDatastore           *object.Datastore
-			fullSyncWaitTime           int
 			k8sVersion                 string
 		)
 		ginkgo.BeforeEach(func() {
@@ -142,12 +143,6 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				finder.SetDatacenter(defaultDatacenter)
 				defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-			// Read full-sync value.
-			if os.Getenv(envFullSyncWaitTime) != "" {
-				fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-				framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -2150,8 +2145,12 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 			}()
 
-			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-			time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+			ginkgo.By("Triggering 2 full syncs")
+			restConfig := getRestConfigClient()
+			cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+			triggerFullSync(ctx, client, cnsOperatorClient)
 
 			// Verify volume metadata for static POD, PVC and PV
 			ginkgo.By("Verify volume metadata for static POD, PVC and PV")
