@@ -1273,7 +1273,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		if startingIdx == 0 || startingIdx != expectedStartingIndex {
 			queryFilter := cnstypes.CnsQueryFilter{
 				ContainerClusterIds: []string{
-					c.manager.CnsConfig.Global.ClusterID,
+					c.manager.CnsConfig.Global.SupervisorID,
 				},
 			}
 			querySelection := cnstypes.CnsQuerySelection{
