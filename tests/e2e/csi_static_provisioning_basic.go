@@ -2030,4 +2030,78 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 	})
 
+	ginkgo.It("[csi-supervisor] import-vmdk", func() {
+
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		dataStoreType, err := defaultDatastore.Type(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Datastore type: %s", dataStoreType)
+
+		if dataStoreType != "vsan" {
+			ginkgo.Skip("Skipping static provisioning - import VMDK test Since the testbed dont have vSAN datastore - " +
+				"Because for this test uses vSAN default datastore policy ")
+		} else {
+			curtime := time.Now().Unix()
+			randomValue := rand.Int()
+			val := strconv.FormatInt(int64(randomValue), 10)
+			val = string(val[1:3])
+			curtimestring := strconv.FormatInt(curtime, 10)
+			pvcName := "cns-pvc-" + curtimestring + val
+			framework.Logf("pvc name :%s", pvcName)
+			namespace = getNamespaceToRunTests(f)
+
+			restConfig, storageclass, _ := staticProvisioningPreSetUpUtilForVMDKTests(ctx)
+
+			defer func() {
+				framework.Logf("Delete storage class")
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+
+			vmdk := GetAndExpectStringEnvVar(envVmdkDiskURL)
+			framework.Logf("VMDK path : %s", vmdk)
+			ginkgo.By("Create CNS register volume with VMDK")
+			cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, "", vmdk, pvcName, v1.ReadWriteOnce)
+			err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
+				restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
+			cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+			framework.Logf("CNS register volume name : %s", cnsRegisterVolumeName)
+
+			ginkgo.By("verify created PV, PVC and check the bidirectional reference")
+			pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pv := getPvFromClaim(client, namespace, pvcName)
+			pvName := pvc.Spec.VolumeName
+			//pvName will be like static-pv-<volumeID> This volumeID Should be same as in PV volumeHandle
+			volumeID := strings.ReplaceAll(pvName, "static-pv-", "")
+			verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, volumeID)
+
+			// TODO: need to add code to delete VMDK hard disk and to create POD.
+
+			// defer func() {
+			// 	ginkgo.By("Deleting the PV Claim")
+			// 	framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvcName, namespace),
+			// 		"Failed to delete PVC", pvcName)
+			// 	pvc = nil
+
+			// 	ginkgo.By("PV will be in released state , hence delete PV explicitly")
+			// 	framework.ExpectNoError(fpv.DeletePersistentVolume(client, pv.GetName()))
+			// 	pv = nil
+
+			// 	ginkgo.By("Verify CRD should be deleted automatically")
+			// 	framework.ExpectNoError(waitForCNSRegisterVolumeToGetDeleted(ctx,
+			// 		restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
+
+			// 	ginkgo.By("Delete Resource quota")
+			// 	deleteResourceQuota(client, namespace)
+			// }()
+		}
+
+	})
+
 })
