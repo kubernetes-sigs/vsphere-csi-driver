@@ -375,4 +375,7 @@ const (
 	TopologyPreferentialDatastores = "topology-preferential-datastores"
 	// MaxPVSCSITargetsPerVM enables support for 255 volumes per node vm
 	MaxPVSCSITargetsPerVM = "max-pvscsi-targets-per-vm"
+	// CSIInternalGeneratedClusterID enables support to generate unique cluster
+	// ID internally if user doesn't provide it in vSphere config secret.
+	CSIInternalGeneratedClusterID = "csi-internal-generated-cluster-id"
 )

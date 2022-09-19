@@ -19,7 +19,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["nodes", "pods", "configmaps"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "create"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "watch", "update"]
@@ -157,6 +157,7 @@ data:
   "cnsmgr-suspend-create-volume": "false"
   "topology-preferential-datastores": "true"
   "max-pvscsi-targets-per-vm": "false"
+  "csi-internal-generated-cluster-id": "true"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

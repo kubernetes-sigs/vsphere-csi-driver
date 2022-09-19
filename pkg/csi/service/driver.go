@@ -18,10 +18,12 @@ package service
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/google/uuid"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
@@ -95,11 +97,19 @@ func (driver *vsphereCSIDriver) GetController() csi.ControllerServer {
 	return driver.cnscs
 }
 
+// getNewUUID generates and returns a new random UUID
+func getNewUUID() string {
+	return uuid.New().String()
+}
+
 //BeforeServe defines the tasks needed before starting the driver.
 func (driver *vsphereCSIDriver) BeforeServe(ctx context.Context) error {
 	logger.SetLoggerLevel(logger.LogLevel(os.Getenv(logger.EnvLoggerLevel)))
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
+
+	// TODO: remove
+	log.Infof("In driver BeforeServe")
 	defer func() {
 		log.Infof("Configured: %q with clusterFlavor: %q and mode: %q",
 			csitypes.Name, clusterFlavor, driver.mode)
@@ -134,6 +144,64 @@ func (driver *vsphereCSIDriver) BeforeServe(ctx context.Context) error {
 			log.Errorf("failed to read config. Error: %+v", err)
 			return err
 		}
+
+		CSINamespace := os.Getenv(csitypes.EnvVarNamespace)
+		if CSINamespace == "" {
+			CSINamespace = cnsconfig.DefaultCSINamespace
+		}
+
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIInternalGeneratedClusterID) &&
+			clusterFlavor == cnstypes.CnsClusterFlavorVanilla && cfg.Global.ClusterID == "" {
+			// In case of vanilla k8s deployments, if cluster ID is not provided in the
+			// vSphere config secret, then generate an unique cluster ID internally.
+			clusterID := getNewUUID()
+
+			// TODO: remove
+			log.Infof("CSI namespace is %s", CSINamespace)
+
+			// Create the immutable ConfigMap to store cluster ID, so that it will be
+			// persisted in etcd and it can't be updated by any user.
+			configMapData := make(map[string]string)
+			configMapData["clusterID"] = clusterID
+
+			cmData, err := commonco.ContainerOrchestratorUtility.CreateConfigMap(ctx,
+				cnsconfig.ClusterIDConfigMapName, CSINamespace,
+				configMapData, true)
+			if err != nil {
+				log.Errorf("Failed to create the immutable ConfigMap, Err: %v", err)
+				return err
+			}
+
+			if cmData != nil {
+				// If ConfigMap for cluster ID already exists, then instead of
+				// using newly generated clusterID value, we will use the
+				// clusterID value stored in the existing immutable ConfigMap.
+				clusterID = cmData["clusterID"]
+				log.Infof("clusterID is not provided in vSphere config secret, "+
+					"using the clusterID %s from existing ConfigMap", clusterID)
+			} else {
+				log.Infof("clusterID is not provided in vSphere config secret, "+
+					"generated a new clusterID %s", clusterID)
+			}
+
+			cnsconfig.GeneratedClusterID = clusterID
+			cfg.Global.ClusterID = clusterID
+		} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla && cfg.Global.ClusterID != "" {
+			// If cluster ID is provided by user in vSphere config secret and immutable
+			// ConfigMap to store cluster ID also exists then kill the controller.
+			// User needs to either delete cluster ID from vSphere config secret or needs
+			// to delete the immutable ConifgMap vsphere-csi-cluster-id to fix it.
+			if commonco.ContainerOrchestratorUtility.ConfigMapAlreadyExists(ctx,
+				cnsconfig.ClusterIDConfigMapName, CSINamespace) {
+				log.Errorf("Cluster ID is present in vSphere Config secret as well as in "+
+					"%s ConfigMap. Please remove cluster ID from vSphere Config secret or "+
+					"remove the ConfigMap %s from namespace %s.", cnsconfig.ClusterIDConfigMapName,
+					cnsconfig.ClusterIDConfigMapName, CSINamespace)
+				return errors.New("Cluster ID present in vSphere Config secret as well as in " +
+					"internally generated immutable ConfigMap.")
+			}
+		}
+
 		if err := driver.cnscs.Init(cfg, Version); err != nil {
 			log.Errorf("failed to init controller. Error: %+v", err)
 			return err

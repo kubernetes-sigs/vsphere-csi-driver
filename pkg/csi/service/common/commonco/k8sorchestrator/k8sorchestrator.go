@@ -33,6 +33,7 @@ import (
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -1393,4 +1394,55 @@ func (c *K8sOrchestrator) GetAllVolumes() []string {
 func (c *K8sOrchestrator) AnnotateVolumeSnapshot(ctx context.Context, volumeSnapshotName string,
 	volumeSnapshotNamespace string, annotations map[string]string) (bool, error) {
 	return c.updateVolumeSnapshotAnnotations(ctx, volumeSnapshotName, volumeSnapshotNamespace, annotations)
+}
+
+// ConfigMapAlreadyExists checks if ConfigMap with given name already exists in the given namespace.
+// If it exists, this function returns true, otherwise returns false.
+func (c *K8sOrchestrator) ConfigMapAlreadyExists(ctx context.Context, name string, namespace string) bool {
+	log := logger.GetLogger(ctx)
+
+	if _, err := c.k8sClient.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
+		log.Infof("ConfigMap with name %s already exists in namespace %s", name, namespace)
+		return true
+	}
+	return false
+}
+
+// CreateConfigMap creates the ConfigMap with given name, namespace, data and
+// immutable parameter values if it doesn't exist. If ConfigMap already exists,
+// then it returns the data from existing ConfigMap.
+func (c *K8sOrchestrator) CreateConfigMap(ctx context.Context, name string, namespace string,
+	data map[string]string, isImmutable bool) (map[string]string, error) {
+	log := logger.GetLogger(ctx)
+
+	if cm, err := c.k8sClient.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{}); k8serrors.IsNotFound(err) {
+		log.Infof("Creating a new ConfigMap %s in namespace %s", name, namespace)
+
+		configMap := v1.ConfigMap{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "ConfigMap",
+				APIVersion: "v1",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Data:      data,
+			Immutable: &isImmutable,
+		}
+
+		_, err = c.k8sClient.CoreV1().ConfigMaps(namespace).Create(ctx, &configMap, metav1.CreateOptions{})
+		if err != nil {
+			log.Errorf("Error occurred while creating the ConfigMap %s in namespace %s, Err: %v", name, namespace, err)
+			return nil, err
+		}
+	} else if err == nil {
+		log.Infof("ConfigMap with name %s already exists in namespace %s", name, namespace)
+		return cm.Data, nil
+	} else if err != nil {
+		log.Errorf("Error occurred while fetching the ConfigMap %s in namespace %s, Err: %v", name, namespace, err)
+		return nil, err
+	}
+
+	return nil, nil
 }
