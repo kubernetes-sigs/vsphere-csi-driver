@@ -967,10 +967,10 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 
 	if task == nil {
 		// The task object is nil in two cases:
-		// - No previous CreateVolume task for this volume was retrieved from the
+		// - No previous DeleteVolume task for this volume was retrieved from the
 		//   persistent store.
-		// - The previous CreateVolume task failed.
-		// In both cases, invoke CNS CreateVolume again.
+		// - The previous DeleteVolume task failed.
+		// In both cases, invoke CNS DeleteVolume again.
 		var cnsVolumeIDList []cnstypes.CnsVolumeId
 		cnsVolumeID := cnstypes.CnsVolumeId{
 			Id: volumeID,
@@ -1006,6 +1006,13 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 			m.virtualCenter.Config.Host, err)
 		if err != nil {
 			faultType = ExtractFaultTypeFromErr(ctx, err)
+			if cnsvsphere.IsManagedObjectNotFound(err, task.Reference()) {
+				// Mark the volumeOperationRequest as an error if the corresponding VC task is missing/NotFound.
+				msg := fmt.Sprintf("DeleteVolume task %s not found in vCenter.", task.Reference().Value)
+				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+					metav1.Now(), task.Reference().Value, "", taskInvocationStatusError, msg)
+				return faultType, logger.LogNewError(log, msg)
+			}
 		} else {
 			faultType = csifault.CSITaskInfoEmptyFault
 		}
@@ -1045,7 +1052,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 	return "", nil
 }
 
-// UpdateVolume updates a volume given its spec.
+// UpdateVolumeMetadata updates a volume given its spec.
 func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstypes.CnsVolumeMetadataUpdateSpec) error {
 	internalUpdateVolumeMetadata := func() error {
 		log := logger.GetLogger(ctx)
