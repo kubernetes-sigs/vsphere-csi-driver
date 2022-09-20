@@ -108,8 +108,6 @@ func (driver *vsphereCSIDriver) BeforeServe(ctx context.Context) error {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 
-	// TODO: remove
-	log.Infof("In driver BeforeServe")
 	defer func() {
 		log.Infof("Configured: %q with clusterFlavor: %q and mode: %q",
 			csitypes.Name, clusterFlavor, driver.mode)
@@ -155,9 +153,6 @@ func (driver *vsphereCSIDriver) BeforeServe(ctx context.Context) error {
 			// In case of vanilla k8s deployments, if cluster ID is not provided in the
 			// vSphere config secret, then generate an unique cluster ID internally.
 			clusterID := getNewUUID()
-
-			// TODO: remove
-			log.Infof("CSI namespace is %s", CSINamespace)
 
 			// Create the immutable ConfigMap to store cluster ID, so that it will be
 			// persisted in etcd and it can't be updated by any user.
