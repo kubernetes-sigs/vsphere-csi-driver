@@ -532,7 +532,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 						msg := fmt.Sprintf("failed to remove %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 							cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
 						recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
-						return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
+						return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 					}
 				}
 				removeFinalizerFromCRDInstance(ctx, instance, request)
@@ -720,7 +720,7 @@ func updateSVPVC(ctx context.Context, client client.Client,
 			// The callers of updateSVPVC are only updating the instance finalizers
 			// Hence we add/remove the finalizers on the latest PVC object from API server.
 			if removeCnsPvcFinalizer {
-				for i, finalizer := range pvc.Finalizers {
+				for i, finalizer := range latestPVCObject.Finalizers {
 					if finalizer == cnsoperatortypes.CNSPvcFinalizer {
 						log.Debugf("Removing %q finalizer from PersistentVolumeClaim: %q on namespace: %q",
 							cnsoperatortypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)

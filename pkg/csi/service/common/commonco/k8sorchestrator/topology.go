@@ -862,13 +862,14 @@ func getCSINodeTopologyWatchTimeoutInMin(ctx context.Context) int {
 // GetSharedDatastoresInTopology returns shared accessible datastores for the specified topologyRequirement.
 // Argument TopologyRequirement needs to be passed in following form:
 // topologyRequirement [requisite:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
-//                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > >
-//                      requisite:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
-//                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-west" > >
-//                      preferred:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
-//                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-west" > >
-//                      preferred:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
-//                                 segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > >
+//
+//	           segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > >
+//	requisite:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
+//	           segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-west" > >
+//	preferred:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
+//	           segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-west" > >
+//	preferred:<segments:<key:"failure-domain.beta.kubernetes.io/region" value:"k8s-region-us" >
+//	           segments:<key:"failure-domain.beta.kubernetes.io/zone" value:"k8s-zone-us-east" > >
 func (volTopology *controllerVolumeTopology) GetSharedDatastoresInTopology(ctx context.Context,
 	reqParams interface{}) ([]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
@@ -1088,9 +1089,9 @@ func (volTopology *controllerVolumeTopology) getTopologySegmentsWithMatchingNode
 
 		// Check CSINodeTopology instance `Status` field for success.
 		if nodeTopologyInstance.Status.Status != csinodetopologyv1alpha1.CSINodeTopologySuccess {
-			log.Errorf("node %q not yet ready. Status of CSINodeTopology instance: %q",
-				nodeTopologyInstance.Name, nodeTopologyInstance.Status.Status)
-			return nil, nil, err
+			return nil, nil, logger.LogNewErrorf(log, "node %q not yet ready. Found CSINodeTopology instance "+
+				"status: %q with error message: %q", nodeTopologyInstance.Name, nodeTopologyInstance.Status.Status,
+				nodeTopologyInstance.Status.ErrorMessage)
 		}
 		// Convert array of labels to map.
 		topoLabelsMap := make(map[string]string)
@@ -1160,9 +1161,9 @@ func (volTopology *controllerVolumeTopology) getNodesMatchingTopologySegment(ctx
 
 		// Check CSINodeTopology instance `Status` field for success.
 		if nodeTopologyInstance.Status.Status != csinodetopologyv1alpha1.CSINodeTopologySuccess {
-			log.Errorf("node %q not yet ready. Status of CSINodeTopology instance: %q",
-				nodeTopologyInstance.Name, nodeTopologyInstance.Status.Status)
-			return nil, err
+			return nil, logger.LogNewErrorf(log, "node %q not yet ready. Found CSINodeTopology instance "+
+				"status: %q with error message: %q", nodeTopologyInstance.Name, nodeTopologyInstance.Status.Status,
+				nodeTopologyInstance.Status.ErrorMessage)
 		}
 		// Convert array of labels to map.
 		topoLabels := make(map[string]string)

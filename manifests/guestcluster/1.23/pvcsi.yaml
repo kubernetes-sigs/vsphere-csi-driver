@@ -487,7 +487,7 @@ data:
   "csi-sv-feature-states-replication": "false"
   "block-volume-snapshot": "false"
   "tkgs-ha": "true"
-  "cnsmgr-suspend-create-volume": "false"
+  "cnsmgr-suspend-create-volume": "true"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

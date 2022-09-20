@@ -102,7 +102,7 @@ func getNewUUID() string {
 	return uuid.New().String()
 }
 
-//BeforeServe defines the tasks needed before starting the driver.
+// BeforeServe defines the tasks needed before starting the driver.
 func (driver *vsphereCSIDriver) BeforeServe(ctx context.Context) error {
 	logger.SetLoggerLevel(logger.LogLevel(os.Getenv(logger.EnvLoggerLevel)))
 	ctx = logger.NewContextWithLogger(ctx)

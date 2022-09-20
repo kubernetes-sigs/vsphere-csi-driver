@@ -95,15 +95,22 @@ type VsanHostCapacity struct {
 	HostMoID         string
 }
 
+type DiskHealth struct {
+	HealthFlags  int   `json:"healthFlags,omitempty"`
+	HealthReason int   `json:"healthReason,omitempty"`
+	TimeStamp    int64 `json:"timestamp,omitempty"`
+}
+
 // VsanPhysicalDisk reflects the fields of JSON structure emitted by the
 // VsanInternalSystem.QueryPhysicalVsanDisks API that we care about.
 type VsanPhysicalDisk struct {
-	IsSSD            int    `json:"isSsd,omitempty"`
-	SsdUUID          string `json:"ssdUuid,omitempty"`
-	Capacity         int64  `json:"capacity,omitempty"`
-	CapacityReserved int64  `json:"capacityReserved,omitempty"`
-	CapacityUsed     int64  `json:"capacityUsed,omitempty"`
-	IsAllFlash       int    `json:"isAllFlash,omitempty"`
+	IsSSD            int        `json:"isSsd,omitempty"`
+	SsdUUID          string     `json:"ssdUuid,omitempty"`
+	Capacity         int64      `json:"capacity,omitempty"`
+	CapacityReserved int64      `json:"capacityReserved,omitempty"`
+	CapacityUsed     int64      `json:"capacityUsed,omitempty"`
+	IsAllFlash       int        `json:"isAllFlash,omitempty"`
+	Disk_Health      DiskHealth `json:"disk_health,omitempty"`
 }
 
 // VsanPhysicalDiskMap is what VsanInternalSystem.QueryPhysicalVsanDisks returns
@@ -147,6 +154,7 @@ func (host *HostSystem) QueryPhysicalVsanDisks(ctx context.Context) (VsanPhysica
 // GetHostVsanCapacity wraps around QueryPhysicalVsanDisks to sum up all the
 // capacity disks of a host.
 func (host *HostSystem) GetHostVsanCapacity(ctx context.Context) (*VsanHostCapacity, error) {
+	log := logger.GetLogger(ctx)
 	out := VsanHostCapacity{
 		Capacity:         0,
 		CapacityReserved: 0,
@@ -158,12 +166,16 @@ func (host *HostSystem) GetHostVsanCapacity(ctx context.Context) (*VsanHostCapac
 		return &out, err
 	}
 
-	for _, disk := range disks {
+	for key, disk := range disks {
 		if disk.IsSSD == 1 {
 			// Cache disk doesn't count as capacity.
 			continue
 		}
-		// XXX: Check for health?
+		// Check for disk health
+		if disk.Disk_Health.HealthFlags != 0 {
+			log.Infof("disk %s is erroneous. Health: %+v", key, disk.Disk_Health)
+			continue
+		}
 		out.Capacity += disk.Capacity
 		out.CapacityReserved += disk.CapacityReserved
 		out.CapacityUsed += disk.CapacityUsed

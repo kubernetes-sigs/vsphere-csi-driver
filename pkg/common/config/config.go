@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -191,7 +190,7 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 	if v := os.Getenv("VSPHERE_VCENTER"); v != "" {
 		cfg.Global.VCenterIP = v
 	}
-	if v := os.Getenv("VSPHERE_VCENTER_PORT"); v != "" {
+	if v := os.Getenv("VSPHERE_PORT"); v != "" {
 		cfg.Global.VCenterPort = v
 	}
 	if v := os.Getenv("VSPHERE_USER"); v != "" {
@@ -365,7 +364,10 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		if !insecure {
 			vcConfig.InsecureFlag = cfg.Global.InsecureFlag
 		}
+		// Print out the config. WARNING: This will print the password used in plain text.
+		log.Debugf("vc server %s config: %+v", vcServer, vcConfig)
 	}
+
 	clusterFlavor, err := GetClusterFlavor(ctx)
 	if err != nil {
 		return err
@@ -620,7 +622,7 @@ func GetSupervisorNamespace(ctx context.Context) (string, error) {
 	const (
 		namespaceFile = DefaultpvCSIProviderPath + "/namespace"
 	)
-	namespace, err := ioutil.ReadFile(namespaceFile)
+	namespace, err := os.ReadFile(namespaceFile)
 	if err != nil {
 		log.Errorf("Expected to load namespace from %s, but got err: %v", namespaceFile, err)
 		return "", err

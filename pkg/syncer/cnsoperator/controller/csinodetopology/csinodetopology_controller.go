@@ -245,6 +245,12 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 		// Error reading the object - return with err.
 		return reconcile.Result{}, err
 	}
+	// If the CR status is already at Success, do not reconcile further.
+	if instance.Status.Status == csinodetopologyv1alpha1.CSINodeTopologySuccess {
+		log.Infof("CSINodeTopology instance with name %q is already at %q state. No need to "+
+			"reconcile further.", instance.Name, instance.Status.Status)
+		return reconcile.Result{}, err
+	}
 
 	// Initialize backOffDuration for the instance, if required.
 	backOffDurationMapMutex.Lock()

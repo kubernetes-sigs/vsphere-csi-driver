@@ -58,6 +58,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		topologyClusterList     []string
 		powerOffHostsList       []string
 		sshClientConfig         *ssh.ClientConfig
+		k8sVersion              string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -76,6 +77,11 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name,
 				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 		}
+		// fetching k8s version
+		v, err := client.Discovery().ServerVersion()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		k8sVersion = v.Major + "." + v.Minor
+
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
 		topologyMap := GetAndExpectStringEnvVar(topologyMap)
 		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap, topologyLength)
@@ -498,7 +504,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 				is running */
 				ginkgo.By("Kill container CSI-Provisioner on the master node where elected leader " +
 					"is running")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, containerName)
+				err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, containerName, k8sVersion)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -597,7 +603,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 			if i == 2 {
 				/* Kill csi-attacher container */
 				ginkgo.By("Kill csi-attacher container")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, containerName)
+				err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, containerName, k8sVersion)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}

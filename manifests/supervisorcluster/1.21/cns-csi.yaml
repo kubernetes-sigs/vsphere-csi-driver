@@ -165,7 +165,12 @@ metadata:
   name: vsphere-csi-controller
   namespace: vmware-system-csi
 spec:
-  replicas: 1
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app: vsphere-csi-controller
@@ -175,6 +180,16 @@ spec:
         app: vsphere-csi-controller
         role: vsphere-csi
     spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: "app"
+                operator: In
+                values:
+                  - vsphere-csi-controller
+            topologyKey: "kubernetes.io/hostname"
       serviceAccount: vsphere-csi-controller
       nodeSelector:
         node-role.kubernetes.io/master: ''
@@ -310,6 +325,8 @@ spec:
               value: "50"
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
+            - name: GODEBUG
+              value: x509sha1=1
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
@@ -353,6 +370,8 @@ spec:
               value: "50"
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
+            - name: GODEBUG
+              value: x509sha1=1
           imagePullPolicy: "IfNotPresent"
           ports:
            - containerPort: 2113
@@ -398,7 +417,7 @@ data:
   "improved-csi-idempotency": "true"
   "block-volume-snapshot": "false"
   "sibling-replica-bound-pvc-check": "true"
-  "cnsmgr-suspend-create-volume": "false"
+  "cnsmgr-suspend-create-volume": "true"
   "tkgs-ha": "true"
   "list-volumes": "false"
 kind: ConfigMap

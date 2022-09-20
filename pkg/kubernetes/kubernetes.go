@@ -20,7 +20,6 @@ import (
 	"context"
 	"embed"
 	"flag"
-	"io/ioutil"
 	"net"
 	"os"
 	"strconv"
@@ -125,7 +124,7 @@ func GetRestClientConfigForSupervisor(ctx context.Context, endpoint string, port
 		tokenFile  = cnsconfig.DefaultpvCSIProviderPath + "/token"
 		rootCAFile = cnsconfig.DefaultpvCSIProviderPath + "/ca.crt"
 	)
-	token, err := ioutil.ReadFile(tokenFile)
+	token, err := os.ReadFile(tokenFile)
 	if err != nil {
 		return nil
 	}
@@ -154,6 +153,21 @@ func NewSupervisorClient(ctx context.Context, config *restclient.Config) (client
 		return nil, err
 	}
 
+	return client, nil
+
+}
+
+// NewSupervisorSnapshotClient creates a new supervisor client for handling snapshot related objects
+func NewSupervisorSnapshotClient(ctx context.Context, config *restclient.Config) (
+	snapshotterClientSet.Interface, error) {
+	log := logger.GetLogger(ctx)
+	log.Info("Connecting to supervisor cluster using the certs/token in Guest Cluster " +
+		"config to retrieve the snapshotter client")
+	client, err := snapshotterClientSet.NewForConfig(config)
+	if err != nil {
+		log.Error("failed to connect to the supervisor cluster with err: %+v", err)
+		return nil, err
+	}
 	return client, nil
 
 }

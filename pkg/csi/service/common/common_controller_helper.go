@@ -21,6 +21,12 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
+
+	snap "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	vim25types "github.com/vmware/govmomi/vim25/types"
@@ -297,4 +303,50 @@ func CheckPVtoBackingDiskObjectIdSupport(ctx context.Context, vc *cnsvsphere.Vir
 	// vCenter version supported.
 	log.Infof("vCenter API version: %s supports CNS PV to BackingDiskObjectId mapping.", currentVcVersion)
 	return true
+}
+
+// IsVolumeSnapshotReady return true if the VolumeSnapshot is ReadyToUse
+func IsVolumeSnapshotReady(ctx context.Context, client snapshotterClientSet.Interface,
+	supervisorVolumeSnapshotName string, namespace string, timeout time.Duration) (bool, *snap.VolumeSnapshot, error) {
+	log := logger.GetLogger(ctx)
+	timeoutSeconds := int64(timeout.Seconds())
+
+	log.Infof("Waiting up to %d seconds for VolumeSnapshot %v in namespace %s to be ReadyToUse",
+		timeoutSeconds, supervisorVolumeSnapshotName, namespace)
+	startTime := time.Now()
+	isReadyToUse := false
+	var svs *snap.VolumeSnapshot
+
+	waitErr := wait.PollImmediate(5*time.Second, timeout, func() (done bool, err error) {
+		svs, err := client.SnapshotV1().VolumeSnapshots(namespace).
+			Get(ctx, supervisorVolumeSnapshotName, metav1.GetOptions{})
+		if err != nil {
+			msg := fmt.Sprintf("unable to fetch volumesnapshot %q/%q "+
+				"from supervisor cluster with err: %+v",
+				namespace, supervisorVolumeSnapshotName, err)
+			log.Warnf(msg)
+			return false, logger.LogNewErrorf(log, msg)
+		}
+		isSnapshotReadyToUse := *svs.Status.ReadyToUse
+		if isSnapshotReadyToUse {
+			log.Infof("VolumeSnapshot %s/%s is in ReadyToUse state", namespace, supervisorVolumeSnapshotName)
+			isReadyToUse = true
+			return true, nil
+		} else {
+			log.Warnf("Waiting for VolumeSnapshot %s/%s to be ready since %+vs", namespace,
+				supervisorVolumeSnapshotName, time.Since(startTime).Seconds())
+		}
+		return false, nil
+	})
+
+	if !isReadyToUse {
+		msg := fmt.Sprintf("volumesnapshot %s in namespace %s not in ReadyToUse "+
+			"within %d seconds", supervisorVolumeSnapshotName, namespace, timeoutSeconds)
+		if waitErr != nil {
+			msg += fmt.Sprintf(": message: %v", waitErr.Error())
+		}
+		return false, nil, fmt.Errorf(msg)
+	}
+
+	return true, svs, nil
 }

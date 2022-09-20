@@ -23,7 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"net"
 	"net/http"
@@ -1455,9 +1455,6 @@ func checkVcenterServicesRunning(
 		return false, nil
 	})
 	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
-	connect(ctx, &e2eVSphere)
-	err := e2eVSphere.wait4allVPs2ComeUp(ctx)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 // httpRequest takes client and http Request as input and performs GET operation
@@ -1466,7 +1463,7 @@ func httpRequest(client *http.Client, req *http.Request) ([]byte, int) {
 	resp, err := client.Do(req)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer resp.Body.Close()
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("API Response status %d", resp.StatusCode)
 
@@ -1474,7 +1471,7 @@ func httpRequest(client *http.Client, req *http.Request) ([]byte, int) {
 
 }
 
-//getVMImages returns the available gc images present in svc
+// getVMImages returns the available gc images present in svc
 func getVMImages(wcpHost string, wcpToken string) VMImages {
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
@@ -1497,7 +1494,7 @@ func getVMImages(wcpHost string, wcpToken string) VMImages {
 	return vmImage
 }
 
-//deleteTKG method deletes the TKG Cluster
+// deleteTKG method deletes the TKG Cluster
 func deleteTKG(wcpHost string, wcpToken string, tkgCluster string) error {
 	ginkgo.By("Delete TKG")
 	transCfg := &http.Transport{
@@ -1532,8 +1529,8 @@ func deleteTKG(wcpHost string, wcpToken string, tkgCluster string) error {
 
 }
 
-//waitForDeleteToComplete method polls for the requested object status
-//returns true if its deleted successfully else returns error
+// waitForDeleteToComplete method polls for the requested object status
+// returns true if its deleted successfully else returns error
 func waitForDeleteToComplete(client *http.Client, req *http.Request) error {
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout*6, func() (bool, error) {
 		framework.Logf("Polling for New GC status")
@@ -1548,7 +1545,7 @@ func waitForDeleteToComplete(client *http.Client, req *http.Request) error {
 	return waitErr
 }
 
-//upgradeTKG method updates the TKG Cluster with the tkgImage
+// upgradeTKG method updates the TKG Cluster with the tkgImage
 func upgradeTKG(wcpHost string, wcpToken string, tkgCluster string, tkgImage string) {
 	ginkgo.By("Upgrade TKG")
 	transCfg := &http.Transport{
@@ -1587,7 +1584,7 @@ func upgradeTKG(wcpHost string, wcpToken string, tkgCluster string, tkgImage str
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer resp.Body.Close()
 
-	bodyBytes, err = ioutil.ReadAll(resp.Body)
+	bodyBytes, err = io.ReadAll(resp.Body)
 	framework.Logf("API Response status %v", resp.StatusCode)
 	gomega.Expect(resp.StatusCode).Should(gomega.BeNumerically("==", 200))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1597,7 +1594,7 @@ func upgradeTKG(wcpHost string, wcpToken string, tkgCluster string, tkgImage str
 
 }
 
-//createGC method creates GC and takes WCP host and bearer token as input param
+// createGC method creates GC and takes WCP host and bearer token as input param
 func createGC(wcpHost string, wcpToken string) {
 
 	transCfg := &http.Transport{
@@ -1610,7 +1607,7 @@ func createGC(wcpHost string, wcpToken string) {
 	tkg_yaml, err := filepath.Abs(gcManifestPath + "tkg.yaml")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Taking yaml from %v", tkg_yaml)
-	gcBytes, err := ioutil.ReadFile(tkg_yaml)
+	gcBytes, err := os.ReadFile(tkg_yaml)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	req, err := http.NewRequest("POST", createGCURL, bytes.NewBuffer(gcBytes))
@@ -1653,7 +1650,7 @@ func getAuthToken(refreshToken string) string {
 
 }
 
-//rotateVCCertinVMC recreates the cert for VC in VMC environment
+// rotateVCCertinVMC recreates the cert for VC in VMC environment
 func rotateVCCertinVMC(authToken string, orgId string, sddcId string) string {
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
@@ -1678,7 +1675,7 @@ func rotateVCCertinVMC(authToken string, orgId string, sddcId string) string {
 	return certRotate.ID
 }
 
-//getTaskStatus polls status for given task id and returns true once task is completed
+// getTaskStatus polls status for given task id and returns true once task is completed
 func getTaskStatus(authToken string, orgID string, taskID string) error {
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
@@ -1711,7 +1708,7 @@ func getTaskStatus(authToken string, orgID string, taskID string) error {
 	return waitErr
 }
 
-//scaleTKGWorker scales the TKG worker nodes on given tkgCluster based on the tkgworker count
+// scaleTKGWorker scales the TKG worker nodes on given tkgCluster based on the tkgworker count
 func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworker int) {
 
 	transCfg := &http.Transport{
@@ -1750,7 +1747,7 @@ func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworke
 
 }
 
-//getGC polls for the GC status, returns error if its not in running phase
+// getGC polls for the GC status, returns error if its not in running phase
 func getGC(wcpHost string, wcpToken string, gcName string) error {
 	var response string
 	transCfg := &http.Transport{
@@ -1781,7 +1778,7 @@ func getGC(wcpHost string, wcpToken string, gcName string) error {
 	return waitErr
 }
 
-//getWCPSessionId returns the bearer token for given user
+// getWCPSessionId returns the bearer token for given user
 func getWCPSessionId(hostname string, username string, password string) string {
 	type WcpSessionID struct {
 		Session_id string
@@ -2788,17 +2785,19 @@ func trimQuotes(str string) string {
 }
 
 // readConfigFromSecretString takes input string of the form:
-//    [Global]
-//    insecure-flag = "true"
-//    cluster-id = "domain-c1047"
-//    cluster-distribution = "CSI-Vanilla"
-//    [VirtualCenter "wdc-rdops-vm09-dhcp-238-224.eng.vmware.com"]
-//    user = "workload_storage_management-792c9cce-3cd2-4618-8853-52f521400e05@vsphere.local"
-//    password = "qd?\\/\"K=O_<ZQw~s4g(S"
-//    datacenters = "datacenter-1033"
-//    port = "443"
-//    [Snapshot]
-//    global-max-snapshots-per-block-volume = 3
+//
+//	[Global]
+//	insecure-flag = "true"
+//	cluster-id = "domain-c1047"
+//	cluster-distribution = "CSI-Vanilla"
+//	[VirtualCenter "wdc-rdops-vm09-dhcp-238-224.eng.vmware.com"]
+//	user = "workload_storage_management-792c9cce-3cd2-4618-8853-52f521400e05@vsphere.local"
+//	password = "qd?\\/\"K=O_<ZQw~s4g(S"
+//	datacenters = "datacenter-1033"
+//	port = "443"
+//	[Snapshot]
+//	global-max-snapshots-per-block-volume = 3
+//
 // Returns a de-serialized structured config data
 func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 	var config e2eTestConfig
@@ -4399,7 +4398,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context,
 	}
 }
 
-//isCsiFssEnabled checks if the given CSI FSS is enabled or not, errors out if not found
+// isCsiFssEnabled checks if the given CSI FSS is enabled or not, errors out if not found
 func isCsiFssEnabled(ctx context.Context, client clientset.Interface, namespace string, fss string) bool {
 	fssCM, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, csiFssCM, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4425,7 +4424,9 @@ TOPOLOGY_MAP = "region:region1;zone:zone1;building:building1;level:level1;rack:r
 func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]string, []string) {
 	topologyMap := make(map[string][]string)
 	var categories []string
-	if level != 5 {
+	topologyFeature := os.Getenv(topologyFeature)
+
+	if level != 5 && topologyFeature != topologyTkgHaName {
 		return nil, categories
 	}
 	topologyCategories := strings.Split(topologyMapStr, ";")
@@ -4443,11 +4444,18 @@ func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]str
 This wrapper method is used to create allowed topologies set required for creating Storage Class.
 */
 func createAllowedTopolgies(topologyMapStr string, level int) []v1.TopologySelectorLabelRequirement {
+	topologyFeature := os.Getenv(topologyFeature)
 	topologyMap, _ := createTopologyMapLevel5(topologyMapStr, level)
 	allowedTopologies := []v1.TopologySelectorLabelRequirement{}
+	topoKey := ""
+	if topologyFeature == topologyTkgHaName {
+		topoKey = tkgHATopologyKey
+	} else {
+		topoKey = topologykey
+	}
 	for key, val := range topologyMap {
 		allowedTopology := v1.TopologySelectorLabelRequirement{
-			Key:    topologykey + "/" + key,
+			Key:    topoKey + "/" + key,
 			Values: val,
 		}
 		allowedTopologies = append(allowedTopologies, allowedTopology)
@@ -4492,14 +4500,27 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 	if pv.Spec.NodeAffinity == nil || len(pv.Spec.NodeAffinity.Required.NodeSelectorTerms) == 0 {
 		return false, fmt.Errorf("node Affinity rules for PV should exist in topology aware provisioning")
 	}
+	topologyFeature := os.Getenv(topologyFeature)
 	for _, nodeSelector := range pv.Spec.NodeAffinity.Required.NodeSelectorTerms {
 		for _, topology := range nodeSelector.MatchExpressions {
 			if val, ok := allowedTopologiesMap[topology.Key]; ok {
 				if !compareStringLists(val, topology.Values) {
-					return false, fmt.Errorf("PV node affinity details does not exist in the allowed topologies specified in SC")
+					if topologyFeature == topologyTkgHaName {
+						return false, fmt.Errorf("pv node affinity details: %v does not match"+
+							"with: %v in the allowed topologies", topology.Values, val)
+					} else {
+						return false, fmt.Errorf("PV node affinity details does not exist in the allowed " +
+							"topologies specified in SC")
+					}
 				}
 			} else {
-				return false, fmt.Errorf("PV node affinity details does not exist in the allowed topologies specified in SC")
+				if topologyFeature == topologyTkgHaName {
+					return false, fmt.Errorf("pv node affinity key: %v does not does not exist in the"+
+						"allowed topologies map: %v", topology.Key, allowedTopologiesMap)
+				} else {
+					return false, fmt.Errorf("PV node affinity details does not exist in the allowed " +
+						"topologies specified in SC")
+				}
 			}
 		}
 	}
@@ -4595,7 +4616,7 @@ func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList,
 			for labelKey, labelValue := range node.Labels {
 				if topologyValue, ok := allowedTopologiesMap[labelKey]; ok {
 					if !contains(topologyValue, labelValue) {
-						return false, fmt.Errorf("Pod is not running on node located in %s" + labelValue)
+						return false, fmt.Errorf("pod: %s is not running on node located in %s", pod.Name, labelValue)
 					}
 				}
 			}
@@ -4785,6 +4806,13 @@ required for creating Storage Class specific to testcase scenarios.
 func getTopologySelector(topologyAffinityDetails map[string][]string,
 	topologyCategories []string, level int,
 	position ...int) []v1.TopologySelectorLabelRequirement {
+	topologyFeature := os.Getenv(topologyFeature)
+	var key string
+	if topologyFeature == topologyTkgHaName {
+		key = tkgHATopologyKey
+	} else {
+		key = topologykey
+	}
 	allowedTopologyForSC := []v1.TopologySelectorLabelRequirement{}
 	updateLvl := -1
 	var rnges []int
@@ -4800,10 +4828,15 @@ func getTopologySelector(topologyAffinityDetails map[string][]string,
 				values = append(values, topologyAffinityDetails[category][rng])
 			}
 		} else {
-			values = topologyAffinityDetails[category]
+			if topologyFeature == topologyTkgHaName {
+				values = topologyAffinityDetails[key+"/"+category]
+			} else {
+				values = topologyAffinityDetails[category]
+			}
 		}
+
 		topologySelector := v1.TopologySelectorLabelRequirement{
-			Key:    topologykey + "/" + category,
+			Key:    key + "/" + category,
 			Values: values,
 		}
 		allowedTopologyForSC = append(allowedTopologyForSC, topologySelector)
@@ -5172,15 +5205,10 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 			// to same temporary file
 			// NOTE: This is not valid for vsphere-csi-controller container as for
 			// vsphere-csi-controller all the replicas will behave as leaders
-			if containerName == syncerContainerName {
-				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
-					csiSystemNamespace + " " + containerName + " | grep 'successfully acquired lease' | " +
-					"tail -1` 'podName:" + csiPod.Name + "' | tee -a leader.log"
-			} else {
-				grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
-					csiSystemNamespace + " " + containerName + " | grep 'new leader detected, current leader:' | " +
-					"tail -1` | tee -a leader.log"
-			}
+			grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
+				csiSystemNamespace + " " + containerName + " | grep 'successfully acquired lease' | " +
+				"tail -1` 'podName:" + csiPod.Name + "' | tee -a leader.log"
+
 			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
 				k8sMasterIP)
 			result, err := sshExec(sshClientConfig, k8sMasterIP,
@@ -5196,12 +5224,8 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 	// Sorting the temporary file according to timestamp to find the latest container leader
 	// from the CSI pod replicas
 	var cmd string
-	if containerName == syncerContainerName {
-		cmd = "sort -k 2n leader.log | tail -1 | sed -n 's/.*podName://p' | tr -d '\n'"
 
-	} else {
-		cmd = "sort -k 2n leader.log | tail -1 |awk '{print $10}' | tr -d '\n'"
-	}
+	cmd = "sort -k 2n leader.log | tail -1 | sed -n 's/.*podName://p' | tr -d '\n'"
 
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		k8sMasterIP)
@@ -5246,32 +5270,47 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 
 // execDockerPauseNKillOnContainer pauses and then kills the particular CSI container on given master node
 func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
-	containerName string) error {
-	containerID, err := waitAndGetContainerID(sshClientConfig, k8sMasterNodeIP, containerName)
+	containerName string, k8sVersion string) error {
+	containerPauseCmd := ""
+	containerKillCmd := ""
+	k8sVer, err := strconv.ParseFloat(k8sVersion, 64)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	containerID, err := waitAndGetContainerID(sshClientConfig, k8sMasterNodeIP, containerName, k8sVer)
 	if err != nil {
 		return err
 	}
-	dockerContainerPauseCmd := "docker pause " + containerID
-	framework.Logf("Invoking command '%v' on host %v", dockerContainerPauseCmd,
+	if k8sVer <= 1.23 {
+		containerPauseCmd = "docker pause " + containerID
+	} else {
+		containerPauseCmd = "nerdctl pause --namespace k8s.io " + containerID
+	}
+	framework.Logf("Invoking command '%v' on host %v", containerPauseCmd,
 		k8sMasterNodeIP)
 	cmdResult, err := sshExec(sshClientConfig, k8sMasterNodeIP,
-		dockerContainerPauseCmd)
+		containerPauseCmd)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			dockerContainerPauseCmd, k8sMasterNodeIP, err)
+			containerPauseCmd, k8sMasterNodeIP, err)
 	}
 	framework.Logf("Waiting for 5 seconds as leader election happens every 5 secs")
 	time.Sleep(5 * time.Second)
-	dockerContainerKillCmd := "docker kill " + containerID
-	framework.Logf("Invoking command '%v' on host %v", dockerContainerKillCmd,
+	if k8sVer <= 1.23 {
+		containerKillCmd = "docker kill " + containerID
+	} else {
+		containerKillCmd = "nerdctl kill --namespace k8s.io " + containerID
+	}
+	framework.Logf("Invoking command '%v' on host %v", containerKillCmd,
 		k8sMasterNodeIP)
 	cmdResult, err = sshExec(sshClientConfig, k8sMasterNodeIP,
-		dockerContainerKillCmd)
+		containerKillCmd)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
+		if strings.Contains(cmdResult.Stderr, "OCI runtime resume failed") {
+			return nil
+		}
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			dockerContainerKillCmd, k8sMasterNodeIP, err)
+			containerKillCmd, k8sMasterNodeIP, err)
 	}
 	return nil
 }
@@ -5400,8 +5439,11 @@ func CheckMountForStsPods(c clientset.Interface, ss *appsv1.StatefulSet, mountPa
 	return nil
 }
 
-/* ExecInStsPodsInNs executes cmd in all Pods in ss. If a error occurs it is returned and
-cmd is not execute in any subsequent Pods. */
+/*
+	ExecInStsPodsInNs executes cmd in all Pods in ss. If a error occurs it is returned and
+
+cmd is not execute in any subsequent Pods.
+*/
 func ExecInStsPodsInNs(c clientset.Interface, ss *appsv1.StatefulSet, cmd string) error {
 	podList := GetListOfPodsInSts(c, ss)
 	StatefulSetPoll := 10 * time.Second
@@ -5424,28 +5466,22 @@ func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
 	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
 	csi_controller_pod string) error {
 	ignoreLabels := make(map[string]string)
-	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	csiPods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	k8sMasterIPs := getK8sMasterIPs(ctx, client)
-	k8sMasterIP := k8sMasterIPs[0]
-	for i := 0; i < len(list_of_pods); i++ {
-		if list_of_pods[i].Name == csi_controller_pod {
-			grepCmdForDeletingCsiControllerPod := "kubectl delete pod " + csi_controller_pod +
-				" -n vmware-system-csi"
-			framework.Logf("Invoking command '%v' on host %v", grepCmdForDeletingCsiControllerPod,
-				k8sMasterIP)
-			result, err := sshExec(sshClientConfig, k8sMasterIP,
-				grepCmdForDeletingCsiControllerPod)
-			if err != nil || result.Code != 0 {
-				fssh.LogResult(result)
-				return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-					grepCmdForDeletingCsiControllerPod, k8sMasterIP, err)
-			}
-		}
-		if list_of_pods[i].Name == csi_controller_pod {
-			break
+	num_csi_pods := len(csiPods)
+	// Collecting and dumping csi pod logs before deleting them
+	collectPodLogs(ctx, client, csiSystemNamespace)
+	for _, csiPod := range csiPods {
+		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) && csiPod.Name == csi_controller_pod {
+			framework.Logf("Deleting the pod: %s", csiPod.Name)
+			err = fpod.DeletePodWithWait(client, csiPod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}
+	// wait for csi Pods to be in running ready state
+	err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	return nil
 }
 
@@ -5596,8 +5632,11 @@ func waitForPvcToBeDeleted(ctx context.Context, client clientset.Interface, pvcN
 	return waitErr
 }
 
-/* This util method fetches events list of the given object name and checkes for
-specified error reason and returns true if expected error Reason found */
+/*
+	This util method fetches events list of the given object name and checkes for
+
+specified error reason and returns true if expected error Reason found
+*/
 func waitForEventWithReason(client clientset.Interface, namespace string,
 	name string, expectedErrMsg string) (bool, error) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -5725,15 +5764,21 @@ func triggerFullSync(ctx context.Context, client clientset.Interface,
 
 // waitAndGetContainerID waits and fetches containerID of a given containerName
 func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string,
-	containerName string) (string, error) {
+	containerName string, k8sVersion float64) (string, error) {
 	containerId := ""
+	cmdToGetContainerId := ""
 	waitErr := wait.PollImmediate(poll, pollTimeoutShort*3, func() (bool, error) {
-		grepCmdForGettingDockerContainerId := "docker ps | grep " + containerName + " | " +
-			"awk '{print $1}' |  tr -d '\n'"
-		framework.Logf("Invoking command '%v' on host %v", grepCmdForGettingDockerContainerId,
+		if k8sVersion <= 1.23 {
+			cmdToGetContainerId = "docker ps | grep " + containerName + " | " +
+				"awk '{print $1}' |  tr -d '\n'"
+		} else {
+			cmdToGetContainerId = "nerdctl --namespace k8s.io ps -a | grep -E " + containerName + ".*Up  | " +
+				"awk '{print $1}' |  tr -d '\n'"
+		}
+		framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerId,
 			k8sMasterIP)
 		dockerContainerInfo, err := sshExec(sshClientConfig, k8sMasterIP,
-			grepCmdForGettingDockerContainerId)
+			cmdToGetContainerId)
 		fssh.LogResult(dockerContainerInfo)
 		containerId = dockerContainerInfo.Stdout
 		if containerId != "" {
@@ -5741,7 +5786,7 @@ func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string
 		}
 		if err != nil || dockerContainerInfo.Code != 0 {
 			return false, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-				grepCmdForGettingDockerContainerId, k8sMasterIP, err)
+				cmdToGetContainerId, k8sMasterIP, err)
 		}
 		return false, nil
 	})
@@ -5752,13 +5797,100 @@ func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string
 	return containerId, waitErr
 }
 
-//startVCServiceWait4VPs starts given service and waits for all VPs to come online
+// startVCServiceWait4VPs starts given service and waits for all VPs to come online
 func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service string, isSvcStopped *bool) {
 	err := invokeVCenterServiceControl(startOperation, service, vcAddress)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = waitVCenterServiceToBeInState(service, vcAddress, svcRunningMessage)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	err = e2eVSphere.wait4allVPs2ComeUp(ctx)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	*isSvcStopped = false
+}
+
+// assignPolicyToWcpNamespace assigns a set of storage policies to a wcp namespace
+func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
+	namespace string, policyNames []string) {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	vcAddress := vcIp + ":" + sshdPort
+	sessionId := createVcSession4RestApis()
+
+	curlStr := ""
+	policyNamesArrLength := len(policyNames)
+	defRqLimit := strings.Split(defaultrqLimit, "Gi")[0]
+	limit, err := strconv.Atoi(defRqLimit)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	limit *= 953 //to convert gb to mebibytes
+	if policyNamesArrLength >= 1 {
+		curlStr += fmt.Sprintf(`{ "limit": %d, "policy": "%s"}`, limit, e2eVSphere.GetSpbmPolicyID(policyNames[0]))
+	}
+	if policyNamesArrLength >= 2 {
+		for i := 1; i < policyNamesArrLength; i++ {
+			profileID := e2eVSphere.GetSpbmPolicyID(policyNames[i])
+			curlStr += "," + fmt.Sprintf(`{ "limit": %d, "policy": "%s"}`, limit, profileID)
+		}
+	}
+
+	httpCodeStr := `%{http_code}`
+	curlCmd := fmt.Sprintf(`curl -s -o /dev/null -w "%s" -k -X PATCH`+
+		` 'https://%s/api/vcenter/namespaces/instances/%s' -H `+
+		`'vmware-api-session-id: %s' -H 'Content-type: application/json' -d `+
+		`'{ "access_list": [ { "domain": "", "role": "OWNER", "subject": "", "subject_type": "USER" } ], `+
+		`"description": "", "resource_spec": { }, "storage_specs": [ %s ], `+
+		`"vm_service_spec": { } }'`, httpCodeStr, vcIp, namespace, sessionId, curlStr)
+
+	framework.Logf("Running command: %s", curlCmd)
+	result, err := fssh.SSH(curlCmd, vcAddress, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			"couldn't execute command: %v due to err %v", curlCmd, err)
+	}
+	gomega.Expect(result.Stdout).To(gomega.Equal("204"))
+
+	// wait for sc to get created in SVC
+	for _, policyName := range policyNames {
+		err = waitForScToGetCreated(client, ctx, policyName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+}
+
+// createVcSession4RestApis generates session ID for VC to use in rest API calls
+func createVcSession4RestApis() string {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	vcAddress := vcIp + ":" + sshdPort
+	curlCmd := fmt.Sprintf("curl -k -X POST https://%s/rest/com/vmware/cis/session"+
+		" -u 'Administrator@vsphere.local:%s'", vcIp, adminPassword)
+	framework.Logf("Running command: %s", curlCmd)
+	result, err := fssh.SSH(curlCmd, vcAddress, framework.TestContext.Provider)
+	fssh.LogResult(result)
+	if err != nil || result.Code != 0 {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			"couldn't execute command: %v due to err %v", curlCmd, err)
+	}
+
+	var session map[string]interface{}
+	res := []byte(result.Stdout)
+	err = json.Unmarshal(res, &session)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	sessionId := session["value"].(string)
+	framework.Logf("sessionID is: %v", sessionId)
+	return sessionId
+}
+
+// waitForScToGetCreated waits for a particular storageclass to get created
+func waitForScToGetCreated(client clientset.Interface, ctx context.Context, policyName string) error {
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort*5, func() (bool, error) {
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			return false, fmt.Errorf("couldn't find storageclass: %s due to error: %v", policyName, err)
+		}
+		if storageclass != nil {
+			return true, nil
+		}
+		return false, nil
+	})
+	if waitErr == wait.ErrWaitTimeout {
+		return fmt.Errorf("couldn't find storageclass: %s in SVC", policyName)
+	}
+	return nil
+
 }

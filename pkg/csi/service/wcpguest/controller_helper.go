@@ -25,7 +25,10 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	snap "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
 	"google.golang.org/grpc/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -192,9 +195,8 @@ func getAccessMode(accessMode csi.VolumeCapability_AccessMode_Mode) v1.Persisten
 
 // getPersistentVolumeClaimSpecWithStorageClass return the PersistentVolumeClaim spec with specified storage class
 func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace string, diskSize string,
-	storageClassName string, pvcAccessMode v1.PersistentVolumeAccessMode,
-	annotations map[string]string) *v1.PersistentVolumeClaim {
-
+	storageClassName string, pvcAccessMode v1.PersistentVolumeAccessMode, annotations map[string]string,
+	volumeSnapshotName string) *v1.PersistentVolumeClaim {
 	claim := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        pvcName,
@@ -213,7 +215,35 @@ func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace stri
 			StorageClassName: &storageClassName,
 		},
 	}
+	snapshotApiGroup := common.VolumeSnapshotApiGroup
+	volumeSnapshotKind := common.VolumeSnapshotKind
+	if volumeSnapshotName != "" {
+		localObjectReference := &v1.TypedLocalObjectReference{
+			APIGroup: &snapshotApiGroup,
+			Kind:     volumeSnapshotKind,
+			Name:     volumeSnapshotName,
+		}
+		claim.Spec.DataSource = localObjectReference
+	}
 	return claim
+}
+
+func constructVolumeSnapshotWithVolumeSnapshotClass(volumeSnapshotName string, namespace string,
+	volumeSnapshotClassName string, pvcName string) *snap.VolumeSnapshot {
+	volumeSnapshot := &snap.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      volumeSnapshotName,
+			Namespace: namespace,
+		},
+		Spec: snap.VolumeSnapshotSpec{
+			Source: snap.VolumeSnapshotSource{
+				PersistentVolumeClaimName: &pvcName,
+			},
+			VolumeSnapshotClassName: &volumeSnapshotClassName,
+		},
+		Status: nil,
+	}
+	return volumeSnapshot
 }
 
 // generateGuestClusterRequestedTopologyJSON translates the topology into a json string to be set on the supervisor
@@ -390,4 +420,21 @@ func getAttacherTimeoutInMin(ctx context.Context) int {
 		}
 	}
 	return attacherTimeoutInMin
+}
+
+func constructListSnapshotEntry(vs snap.VolumeSnapshot) *csi.ListSnapshotsResponse_Entry {
+	snapshotCreateTimeInProto := timestamppb.New(vs.Status.CreationTime.Time)
+	snapshotSize := vs.Status.RestoreSize.Value()
+	volumeID := *vs.Spec.Source.PersistentVolumeClaimName
+	csiSnapshotInfo := &csi.Snapshot{
+		SnapshotId:     vs.Name,
+		SourceVolumeId: volumeID,
+		CreationTime:   snapshotCreateTimeInProto,
+		SizeBytes:      snapshotSize,
+		ReadyToUse:     true,
+	}
+	entry := &csi.ListSnapshotsResponse_Entry{
+		Snapshot: csiSnapshotInfo,
+	}
+	return entry
 }

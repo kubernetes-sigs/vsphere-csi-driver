@@ -142,7 +142,7 @@ roleRef:
 ---
 apiVersion: v1
 data:
-  "csi-migration": "false"
+  "csi-migration": "true"
   "csi-auth-check": "true"
   "online-volume-extend": "true"
   "trigger-csi-fullsync": "false"
@@ -154,7 +154,7 @@ data:
   "use-csinode-id": "true"
   "list-volumes": "false"
   "pv-to-backingdiskobjectid-mapping": "false"
-  "cnsmgr-suspend-create-volume": "false"
+  "cnsmgr-suspend-create-volume": "true"
   "topology-preferential-datastores": "true"
   "max-pvscsi-targets-per-vm": "false"
   "csi-internal-generated-cluster-id": "true"

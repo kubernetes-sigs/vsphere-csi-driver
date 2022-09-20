@@ -3,10 +3,10 @@ package e2e
 import (
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,8 +21,6 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/pbm"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
-	smsmethods "github.com/vmware/govmomi/sms/methods"
-	smstypes "github.com/vmware/govmomi/sms/types"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -41,7 +39,7 @@ type vSphere struct {
 	CnsClient *cnsClient
 }
 
-//VsanClient struct holds vim and soap client
+// VsanClient struct holds vim and soap client
 type VsanClient struct {
 	vim25Client   *vim25.Client
 	serviceClient *soap.Client
@@ -642,7 +640,7 @@ func verifyVolPropertiesFromCnsQueryResults(e2eVSphere vSphere, volHandle string
 
 }
 
-//getClusterName methods returns the cluster and vsan client of the testbed
+// getClusterName methods returns the cluster and vsan client of the testbed
 func getClusterName(ctx context.Context, vs *vSphere) ([]*object.ClusterComputeResource, *VsanClient, error) {
 	c := newClient(ctx, vs)
 	datacenter := e2eVSphere.Config.Global.Datacenters
@@ -662,8 +660,8 @@ func getClusterName(ctx context.Context, vs *vSphere) ([]*object.ClusterComputeR
 	return clusterComputeResource, vsanHealthClient, err
 }
 
-//getHostUUID takes input of the HostInfo which has host uuid
-//with the host uuid it maps the corresponding host IP and returns it
+// getHostUUID takes input of the HostInfo which has host uuid
+// with the host uuid it maps the corresponding host IP and returns it
 func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 	var result map[string]interface{}
 	computeCluster := os.Getenv("CLUSTER_NAME")
@@ -718,7 +716,7 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 	return ""
 }
 
-//getVsanClusterResource returns the vsan cluster's details
+// getVsanClusterResource returns the vsan cluster's details
 func (vs *vSphere) getVsanClusterResource(ctx context.Context, forceRefresh ...bool) *object.ClusterComputeResource {
 	refresh := false
 	var cluster *object.ClusterComputeResource
@@ -769,7 +767,7 @@ func (vs *vSphere) getVsanClusterResource(ctx context.Context, forceRefresh ...b
 	return defaultCluster
 }
 
-//getAllHostsIP reads cluster, gets hosts in it and returns IP array
+// getAllHostsIP reads cluster, gets hosts in it and returns IP array
 func getAllHostsIP(ctx context.Context) []string {
 	var result []string
 	cluster := e2eVSphere.getVsanClusterResource(ctx)
@@ -782,7 +780,7 @@ func getAllHostsIP(ctx context.Context) []string {
 	return result
 }
 
-//getHostConnectionState reads cluster, gets hosts in it and returns connection state of host
+// getHostConnectionState reads cluster, gets hosts in it and returns connection state of host
 func getHostConnectionState(ctx context.Context, addr string) (string, error) {
 	var state string
 	cluster := e2eVSphere.getVsanClusterResource(ctx)
@@ -803,9 +801,9 @@ func getHostConnectionState(ctx context.Context, addr string) (string, error) {
 	return "host not found", fmt.Errorf("host not found %s", addr)
 }
 
-//VsanQueryObjectIdentities return list of vsan uuids
-//example: For a PVC, It returns the vSAN object UUIDs to their identities
-//It return vsanObjuuid like [4336525f-7813-d78a-e3a4-02005456da7e]
+// VsanQueryObjectIdentities return list of vsan uuids
+// example: For a PVC, It returns the vSAN object UUIDs to their identities
+// It return vsanObjuuid like [4336525f-7813-d78a-e3a4-02005456da7e]
 func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context,
 	cluster vim25types.ManagedObjectReference) (*vsantypes.VsanObjectIdentityAndHealth, error) {
 	req := vsantypes.VsanQueryObjectIdentities{
@@ -824,8 +822,9 @@ func (c *VsanClient) VsanQueryObjectIdentities(ctx context.Context,
 // QueryVsanObjects takes vsan uuid as input and returns the vSANObj related
 // information like lsom_objects and disk_objects.
 // Example return values:
-//  "{"disk_objects": {"525a9aa5-1142-4004-ad6f-2389eef25f06":
-//     ....lsom_objects": {"e7945f5f-4267-3e5d-334a-020063a7a5c4":......}
+//
+//	"{"disk_objects": {"525a9aa5-1142-4004-ad6f-2389eef25f06":
+//	   ....lsom_objects": {"e7945f5f-4267-3e5d-334a-020063a7a5c4":......}
 func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *vSphere) (string, error) {
 	computeCluster := os.Getenv("CLUSTER_NAME")
 	if computeCluster == "" {
@@ -868,7 +867,7 @@ func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *v
 	return res.Returnval, nil
 }
 
-//queryCNSVolumeWithWait gets the cns volume health status
+// queryCNSVolumeWithWait gets the cns volume health status
 func queryCNSVolumeWithWait(ctx context.Context, client clientset.Interface, volHandle string) error {
 	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
 		framework.Logf("wait for next poll %v", pollTimeoutShort)
@@ -1012,11 +1011,10 @@ func (vs *vSphere) createVolumeSnapshotInCNS(fcdID string) (string, error) {
 	return snapshotId, err
 }
 
-//verifyVolumeCompliance verifies the volume policy compliance status
+// verifyVolumeCompliance verifies the volume policy compliance status
 func (vs *vSphere) verifyVolumeCompliance(volumeID string, shouldBeCompliant bool) {
 	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	framework.Logf("Volume id: %v compliance status: %v", volumeID, queryResult.Volumes[0].ComplianceStatus)
 	if shouldBeCompliant {
 		gomega.Expect(queryResult.Volumes[0].ComplianceStatus == "compliant").To(gomega.BeTrue())
@@ -1069,70 +1067,73 @@ func (vs *vSphere) verifyLabelsAreUpdated(volumeID string, matchLabels map[strin
 	return nil
 }
 
-//verifyDatastoreMatch verify is dsurl matches with given one for the volumeid
-func (vs *vSphere) verifyDatastoreMatch(volumeID string, dsUrl string) bool {
-	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+// verifyDatastoreMatch verify if any of the given dsUrl matches with the datstore url for the volumeid
+func (vs *vSphere) verifyDatastoreMatch(volumeID string, dsUrls []string) {
+	actualDatastoreUrl := fetchDsUrl4CnsVol(e2eVSphere, volumeID)
+	gomega.Expect(actualDatastoreUrl).Should(gomega.BeElementOf(dsUrls),
+		"Volume is not provisioned on any of the given datastores: %s, but on: %s", dsUrls,
+		actualDatastoreUrl)
+}
+
+// cnsRelocateVolume relocates volume from one datastore to another using CNS relocate volume API
+func (vs *vSphere) cnsRelocateVolume(e2eVSphere vSphere, ctx context.Context, fcdID string,
+	dsRefDest vim25types.ManagedObjectReference) error {
+	var pandoraSyncWaitTime int
+	var err error
+	if os.Getenv(envPandoraSyncWaitTime) != "" {
+		pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+	}
+
+	relocateSpec := cnstypes.NewCnsBlockVolumeRelocateSpec(fcdID, dsRefDest)
+	var baseCnsVolumeRelocateSpecList []cnstypes.BaseCnsVolumeRelocateSpec
+	baseCnsVolumeRelocateSpecList = append(baseCnsVolumeRelocateSpecList, relocateSpec)
+	req := cnstypes.CnsRelocateVolume{
+		This:          cnsVolumeManagerInstance,
+		RelocateSpecs: baseCnsVolumeRelocateSpecList,
+	}
+
+	cnsClient, err := newCnsClient(ctx, vs.Client.Client)
+	framework.Logf("error: %v", err)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("queryResult: %s", spew.Sdump(queryResult))
-	gomega.Expect(len(queryResult.Volumes)).NotTo(
-		gomega.BeZero(), "QueryCNSVolumeWithResult returned no volume for id:%v", volumeID)
-
-	framework.Logf("dsUrl from QueryCNSVolumeWithResult: %s, expected: %s", queryResult.Volumes[0].DatastoreUrl, dsUrl)
-	return queryResult.Volumes[0].DatastoreUrl == dsUrl
-}
-
-//areAllVPsUp verifies if all VASA providers are up or not
-func (vs *vSphere) areAllVPsUp(ctx context.Context) bool {
-	req := smstypes.QueryProvider{
-		This: vim25types.ManagedObjectReference{
-			Type:  "SmsStorageManager",
-			Value: "storageManager",
-		},
-	}
-	smsSc := newSmsClient(vs.Client.Client)
-
-	queryProviderResponse, err := smsmethods.QueryProvider(ctx, smsSc, &req)
+	res, err := cnsmethods.CnsRelocateVolume(ctx, cnsClient, &req)
+	framework.Logf("error is: %v", err)
 	if err != nil {
-		if strings.Contains(err.Error(), "ProviderLoader initialization is ongoing.") {
-			return false
-		}
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		return err
 	}
 
-	framework.Logf("List of VPs: %v", queryProviderResponse)
-	allUp := true
-	for _, vp := range queryProviderResponse.Returnval {
-		framework.Logf("Querying status of VP: %v", vp.Value)
-		reqInfo := smstypes.QueryProviderInfo{
-			This: vim25types.ManagedObjectReference{
-				Type:  "VasaProvider",
-				Value: vp.Value,
-			},
-		}
-		resp, err := smsmethods.QueryProviderInfo(ctx, smsSc, &reqInfo)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		b, err := xml.Marshal(resp.Returnval)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		var vpInfo smstypes.VasaProviderInfo
-		err = xml.Unmarshal(b, &vpInfo)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("VP '%v' status: %v", vp.Value, vpInfo.Status)
-		if vpInfo.Status != "online" {
-			allUp = false
-		}
+	task, err := object.NewTask(e2eVSphere.Client.Client, res.Returnval), nil
+	taskInfo, err := task.WaitForResult(ctx, nil)
+	framework.Logf("taskInfo: %v", taskInfo)
+	framework.Logf("error: %v", err)
+	if err != nil {
+		return err
 	}
-	return allUp
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+	if err != nil {
+		return err
+	}
+
+	framework.Logf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime)
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+	cnsRelocateVolumeRes := taskResult.GetCnsVolumeOperationResult()
+
+	if cnsRelocateVolumeRes.Fault != nil {
+		err = fmt.Errorf("failed to relocate volume=%+v", cnsRelocateVolumeRes.Fault)
+		return err
+	}
+	return nil
 }
 
-//wait4allVPs2ComeUp waits for all VASA providers to come up
-func (vs *vSphere) wait4allVPs2ComeUp(ctx context.Context) error {
-	framework.Logf("Waiting for all VASA providers to be online")
-	waitErr := wait.Poll(poll, pollTimeout, func() (bool, error) {
-		allVpsUp := vs.areAllVPsUp(ctx)
-		if allVpsUp {
-			return true, nil
-		}
-		return false, nil
-	})
-	return waitErr
+// fetchDsUrl4CnsVol executes query CNS volume to get the datastore
+// where the volume is Present
+func fetchDsUrl4CnsVol(e2eVSphere vSphere, volHandle string) string {
+	framework.Logf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle)
+	queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+	return queryResult.Volumes[0].DatastoreUrl
 }

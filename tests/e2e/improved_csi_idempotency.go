@@ -160,9 +160,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				connect(ctx, &e2eVSphere)
-				err = e2eVSphere.wait4allVPs2ComeUp(ctx)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
 
@@ -584,9 +581,6 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 				err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isServiceStopped = false
-				connect(ctx, &e2eVSphere)
-				err = e2eVSphere.wait4allVPs2ComeUp(ctx)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
@@ -598,9 +592,6 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isServiceStopped = false
 		err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		connect(ctx, &e2eVSphere)
-		err = e2eVSphere.wait4allVPs2ComeUp(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Sleeping for full sync interval")
@@ -817,9 +808,6 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 				err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isServiceStopped = false
-				connect(ctx, &e2eVSphere)
-				err = e2eVSphere.wait4allVPs2ComeUp(ctx)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
@@ -831,9 +819,6 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isServiceStopped = false
 		err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		connect(ctx, &e2eVSphere)
-		err = e2eVSphere.wait4allVPs2ComeUp(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(totalResizeWaitPeriod)
 	}

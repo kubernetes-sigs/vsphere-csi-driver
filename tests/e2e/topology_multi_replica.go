@@ -78,6 +78,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			defaultDatacenter          *object.Datacenter
 			defaultDatastore           *object.Datastore
 			fullSyncWaitTime           int
+			k8sVersion                 string
 		)
 		ginkgo.BeforeEach(func() {
 			var cancel context.CancelFunc
@@ -96,6 +97,11 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			if !(len(nodeList.Items) > 0) {
 				framework.Failf("Unable to find ready and schedulable Node")
 			}
+			// fetching k8s version
+			v, err := client.Discovery().ServerVersion()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			k8sVersion = v.Major + "." + v.Minor
+
 			bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
 			topologyLength = 5
 			isSPSServiceStopped = false
@@ -257,7 +263,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 					is running */
 					ginkgo.By("Kill container CSI-Provisioner on the master node where elected leader " +
 						"CSi-Controller-Pod is running")
-					err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, container_name)
+					err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, container_name, k8sVersion)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -326,7 +332,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 					is running */
 					ginkgo.By("Kill container CSI-Attacher on the master node where elected leader CSi-Controller-Pod " +
 						"is running")
-					err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, container_name)
+					err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, container_name, k8sVersion)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -355,7 +361,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 					is running */
 					ginkgo.By("Kill container CSI-Provisioner on the master node where elected leader CSi-Controller-Pod " +
 						"is running")
-					err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, container_name)
+					err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, container_name, k8sVersion)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -682,15 +688,21 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			// Fetch the number of CSI pods running before restart
 			list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			num_csi_pods := len(list_of_pods)
+
+			// Collecting and dumping csi pod logs before restrating CSI daemonset
+			collectPodLogs(ctx, client, csiSystemNamespace)
 
 			// Restart CSI daemonset
 			ginkgo.By("Restart Daemonset")
 			cmd := []string{"rollout", "restart", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
 			framework.RunKubectlOrDie(csiSystemNamespace, cmd...)
 
-			// Wait for the CSI Pods to be up and Running
-			time.Sleep(pollTimeoutSixMin)
-			num_csi_pods := len(list_of_pods)
+			ginkgo.By("Waiting for daemon set rollout status to finish")
+			statusCheck := []string{"rollout", "status", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
+			framework.RunKubectlOrDie(csiSystemNamespace, statusCheck...)
+
+			// wait for csi Pods to be in running ready state
 			err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1720,6 +1732,28 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Updating the secret to reflect the new password")
 			secret.Data[vSphereCSIConf] = []byte(modifiedConf)
 			_, err = c.CoreV1().Secrets(csiSystemNamespace).Update(ctx, secret, metav1.UpdateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// Collecting csi pod logs before restarting csi driver
+			collectPodLogs(ctx, client, csiSystemNamespace)
+
+			deployment, err := c.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+				vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			csiReplicaCount := *deployment.Spec.Replicas
+
+			ginkgo.By("Stopping CSI driver")
+			isServiceStopped, err := stopCSIPods(ctx, c)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				if isServiceStopped {
+					framework.Logf("Starting CSI driver")
+					isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}()
+			framework.Logf("Starting CSI driver")
+			_, err = startCSIPods(ctx, c, csiReplicaCount)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// As we are in the same vCenter session, deletion of PVC should go through

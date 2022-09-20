@@ -133,9 +133,6 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				connect(ctx, &e2eVSphere)
-				err = e2eVSphere.wait4allVPs2ComeUp(ctx)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
 
@@ -404,9 +401,6 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 				err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isServiceStopped = false
-				connect(ctx, &e2eVSphere)
-				err = e2eVSphere.wait4allVPs2ComeUp(ctx)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
@@ -418,9 +412,6 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isServiceStopped = false
 		err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		connect(ctx, &e2eVSphere)
-		err = e2eVSphere.wait4allVPs2ComeUp(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Sleeping for full sync interval")
@@ -514,9 +505,6 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 					err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					isServiceStopped = false
-					connect(ctx, &e2eVSphere)
-					err = e2eVSphere.wait4allVPs2ComeUp(ctx)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}()
 
@@ -528,9 +516,6 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			isServiceStopped = false
 			err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			connect(ctx, &e2eVSphere)
-			err = e2eVSphere.wait4allVPs2ComeUp(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Sleeping for full sync interval")
@@ -624,9 +609,6 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 					err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					isServiceStopped = false
-					connect(ctx, &e2eVSphere)
-					err = e2eVSphere.wait4allVPs2ComeUp(ctx)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}()
 
@@ -638,9 +620,6 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			isServiceStopped = false
 			err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			connect(ctx, &e2eVSphere)
-			err = e2eVSphere.wait4allVPs2ComeUp(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Sleeping for full sync interval")
@@ -799,9 +778,6 @@ func snapshotOperationWhileServiceDownNegative(serviceName string, namespace str
 				err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isServiceStopped = false
-				connect(ctx, &e2eVSphere)
-				err = e2eVSphere.wait4allVPs2ComeUp(ctx)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
@@ -813,9 +789,6 @@ func snapshotOperationWhileServiceDownNegative(serviceName string, namespace str
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isServiceStopped = false
 		err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		connect(ctx, &e2eVSphere)
-		err = e2eVSphere.wait4allVPs2ComeUp(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Sleeping for full sync interval")

@@ -19,7 +19,7 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"os/exec"
 
 	"github.com/davecgh/go-spew/spew"
@@ -39,7 +39,7 @@ type TestbedBasicInfo struct {
 
 var tbinfo TestbedBasicInfo
 
-//vMPowerMgmt power on/off given nimbus VMs (space separated list)
+// vMPowerMgmt power on/off given nimbus VMs (space separated list)
 func vMPowerMgmt(user string, location string, podname string, hostList string, shouldBePoweredOn bool) error {
 	var err error
 	op := "off"
@@ -60,11 +60,11 @@ func vMPowerMgmt(user string, location string, podname string, hostList string, 
 	return err
 }
 
-//readVcEsxIpsViaTestbedInfoJson read basic testbed info from the json file
+// readVcEsxIpsViaTestbedInfoJson read basic testbed info from the json file
 func readVcEsxIpsViaTestbedInfoJson(filePath string) {
 	tbinfo = TestbedBasicInfo{}
 
-	file, err := ioutil.ReadFile(filePath)
+	file, err := os.ReadFile(filePath)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	framework.Logf("Fetching basic testbed info from json file")
