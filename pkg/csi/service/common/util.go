@@ -464,3 +464,13 @@ func MergeMaps(first map[string]string, second map[string]string) map[string]str
 	}
 	return merged
 }
+
+// GetCSINamespace returns the namespace in which CSI driver is installed
+func GetCSINamespace() string {
+	CSINamespace := os.Getenv(csitypes.EnvVarNamespace)
+	if CSINamespace == "" {
+		CSINamespace = cnsconfig.DefaultCSINamespace
+	}
+
+	return CSINamespace
+}

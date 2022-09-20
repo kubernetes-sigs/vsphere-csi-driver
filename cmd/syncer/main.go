@@ -158,15 +158,28 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	coInitParams *interface{}) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		log := logger.GetLogger(ctx)
-		configInfo, err := common.InitConfigInfo(ctx)
-		if err != nil {
-			log.Errorf("failed to initialize the configInfo. Err: %+v", err)
-			os.Exit(1)
-		}
+
 		if err := manager.InitCommonModules(ctx, clusterFlavor, coInitParams); err != nil {
 			log.Errorf("Error initializing common modules for all flavors. Error: %+v", err)
 			os.Exit(1)
 		}
+		var configInfo *config.ConfigurationInfo
+		var err error
+		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIInternalGeneratedClusterID) {
+			configInfo, err = syncer.SyncerInitConfigInfo(ctx)
+			if err != nil {
+				log.Errorf("failed to initialize the configInfo. Err: %+v", err)
+				os.Exit(1)
+			}
+		} else {
+			configInfo, err = common.InitConfigInfo(ctx)
+			if err != nil {
+				log.Errorf("failed to initialize the configInfo. Err: %+v", err)
+				os.Exit(1)
+			}
+		}
+
 		// Initialize CNS Operator for Supervisor clusters.
 		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 			go func() {

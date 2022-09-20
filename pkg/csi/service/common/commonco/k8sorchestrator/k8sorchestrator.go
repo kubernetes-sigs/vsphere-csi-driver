@@ -1385,3 +1385,46 @@ func (c *K8sOrchestrator) AnnotateVolumeSnapshot(ctx context.Context, volumeSnap
 	volumeSnapshotNamespace string, annotations map[string]string) (bool, error) {
 	return c.updateVolumeSnapshotAnnotations(ctx, volumeSnapshotName, volumeSnapshotNamespace, annotations)
 }
+
+// GetConfigMap checks if ConfigMap with given name exists in the given namespace.
+// If it exists, this function returns ConfigMap data, otherwise returns error.
+func (c *K8sOrchestrator) GetConfigMap(ctx context.Context, name string, namespace string) (map[string]string, error) {
+	log := logger.GetLogger(ctx)
+	var err error
+	var cm *v1.ConfigMap
+
+	if cm, err = c.k8sClient.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
+		log.Infof("ConfigMap with name %s already exists in namespace %s", name, namespace)
+		return cm.Data, nil
+	}
+
+	return nil, err
+}
+
+// CreateConfigMap creates the ConfigMap with given name, namespace, data and
+// immutable parameter values.
+func (c *K8sOrchestrator) CreateConfigMap(ctx context.Context, name string, namespace string,
+	data map[string]string, isImmutable bool) error {
+	log := logger.GetLogger(ctx)
+
+	configMap := v1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ConfigMap",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Data:      data,
+		Immutable: &isImmutable,
+	}
+
+	_, err := c.k8sClient.CoreV1().ConfigMaps(namespace).Create(ctx, &configMap, metav1.CreateOptions{})
+	if err != nil {
+		return logger.LogNewErrorf(log, "Error occurred while creating the ConfigMap %s in namespace %s, Err: %v",
+			name, namespace, err)
+	}
+
+	return nil
+}

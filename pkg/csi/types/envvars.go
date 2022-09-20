@@ -35,6 +35,9 @@ const (
 	// EnvVarEndpoint specifies the CSI endpoint for CSI driver.
 	EnvVarEndpoint = "CSI_ENDPOINT"
 
+	// EnvVarNamespace specifies the namespace in which CSI driver is installed.
+	EnvVarNamespace = "CSI_NAMESPACE"
+
 	// EnvVarMode is the name of the environment variable used to specify
 	// the service mode of the plugin. Valid values are:
 	// * controller
