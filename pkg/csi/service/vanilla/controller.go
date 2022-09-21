@@ -657,7 +657,12 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			queryFilter := cnstypes.CnsQueryFilter{
 				VolumeIds: volumeIds,
 			}
-			queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
+
+			querySelection := cnstypes.CnsQuerySelection{
+				Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
+			}
+
+			queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection, true)
 			if err != nil {
 				// TODO: QueryVolume need to return faultType.
 				// Need to return faultType which is returned from QueryVolume.

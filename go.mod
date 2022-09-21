@@ -20,7 +20,7 @@ require (
 	github.com/spf13/viper v1.8.1
 	github.com/stretchr/testify v1.7.0
 	github.com/vmware-tanzu/vm-operator-api v0.1.4-0.20211202183846-992b48c128ae
-	github.com/vmware/govmomi v0.27.5
+	github.com/vmware/govmomi v0.28.1-0.20220920211742-04d8df4b5f90
 	go.uber.org/zap v1.19.1
 	golang.org/x/crypto v0.0.0-20220411220226-7b82a4e95df4
 	golang.org/x/net v0.0.0-20220127200216-cd36cc0744dd

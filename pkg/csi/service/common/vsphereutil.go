@@ -235,7 +235,10 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		// select the compatible datastore for the case of create volume from snapshot
 		// step 1: query the datastore of snapshot. By design, snapshot is always located at the same datastore
 		// as the source volume
-		cnsVolume, err := QueryVolumeByID(ctx, manager.VolumeManager, cnsVolumeID)
+		querySelection := cnstypes.CnsQuerySelection{
+			Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
+		}
+		cnsVolume, err := QueryVolumeByID(ctx, manager.VolumeManager, cnsVolumeID, &querySelection)
 		if err != nil {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
 				"failed to query datastore for the snapshot %s with error %+v",
@@ -711,8 +714,11 @@ func ListSnapshotsUtil(ctx context.Context, volManager cnsvolume.Manager, volume
 		queryFilter := cnstypes.CnsQueryFilter{
 			VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
 		}
+		querySelection := cnstypes.CnsQuerySelection{
+			Names: []string{string(cnstypes.QuerySelectionNameTypeVolumeType)},
+		}
 		// Validate that the volume-id is of block volume type.
-		queryResult, err := volManager.QueryVolume(ctx, queryFilter)
+		queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, &querySelection, true)
 		if err != nil {
 			return nil, "", logger.LogNewErrorCodef(log, codes.Internal,
 				"queryVolume failed with err=%+v", err)
@@ -934,19 +940,20 @@ func QueryVolumeSnapshotsByVolumeID(ctx context.Context, volManager cnsvolume.Ma
 }
 
 // QueryVolumeByID is the helper function to query volume by volumeID.
-func QueryVolumeByID(ctx context.Context, volManager cnsvolume.Manager, volumeID string) (*cnstypes.CnsVolume, error) {
+func QueryVolumeByID(ctx context.Context, volManager cnsvolume.Manager, volumeID string,
+	querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
 	log := logger.GetLogger(ctx)
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
 	}
-	queryResult, err := volManager.QueryVolume(ctx, queryFilter)
+	queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, querySelection, true)
 	if err != nil {
-		msg := fmt.Sprintf("QueryVolume failed for volumeID: %s with error %+v", volumeID, err)
+		msg := fmt.Sprintf("QueryVolumeUtil failed for volumeID: %s with error %+v", volumeID, err)
 		log.Error(msg)
 		return nil, err
 	}
 	if len(queryResult.Volumes) == 0 {
-		msg := fmt.Sprintf("volumeID %q not found in QueryVolume", volumeID)
+		msg := fmt.Sprintf("volumeID %q not found in QueryVolumeUtil", volumeID)
 		log.Error(msg)
 		return nil, ErrNotFound
 	}

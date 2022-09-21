@@ -606,7 +606,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					},
 				}
 				querySelection := cnstypes.CnsQuerySelection{
-					Names: []string{utils.CnsQuerySelectionName_DATASTORE_URL},
+					Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
 				}
 				queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection,
 					true)
