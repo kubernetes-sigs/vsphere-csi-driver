@@ -122,13 +122,24 @@ func (nodes *Nodes) csiNodeAdd(obj interface{}) {
 	nodeName := csiNode.Name
 	nodeUUID := k8s.GetNodeIdFromCSINode(csiNode)
 	if nodeUUID == "" {
-		log.Warnf("csiNodeAdd: nodeId is either empty. CSINode object: %v",
-			csiNode)
+		log.Warnf("csiNodeAdd: nodeId is either empty. CSINode object: %v", csiNode)
 		return
 	}
 	err := nodes.cnsNodeManager.RegisterNode(ctx, nodeUUID, nodeName)
 	if err != nil {
-		log.Warnf("csiNodeAdd: failed to register node:%q. err=%v", nodeName, err)
+		// This block is required for TKGi platform where worker nodes are not upgraded along with control plane nodes.
+		log.Errorf("csiNodeAdd: failed to register node vm using node ID on CSINode object: %v", csiNode)
+		node, err := nodes.cnsNodeManager.GetK8sNode(ctx, nodeName)
+		if node == nil || err != nil {
+			log.Errorf("csiNodeAdd: failed to get k8s node object for node name: %v", nodeName)
+			return
+		}
+		log.Infof("csiNodeAdd: registering node using providerID on the node object")
+		nodeUUID = cnsvsphere.GetUUIDFromProviderID(node.Spec.ProviderID)
+		err = nodes.cnsNodeManager.RegisterNode(ctx, nodeUUID, nodeName)
+		if err != nil {
+			log.Errorf("csiNodeAdd: failed to register node using provider ID on Node object: %v", node)
+		}
 	}
 }
 
