@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		bootstrap()
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, rqLimit)
+			setResourceQuota(svcClient, svNamespace, rqLimitScaleTest)
 		}
 		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
