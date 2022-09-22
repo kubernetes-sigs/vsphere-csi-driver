@@ -204,13 +204,10 @@ spec:
               topologyKey: "kubernetes.io/hostname"
       serviceAccount: vsphere-csi-controller
       nodeSelector:
-        node-role.kubernetes.io/control-plane: ''
+        node-role.kubernetes.io/master: ''
       tolerations:
         - operator: "Exists"
           key: "node-role.kubernetes.io/master"
-          effect: "NoSchedule"
-        - operator: "Exists"
-          key: "node-role.kubernetes.io/control-plane"
           effect: "NoSchedule"
       hostNetwork: true
       priorityClassName: system-node-critical
@@ -602,13 +599,10 @@ spec:
               topologyKey: kubernetes.io/hostname
       hostNetwork: true
       nodeSelector:
-        node-role.kubernetes.io/control-plane: ""
+        node-role.kubernetes.io/master: ""
       terminationGracePeriodSeconds: 10
       tolerations:
         - key: node-role.kubernetes.io/master
-          operator: Exists
-          effect: NoSchedule
-        - key: node-role.kubernetes.io/control-plane
           operator: Exists
           effect: NoSchedule
         - effect: NoExecute
