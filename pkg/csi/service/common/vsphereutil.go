@@ -721,12 +721,12 @@ func ListSnapshotsUtil(ctx context.Context, volManager cnsvolume.Manager, volume
 		queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, &querySelection, true)
 		if err != nil {
 			return nil, "", logger.LogNewErrorCodef(log, codes.Internal,
-				"queryVolume failed with err=%+v", err)
+				"queryVolumeUtil failed with err=%+v", err)
 		}
 
 		if len(queryResult.Volumes) == 0 {
 			return nil, "", logger.LogNewErrorCodef(log, codes.Internal,
-				"volumeID %q not found in QueryVolume", volumeID)
+				"volumeID %q not found in QueryVolumeUtil", volumeID)
 		}
 		if queryResult.Volumes[0].VolumeType == FileVolumeType {
 			return nil, "", logger.LogNewErrorCodef(log, codes.Unimplemented,
@@ -948,13 +948,11 @@ func QueryVolumeByID(ctx context.Context, volManager cnsvolume.Manager, volumeID
 	}
 	queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, querySelection, true)
 	if err != nil {
-		msg := fmt.Sprintf("QueryVolumeUtil failed for volumeID: %s with error %+v", volumeID, err)
-		log.Error(msg)
+		log.Errorf("QueryVolumeUtil failed for volumeID: %s with error %+v", volumeID, err)
 		return nil, err
 	}
 	if len(queryResult.Volumes) == 0 {
-		msg := fmt.Sprintf("volumeID %q not found in QueryVolumeUtil", volumeID)
-		log.Error(msg)
+		log.Error("volumeID %q not found in QueryVolumeUtil", volumeID)
 		return nil, ErrNotFound
 	}
 	return &queryResult.Volumes[0], nil
