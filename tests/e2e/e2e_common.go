@@ -250,6 +250,14 @@ var (
 	lztAllocType  = "Reserve space"
 )
 
+// For Preferential datatsore
+var (
+	preferredDatastoreRefreshTimeInterval = 1
+	preferredDatastoreTimeOutInterval     = 1 * time.Minute
+	preferredDSCat                        = "cns.vmware.topology-preferred-datastores"
+	preferredTagDesc                      = "preferred datastore tag"
+)
+
 // GetAndExpectStringEnvVar parses a string from env variable.
 func GetAndExpectStringEnvVar(varName string) string {
 	varValue := os.Getenv(varName)

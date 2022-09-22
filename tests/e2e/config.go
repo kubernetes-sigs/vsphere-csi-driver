@@ -60,8 +60,8 @@ type e2eTestConfig struct {
 		// CnsRegisterVolumesCleanupIntervalInMin specifies the interval after which
 		// successful CnsRegisterVolumes will be cleaned up.
 		CnsRegisterVolumesCleanupIntervalInMin int `gcfg:"cnsregistervolumes-cleanup-intervalinmin"`
-		// Topology Category Labels
-		TopologyCategories string `gcfg:"topology-categories"`
+		// preferential topology
+		CSIFetchPreferredDatastoresIntervalInMin int `gcfg:"csi-fetch-preferred-datastores-intervalinmin"`
 	}
 	// Multiple sets of Net Permissions applied to all file shares
 	// The string can uniquely represent each Net Permissions config
@@ -69,6 +69,9 @@ type e2eTestConfig struct {
 
 	// Snapshot configurations.
 	Snapshot SnapshotConfig
+
+	// Topology Level-5
+	Labels TopologyLevel5Config
 }
 
 // NetPermissionConfig consists of information used to restrict the
@@ -92,6 +95,11 @@ type SnapshotConfig struct {
 	// GranularMaxSnapshotsPerBlockVolumeInVVOL specifies the maximum number of block volume snapshots
 	// per volume in VVOL datastores.
 	GranularMaxSnapshotsPerBlockVolumeInVVOL int `gcfg:"granular-max-snapshots-per-block-volume-vvol"`
+}
+
+// TopologyLevel5Config contains topology categories
+type TopologyLevel5Config struct {
+	TopologyCategories string `gcfg:"topology-categories"`
 }
 
 // getConfig returns e2eTestConfig struct for e2e tests to help establish vSphere connection.
