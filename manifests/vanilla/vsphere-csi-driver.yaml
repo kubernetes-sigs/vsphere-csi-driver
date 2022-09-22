@@ -344,6 +344,8 @@ spec:
               value: "100"
             - name: INCLUSTER_CLIENT_BURST
               value: "100"
+            - name: GODEBUG
+              value: x509sha1=1
             - name: CSI_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -464,6 +466,8 @@ spec:
               value: "true"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+            - name: GODEBUG
+              value: x509sha1=1
             - name: CSI_NAMESPACE
               valueFrom:
                 fieldRef:
