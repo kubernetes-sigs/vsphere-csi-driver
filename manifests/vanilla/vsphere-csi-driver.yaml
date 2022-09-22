@@ -156,7 +156,7 @@ data:
   "pv-to-backingdiskobjectid-mapping": "false"
   "cnsmgr-suspend-create-volume": "true"
   "topology-preferential-datastores": "true"
-  "max-pvscsi-targets-per-vm": "false"
+  "max-pvscsi-targets-per-vm": "true"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
@@ -604,7 +604,7 @@ spec:
             - name: CSI_ENDPOINT
               value: 'unix://C:\\csi\\csi.sock'
             - name: MAX_VOLUMES_PER_NODE
-              value: "0" # Maximum number of volumes that controller can publish to the node. If value is not set or zero Kubernetes decide how many volumes can be published by the controller to the node.
+              value: "59" # Maximum number of volumes that controller can publish to the node. If value is not set or zero Kubernetes decide how many volumes can be published by the controller to the node.
             - name: X_CSI_MODE
               value: node
             - name: X_CSI_SPEC_REQ_VALIDATION
