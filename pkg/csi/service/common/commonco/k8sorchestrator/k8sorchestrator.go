@@ -1030,7 +1030,10 @@ func (c *K8sOrchestrator) IsFakeAttachAllowed(ctx context.Context, volumeID stri
 		log.Debugf("Found %s annotation on pvc set to yes for volume: %s. Checking volume health on CNS volume.",
 			common.AnnIgnoreInaccessiblePV, volumeID)
 		// Check if volume is inaccessible.
-		vol, err := common.QueryVolumeByID(ctx, volumeManager, volumeID)
+		querySelection := cnstypes.CnsQuerySelection{
+			Names: []string{string(cnstypes.QuerySelectionNameTypeHealthStatus)},
+		}
+		vol, err := common.QueryVolumeByID(ctx, volumeManager, volumeID, &querySelection)
 		if err != nil {
 			log.Errorf("failed to query CNS for volume ID %s while checking eligibility for fake attach", volumeID)
 			return false, err

@@ -657,17 +657,22 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			queryFilter := cnstypes.CnsQueryFilter{
 				VolumeIds: volumeIds,
 			}
-			queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, queryFilter)
+
+			querySelection := cnstypes.CnsQuerySelection{
+				Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
+			}
+
+			queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection, true)
 			if err != nil {
 				// TODO: QueryVolume need to return faultType.
 				// Need to return faultType which is returned from QueryVolume.
 				// Currently, just return "csi.fault.Internal".
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"queryVolume failed for volumeID: %s, err: %+v", volumeInfo.VolumeID.Id, err)
+					"queryVolumeUtil failed for volumeID: %s, err: %+v", volumeInfo.VolumeID.Id, err)
 			}
 			if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].DatastoreUrl == "" {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"queryVolume could not retrieve volume information for volume ID: %q",
+					"queryVolumeUtil could not retrieve volume information for volume ID: %q",
 					volumeInfo.VolumeID.Id)
 			}
 			datastoreURL = queryResult.Volumes[0].DatastoreUrl

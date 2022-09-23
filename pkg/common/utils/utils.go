@@ -34,10 +34,6 @@ const (
 	// However, using that constant creates an import cycle.
 	// TODO: Refactor to move all the constants into a top level directory.
 	DefaultQuerySnapshotLimit = int64(128)
-	// CnsQuerySelectionName_DATASTORE_URL is the name used to
-	// retrieve datastore URL during a QueryVolumeAsync call.
-	// TODO: Add this constant to govmomi along with the rest of the strings.
-	CnsQuerySelectionName_DATASTORE_URL = "DATASTORE_URL"
 )
 
 // QueryVolumeUtil helps to invoke query volume API based on the feature
