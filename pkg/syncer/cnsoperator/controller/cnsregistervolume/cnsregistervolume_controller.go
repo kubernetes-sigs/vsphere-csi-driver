@@ -245,7 +245,15 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// Query volume
 	log.Infof("Querying volume: %s for CnsRegisterVolume request with name: %q on namespace: %q",
 		volumeID, instance.Name, instance.Namespace)
-	volume, err := common.QueryVolumeByID(ctx, r.volumeManager, volumeID)
+	querySelection := cnstypes.CnsQuerySelection{
+		Names: []string{
+			string(cnstypes.QuerySelectionNameTypeVolumeType),
+			string(cnstypes.QuerySelectionNameTypeDataStoreUrl),
+			string(cnstypes.QuerySelectionNameTypePolicyId),
+			string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
+		},
+	}
+	volume, err := common.QueryVolumeByID(ctx, r.volumeManager, volumeID, &querySelection)
 	if err != nil {
 		if err.Error() == common.ErrNotFound.Error() {
 			msg := fmt.Sprintf("CNS Volume: %s not found", volumeID)
