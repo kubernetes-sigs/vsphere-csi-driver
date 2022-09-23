@@ -5815,7 +5815,7 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 
 	curlStr := ""
 	policyNamesArrLength := len(policyNames)
-	defRqLimit := strings.Split(defaultrqLimit, "Gi")[0]
+	defRqLimit := strings.Split(rqLimit, "Gi")[0]
 	limit, err := strconv.Atoi(defRqLimit)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	limit *= 953 //to convert gb to mebibytes
