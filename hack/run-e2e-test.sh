@@ -20,8 +20,8 @@ set -o pipefail
 
 # Fetching ginkgo for running the test
 export GO111MODULE=on
-export ACK_GINKGO_DEPRECATIONS=1.16.4
-if ! (go mod vendor && go install github.com/onsi/ginkgo/ginkgo@v1.16.4)
+export ACK_GINKGO_DEPRECATIONS=2.1.6
+if ! (go mod vendor && go install github.com/onsi/ginkgo/v2/ginkgo@v2.1.6)
 then
     echo "go mod vendor or go install ginkgo error"
     exit 1
@@ -51,6 +51,7 @@ else
     read -ra OPTS <<< "-v $GINKGO_OPTS"
 fi
 
+OPTS+=("-timeout=24h")
 if [ "$FOCUS" == "csi-block-vanilla" ]
 then
     ginkgo -mod=mod "${OPTS[@]}" --focus="csi-block-vanilla-destructive" tests/e2e
