@@ -352,10 +352,6 @@ const (
 	// CSIVolumeManagerIdempotency is the feature flag for idempotency handling
 	// in CSI volume manager.
 	CSIVolumeManagerIdempotency = "improved-csi-idempotency"
-	// ImprovedVolumeTopology is the feature flag used to make the following
-	// improvements to topology feature:
-	// 1. Avoid taking in VC credentials in node daemonset.
-	ImprovedVolumeTopology = "improved-volume-topology"
 	// BlockVolumeSnapshot is the feature to support CSI Snapshots for block
 	// volume on vSphere CSI driver.
 	BlockVolumeSnapshot = "block-volume-snapshot"
