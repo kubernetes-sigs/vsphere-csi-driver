@@ -148,3 +148,41 @@ func getDsMoRefFromURL(ctx context.Context, dsURL string) vim25types.ManagedObje
 	gomega.Expect(ds).NotTo(gomega.BeNil(), "Could not find MoRef for ds URL %v", dsURL)
 	return ds.Reference()
 }
+
+// createTagBasedPolicy creates a tag based storage policy with given tag and category map
+func createTagBasedPolicy(ctx context.Context, pbmClient *pbm.Client,
+	categoryTagMap map[string]string) (*types.PbmProfileId, string) {
+	s1 := rand.NewSource(time.Now().UnixNano())
+	r1 := rand.New(s1)
+	profileName := fmt.Sprintf("shared-ds-policy-%v-%v", time.Now().UnixNano(), strconv.Itoa(r1.Intn(1000)))
+
+	pbmCreateSpec := pbm.CapabilityProfileCreateSpec{
+		Name:           profileName,
+		Description:    "tag based policy",
+		Category:       "REQUIREMENT",
+		CapabilityList: []pbm.Capability{},
+	}
+	//var pbmCreateSpec pbm.CapabilityProfileCreateSpec
+	for k, v := range categoryTagMap {
+		pbmCreateSpec.CapabilityList = append(pbmCreateSpec.CapabilityList, pbm.Capability{
+			ID:        k,
+			Namespace: "http://www.vmware.com/storage/tag",
+			PropertyList: []pbm.Property{
+				{
+					ID:       "com.vmware.storage.tag." + k + ".property",
+					Value:    v,
+					DataType: "set",
+				},
+			},
+		})
+	}
+	createTagSpec, err := pbm.CreateCapabilityProfileSpec(pbmCreateSpec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	profileID, err := pbmClient.CreateProfile(ctx, *createTagSpec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Tag based profile with id: %v and name: '%v' created", profileID.UniqueId, profileName)
+
+	return profileID, profileName
+}
