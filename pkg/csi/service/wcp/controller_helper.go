@@ -31,12 +31,14 @@ import (
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/cns/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
@@ -231,7 +233,7 @@ func validateWCPListSnapshotRequest(ctx context.Context, req *csi.ListSnapshotsR
 // clientConnection to k8sCloudOperator GRPC service running on syncer container.
 func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
-	opts = append(opts, grpc.WithInsecure())
+	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	port := common.GetK8sCloudOperatorServicePort(ctx)
 	k8sCloudOperatorServiceAddr := "127.0.0.1:" + strconv.Itoa(port)
 	// Connect to k8s cloud operator gRPC service.
