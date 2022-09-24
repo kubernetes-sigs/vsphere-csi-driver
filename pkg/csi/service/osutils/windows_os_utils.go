@@ -18,7 +18,9 @@ package osutils
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,13 +109,11 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 	}
 	log.Infof("nodeStageBlockVolume diskNumber %s, diskId %s,stagingTargetPath %s ", diskNumber, diskID, stagingTargetPath)
 
-	// check if disk is mounted and formatted correctly, here the path should exist as it is created by CO and already checked
-	notMounted, err := mounter.IsLikelyNotMountPoint(stagingTargetPath)
+	mounted, err := osUtils.haveMountPoint(ctx, stagingTargetPath)
 	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"Could not determine if staging path is already mounted, err: %v", err)
+		return nil, err
 	}
-	if notMounted {
+	if !mounted {
 		log.Info("calling FormatAndMount")
 		//currently proxy does not support read only mount or filesystems other than ntfs
 		err := mounter.FormatAndMount(diskNumber, stagingTargetPath, params.FsType, params.MntFlags)
@@ -126,6 +126,34 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 		log.Infof("nodeStageBlockVolume: Device already mounted.")
 	}
 	return &csi.NodeStageVolumeResponse{}, nil
+}
+
+func (osUtils *OsUtils) haveMountPoint(ctx context.Context, target string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	mounter, err := GetMounter(ctx, osUtils)
+	if err != nil {
+		return false, err
+	}
+	// check if disk is mounted and formatted correctly, here the path should exist as it is created by CO and already checked
+	notMounted, err := mounter.IsLikelyNotMountPoint(target)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, logger.LogNewErrorCodef(log, codes.Internal,
+			"Could not determine if staging path is already mounted, err: %v", err)
+	}
+	if notMounted {
+		return false, nil
+	}
+	// testing original mount point, make sure the mount link is valid
+	if _, err := os.ReadDir(target); err != nil {
+		// mount link is invalid, now unmount and remount later
+		log.Warnf("haveMountPoint: ReadDir %s failed with %v, unmounting", target, err)
+		if err := mounter.Unmount(target); err != nil {
+			log.Errorf("haveMountPoint: Unmount directory %s failed with %v", target, err)
+			return true, err
+		}
+		return false, nil
+	}
+	return true, nil
 }
 
 // CleanupStagePath will unmount the volume from node and remove the stage directory
