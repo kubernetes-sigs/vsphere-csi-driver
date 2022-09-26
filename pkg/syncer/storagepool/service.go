@@ -121,7 +121,7 @@ func InitStoragePoolService(ctx context.Context,
 			log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 			return
 		}
-		k8sInformerManager := k8s.NewInformer(k8sClient)
+		k8sInformerManager := k8s.NewInformer(ctx, k8sClient, true)
 		err = InitNodeAnnotationListener(ctx, k8sInformerManager, scWatchCntlr, spController)
 		if err != nil {
 			log.Errorf("InitNodeAnnotationListener failed. err: %v", err)

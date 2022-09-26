@@ -49,7 +49,7 @@ func (nodes *Nodes) Initialize(ctx context.Context, useNodeUuid bool) error {
 		return err
 	}
 	nodes.cnsNodeManager.SetKubernetesClient(k8sclient)
-	nodes.informMgr = k8s.NewInformer(k8sclient)
+	nodes.informMgr = k8s.NewInformer(ctx, k8sclient, true)
 	if useNodeUuid {
 		nodes.informMgr.AddCSINodeListener(nodes.csiNodeAdd,
 			nodes.csiNodeUpdate, nodes.csiNodeDelete)

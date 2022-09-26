@@ -27,6 +27,7 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/sample-controller/pkg/signals"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
 
 const (
@@ -42,8 +43,10 @@ const (
 )
 
 var (
-	onceForInformerManager  sync.Once
-	informerManagerInstance *InformerManager
+	inClusterInformerManagerInstance  *InformerManager = nil
+	inClusterInformerInstanceLock                      = &sync.Mutex{}
+	supervisorInformerManagerInstance *InformerManager = nil
+	supervisorInformerInstanceLock                     = &sync.Mutex{}
 )
 
 func noResyncPeriodFunc() time.Duration {
@@ -51,15 +54,42 @@ func noResyncPeriodFunc() time.Duration {
 }
 
 // NewInformer creates a new K8S client based on a service account.
-func NewInformer(client clientset.Interface) *InformerManager {
-	onceForInformerManager.Do(func() {
-		informerManagerInstance = &InformerManager{
+// NOTE: This function expects caller function to pass appropriate client
+// as per config to be created Informer for.
+// This function creates shared informer factory against the client provided.
+func NewInformer(ctx context.Context, client clientset.Interface, inClusterClnt bool) *InformerManager {
+	var informerInstance *InformerManager
+	log := logger.GetLogger(ctx)
+
+	if inClusterClnt {
+		inClusterInformerInstanceLock.Lock()
+		defer inClusterInformerInstanceLock.Unlock()
+
+		informerInstance = inClusterInformerManagerInstance
+	} else {
+		supervisorInformerInstanceLock.Lock()
+		defer supervisorInformerInstanceLock.Unlock()
+
+		informerInstance = supervisorInformerManagerInstance
+	}
+
+	if informerInstance == nil {
+		informerInstance = &InformerManager{
 			client:          client,
 			stopCh:          signals.SetupSignalHandler(),
 			informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
 		}
-	})
-	return informerManagerInstance
+
+		if inClusterClnt {
+			inClusterInformerManagerInstance = informerInstance
+			log.Info("Created new informer factory for in-cluster client")
+		} else {
+			supervisorInformerManagerInstance = informerInstance
+			log.Info("Created new informer factory for supervisor client")
+		}
+	}
+
+	return informerInstance
 }
 
 // AddNodeListener hooks up add, update, delete callbacks.
