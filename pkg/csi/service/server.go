@@ -18,7 +18,6 @@ package service
 
 import (
 	"net"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -92,24 +91,24 @@ func (s *nonBlockingGRPCServer) Stop() {
 func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer,
 	cs csi.ControllerServer, ns csi.NodeServer) error {
 	log := logger.GetLoggerWithNoContext()
-	u, err := url.Parse(endpoint)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to parse the endpoint %s. Err: %v", endpoint, err)
-	}
+
+	const (
+		unixScheme = "unix"
+		unixPrefix = unixScheme + "://"
+	)
 
 	// CSI driver currently supports only unix path.
-	if u.Scheme != "unix" {
-		return logger.LogNewErrorf(log, "endpoint scheme %s not supported", u.Scheme)
+	if !strings.HasPrefix(endpoint, unixPrefix) {
+		return logger.LogNewErrorf(log, "endpoint must be a unix socket: %s", endpoint)
 	}
-
-	addr := u.Path
+	addr := strings.TrimPrefix(endpoint, unixPrefix)
 
 	// Remove UNIX sock file if present.
 	if err := os.Remove(addr); err != nil && !os.IsNotExist(err) {
 		return logger.LogNewErrorf(log, "failed to remove %s. Err: %v", addr, err)
 	}
 
-	listener, err := net.Listen(u.Scheme, addr)
+	listener, err := net.Listen(unixScheme, addr)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to listen: %v", err)
 	}
