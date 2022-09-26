@@ -333,6 +333,8 @@ spec:
               value: "50"
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
+            - name: GODEBUG
+              value: x509sha1=1
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
@@ -376,6 +378,8 @@ spec:
               value: "50"
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
+            - name: GODEBUG
+              value: x509sha1=1
           imagePullPolicy: "IfNotPresent"
           ports:
             - containerPort: 2113
@@ -423,7 +427,7 @@ data:
   "sibling-replica-bound-pvc-check": "true"
   "tkgs-ha": "true"
   "list-volumes": "false"
-  "cnsmgr-suspend-create-volume": "false"
+  "cnsmgr-suspend-create-volume": "true"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
