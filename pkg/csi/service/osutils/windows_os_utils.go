@@ -429,10 +429,19 @@ func (osUtils *OsUtils) GetSystemUUID(ctx context.Context) (string, error) {
 		return "", err
 	}
 	log.Infof("Bios serial number: %s", sn)
-	return sn, nil
+	// Here Bios Serial Number has this format - VMware-42 29 92 4b 83 35 d9 77-f3 82 cf 46 56 61 ac 60
+	// We need to convert it to VM UUID - 4229924b-8335-d977-f382-cf465661ac60 which can be used to
+	// look up Node VM in the vCenter inventory
+	uuid, err := osUtils.ConvertUUID(sn)
+	if err != nil {
+		log.Errorf("failed to convert Bios serial number to VM UUID. err: %v", err)
+		return "", err
+	}
+	log.Infof("Node VM UUID: %s", uuid)
+	return uuid, nil
 }
 
-// convertUUID helps convert UUID to vSphere format, for example,
+// ConvertUUID helps convert UUID to vSphere format, for example,
 // Input uuid:    VMware-42 02 e9 7e 3d ad 2a 49-22 86 7f f9 89 c6 64 ef
 // Returned uuid: 4202e97e-3dad-2a49-2286-7ff989c664ef
 func (osUtils *OsUtils) ConvertUUID(uuid string) (string, error) {
