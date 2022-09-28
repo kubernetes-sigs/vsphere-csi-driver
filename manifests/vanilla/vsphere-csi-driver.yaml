@@ -157,6 +157,7 @@ data:
   "cnsmgr-suspend-create-volume": "true"
   "topology-preferential-datastores": "true"
   "max-pvscsi-targets-per-vm": "true"
+  "multi-vcenter-csi-topology": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
