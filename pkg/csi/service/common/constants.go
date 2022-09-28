@@ -384,4 +384,6 @@ const (
 	TopologyPreferentialDatastores = "topology-preferential-datastores"
 	// MaxPVSCSITargetsPerVM enables support for 255 volumes per node vm
 	MaxPVSCSITargetsPerVM = "max-pvscsi-targets-per-vm"
+	// MultiVCenterCSITopology is the feature gate for enabling multi vCenter topology support for vSphere CSI driver.
+	MultiVCenterCSITopology = "multi-vcenter-csi-topology"
 )
