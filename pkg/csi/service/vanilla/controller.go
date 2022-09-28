@@ -1238,11 +1238,17 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		}
 		// Block Volume.
 		volumeType = prometheus.PrometheusBlockVolumeType
-		var node *cnsvsphere.VirtualMachine
+		var nodevm *cnsvsphere.VirtualMachine
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
-			node, err = c.nodeMgr.GetNodeByUuid(ctx, req.NodeId)
+			// if node is not yet updated to run the release of the driver publishing Node VM UUID as Node ID
+			// look up Node by name
+			nodevm, err = c.nodeMgr.GetNodeByName(ctx, req.NodeId)
+			if err == node.ErrNodeNotFound {
+				log.Infof("Performing node VM lookup using node VM UUID: %q", req.NodeId)
+				nodevm, err = c.nodeMgr.GetNodeByUuid(ctx, req.NodeId)
+			}
 		} else {
-			node, err = c.nodeMgr.GetNodeByName(ctx, req.NodeId)
+			nodevm, err = c.nodeMgr.GetNodeByName(ctx, req.NodeId)
 		}
 		if err != nil {
 			if err == cnsvsphere.ErrVMNotFound {
@@ -1254,7 +1260,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 					"failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
 			}
 		}
-		faultType, err = common.DetachVolumeUtil(ctx, c.manager, node, req.VolumeId)
+		faultType, err = common.DetachVolumeUtil(ctx, c.manager, nodevm, req.VolumeId)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
