@@ -3666,6 +3666,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		stopHostDOnHost(ctx, hostIP)
 
 		defer func() {
+			defer ginkgo.GinkgoRecover()
 			ginkgo.By("Start hostd service on the host on which the PV is present")
 			startHostDOnHost(ctx, hostIP)
 		}()

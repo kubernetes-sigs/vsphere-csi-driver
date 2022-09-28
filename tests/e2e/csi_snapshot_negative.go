@@ -369,6 +369,7 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 
 		defer func() {
 			framework.Logf("In defer function to start the hostd service on all hosts")
+			defer ginkgo.GinkgoRecover()
 			if isServiceStopped {
 				for _, hostIP := range hostIPs {
 					startHostDOnHost(ctx, hostIP)
@@ -473,6 +474,7 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 
 			defer func() {
 				framework.Logf("In defer function to start the hostd service on all hosts")
+				defer ginkgo.GinkgoRecover()
 				if isServiceStopped {
 					for _, hostIP := range hostIPs {
 						startHostDOnHost(ctx, hostIP)

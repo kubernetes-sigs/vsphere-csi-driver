@@ -548,6 +548,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		wg.Wait()
 
 		defer func() {
+			defer ginkgo.GinkgoRecover()
 			framework.Logf("In defer function to start the hostd service on all hosts")
 			if isServiceStopped {
 				for _, hostIP := range hostIPs {
@@ -838,5 +839,6 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 // stopHostD is a function for waitGroup to run stop hostd parallelly
 func stopHostD(ctx context.Context, addr string, wg *sync.WaitGroup) {
 	defer wg.Done()
+	defer ginkgo.GinkgoRecover()
 	stopHostDOnHost(ctx, addr)
 }
