@@ -570,24 +570,25 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 			"Number of Pods in the statefulset should match with number of replicas")
 
 		// Fetch the number of CSI pods running before restart
-		list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+		list_of_pods, err := fpod.GetPodsInNamespace(client, csiNamespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		num_csi_pods := len(list_of_pods)
 
 		// Collecting csi pod logs before restrating CSI daemonset
-		collectPodLogs(ctx, client, csiSystemNamespace)
+		collectPodLogs(ctx, client, csiNamespace)
 
 		// Restart CSI daemonset
 		ginkgo.By("Restart Daemonset")
-		cmd := []string{"rollout", "restart", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
-		framework.RunKubectlOrDie(csiSystemNamespace, cmd...)
+		cmd := []string{"rollout", "restart", "daemonset/vsphere-csi-node", "--namespace=" + csiNamespace}
+		framework.RunKubectlOrDie(csiNamespace, cmd...)
 
 		ginkgo.By("Waiting for daemon set rollout status to finish")
-		statusCheck := []string{"rollout", "status", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
-		framework.RunKubectlOrDie(csiSystemNamespace, statusCheck...)
+		statusCheck := []string{"rollout", "status", "daemonset/vsphere-csi-node", "--namespace=" + csiNamespace}
+		framework.RunKubectlOrDie(csiNamespace, statusCheck...)
 
 		// wait for csi Pods to be in running ready state
-		err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
+		err = fpod.WaitForPodsRunningReady(client, csiNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Get the list of Volumes attached to Pods before scale down

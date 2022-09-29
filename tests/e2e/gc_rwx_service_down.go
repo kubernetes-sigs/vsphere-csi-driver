@@ -46,6 +46,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		volHealthCheck             bool
 		isVsanHealthServiceStopped bool
 		fullSyncWaitTime           int
+		csiNamespace               string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -75,6 +76,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		} else {
 			fullSyncWaitTime = defaultFullSyncWaitTime
 		}
+		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -585,7 +587,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Get CSI Controller's replica count from the setup
-		deployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		deployment, err := svcClient.AppsV1().Deployments(csiNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas

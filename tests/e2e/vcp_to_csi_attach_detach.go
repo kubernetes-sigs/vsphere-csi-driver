@@ -511,12 +511,15 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicas := csiDeployment.Spec.Replicas
+
+		/*err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())*/
 		framework.Logf("Stopping CSI driver")
-		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		stopCSIPods(ctx, client)
 		framework.Logf("Starting CSI driver")
-		err = updateDeploymentReplicawithWait(client, *csiReplicas, vSphereCSIControllerPodNamePrefix, csiNamespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		startCSIPods(ctx, client, *csiReplicas)
+		//err = updateDeploymentReplicawithWait(client, *csiReplicas, vSphereCSIControllerPodNamePrefix, csiNamespace)
+		//gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Re-create pod for test18")
 

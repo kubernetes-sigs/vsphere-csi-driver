@@ -5661,10 +5661,11 @@ func waitForEventWithReason(client clientset.Interface, namespace string,
 
 // stopCSIPods function stops all the running csi pods
 func stopCSIPods(ctx context.Context, client clientset.Interface) (bool, error) {
-	collectPodLogs(ctx, client, csiSystemNamespace)
+	csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+	collectPodLogs(ctx, client, csiNamespace)
 	isServiceStopped := false
 	err := updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix,
-		csiSystemNamespace)
+		csiNamespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	isServiceStopped = true
 	return isServiceStopped, err
@@ -5673,14 +5674,16 @@ func stopCSIPods(ctx context.Context, client clientset.Interface) (bool, error) 
 // startCSIPods function starts the csi pods and waits till all the pods comes up
 func startCSIPods(ctx context.Context, client clientset.Interface, csiReplicas int32) (bool, error) {
 	ignoreLabels := make(map[string]string)
+	csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+	collectPodLogs(ctx, client, csiNamespace)
 	err := updateDeploymentReplicawithWait(client, csiReplicas, vSphereCSIControllerPodNamePrefix,
-		csiSystemNamespace)
+		csiNamespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	// Wait for the CSI Pods to be up and Running
-	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	list_of_pods, err := fpod.GetPodsInNamespace(client, csiNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	num_csi_pods := len(list_of_pods)
-	err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
+	err = fpod.WaitForPodsRunningReady(client, csiNamespace, int32(num_csi_pods), 0,
 		pollTimeout, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	isServiceStopped := false

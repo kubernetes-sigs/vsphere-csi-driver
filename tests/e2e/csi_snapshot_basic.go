@@ -60,6 +60,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		volumeOpsScale      int
 		restConfig          *restclient.Config
 		snapc               *snapclient.Clientset
+		csiNamespace        string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -4013,7 +4014,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Fetching the username and password of the current vcenter session from secret")
-		secret, err := c.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+		secret, err := c.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		originalConf := string(secret.Data[vSphereCSIConf])

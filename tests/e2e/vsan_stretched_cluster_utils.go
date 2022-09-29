@@ -839,11 +839,13 @@ func deleteCsiPodInParallel(client clientset.Interface, pod *v1.Pod, namespace s
 
 // deleteCsiControllerPodOnOtherMasters deletes the CSI Controller Pod
 // on other master nodes which are not present on that site.
-func deleteCsiControllerPodOnOtherMasters(client clientset.Interface,
+func deleteCsiControllerPodOnOtherMasters(ctx context.Context, client clientset.Interface,
 	csiPodOnSite string) {
 	ignoreLabels := make(map[string]string)
 	csiPods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// Collecting and dumping csi pod logs before deleting them
+	collectPodLogs(ctx, client, csiSystemNamespace)
 	// Remove csi pod which is running on that site from list of all csi Pods
 	var otherCsiControllerPods []*v1.Pod
 	for _, csiPod := range csiPods {

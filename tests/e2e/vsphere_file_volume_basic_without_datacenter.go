@@ -74,12 +74,12 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Restarting the controller by toggling the replica count")
-
+		// Collecting and dumping csi pod logs before deleting them
+		collectPodLogs(ctx, client, csiControllerNamespace)
 		ginkgo.By("Bringing the csi-controller down")
-		bringDownCsiController(client, csiControllerNamespace)
+		stopCSIPods(ctx, client)
 		ginkgo.By("Bringing the csi-controller up")
-		bringUpCsiController(client, csiReplicaCount, csiControllerNamespace)
-
+		startCSIPods(ctx, client, csiReplicaCount)
 		cancel()
 	})
 
@@ -125,10 +125,13 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Restarting the controller by toggling the replica count")
+		ginkgo.By("Restarting the controller by toggling the replica count")
+		// Collecting and dumping csi pod logs before deleting them
+		collectPodLogs(ctx, client, csiControllerNamespace)
 		ginkgo.By("Bringing the csi-controller down")
-		bringDownCsiController(client, csiControllerNamespace)
+		stopCSIPods(ctx, client)
 		ginkgo.By("Bringing the csi-controller up")
-		bringUpCsiController(client, csiReplicaCount, csiControllerNamespace)
+		startCSIPods(ctx, client, csiReplicaCount)
 
 		testHelperForCreateFileVolumeWithDatastoreURLInSC(f, client, namespace, v1.ReadWriteMany, datastoreURL, true)
 

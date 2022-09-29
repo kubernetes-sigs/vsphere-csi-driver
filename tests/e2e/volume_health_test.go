@@ -1248,14 +1248,17 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		ginkgo.By("Get svcClient and svNamespace")
 		svClient, _ := getSvcClientAndNamespace()
 
+		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+		collectPodLogs(ctx, svcClient, csiNamespace)
 		ginkgo.By("Bring down csi-controller pod in GC")
 		tkgReplicaDeployment, err := svClient.AppsV1().Deployments(vsphereTKGSystemNamespace).Get(ctx,
 			vsphereControllerManager, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		tkgReplicaCount := *tkgReplicaDeployment.Spec.Replicas
 
+		collectPodLogs(ctx, gcClient, csiNamespace)
 		// Get CSI Controller's replica count from the setup
-		deployment, err := gcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		deployment, err := gcClient.AppsV1().Deployments(csiNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas
@@ -1495,8 +1498,10 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		ginkgo.By("Get svcClient")
 		svClient, _ := getSvcClientAndNamespace()
 
+		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+		collectPodLogs(ctx, svcClient, csiNamespace)
 		// Get CSI Controller's replica count from the setup
-		deployment, err := svClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		deployment, err := svClient.AppsV1().Deployments(csiNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas
@@ -2097,7 +2102,9 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		tkgReplicaCount := *tkgReplicaDeployment.Spec.Replicas
 
 		// Get CSI Controller's replica count from the setup
-		deployment, err := gcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+		collectPodLogs(ctx, gcClient, csiNamespace)
+		deployment, err := gcClient.AppsV1().Deployments(csiNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas

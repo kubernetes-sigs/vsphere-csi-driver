@@ -476,7 +476,8 @@ func testHelperForCreateFileVolumeWithDatastoreURLInSC(f *framework.Framework, c
 		gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).To(
 			gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
 	} else {
-		secret, err := client.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+		secret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		originalConf := string(secret.Data[vSphereCSIConf])

@@ -564,8 +564,10 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
+		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+		collectPodLogs(ctx, client, csiNamespace)
 		ginkgo.By("Scaling down the csi driver to zero replica")
-		deployment := updateDeploymentReplica(client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		deployment := updateDeploymentReplica(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled down the csi driver deployment:%s to zero replicas", deployment.Name))
 
 		labels := make(map[string]string)
@@ -582,7 +584,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
 		ginkgo.By("Scaling up the csi driver to one replica")
-		deployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
+		deployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
 
 		// TODO: Replace sleep with polling mechanism.

@@ -72,6 +72,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		defaultDatacenter          *object.Datacenter
 		defaultDatastore           *object.Datastore
 		isVsanHealthServiceStopped bool
+		csiNamespace               string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -159,6 +160,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+
+		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 
 	})
 
@@ -2386,7 +2389,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		}
 
 		// Get the name pf csi controller pod running on master node on that site
-		csiPods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+		csiPods, err := fpod.GetPodsInNamespace(client, csiNamespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, csiPod := range csiPods {
 			if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) &&
@@ -2395,7 +2398,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			}
 		}
 		// Delete csi controller pods on other masters which is not present on that site
-		deleteCsiControllerPodOnOtherMasters(client, csiPodOnSite)
+		deleteCsiControllerPodOnOtherMasters(ctx, client, csiPodOnSite)
 		masterIpOnSecSite, err := getMasterIpOnSite(ctx, client, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		allCsiContainerNames := []string{syncerContainerName, provisionerContainerName, attacherContainerName,
@@ -3554,13 +3557,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			"to be fully up")
 		time.Sleep(time.Duration(60) * time.Second)
 
-		csipods, err := client.CoreV1().Pods(csiSystemNamespace).List(ctx, metav1.ListOptions{})
+		csipods, err := client.CoreV1().Pods(csiNamespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Get restConfig.
 		restConfig := getRestConfigClient()
 		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		enableFullSyncTriggerFss(ctx, client, csiNamespace, fullSyncFss)
 		ginkgo.By("Bring down the primary site while full sync is going on")
 		var wg sync.WaitGroup
 		wg.Add(2)
@@ -3885,13 +3888,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			"to be fully up")
 		time.Sleep(time.Duration(60) * time.Second)
 
-		csipods, err := client.CoreV1().Pods(csiSystemNamespace).List(ctx, metav1.ListOptions{})
+		csipods, err := client.CoreV1().Pods(csiNamespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Get restConfig.
 		restConfig := getRestConfigClient()
 		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		enableFullSyncTriggerFss(ctx, client, csiNamespace, fullSyncFss)
 		ginkgo.By("Bring down the secondary site while full sync is going on")
 		var wg sync.WaitGroup
 		wg.Add(2)

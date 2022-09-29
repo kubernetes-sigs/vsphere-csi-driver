@@ -672,9 +672,10 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 			err = pvcHealthAnnotationWatcher(ctx, client, pvclaim, healthStatusAccessible)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-
+		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+		collectPodLogs(ctx, svcClient, csiNamespace)
 		// Get CSI Controller's replica count from the setup
-		deployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		deployment, err := svcClient.AppsV1().Deployments(csiNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas
@@ -835,8 +836,10 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		err = waitAndVerifyCnsVolumeMetadata4GCVol(fcdIDInCNS, pvcNameInSV, pvclaim, pv, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+		collectPodLogs(ctx, svcClient, csiNamespace)
 		// Get CSI Controller's replica count from the setup
-		deployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		deployment, err := svcClient.AppsV1().Deployments(csiNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas

@@ -59,6 +59,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		serviceName       string
 		csiReplicaCount   int32
 		deployment        *appsv1.Deployment
+		csiNamespace      string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -94,6 +95,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 			}
 		}
 		framework.Logf("VOLUME_OPS_SCALE is set to %v", volumeOpsScale)
+		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 
 		if os.Getenv(envFullSyncWaitTime) != "" {
 			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
@@ -115,7 +117,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			c = remoteC
 		}
-		deployment, err = c.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		deployment, err = c.AppsV1().Deployments(csiNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount = *deployment.Spec.Replicas
@@ -135,18 +137,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		if isServiceStopped {
 			if serviceName == "CSI" {
 				framework.Logf("Starting CSI driver")
-				ignoreLabels := make(map[string]string)
-				err := updateDeploymentReplicawithWait(c, csiReplicaCount, vSphereCSIControllerPodNamePrefix,
-					csiSystemNamespace)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-				// Wait for the CSI Pods to be up and Running
-				list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				num_csi_pods := len(list_of_pods)
-				err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
-					pollTimeout, ignoreLabels)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				startCSIPods(ctx, client, csiReplicaCount)
 			} else if serviceName == hostdServiceName {
 				framework.Logf("In afterEach function to start the hostd service on all hosts")
 				hostIPs := getAllHostsIP(ctx)
@@ -164,7 +155,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		}
 
 		ginkgo.By(fmt.Sprintf("Resetting provisioner time interval to %s sec", defaultProvisionerTimeInSec))
-		updateCSIDeploymentProvisionerTimeout(c, csiSystemNamespace, defaultProvisionerTimeInSec)
+		updateCSIDeploymentProvisionerTimeout(c, csiNamespace, defaultProvisionerTimeInSec)
 	})
 
 	/*
@@ -369,15 +360,16 @@ func createVolumesByReducingProvisionerTime(namespace string, client clientset.I
 	}()
 
 	// TODO: Stop printing csi logs on the console
-	collectPodLogs(ctx, c, csiSystemNamespace)
+	csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+	collectPodLogs(ctx, c, csiNamespace)
 
 	// This assumes the tkg-controller-manager's auto sync is disabled
 	ginkgo.By(fmt.Sprintf("Reducing Provisioner time interval to %s Sec for the test...", customProvisionerTimeout))
-	updateCSIDeploymentProvisionerTimeout(c, csiSystemNamespace, customProvisionerTimeout)
+	updateCSIDeploymentProvisionerTimeout(c, csiNamespace, customProvisionerTimeout)
 
 	defer func() {
 		ginkgo.By(fmt.Sprintf("Resetting provisioner time interval to %s sec", defaultProvisionerTimeInSec))
-		updateCSIDeploymentProvisionerTimeout(c, csiSystemNamespace, defaultProvisionerTimeInSec)
+		updateCSIDeploymentProvisionerTimeout(c, csiNamespace, defaultProvisionerTimeInSec)
 	}()
 
 	ginkgo.By("Creating PVCs using the Storage Class")
@@ -501,7 +493,8 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 	if serviceName == "CSI" {
 		// Get CSI Controller's replica count from the setup
-		deployment, err := c.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+		deployment, err := c.AppsV1().Deployments(csiNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas
@@ -758,7 +751,8 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 	if serviceName == "CSI" {
 		// Get CSI Controller's replica count from the setup
-		deployment, err := c.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+		deployment, err := c.AppsV1().Deployments(csiNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas

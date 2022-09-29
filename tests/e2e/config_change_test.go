@@ -83,8 +83,9 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
+		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
 		ginkgo.By("fetching the username and password of the current vcenter session from secret")
-		secret, err := client.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+		secret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		originalConf := string(secret.Data[vsphereCloudProviderConfiguration])
@@ -106,7 +107,7 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 
 		ginkgo.By("Updating the secret to reflect the new password")
 		secret.Data[vsphereCloudProviderConfiguration] = []byte(modifiedConf)
-		_, err = client.CoreV1().Secrets(csiSystemNamespace).Update(ctx, secret, metav1.UpdateOptions{})
+		_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, secret, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -115,11 +116,11 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Reverting the secret change back to reflect the original password")
-			currentSecret, err := client.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+			currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			currentSecret.Data[vsphereCloudProviderConfiguration] = []byte(originalConf)
-			_, err = client.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+			_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 

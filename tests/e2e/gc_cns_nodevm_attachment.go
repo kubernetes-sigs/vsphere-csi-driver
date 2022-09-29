@@ -291,10 +291,13 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		}
 
 		// Get CSI Controller's replica count from the setup
-		deployment, err := svcClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+		deployment, err := svcClient.AppsV1().Deployments(csiNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas
+
+		collectPodLogs(ctx, svcClient, csiNamespace)
 
 		ginkgo.By("Bring down csi-controller pod in SV")
 		bringDownCsiController(svcClient)

@@ -79,6 +79,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			defaultDatastore           *object.Datastore
 			fullSyncWaitTime           int
 			k8sVersion                 string
+			csiNamespace               string
 		)
 		ginkgo.BeforeEach(func() {
 			var cancel context.CancelFunc
@@ -686,24 +687,24 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			}
 
 			// Fetch the number of CSI pods running before restart
-			list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+			list_of_pods, err := fpod.GetPodsInNamespace(client, csiNamespace, ignoreLabels)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			num_csi_pods := len(list_of_pods)
 
 			// Collecting and dumping csi pod logs before restrating CSI daemonset
-			collectPodLogs(ctx, client, csiSystemNamespace)
+			collectPodLogs(ctx, client, csiNamespace)
 
 			// Restart CSI daemonset
 			ginkgo.By("Restart Daemonset")
-			cmd := []string{"rollout", "restart", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
-			framework.RunKubectlOrDie(csiSystemNamespace, cmd...)
+			cmd := []string{"rollout", "restart", "daemonset/vsphere-csi-node", "--namespace=" + csiNamespace}
+			framework.RunKubectlOrDie(csiNamespace, cmd...)
 
 			ginkgo.By("Waiting for daemon set rollout status to finish")
-			statusCheck := []string{"rollout", "status", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
-			framework.RunKubectlOrDie(csiSystemNamespace, statusCheck...)
+			statusCheck := []string{"rollout", "status", "daemonset/vsphere-csi-node", "--namespace=" + csiNamespace}
+			framework.RunKubectlOrDie(csiNamespace, statusCheck...)
 
 			// wait for csi Pods to be in running ready state
-			err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
+			err = fpod.WaitForPodsRunningReady(client, csiNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// Scale up statefulSets replicas count
@@ -1710,7 +1711,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			}()
 
 			ginkgo.By("fetching the username and password of the current vcenter session from secret")
-			secret, err := c.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+			secret, err := c.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			originalConf := string(secret.Data[vSphereCSIConf])
@@ -1731,13 +1732,13 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			ginkgo.By("Updating the secret to reflect the new password")
 			secret.Data[vSphereCSIConf] = []byte(modifiedConf)
-			_, err = c.CoreV1().Secrets(csiSystemNamespace).Update(ctx, secret, metav1.UpdateOptions{})
+			_, err = c.CoreV1().Secrets(csiNamespace).Update(ctx, secret, metav1.UpdateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// Collecting csi pod logs before restarting csi driver
-			collectPodLogs(ctx, client, csiSystemNamespace)
+			collectPodLogs(ctx, client, csiNamespace)
 
-			deployment, err := c.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+			deployment, err := c.AppsV1().Deployments(csiNamespace).Get(ctx,
 				vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			csiReplicaCount := *deployment.Spec.Replicas
@@ -1766,11 +1767,11 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Reverting the secret change back to reflect the original password")
-			currentSecret, err := c.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+			currentSecret, err := c.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			currentSecret.Data[vSphereCSIConf] = []byte(originalConf)
-			_, err = c.CoreV1().Secrets(csiSystemNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+			_, err = c.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC,
