@@ -66,6 +66,26 @@ func GetVCenter(ctx context.Context, manager *Manager) (*cnsvsphere.VirtualCente
 	return vcenter, nil
 }
 
+// GetVCenters returns VirtualCenter object from specified Managers object.
+// Before returning VirtualCenter objects, vcenter connection is established if
+// session doesn't exist.
+func GetVCenters(ctx context.Context, managers *Managers) ([]*cnsvsphere.VirtualCenter, error) {
+	vcenters := make([]*cnsvsphere.VirtualCenter, 0)
+	log := logger.GetLogger(ctx)
+	for _, vcconfig := range managers.VcenterConfigs {
+		vcenter, err := managers.VcenterManager.GetVirtualCenter(ctx, vcconfig.Host)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to get VirtualCenter instance for host: %q. err=%v", vcconfig.Host, err)
+		}
+		err = vcenter.Connect(ctx)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q. err=%v", vcconfig.Host, err)
+		}
+		vcenters = append(vcenters, vcenter)
+	}
+	return vcenters, nil
+}
+
 // GetUUIDFromProviderID Returns VM UUID from Node's providerID.
 func GetUUIDFromProviderID(providerID string) string {
 	return strings.TrimPrefix(providerID, ProviderPrefix)

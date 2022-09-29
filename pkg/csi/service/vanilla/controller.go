@@ -65,14 +65,22 @@ type NodeManagerInterface interface {
 }
 
 type controller struct {
-	manager     *common.Manager
-	nodeMgr     NodeManagerInterface
+	// Deprecated - To be removed after multi vCenter support is added
+	manager  *common.Manager
+	managers *common.Managers
+	nodeMgr  NodeManagerInterface
+	// Deprecated - To be removed after multi vCenter support is added
 	authMgr     common.AuthorizationService
+	authMgrs    map[string]*common.AuthManager
 	topologyMgr commoncotypes.ControllerTopologyService
 }
 
 // volumeMigrationService holds the pointer to VolumeMigration instance.
 var volumeMigrationService migration.VolumeMigrationService
+
+// multivCenterCSITopologyEnabled holds the feature gate status for
+// multi-vcenter-csi-topology feature
+var multivCenterCSITopologyEnabled bool
 
 // variables for list volumes
 var volIDsInK8s = make([]string, 0)
@@ -88,18 +96,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Initializing CNS controller")
 	var err error
-	// Get VirtualCenterManager instance and validate version.
-	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)
-	if err != nil {
-		log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
-		return err
-	}
-	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
-	vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
-	if err != nil {
-		log.Errorf("failed to register VC with virtualCenterManager. err=%v", err)
-		return err
-	}
 	var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
 	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CSIVolumeManagerIdempotency)
@@ -115,53 +111,147 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 	}
-	c.manager = &common.Manager{
-		VcenterConfig:  vcenterconfig,
-		CnsConfig:      config,
-		VolumeManager:  cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled),
-		VcenterManager: vcManager,
-	}
-
-	vc, err := common.GetVCenter(ctx, c.manager)
-	if err != nil {
-		log.Errorf("failed to get vcenter. err=%v", err)
-		return err
-	}
-
+	multivCenterCSITopologyEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.MultiVCenterCSITopology)
 	isAuthCheckFSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck)
-	// Check if vSAN FS is enabled for TargetvSANFileShareDatastoreURLs only if
-	// CSIAuthCheck FSS is not enabled.
-	if !isAuthCheckFSSEnabled && len(c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) > 0 {
-		datacenters, err := vc.ListDatacenters(ctx)
+
+	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
+	if !multivCenterCSITopologyEnabled {
+		// Get VirtualCenterManager instance and validate version.
+		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)
 		if err != nil {
-			return logger.LogNewErrorf(log, "failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
+			log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
+			return err
 		}
-		// Check if file service is enabled on datastore present in
-		// targetvSANFileShareDatastoreURLs.
-		dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx,
-			c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, vc, datacenters)
+		vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
 		if err != nil {
-			return logger.LogNewErrorf(log, "file service enablement check failed for datastore specified in "+
-				"TargetvSANFileShareDatastoreURLs. err=%v", err)
+			log.Errorf("failed to register VC %q with virtualCenterManager. err=%v", vcenterconfig.Host, err)
+			return err
 		}
-		for _, targetFSDatastore := range c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
-			isFSEnabled := dsToFileServiceEnabledMap[targetFSDatastore]
-			if !isFSEnabled {
-				return logger.LogNewErrorf(log, "file service is not enabled on datastore %s specified in "+
-					"TargetvSANFileShareDatastoreURLs", targetFSDatastore)
+		c.manager = &common.Manager{
+			VcenterConfig:  vcenterconfig,
+			CnsConfig:      config,
+			VolumeManager:  cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled),
+			VcenterManager: vcManager,
+		}
+		vc, err := common.GetVCenter(ctx, c.manager)
+		if err != nil {
+			log.Errorf("failed to get vcenter. err=%v", err)
+			return err
+		}
+		// Check vCenter API Version
+		err = common.CheckAPI(ctx, vc.Client.ServiceContent.About.ApiVersion, common.MinSupportedVCenterMajor,
+			common.MinSupportedVCenterMinor, common.MinSupportedVCenterPatch)
+		if err != nil {
+			log.Errorf("checkAPI failed for vcenter API version: %s, err=%v",
+				vc.Client.ServiceContent.About.ApiVersion, err)
+			return err
+		}
+		// Check if vSAN FS is enabled for TargetvSANFileShareDatastoreURLs only if
+		// CSIAuthCheck FSS is not enabled.
+		if !isAuthCheckFSSEnabled && len(c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) > 0 {
+			datacenters, err := vc.ListDatacenters(ctx)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
+			}
+			// Check if file service is enabled on datastore present in
+			// targetvSANFileShareDatastoreURLs.
+			dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx,
+				c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, vc, datacenters)
+			if err != nil {
+				return logger.LogNewErrorf(log, "file service enablement check failed for datastore specified in "+
+					"TargetvSANFileShareDatastoreURLs. err=%v", err)
+			}
+			for _, targetFSDatastore := range c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
+				isFSEnabled := dsToFileServiceEnabledMap[targetFSDatastore]
+				if !isFSEnabled {
+					return logger.LogNewErrorf(log, "file service is not enabled on datastore %s specified in "+
+						"TargetvSANFileShareDatastoreURLs", targetFSDatastore)
+				}
+			}
+		}
+		if isAuthCheckFSSEnabled {
+			log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
+			authMgr, err := common.GetAuthorizationService(ctx, vc)
+			if err != nil {
+				log.Errorf("failed to initialize authMgr. err=%v", err)
+				return err
+			}
+			c.authMgr = authMgr
+			go common.ComputeDatastoreMapForBlockVolumes(authMgr.(*common.AuthManager),
+				config.Global.CSIAuthCheckIntervalInMin)
+			isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx,
+				c.manager.VcenterConfig.Host)
+			if err != nil {
+				log.Errorf("failed to verify if vSAN file services is supported or not. Error:%+v", err)
+				return err
+			}
+			if isvSANFileServicesSupported {
+				go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager),
+					config.Global.CSIAuthCheckIntervalInMin)
+			}
+		}
+	} else {
+		// Multi vCenter feature enabled
+		c.managers = &common.Managers{
+			CnsConfig:      config,
+			VcenterManager: vcManager,
+		}
+		c.managers.VcenterConfigs = make(map[string]*cnsvsphere.VirtualCenterConfig)
+		c.managers.VolumeManagers = make(map[string]cnsvolume.Manager)
+		// Get VirtualCenterManager instance and validate version.
+		vcenterconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, config)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err=%v", err)
+		}
+		for _, vcenterconfig := range vcenterconfigs {
+			vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to register VC %q with virtualCenterManager. "+
+					"err=%v", vcenterconfig.Host, err)
+			}
+			c.managers.VcenterConfigs[vcenterconfig.Host] = vcenterconfig
+			c.managers.VolumeManagers[vcenterconfig.Host] = cnsvolume.GetManager(ctx, vcenter,
+				operationStore, idempotencyHandlingEnabled)
+		}
+		vCenters, err := common.GetVCenters(ctx, c.managers)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to get vcenters. err=%v", err)
+		}
+		// Check vCenter API Version
+		for _, vc := range vCenters {
+			err = common.CheckAPI(ctx, vc.Client.ServiceContent.About.ApiVersion, common.MinSupportedVCenterMajor,
+				common.MinSupportedVCenterMinor, common.MinSupportedVCenterPatch)
+			if err != nil {
+				return logger.LogNewErrorf(log, "checkAPI failed for vcenter API version: %s for vCenter %s, err=%v",
+					vc.Client.ServiceContent.About.ApiVersion, vc.Config.Host, err)
+			}
+		}
+		if isAuthCheckFSSEnabled {
+			log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
+			authMgrs, err := common.GetAuthorizationServices(ctx, vCenters)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to initialize authMgr. err=%v", err)
+			}
+			c.authMgrs = authMgrs
+			for _, authMgr := range authMgrs {
+				go common.ComputeDatastoreMapForBlockVolumes(authMgr, config.Global.CSIAuthCheckIntervalInMin)
+			}
+			for _, vcconfig := range c.managers.VcenterConfigs {
+				isvSANFileServicesSupported, err := c.managers.VcenterManager.IsvSANFileServicesSupported(ctx,
+					vcconfig.Host)
+				if err != nil {
+					return logger.LogNewErrorf(log, "failed to verify if vSAN file services is supported or not for vCenter: %s. "+
+						"Error:%+v", vcconfig.Host, err)
+				}
+				if isvSANFileServicesSupported {
+					for _, authMgr := range authMgrs {
+						go common.ComputeFSEnabledClustersToDsMap(authMgr, config.Global.CSIAuthCheckIntervalInMin)
+					}
+				}
 			}
 		}
 	}
-
-	// Check vCenter API Version against 6.7.3.
-	err = common.CheckAPI(ctx, vc.Client.ServiceContent.About.ApiVersion, common.MinSupportedVCenterMajor,
-		common.MinSupportedVCenterMinor, common.MinSupportedVCenterPatch)
-	if err != nil {
-		log.Errorf("checkAPI failed for vcenter API version: %s, err=%v",
-			vc.Client.ServiceContent.About.ApiVersion, err)
-		return err
-	}
-
 	useNodeUuid := false
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
 		useNodeUuid = true
@@ -175,28 +265,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 	go cnsvolume.ClearTaskInfoObjects()
 	cfgPath := common.GetConfigPath(ctx)
-
-	if isAuthCheckFSSEnabled {
-		log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
-		authMgr, err := common.GetAuthorizationService(ctx, vc)
-		if err != nil {
-			log.Errorf("failed to initialize authMgr. err=%v", err)
-			return err
-		}
-		c.authMgr = authMgr
-		go common.ComputeDatastoreMapForBlockVolumes(authMgr.(*common.AuthManager),
-			config.Global.CSIAuthCheckIntervalInMin)
-		isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx,
-			c.manager.VcenterConfig.Host)
-		if err != nil {
-			log.Errorf("failed to verify if vSAN file services is supported or not. Error:%+v", err)
-			return err
-		}
-		if isvSANFileServicesSupported {
-			go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager),
-				config.Global.CSIAuthCheckIntervalInMin)
-		}
-	}
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -240,13 +308,32 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		return err
 	}
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
-		log.Info("CSI Migration Feature is Enabled. Loading Volume Migration Service")
-		volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, config, false)
-		if err != nil {
-			log.Errorf("failed to get migration service. Err: %v", err)
-			return err
+		if !multivCenterCSITopologyEnabled {
+			log.Info("CSI Migration Feature is Enabled. Loading Volume Migration Service")
+			volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &c.manager.VolumeManager, config, false)
+			if err != nil {
+				log.Errorf("failed to get migration service. Err: %v", err)
+				return err
+			}
+		} else {
+			if len(c.managers.VcenterConfigs) == 1 {
+				log.Info("CSI Migration Feature is Enabled. Loading Volume Migration Service")
+				var vcHost string
+				for _, vcconfig := range c.managers.VcenterConfigs {
+					vcHost = vcconfig.Host
+				}
+				volumeManager := c.managers.VolumeManagers[vcHost]
+				volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &volumeManager, config, false)
+				if err != nil {
+					log.Errorf("failed to get migration service. Err: %v", err)
+					return err
+				}
+			} else {
+				log.Infof("vSphere CSI Migration is not supported on the multi vCenter setup")
+			}
 		}
 	}
+
 	// Create dynamic informer for CSINodeTopology instance if FSS is enabled.
 	// Initialize volume topology service.
 	c.topologyMgr, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)

@@ -235,6 +235,83 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 	return vcConfig, nil
 }
 
+// GetVirtualCenterConfigs returns VirtualCenterConfig Objects created using
+// vSphere Configuration specified in the argument.
+func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*VirtualCenterConfig, error) {
+	log := logger.GetLogger(ctx)
+	var err error
+	VirtualCenterConfigs := make([]*VirtualCenterConfig, 0)
+	vCenterIPs, err := GetVcenterIPs(cfg)
+	if err != nil {
+		return nil, err
+	}
+	for _, vCenterIP := range vCenterIPs {
+		port, err := strconv.Atoi(cfg.VirtualCenter[vCenterIP].VCenterPort)
+		if err != nil {
+			return nil, err
+		}
+		var targetDatastoreUrlsForFile []string
+		if strings.TrimSpace(cfg.VirtualCenter[vCenterIP].TargetvSANFileShareDatastoreURLs) != "" {
+			targetDatastoreUrlsForFile = strings.Split(cfg.VirtualCenter[vCenterIP].TargetvSANFileShareDatastoreURLs, ",")
+		}
+
+		var targetvSANClustersForFile []string
+		if strings.TrimSpace(cfg.VirtualCenter[vCenterIP].TargetvSANFileShareClusters) != "" {
+			targetvSANClustersForFile = strings.Split(cfg.VirtualCenter[vCenterIP].TargetvSANFileShareClusters, ",")
+		}
+		var vcClientTimeout int
+		if cfg.Global.VCClientTimeout == 0 {
+			log.Info("Defaulting timeout for vCenter Client to 5 minutes")
+			cfg.Global.VCClientTimeout = defaultVCClientTimeoutInMinutes
+		}
+		if cfg.Global.VCClientTimeout < 0 {
+			log.Warnf("Invalid value %v for timeout is specified as vc-client-timeout. Defaulting to %v minutes.",
+				cfg.Global.VCClientTimeout, defaultVCClientTimeoutInMinutes)
+			cfg.Global.VCClientTimeout = defaultVCClientTimeoutInMinutes
+		}
+		vcClientTimeout = cfg.Global.VCClientTimeout
+
+		vcCAFile := cfg.Global.CAFile
+		vcThumbprint := cfg.Global.Thumbprint
+
+		vcConfig := &VirtualCenterConfig{
+			Host:                             vCenterIP,
+			Port:                             port,
+			CAFile:                           vcCAFile,
+			Thumbprint:                       vcThumbprint,
+			Username:                         cfg.VirtualCenter[vCenterIP].User,
+			Password:                         cfg.VirtualCenter[vCenterIP].Password,
+			Insecure:                         cfg.VirtualCenter[vCenterIP].InsecureFlag,
+			TargetvSANFileShareDatastoreURLs: targetDatastoreUrlsForFile,
+			TargetvSANFileShareClusters:      targetvSANClustersForFile,
+			VCClientTimeout:                  vcClientTimeout,
+			QueryLimit:                       cfg.Global.QueryLimit,
+			ListVolumeThreshold:              cfg.Global.ListVolumeThreshold,
+		}
+
+		log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
+		if strings.TrimSpace(cfg.VirtualCenter[vCenterIP].Datacenters) != "" {
+			vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[vCenterIP].Datacenters, ",")
+			for idx := range vcConfig.DatacenterPaths {
+				vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
+			}
+		}
+
+		// Validate if target file volume datastores present are vsan datastores.
+		for idx := range vcConfig.TargetvSANFileShareDatastoreURLs {
+			vcConfig.TargetvSANFileShareDatastoreURLs[idx] = strings.TrimSpace(vcConfig.TargetvSANFileShareDatastoreURLs[idx])
+			if vcConfig.TargetvSANFileShareDatastoreURLs[idx] == "" {
+				return nil, logger.LogNewError(log, "invalid datastore URL specified in targetvSANFileShareDatastoreURLs")
+			}
+			if !strings.HasPrefix(vcConfig.TargetvSANFileShareDatastoreURLs[idx], "ds:///vmfs/volumes/vsan:") {
+				return nil, logger.LogNewError(log, "non vSAN datastore specified for targetvSANFileShareDatastoreURLs")
+			}
+		}
+		VirtualCenterConfigs = append(VirtualCenterConfigs, vcConfig)
+	}
+	return VirtualCenterConfigs, nil
+}
+
 // GetVcenterIPs returns list of vCenter IPs from VSphereConfig.
 func GetVcenterIPs(cfg *config.Config) ([]string, error) {
 	var err error

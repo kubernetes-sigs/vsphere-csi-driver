@@ -62,6 +62,19 @@ type Manager struct {
 	VcenterManager cnsvsphere.VirtualCenterManager
 }
 
+// Managers type comprises VirtualCenterConfigs, CnsConfig, VolumeManagers and VirtualCenterManager
+// If k8s cluster is deployed on single vCenter server VcenterConfigs and VolumeManagers will hold single entry
+// if k8s cluster is deployed on multi vCenter server, we will have VirtualCenterConfig and VolumeManagers for each
+// participating vCenter server.
+type Managers struct {
+	// map of VC Host to *VirtualCenterConfig
+	VcenterConfigs map[string]*cnsvsphere.VirtualCenterConfig
+	CnsConfig      *config.Config
+	// map of VC Host to Volume Manager
+	VolumeManagers map[string]cnsvolume.Manager
+	VcenterManager cnsvsphere.VirtualCenterManager
+}
+
 // CreateVolumeSpec is the Volume Spec used by CSI driver
 type CreateVolumeSpec struct {
 	Name     string
