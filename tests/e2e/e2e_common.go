@@ -110,7 +110,7 @@ const (
 	invalidFSType                             = "ext10"
 	k8sPodTerminationTimeOut                  = 7 * time.Minute
 	k8sPodTerminationTimeOutLong              = 10 * time.Minute
-	k8sVmPasswd                               = "ca$hc0w"
+	k8sVmPasswd                               = "C$!Fvt#8"
 	kcmManifest                               = "/etc/kubernetes/manifests/kube-controller-manager.yaml"
 	kubeAPIPath                               = "/etc/kubernetes/manifests/"
 	kubeAPIfile                               = "kube-apiserver.yaml"
