@@ -5277,6 +5277,23 @@ func waitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx co
 	return waitErr
 }
 
+// waitForCNSSnapshotToBeDeleted wait till the give snapshot is deleted from CNS
+func waitForCNSSnapshotToBeDeleted(volumeId string, snapshotId string) error {
+	var err error
+	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
+		err = verifySnapshotIsDeletedInCNS(volumeId, snapshotId)
+		if err != nil {
+			if strings.Contains(err.Error(), "snapshot entry is still present") {
+				return false, nil
+			}
+			return false, err
+		}
+		framework.Logf("Snapshot with ID: %v for volume with ID: %v is deleted from CNS now...", snapshotId, volumeId)
+		return true, nil
+	})
+	return waitErr
+}
+
 // getK8sMasterNodeIPWhereControllerLeaderIsRunning fetches the master node IP
 // where controller is running
 func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,

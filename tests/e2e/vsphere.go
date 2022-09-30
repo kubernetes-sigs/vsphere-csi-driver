@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -1178,4 +1179,52 @@ func (vs *vSphere) deleteCNSvolume(volumeID string, isDeleteDisk bool) (*cnstype
 		return nil, err
 	}
 	return res, nil
+}
+
+// reconfigPolicy reconfigures given policy on the given volume
+func (vs *vSphere) reconfigPolicy(ctx context.Context, volumeID string, profileID string) error {
+	cnsClient, err := newCnsClient(ctx, vs.Client.Client)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	CnsVolumeManagerInstance := vim25types.ManagedObjectReference{
+		Type:  "CnsVolumeManager",
+		Value: "cns-volume-manager",
+	}
+	req := cnstypes.CnsReconfigVolumePolicy{
+		This: CnsVolumeManagerInstance,
+		VolumePolicyReconfigSpecs: []cnstypes.CnsVolumePolicyReconfigSpec{
+			{
+				VolumeId: cnstypes.CnsVolumeId{Id: volumeID},
+				Profile: []vim25types.BaseVirtualMachineProfileSpec{
+					&vim25types.VirtualMachineDefinedProfileSpec{
+						ProfileId: profileID,
+					},
+				},
+			},
+		},
+	}
+	res, err := cnsmethods.CnsReconfigVolumePolicy(ctx, cnsClient, &req)
+	if err != nil {
+		return err
+	}
+	task := object.NewTask(vs.Client.Client, res.Returnval)
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	if err != nil {
+		return err
+	}
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+	if err != nil {
+		return err
+	}
+	if taskResult == nil {
+		return errors.New("TaskInfo result is empty")
+	}
+	reconfigVolumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+	if reconfigVolumeOperationRes == nil {
+		return errors.New("cnsreconfigpolicy operation result is empty")
+	}
+	if reconfigVolumeOperationRes.Fault != nil {
+		return errors.New("cnsreconfigpolicy operation fault: " + reconfigVolumeOperationRes.Fault.LocalizedMessage)
+	}
+	framework.Logf("reconfigpolicy on volume %v with policy %v is successful", volumeID, profileID)
+	return nil
 }
