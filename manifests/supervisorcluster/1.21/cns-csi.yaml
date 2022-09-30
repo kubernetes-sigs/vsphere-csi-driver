@@ -394,7 +394,7 @@ data:
   "improved-csi-idempotency": "true"
   "block-volume-snapshot": "false"
   "sibling-replica-bound-pvc-check": "true"
-  "cnsmgr-suspend-create-volume": "false"
+  "cnsmgr-suspend-create-volume": "true"
   "tkgs-ha": "true"
   "list-volumes": "false"
 kind: ConfigMap
