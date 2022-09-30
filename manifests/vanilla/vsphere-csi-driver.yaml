@@ -153,7 +153,7 @@ data:
   "csi-windows-support": "false"
   "use-csinode-id": "true"
   "pv-to-backingdiskobjectid-mapping": "false"
-  "cnsmgr-suspend-create-volume": "false"
+  "cnsmgr-suspend-create-volume": "true"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
