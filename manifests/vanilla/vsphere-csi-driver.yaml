@@ -374,7 +374,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-snapshotter
-          image: k8s.gcr.io/sig-storage/csi-snapshotter:v6.0.1
+          image: k8s.gcr.io/sig-storage/csi-snapshotter:v6.1.0
           args:
             - "--v=4"
             - "--kube-api-qps=100"
