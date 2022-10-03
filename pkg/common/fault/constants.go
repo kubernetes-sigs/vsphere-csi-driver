@@ -57,4 +57,6 @@ const (
 	CSIInvalidArgumentFault = "csi.fault.InvalidArgument"
 	// CSIUnimplementedFault is the fault type returned when the function is unimplemented.
 	CSIUnimplementedFault = "csi.fault.Unimplemented"
+	// CSIInvalidStoragePolicyConfigurationFault is the fault type returned when the user provides invalid storage policy.
+	CSIInvalidStoragePolicyConfigurationFault = "csi.fault.InvalidStoragePolicyConfiguration"
 )
