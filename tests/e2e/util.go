@@ -4700,12 +4700,12 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 	if parallelStatefulSetCreation {
 		_, scaledownErr := scaleStatefulSetPods(client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		//fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulset)
 	} else {
 		_, scaledownErr := fss.Scale(client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		//fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 		ssPodsAfterScaleDown = fss.GetPodList(client, statefulset)
 	}
 
@@ -4753,8 +4753,8 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 	if parallelStatefulSetCreation {
 		_, scaleupErr := scaleStatefulSetPods(client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		// fss.WaitForStatusReplicas(client, statefulset, replicas)
+		// fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 
 		ssPodsAfterScaleUp = GetListOfPodsInSts(client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
@@ -4764,8 +4764,8 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 	} else {
 		_, scaleupErr := fss.Scale(client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		// fss.WaitForStatusReplicas(client, statefulset, replicas)
+		// fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 
 		ssPodsAfterScaleUp = fss.GetPodList(client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
@@ -4777,8 +4777,8 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 	// After scale up, verify all vSphere volumes are attached to node VMs.
 	ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
 	for _, sspod := range ssPodsAfterScaleUp.Items {
-		err := fpod.WaitTimeoutForPodReadyInNamespace(client, sspod.Name, statefulset.Namespace, pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// err := fpod.WaitTimeoutForPodReadyInNamespace(client, sspod.Name, statefulset.Namespace, pollTimeout)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, volumespec := range pod.Spec.Volumes {

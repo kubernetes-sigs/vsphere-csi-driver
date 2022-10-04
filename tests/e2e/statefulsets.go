@@ -659,5 +659,5 @@ func CreateStatefulSet(ns string, ss *apps.StatefulSet, c clientset.Interface) {
 		ss.Namespace, ss.Name, *(ss.Spec.Replicas), ss.Spec.Selector))
 	_, err := c.AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
 	framework.ExpectNoError(err)
-	fss.WaitForRunningAndReady(c, *ss.Spec.Replicas, ss)
+	//fss.WaitForRunningAndReady(c, *ss.Spec.Replicas, ss)
 }
