@@ -136,6 +136,11 @@ var (
 	// ErrInvalidNetPermission is returned when the value of Permission in
 	// NetPermissions is not among the ones listed.
 	ErrInvalidNetPermission = errors.New("invalid value for Permissions under NetPermission Config")
+
+	// ErrMissingTopologyCategoriesForMultiVCenterSetup is returned when the TopologyCategories are not specified for
+	// Multi vCenter deployment
+	ErrMissingTopologyCategoriesForMultiVCenterSetup = errors.New("vsphere CSI config requires " +
+		"topology-categories to be specified for multi vCenter deployment")
 )
 
 func getEnvKeyValue(match string, partial bool) (string, string, error) {
@@ -323,6 +328,10 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 	if len(cfg.Global.SupervisorID) > 64 {
 		log.Error(ErrSupervisorIDCharLimit)
 		return ErrSupervisorIDCharLimit
+	}
+	if len(cfg.VirtualCenter) > 1 && strings.TrimSpace(cfg.Labels.TopologyCategories) == "" {
+		log.Error(ErrMissingTopologyCategoriesForMultiVCenterSetup)
+		return ErrMissingTopologyCategoriesForMultiVCenterSetup
 	}
 	for vcServer, vcConfig := range cfg.VirtualCenter {
 		log.Debugf("Initializing vc server %s", vcServer)

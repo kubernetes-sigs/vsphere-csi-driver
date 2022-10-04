@@ -75,6 +75,7 @@ var onceForAuthorizationService sync.Once
 // authManagerIntance is instance of authManager and implements interface for
 // AuthorizationService.
 var authManagerInstance *AuthManager
+var authManagerInstances = make(map[string]*AuthManager)
 
 // GetAuthorizationService returns the singleton AuthorizationService.
 func GetAuthorizationService(ctx context.Context, vc *cnsvsphere.VirtualCenter) (AuthorizationService, error) {
@@ -92,6 +93,26 @@ func GetAuthorizationService(ctx context.Context, vc *cnsvsphere.VirtualCenter) 
 
 	log.Info("authorization service initialized")
 	return authManagerInstance, nil
+}
+
+// GetAuthorizationServices returns the AuthManager instances for supplied vCenter servers
+func GetAuthorizationServices(ctx context.Context, vcs []*cnsvsphere.VirtualCenter) (map[string]*AuthManager, error) {
+	log := logger.GetLogger(ctx)
+	onceForAuthorizationService.Do(func() {
+		log.Info("Initializing authorization service...")
+		for _, vc := range vcs {
+			authManagerInstance = &AuthManager{
+				datastoreMapForBlockVolumes: make(map[string]*cnsvsphere.DatastoreInfo),
+				fsEnabledClusterToDsMap:     make(map[string][]*cnsvsphere.DatastoreInfo),
+				rwMutex:                     sync.RWMutex{},
+				vcenter:                     vc,
+			}
+			authManagerInstances[vc.Config.Host] = authManagerInstance
+		}
+	})
+
+	log.Info("authorization service initialized")
+	return authManagerInstances, nil
 }
 
 // GetDatastoreMapForBlockVolumes returns a DatastoreMapForBlockVolumes. This
