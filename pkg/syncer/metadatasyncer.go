@@ -215,18 +215,14 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			log.Errorf("Failed to create supervisorClient. Error: %+v", err)
 			return err
 		}
-	} else {
-		// Initialize volume manager with vcenter credentials, if metadata syncer
-		// is being intialized for Vanilla or Supervisor clusters.
+	} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		// Initialize volume manager with vcenter credentials
 		vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
 		if err != nil {
 			return err
 		}
 		metadataSyncer.host = vCenter.Config.Host
 		metadataSyncer.volumeManager = volumes.GetManager(ctx, vCenter, nil, false)
-	}
-
-	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSISVFeatureStateReplication) {
 			svParams, ok := COInitParams.(k8sorchestrator.K8sSupervisorInitParams)
 			if !ok {
@@ -241,6 +237,30 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					os.Exit(1)
 				}
 			}()
+		}
+	} else {
+		// Initialize volume manager with vcenter credentials for Vanilla flavor
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultiVCenterCSITopology) {
+			// Initialize volume manager with vcenter credentials
+			vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+			if err != nil {
+				return err
+			}
+			metadataSyncer.host = vCenter.Config.Host
+			metadataSyncer.volumeManager = volumes.GetManager(ctx, vCenter, nil, false)
+		} else {
+			vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, configInfo.Cfg)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err: %v", err)
+			}
+			metadataSyncer.volumeManagers = make(map[string]volumes.Manager)
+			for _, vcconfig := range vcconfigs {
+				vCenter, err := cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+				if err != nil {
+					return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, err: %v", vcconfig.Host, err)
+				}
+				metadataSyncer.volumeManagers[vcconfig.Host] = volumes.GetManager(ctx, vCenter, nil, false)
+			}
 		}
 	}
 
@@ -426,10 +446,18 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					if err != nil {
 						log.Infof("pvCSI full sync failed with error: %+v", err)
 					}
-				} else {
+				} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 					err := CsiFullSync(ctx, metadataSyncer)
 					if err != nil {
 						log.Infof("CSI full sync failed with error: %+v", err)
+					}
+				} else {
+					//  TODO: Multi-VC : Temporary disabled full sync for development
+					if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultiVCenterCSITopology) {
+						err := CsiFullSync(ctx, metadataSyncer)
+						if err != nil {
+							log.Infof("CSI full sync failed with error: %+v", err)
+						}
 					}
 				}
 			}

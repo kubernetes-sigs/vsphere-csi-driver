@@ -74,10 +74,15 @@ type VirtualCenter struct {
 var (
 	// VCenter instance. It is a singleton.
 	vCenterInstance *VirtualCenter
+	// Map of VCenter Hostname and vCenter instances
+	vCenterInstances = make(map[string]*VirtualCenter)
+
 	// Has the vCenter instance been initialized?
 	vCenterInitialized bool
 	// vCenterInstanceLock makes sure only one vCenter instance be initialized.
 	vCenterInstanceLock = &sync.RWMutex{}
+	// vCenterInstancesLock makes sure only one vCenter being initialized for specific host
+	vCenterInstancesLock = &sync.RWMutex{}
 )
 
 func (vc *VirtualCenter) String() string {
@@ -568,6 +573,47 @@ func GetVirtualCenterInstance(ctx context.Context,
 		log.Info("vCenterInstance initialized")
 	}
 	return vCenterInstance, nil
+}
+
+// GetVirtualCenterInstanceForVCenterConfig returns the vcenter object for given vCenter Config
+// Takes in a boolean paramater reloadConfig.
+// If reinitialize is true, the vcenter object is instantiated again and the
+// old object becomes eligible for garbage collection.
+// If reinitialize is false and instance was already initialized, the previous
+// instance is returned.
+func GetVirtualCenterInstanceForVCenterConfig(ctx context.Context,
+	vcconfig *VirtualCenterConfig, reinitialize bool) (*VirtualCenter, error) {
+	log := logger.GetLogger(ctx)
+	vCenterInstancesLock.Lock()
+	defer vCenterInstancesLock.Unlock()
+
+	_, found := vCenterInstances[vcconfig.Host]
+	if !found || reinitialize {
+		log.Infof("Initializing new vCenterInstance for vCenter %q", vcconfig.Host)
+		// Initialize the virtual center manager.
+		virtualcentermanager := GetVirtualCenterManager(ctx)
+		// Unregister the VC from virtual center manager.
+		if err := virtualcentermanager.UnregisterVirtualCenter(ctx, vcconfig.Host); err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to unregister VirtualCenter %q with "+
+				"virtualCenterManager. Err: %+v", vcconfig.Host, err)
+		}
+		// Register with virtual center manager.
+		vcInstance, err := virtualcentermanager.RegisterVirtualCenter(ctx, vcconfig)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to register VirtualCenter %q Err: %+v",
+				vcconfig.Host, err)
+		}
+		// Connect to VC.
+		err = vcInstance.Connect(ctx)
+		if err != nil {
+			log.Errorf("failed to connect to VirtualCenter host: %q. Err: %+v",
+				vcconfig.Host, err)
+			return nil, err
+		}
+		vCenterInstances[vcconfig.Host] = vcInstance
+		log.Infof("vCenterInstance for vCenter: %q initialized", vcconfig.Host)
+	}
+	return vCenterInstances[vcconfig.Host], nil
 }
 
 // GetAllVirtualMachines gets the VM Managed Objects with the given properties from the
