@@ -555,8 +555,12 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		//Fetch original FileSystemSize
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
-		originalSizeInMb, err = getFSSizeMb(f, pod)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if windowsEnv {
+			originalSizeInMb = getWindowsDiskSize(client, pod)
+		} else {
+			originalSizeInMb, err = getFSSizeMb(f, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		defer func() {
 			// Delete POD
@@ -625,6 +629,12 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 		fsSize, err = getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if windowsEnv {
+			fsSize = getWindowsDiskSize(client, pod)
+		} else {
+			fsSize, err = getFSSizeMb(f, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
 		// the original volume size as the filesystem is formatted for the
@@ -2555,9 +2565,17 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(f *framework.Framework,
 func createPODandVerifyVolumeMount(ctx context.Context, f *framework.Framework, client clientset.Interface,
 	namespace string, pvclaim *v1.PersistentVolumeClaim, volHandle string) (*v1.Pod, string) {
 	// Create a Pod to use this PVC, and verify volume has been attached
+	var pod *v1.Pod
+	var err error
+
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if windowsEnv {
+		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsPodCmd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	var exists bool
 	var vmUUID string
@@ -2579,9 +2597,15 @@ func createPODandVerifyVolumeMount(ctx context.Context, f *framework.Framework, 
 		"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	_, err = framework.LookForStringInPodExec(namespace, pod.Name,
-		[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if windowsEnv {
+		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+			[]string{"powershell.exe", "cat", "C:\\mnt\\volume1\\data.txt"}, "", time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	return pod, vmUUID
 }
@@ -2849,6 +2873,8 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
+	var pod *v1.Pod
+	var originalFsSize int64
 
 	// Create a StorageClass that sets allowVolumeExpansion to true
 	if guestCluster {
@@ -2889,8 +2915,13 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 
 	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if windowsEnv {
+		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsPodCmd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	var vmUUID string
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -2904,13 +2935,24 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	_, err = framework.LookForStringInPodExec(namespace, pod.Name,
-		[]string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if windowsEnv {
+		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+			[]string{"powershell.exe", "cat", "C:\\mnt\\volume1\\data.txt"}, "", time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	} else {
+		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+			[]string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-	originalFsSize, err := getFSSizeMb(f, pod)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if windowsEnv {
+		originalFsSize = getWindowsDiskSize(client, pod)
+	} else {
+		originalFsSize, err = getFSSizeMb(f, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	// Delete POD
 	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
