@@ -100,8 +100,11 @@ type (
 )
 
 type metadataSyncInformer struct {
-	clusterFlavor      cnstypes.CnsClusterFlavor
-	volumeManager      volumes.Manager
+	clusterFlavor cnstypes.CnsClusterFlavor
+	volumeManager volumes.Manager
+	// map of VC Host to Volume Manager
+	// Use this for Vanilla flavor Multi vCenter Topology feature
+	volumeManagers     map[string]volumes.Manager
 	host               string
 	cnsOperatorClient  client.Client
 	supervisorClient   clientset.Interface
