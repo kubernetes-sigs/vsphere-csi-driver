@@ -148,15 +148,15 @@ data:
   "trigger-csi-fullsync": "false"
   "async-query-volume": "true"
   "improved-csi-idempotency": "true"
-  "improved-volume-topology": "true"
   "block-volume-snapshot": "true"
   "csi-windows-support": "false"
   "use-csinode-id": "true"
   "list-volumes": "false"
   "pv-to-backingdiskobjectid-mapping": "false"
-  "cnsmgr-suspend-create-volume": "false"
+  "cnsmgr-suspend-create-volume": "true"
   "topology-preferential-datastores": "true"
-  "max-pvscsi-targets-per-vm": "false"
+  "max-pvscsi-targets-per-vm": "true"
+  "multi-vcenter-csi-topology": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
@@ -344,6 +344,8 @@ spec:
               value: "100"
             - name: INCLUSTER_CLIENT_BURST
               value: "100"
+            - name: GODEBUG
+              value: x509sha1=1
             - name: CSI_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -464,6 +466,8 @@ spec:
               value: "true"
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
+            - name: GODEBUG
+              value: x509sha1=1
             - name: CSI_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -600,7 +604,7 @@ spec:
             - name: CSI_ENDPOINT
               value: 'unix://C:\\csi\\csi.sock'
             - name: MAX_VOLUMES_PER_NODE
-              value: "0" # Maximum number of volumes that controller can publish to the node. If value is not set or zero Kubernetes decide how many volumes can be published by the controller to the node.
+              value: "59" # Maximum number of volumes that controller can publish to the node. If value is not set or zero Kubernetes decide how many volumes can be published by the controller to the node.
             - name: X_CSI_MODE
               value: node
             - name: X_CSI_SPEC_REQ_VALIDATION

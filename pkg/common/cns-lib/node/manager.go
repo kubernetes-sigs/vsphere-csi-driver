@@ -21,6 +21,8 @@ import (
 	"errors"
 	"sync"
 
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
 	clientset "k8s.io/client-go/kubernetes"
@@ -48,6 +50,8 @@ type Manager interface {
 	// scans all virtual centers registered on the VirtualCenterManager for a
 	// virtual machine with the given UUID.
 	DiscoverNode(ctx context.Context, nodeUUID string) error
+	// GetK8sNode returns Kubernetes Node object for the given node name
+	GetK8sNode(ctx context.Context, nodename string) (*v1.Node, error)
 	// GetNode refreshes and returns the VirtualMachine for a registered node
 	// given its UUID. If datacenter is present, GetNode will search within this
 	// datacenter given its UUID. If not, it will search in all registered
@@ -117,14 +121,15 @@ func (m *defaultManager) SetUseNodeUuid(useNodeUuid bool) {
 // RegisterNode registers a node with node manager using its UUID, name.
 func (m *defaultManager) RegisterNode(ctx context.Context, nodeUUID string, nodeName string) error {
 	log := logger.GetLogger(ctx)
-	m.nodeNameToUUID.Store(nodeName, nodeUUID)
-	log.Infof("Successfully registered node: %q with nodeUUID %q", nodeName, nodeUUID)
+	log.Infof("Discovering node vm using uuid: %q", nodeUUID)
 	err := m.DiscoverNode(ctx, nodeUUID)
 	if err != nil {
 		log.Errorf("failed to discover VM with uuid: %q for node: %q", nodeUUID, nodeName)
 		return err
 	}
 	log.Infof("Successfully discovered node: %q with nodeUUID %q", nodeName, nodeUUID)
+	m.nodeNameToUUID.Store(nodeName, nodeUUID)
+	log.Infof("Successfully registered node: %q with nodeUUID %q", nodeName, nodeUUID)
 	return nil
 }
 
@@ -183,6 +188,16 @@ func (m *defaultManager) GetNodeNameByUUID(ctx context.Context, nodeUUID string)
 		return "", logger.LogNewErrorf(log, "failed to find node name for node with UUID: %q", nodeUUID)
 	}
 	return nodeName, nil
+}
+
+// GetK8sNode returns Kubernetes Node object for the given node name
+func (m *defaultManager) GetK8sNode(ctx context.Context, nodename string) (*v1.Node, error) {
+	log := logger.GetLogger(ctx)
+	node, err := m.k8sClient.CoreV1().Nodes().Get(ctx, nodename, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("failed to obtain node for nodename:%q", nodename)
+	}
+	return node, err
 }
 
 // GetNode refreshes and returns the VirtualMachine for a registered node

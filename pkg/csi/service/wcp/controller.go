@@ -606,7 +606,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					},
 				}
 				querySelection := cnstypes.CnsQuerySelection{
-					Names: []string{utils.CnsQuerySelectionName_DATASTORE_URL},
+					Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
 				}
 				queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection,
 					true)
@@ -1273,7 +1273,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		if startingIdx == 0 || startingIdx != expectedStartingIndex {
 			queryFilter := cnstypes.CnsQueryFilter{
 				ContainerClusterIds: []string{
-					c.manager.CnsConfig.Global.ClusterID,
+					c.manager.CnsConfig.Global.SupervisorID,
 				},
 			}
 			querySelection := cnstypes.CnsQuerySelection{

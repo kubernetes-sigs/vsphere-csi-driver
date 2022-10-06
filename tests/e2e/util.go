@@ -39,7 +39,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/onsi/ginkgo"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
@@ -2150,12 +2150,12 @@ func deleteResourceQuota(client clientset.Interface, namespace string) {
 }
 
 // checks if resource quota gets updated or not
-func checkResourceQuota(client clientset.Interface, namespace string, size string) error {
+func checkResourceQuota(client clientset.Interface, namespace string, name string, size string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
-		currentResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace, metav1.GetOptions{})
+		currentResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("currentResourceQuota %v", currentResourceQuota)
 		if err != nil {
@@ -2186,7 +2186,7 @@ func setResourceQuota(client clientset.Interface, namespace string, size string)
 			ctx, requestStorageQuota, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
-		err = checkResourceQuota(client, namespace, size)
+		err = checkResourceQuota(client, namespace, existingResourceQuota.GetName(), size)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -2780,7 +2780,9 @@ func verifyEntityReferenceInCRDInSupervisor(ctx context.Context, f *framework.Fr
 // trimQuotes takes a quoted string as input and returns the same string unquoted.
 func trimQuotes(str string) string {
 	str = strings.TrimPrefix(str, "\"")
+	str = strings.TrimSuffix(str, " ")
 	str = strings.TrimSuffix(str, "\"")
+
 	return str
 }
 
@@ -2809,9 +2811,16 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			continue
 		}
 		words := strings.Split(line, " = ")
+		if strings.Contains(words[0], "topology-categories=") {
+			words = strings.Split(line, "=")
+		}
+
 		if len(words) == 1 {
 			// Case Snapshot
 			if strings.Contains(words[0], "Snapshot") {
+				continue
+			}
+			if strings.Contains(words[0], "Labels") {
 				continue
 			}
 			// Case VirtualCenter.
@@ -2851,9 +2860,12 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			config.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "topology-categories":
-			config.Global.TopologyCategories = value
+			config.Labels.TopologyCategories = value
 		case "global-max-snapshots-per-block-volume":
 			config.Snapshot.GlobalMaxSnapshotsPerBlockVolume, strconvErr = strconv.Atoi(value)
+			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
+		case "csi-fetch-preferred-datastores-intervalinmin":
+			config.Global.CSIFetchPreferredDatastoresIntervalInMin, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
@@ -2866,11 +2878,16 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 // that into a string.
 func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
 	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
-		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n"+
-		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d",
+		"csi-fetch-preferred-datastores-intervalinmin = %d\n\n"+
+		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n\n"+
+		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n"+
+		"[Labels]\ntopology-categories = \"%s\"",
 		cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
+		cfg.Global.CSIFetchPreferredDatastoresIntervalInMin,
 		cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
-		cfg.Global.Datacenters, cfg.Global.VCenterPort, cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
+		cfg.Global.Datacenters, cfg.Global.VCenterPort,
+		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume,
+		cfg.Labels.TopologyCategories)
 	return result, nil
 }
 
@@ -3377,6 +3394,18 @@ func runCommandOnESX(username string, addr string, cmd string) (string, error) {
 			// consider the SSH itself successful but cmd failed on the host.
 			if code = exiterr.ExitStatus(); code != 0 {
 				err = nil
+			}
+		}
+		if exiterr, ok := err.(*ssh.ExitMissingError); ok {
+			/* If we got an  ExitMissingError and the exit code is zero, we'll
+			consider the SSH itself successful and cmd executed successfully on the host.
+			If  exit code is non zero we'll consider the SSH is successful but
+			cmd failed on the host. */
+			framework.Logf(exiterr.Error())
+			if code == 0 {
+				err = nil
+			} else {
+				err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, config.User, addr, err)
 			}
 		} else {
 			err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, config.User, addr, err)
@@ -4806,6 +4835,13 @@ required for creating Storage Class specific to testcase scenarios.
 func getTopologySelector(topologyAffinityDetails map[string][]string,
 	topologyCategories []string, level int,
 	position ...int) []v1.TopologySelectorLabelRequirement {
+	topologyFeature := os.Getenv(topologyFeature)
+	var key string
+	if topologyFeature == topologyTkgHaName {
+		key = tkgHATopologyKey
+	} else {
+		key = topologykey
+	}
 	allowedTopologyForSC := []v1.TopologySelectorLabelRequirement{}
 	updateLvl := -1
 	var rnges []int
@@ -4821,10 +4857,15 @@ func getTopologySelector(topologyAffinityDetails map[string][]string,
 				values = append(values, topologyAffinityDetails[category][rng])
 			}
 		} else {
-			values = topologyAffinityDetails[category]
+			if topologyFeature == topologyTkgHaName {
+				values = topologyAffinityDetails[key+"/"+category]
+			} else {
+				values = topologyAffinityDetails[category]
+			}
 		}
+
 		topologySelector := v1.TopologySelectorLabelRequirement{
-			Key:    topologykey + "/" + category,
+			Key:    key + "/" + category,
 			Values: values,
 		}
 		allowedTopologyForSC = append(allowedTopologyForSC, topologySelector)
@@ -5258,32 +5299,47 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 
 // execDockerPauseNKillOnContainer pauses and then kills the particular CSI container on given master node
 func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
-	containerName string) error {
-	containerID, err := waitAndGetContainerID(sshClientConfig, k8sMasterNodeIP, containerName)
+	containerName string, k8sVersion string) error {
+	containerPauseCmd := ""
+	containerKillCmd := ""
+	k8sVer, err := strconv.ParseFloat(k8sVersion, 64)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	containerID, err := waitAndGetContainerID(sshClientConfig, k8sMasterNodeIP, containerName, k8sVer)
 	if err != nil {
 		return err
 	}
-	dockerContainerPauseCmd := "docker pause " + containerID
-	framework.Logf("Invoking command '%v' on host %v", dockerContainerPauseCmd,
+	if k8sVer <= 1.23 {
+		containerPauseCmd = "docker pause " + containerID
+	} else {
+		containerPauseCmd = "nerdctl pause --namespace k8s.io " + containerID
+	}
+	framework.Logf("Invoking command '%v' on host %v", containerPauseCmd,
 		k8sMasterNodeIP)
 	cmdResult, err := sshExec(sshClientConfig, k8sMasterNodeIP,
-		dockerContainerPauseCmd)
+		containerPauseCmd)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			dockerContainerPauseCmd, k8sMasterNodeIP, err)
+			containerPauseCmd, k8sMasterNodeIP, err)
 	}
 	framework.Logf("Waiting for 5 seconds as leader election happens every 5 secs")
 	time.Sleep(5 * time.Second)
-	dockerContainerKillCmd := "docker kill " + containerID
-	framework.Logf("Invoking command '%v' on host %v", dockerContainerKillCmd,
+	if k8sVer <= 1.23 {
+		containerKillCmd = "docker kill " + containerID
+	} else {
+		containerKillCmd = "nerdctl kill --namespace k8s.io " + containerID
+	}
+	framework.Logf("Invoking command '%v' on host %v", containerKillCmd,
 		k8sMasterNodeIP)
 	cmdResult, err = sshExec(sshClientConfig, k8sMasterNodeIP,
-		dockerContainerKillCmd)
+		containerKillCmd)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
+		if strings.Contains(cmdResult.Stderr, "OCI runtime resume failed") {
+			return nil
+		}
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			dockerContainerKillCmd, k8sMasterNodeIP, err)
+			containerKillCmd, k8sMasterNodeIP, err)
 	}
 	return nil
 }
@@ -5737,15 +5793,21 @@ func triggerFullSync(ctx context.Context, client clientset.Interface,
 
 // waitAndGetContainerID waits and fetches containerID of a given containerName
 func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string,
-	containerName string) (string, error) {
+	containerName string, k8sVersion float64) (string, error) {
 	containerId := ""
+	cmdToGetContainerId := ""
 	waitErr := wait.PollImmediate(poll, pollTimeoutShort*3, func() (bool, error) {
-		grepCmdForGettingDockerContainerId := "docker ps | grep " + containerName + " | " +
-			"awk '{print $1}' |  tr -d '\n'"
-		framework.Logf("Invoking command '%v' on host %v", grepCmdForGettingDockerContainerId,
+		if k8sVersion <= 1.23 {
+			cmdToGetContainerId = "docker ps | grep " + containerName + " | " +
+				"awk '{print $1}' |  tr -d '\n'"
+		} else {
+			cmdToGetContainerId = "nerdctl --namespace k8s.io ps -a | grep -E " + containerName + ".*Up  | " +
+				"awk '{print $1}' |  tr -d '\n'"
+		}
+		framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerId,
 			k8sMasterIP)
 		dockerContainerInfo, err := sshExec(sshClientConfig, k8sMasterIP,
-			grepCmdForGettingDockerContainerId)
+			cmdToGetContainerId)
 		fssh.LogResult(dockerContainerInfo)
 		containerId = dockerContainerInfo.Stdout
 		if containerId != "" {
@@ -5753,7 +5815,7 @@ func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string
 		}
 		if err != nil || dockerContainerInfo.Code != 0 {
 			return false, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-				grepCmdForGettingDockerContainerId, k8sMasterIP, err)
+				cmdToGetContainerId, k8sMasterIP, err)
 		}
 		return false, nil
 	})
@@ -5782,7 +5844,7 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 
 	curlStr := ""
 	policyNamesArrLength := len(policyNames)
-	defRqLimit := strings.Split(defaultrqLimit, "Gi")[0]
+	defRqLimit := strings.Split(rqLimit, "Gi")[0]
 	limit, err := strconv.Atoi(defRqLimit)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	limit *= 953 //to convert gb to mebibytes

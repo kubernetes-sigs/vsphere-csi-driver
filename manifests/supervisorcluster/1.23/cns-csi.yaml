@@ -209,15 +209,11 @@ spec:
         - operator: "Exists"
           key: "node-role.kubernetes.io/master"
           effect: "NoSchedule"
-        - operator: "Equal"
-          key: "kubeadmNode"
-          effect: "NoSchedule"
-          value: "master"
       hostNetwork: true
       priorityClassName: system-node-critical
       containers:
         - name: csi-provisioner
-          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v3.1.0_vmware.2
+          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v3.2.1_vmware.1
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -252,7 +248,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: csi-attacher
-          image: localhost:5000/vmware.io/csi-attacher:v3.4.0_vmware.1
+          image: localhost:5000/vmware.io/csi-attacher:v3.5.0_vmware.1
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -275,7 +271,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: csi-resizer
-          image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.4.0_vmware.1
+          image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.5.0_vmware.1
           imagePullPolicy: IfNotPresent
           args:
             - --v=4
@@ -349,7 +345,7 @@ spec:
             - mountPath: /etc/vmware/wcp/tls/
               name: host-vmca
         - name: liveness-probe
-          image: localhost:5000/vmware.io/csi-livenessprobe:v2.6.0_vmware.1
+          image: localhost:5000/vmware.io/csi-livenessprobe:v2.7.0_vmware.1
           args:
             - "--csi-address=/csi/csi.sock"
           volumeMounts:
@@ -431,7 +427,7 @@ data:
   "sibling-replica-bound-pvc-check": "true"
   "tkgs-ha": "true"
   "list-volumes": "false"
-  "cnsmgr-suspend-create-volume": "false"
+  "cnsmgr-suspend-create-volume": "true"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
@@ -615,10 +611,6 @@ spec:
         - effect: NoExecute
           key: node.alpha.kubernetes.io/unreachable
           operator: Exists
-        - effect: NoSchedule
-          key: kubeadmNode
-          operator: Equal
-          value: master
       containers:
         - name: vsphere-webhook
           image: localhost:5000/vmware/syncer:<syncer_ver>

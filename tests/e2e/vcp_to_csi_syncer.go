@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/onsi/ginkgo"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
@@ -1606,7 +1606,12 @@ func getVolHandle4Pv(ctx context.Context, c clientset.Interface, pv *v1.Persiste
 		gomega.Expect(found).To(gomega.BeTrue())
 		return crd.Spec.VolumeID
 	}
-	return pv.Spec.CSI.VolumeHandle
+	volumeID := pv.Spec.CSI.VolumeHandle
+	if guestCluster {
+		volumeID = getVolumeIDFromSupervisorCluster(volumeID)
+		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+	}
+	return volumeID
 }
 
 // deletePodAndWaitForVolsToDetach Delete given pod and wait for its volumes to detach

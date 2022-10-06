@@ -1089,9 +1089,9 @@ func (volTopology *controllerVolumeTopology) getTopologySegmentsWithMatchingNode
 
 		// Check CSINodeTopology instance `Status` field for success.
 		if nodeTopologyInstance.Status.Status != csinodetopologyv1alpha1.CSINodeTopologySuccess {
-			log.Errorf("node %q not yet ready. Status of CSINodeTopology instance: %q",
-				nodeTopologyInstance.Name, nodeTopologyInstance.Status.Status)
-			return nil, nil, err
+			return nil, nil, logger.LogNewErrorf(log, "node %q not yet ready. Found CSINodeTopology instance "+
+				"status: %q with error message: %q", nodeTopologyInstance.Name, nodeTopologyInstance.Status.Status,
+				nodeTopologyInstance.Status.ErrorMessage)
 		}
 		// Convert array of labels to map.
 		topoLabelsMap := make(map[string]string)
@@ -1161,9 +1161,9 @@ func (volTopology *controllerVolumeTopology) getNodesMatchingTopologySegment(ctx
 
 		// Check CSINodeTopology instance `Status` field for success.
 		if nodeTopologyInstance.Status.Status != csinodetopologyv1alpha1.CSINodeTopologySuccess {
-			log.Errorf("node %q not yet ready. Status of CSINodeTopology instance: %q",
-				nodeTopologyInstance.Name, nodeTopologyInstance.Status.Status)
-			return nil, err
+			return nil, logger.LogNewErrorf(log, "node %q not yet ready. Found CSINodeTopology instance "+
+				"status: %q with error message: %q", nodeTopologyInstance.Name, nodeTopologyInstance.Status.Status,
+				nodeTopologyInstance.Status.ErrorMessage)
 		}
 		// Convert array of labels to map.
 		topoLabels := make(map[string]string)

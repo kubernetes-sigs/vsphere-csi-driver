@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/onsi/ginkgo"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
@@ -78,6 +78,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			defaultDatacenter          *object.Datacenter
 			defaultDatastore           *object.Datastore
 			fullSyncWaitTime           int
+			k8sVersion                 string
 		)
 		ginkgo.BeforeEach(func() {
 			var cancel context.CancelFunc
@@ -96,6 +97,11 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			if !(len(nodeList.Items) > 0) {
 				framework.Failf("Unable to find ready and schedulable Node")
 			}
+			// fetching k8s version
+			v, err := client.Discovery().ServerVersion()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			k8sVersion = v.Major + "." + v.Minor
+
 			bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
 			topologyLength = 5
 			isSPSServiceStopped = false
@@ -257,7 +263,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 					is running */
 					ginkgo.By("Kill container CSI-Provisioner on the master node where elected leader " +
 						"CSi-Controller-Pod is running")
-					err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, container_name)
+					err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, container_name, k8sVersion)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -326,7 +332,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 					is running */
 					ginkgo.By("Kill container CSI-Attacher on the master node where elected leader CSi-Controller-Pod " +
 						"is running")
-					err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, container_name)
+					err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, container_name, k8sVersion)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -355,7 +361,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 					is running */
 					ginkgo.By("Kill container CSI-Provisioner on the master node where elected leader CSi-Controller-Pod " +
 						"is running")
-					err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, container_name)
+					err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, container_name, k8sVersion)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}

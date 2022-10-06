@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/onsi/ginkgo"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/cns"
@@ -1136,4 +1136,17 @@ func fetchDsUrl4CnsVol(e2eVSphere vSphere, volHandle string) string {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 	return queryResult.Volumes[0].DatastoreUrl
+}
+
+// verifyPreferredDatastoreMatch verify if any of the given dsUrl matches with the datstore url for the volumeid
+func (vs *vSphere) verifyPreferredDatastoreMatch(volumeID string, dsUrls []string) bool {
+	actualDatastoreUrl := fetchDsUrl4CnsVol(e2eVSphere, volumeID)
+	flag := false
+	for _, dsUrl := range dsUrls {
+		if actualDatastoreUrl == dsUrl {
+			flag = true
+			return flag
+		}
+	}
+	return flag
 }

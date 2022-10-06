@@ -182,26 +182,24 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 			}()
 		}
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
-			// Create CSINodeTopology CRD.
-			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, csinodetopologyconfig.EmbedCSINodeTopologyFile,
-				csinodetopologyconfig.EmbedCSINodeTopologyFileName)
-			if err != nil {
-				log.Errorf("Failed to create %q CRD. Error: %+v", csinodetopology.CRDSingular, err)
-				return err
-			}
-			// Initialize node manager so that CSINodeTopology controller can
-			// retrieve NodeVM using the NodeID in the spec.
-			useNodeUuid := false
-			if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.UseCSINodeId) {
-				useNodeUuid = true
-			}
-			nodeMgr := &node.Nodes{}
-			err = nodeMgr.Initialize(ctx, useNodeUuid)
-			if err != nil {
-				log.Errorf("failed to initialize nodeManager. Error: %+v", err)
-				return err
-			}
+		// Create CSINodeTopology CRD.
+		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, csinodetopologyconfig.EmbedCSINodeTopologyFile,
+			csinodetopologyconfig.EmbedCSINodeTopologyFileName)
+		if err != nil {
+			log.Errorf("Failed to create %q CRD. Error: %+v", csinodetopology.CRDSingular, err)
+			return err
+		}
+		// Initialize node manager so that CSINodeTopology controller can
+		// retrieve NodeVM using the NodeID in the spec.
+		useNodeUuid := false
+		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.UseCSINodeId) {
+			useNodeUuid = true
+		}
+		nodeMgr := &node.Nodes{}
+		err = nodeMgr.Initialize(ctx, useNodeUuid)
+		if err != nil {
+			log.Errorf("failed to initialize nodeManager. Error: %+v", err)
+			return err
 		}
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.TKGsHA) {
