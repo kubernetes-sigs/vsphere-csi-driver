@@ -209,6 +209,9 @@ spec:
         - operator: "Exists"
           key: "node-role.kubernetes.io/control-plane"
           effect: "NoSchedule"
+        - operator: "Exists"
+          key: "node-role.kubernetes.io/master"
+          effect: "NoSchedule"
       hostNetwork: true
       priorityClassName: system-node-critical
       containers:
@@ -603,6 +606,9 @@ spec:
       terminationGracePeriodSeconds: 10
       tolerations:
         - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
           operator: Exists
           effect: NoSchedule
         - effect: NoExecute
