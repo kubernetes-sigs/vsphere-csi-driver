@@ -6,6 +6,8 @@ import (
 	"google.golang.org/grpc/codes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
@@ -310,4 +312,55 @@ func initVolumeMigrationService(ctx context.Context, metadataSyncer *metadataSyn
 		return err
 	}
 	return nil
+}
+
+// getConfig is a wrapper function in syncer container to get the
+// config from vSphere Config Secret. If cluster ID is not provided
+// in the secret, then we read it from the immutable ConfigMap
+// which was created during csi controller initialization.
+func getConfig(ctx context.Context) (*cnsconfig.Config, error) {
+	var clusterID string
+	log := logger.GetLogger(ctx)
+
+	cfg, err := common.GetConfig(ctx)
+	if err != nil {
+		log.Errorf("failed to read config. Error: %+v", err)
+		return nil, err
+	}
+	CSINamespace := common.GetCSINamespace()
+	if cfg.Global.ClusterID == "" {
+		cmData, err := commonco.ContainerOrchestratorUtility.GetConfigMap(ctx,
+			cnsconfig.ClusterIDConfigMapName, CSINamespace)
+		if err == nil {
+			// Get the clusterID value stored in the existing immutable ConfigMap.
+			clusterID = cmData["clusterID"]
+			log.Infof("Cluster ID value read from the ConfigMap is %s", clusterID)
+		} else {
+			return nil, logger.LogNewErrorf(log, "cluster ID is not available in "+
+				"vSphere config secret and in immutable ConfigMap")
+		}
+		cfg.Global.ClusterID = clusterID
+	} else {
+		if _, err := commonco.ContainerOrchestratorUtility.GetConfigMap(ctx,
+			cnsconfig.ClusterIDConfigMapName, CSINamespace); err == nil {
+			return nil, logger.LogNewErrorf(log, "Cluster ID is present in vSphere Config Secret "+
+				"as well as in %s ConfigMap. Please remove the cluster ID from vSphere Config "+
+				"Secret.", cnsconfig.ClusterIDConfigMapName)
+		}
+	}
+	return cfg, nil
+}
+
+// SyncerInitConfigInfo initializes the ConfigurationInfo struct
+func SyncerInitConfigInfo(ctx context.Context) (*cnsconfig.ConfigurationInfo, error) {
+	log := logger.GetLogger(ctx)
+	cfg, err := getConfig(ctx)
+	if err != nil {
+		log.Errorf("failed to read config. Error: %+v", err)
+		return nil, err
+	}
+	configInfo := &cnsconfig.ConfigurationInfo{
+		Cfg: cfg,
+	}
+	return configInfo, nil
 }

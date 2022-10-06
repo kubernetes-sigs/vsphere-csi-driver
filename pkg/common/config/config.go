@@ -99,6 +99,8 @@ const (
 	TKCKind = "TanzuKubernetesCluster"
 	// TKCAPIVersion refers to the version of TanzuKubernetesCluster object currently being used.
 	TKCAPIVersion = "run.tanzu.vmware.com/v1alpha1"
+	// ClusterIDConfigMapName refers to the name of the immutable ConfigMap used to store cluster ID
+	ClusterIDConfigMapName = "vsphere-csi-cluster-id"
 )
 
 // Errors
@@ -142,6 +144,14 @@ var (
 	ErrMissingTopologyCategoriesForMultiVCenterSetup = errors.New("vsphere CSI config requires " +
 		"topology-categories to be specified for multi vCenter deployment")
 )
+
+// GeneratedVanillaClusterID is used to save unique cluster ID generated
+// internally when clusterID is not provided by user in vSphere
+// config secret for vanilla k8s deployments.
+// Scope of this variable is limited to csi-controller container,
+// we are using wrapper function in syncer container to get the
+// internally generated cluster ID.
+var GeneratedVanillaClusterID string
 
 func getEnvKeyValue(match string, partial bool) (string, string, error) {
 	for _, e := range os.Environ() {
@@ -502,6 +512,10 @@ func GetCnsconfig(ctx context.Context, cfgPath string) (*Config, error) {
 		}
 		if cfg.Global.SupervisorID != "" {
 			cfg.Global.SupervisorID = supervisorIDPrefix + cfg.Global.SupervisorID
+		}
+
+		if GeneratedVanillaClusterID != "" {
+			cfg.Global.ClusterID = GeneratedVanillaClusterID
 		}
 	}
 	return cfg, nil

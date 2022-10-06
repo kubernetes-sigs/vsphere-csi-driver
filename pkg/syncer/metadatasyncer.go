@@ -555,7 +555,15 @@ func updateTriggerCsiFullSyncInstance(ctx context.Context,
 func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFromNewConfig bool) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
-	cfg, err := common.GetConfig(ctx)
+	var cfg *cnsconfig.Config
+	var err error
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIInternalGeneratedClusterID) {
+		cfg, err = getConfig(ctx)
+	} else {
+		cfg, err = common.GetConfig(ctx)
+	}
+
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
 	}

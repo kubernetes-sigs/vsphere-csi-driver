@@ -69,6 +69,13 @@ type COCommonInterface interface {
 	// AnnotateVolumeSnapshot annotates the volumesnapshot CR in k8s cluster with the snapshot-id and fcd-id
 	AnnotateVolumeSnapshot(ctx context.Context, volumeSnapshotName string,
 		volumeSnapshotNamespace string, annotations map[string]string) (bool, error)
+	// GetConfigMap checks if ConfigMap with given name exists in the given namespace.
+	// If it exists, this function returns ConfigMap data, otherwise returns error.
+	GetConfigMap(ctx context.Context, name string, namespace string) (map[string]string, error)
+	// CreateConfigMap creates the ConfigMap with given name, namespace, data and immutable
+	// parameter values.
+	CreateConfigMap(ctx context.Context, name string, namespace string, data map[string]string,
+		isImmutable bool) error
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given

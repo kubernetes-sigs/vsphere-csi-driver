@@ -45,13 +45,14 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 	if orchestratorType == common.Kubernetes {
 		fakeCO := &FakeK8SOrchestrator{
 			featureStates: map[string]string{
-				"volume-extend":         "true",
-				"volume-health":         "true",
-				"csi-migration":         "true",
-				"file-volume":           "true",
-				"block-volume-snapshot": "true",
-				"tkgs-ha":               "true",
-				"list-volumes":          "true",
+				"volume-extend":                     "true",
+				"volume-health":                     "true",
+				"csi-migration":                     "true",
+				"file-volume":                       "true",
+				"block-volume-snapshot":             "true",
+				"tkgs-ha":                           "true",
+				"list-volumes":                      "true",
+				"csi-internal-generated-cluster-id": "true",
 			},
 		}
 		return fakeCO, nil
@@ -263,4 +264,18 @@ func (c *FakeK8SOrchestrator) GetAllK8sVolumes() []string {
 func (c *FakeK8SOrchestrator) AnnotateVolumeSnapshot(ctx context.Context, volumeSnapshotName string,
 	volumeSnapshotNamespace string, annotations map[string]string) (bool, error) {
 	return true, nil
+}
+
+// GetConfigMap checks if ConfigMap with given name exists in the given namespace.
+// If it exists, this function returns ConfigMap data, otherwise returns error.
+func (c *FakeK8SOrchestrator) GetConfigMap(ctx context.Context, name string,
+	namespace string) (map[string]string, error) {
+	return nil, nil
+}
+
+// CreateConfigMap creates the ConfigMap with given name, namespace, data and immutable
+// parameter values.
+func (c *FakeK8SOrchestrator) CreateConfigMap(ctx context.Context, name string, namespace string,
+	data map[string]string, isImmutable bool) error {
+	return nil
 }
