@@ -83,13 +83,6 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
-		!coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeTopology) {
-		log.Infof("Not initializing the CSINodetopology Controller as %s FSS is disabled in %s",
-			common.ImprovedVolumeTopology, cnstypes.CnsClusterFlavorVanilla)
-		return nil
-	}
-
 	if clusterFlavor == cnstypes.CnsClusterFlavorGuest && !coCommonInterface.IsFSSEnabled(ctx, common.TKGsHA) {
 		log.Infof("Not initializing the CSINodetopology Controller as %s FSS is disabled in %s",
 			common.TKGsHA, cnstypes.CnsClusterFlavorGuest)

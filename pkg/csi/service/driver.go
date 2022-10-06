@@ -47,7 +47,6 @@ var (
 	// CO agnostic orchestrator for the controller as well as node containers.
 	COInitParams  interface{}
 	clusterFlavor = defaultClusterFlavor
-	cfgPath       = cnsconfig.DefaultCloudConfigPath
 )
 
 // Driver is a CSI SP and idempotency.Provider.

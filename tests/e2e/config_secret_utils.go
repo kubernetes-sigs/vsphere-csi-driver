@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -32,7 +31,7 @@ import (
 )
 
 // govc login command
-func govcLoginCmd(vcAddress string, portNo string) string {
+func govcLoginCmd1(vcAddress string, portNo string) string {
 	loginCmd := "export GOVC_INSECURE=1;"
 	loginCmd += fmt.Sprintf("export GOVC_URL='https://%s:%s@%s:%s';", vCenterUIUser, vCenterUIPassword, vcAddress, portNo)
 	return loginCmd
@@ -42,7 +41,7 @@ func govcLoginCmd(vcAddress string, portNo string) string {
 func createTestUser(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig, masterIp string,
 	testUser string, testUserPassword string) error {
 	// create test user
-	createUser := govcLoginCmd(vcAddress, vCenterPort) + "govc sso.user.create -p " + testUserPassword + " " + testUser
+	createUser := govcLoginCmd1(vcAddress, vCenterPort) + "govc sso.user.create -p " + testUserPassword + " " + testUser
 	framework.Logf("Create testuser: %s ", createUser)
 	result, err := sshExec(sshClientConfig, masterIp, createUser)
 	if err != nil && result.Code != 0 {
@@ -57,7 +56,7 @@ func createTestUser(vcAddress string, vCenterPort string, sshClientConfig *ssh.C
 func changeTestUserPassword(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig, masterIp string,
 	testUser string, testUserPassword string) error {
 	// change test user password
-	changeUserPassword := govcLoginCmd(vcAddress, vCenterPort) + "govc sso.user.update -p " + testUserPassword + " " + testUser
+	changeUserPassword := govcLoginCmd1(vcAddress, vCenterPort) + "govc sso.user.update -p " + testUserPassword + " " + testUser
 	framework.Logf("Password change for testuser: %s ", changeUserPassword)
 	result, err := sshExec(sshClientConfig, masterIp, changeUserPassword)
 	if err != nil && result.Code != 0 {
@@ -127,7 +126,7 @@ func deleteUserPermissions(vcAddress string, vCenterPort string, sshClientConfig
 func deleteDataCenterPermissions(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUser string, dataCenter []string) error {
 	for i := 0; i < len(dataCenter); i++ {
-		deleteDataCenterPermissions := govcLoginCmd(vcAddress, vCenterPort) + "govc permissions.remove -principal " + testUser +
+		deleteDataCenterPermissions := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.remove -principal " + testUser +
 			" " + dataCenter[i]
 		framework.Logf("Delete datacenter level permissions: %s ", deleteDataCenterPermissions)
 		result, err := sshExec(sshClientConfig, masterIp, deleteDataCenterPermissions)
@@ -144,7 +143,7 @@ func deleteDataCenterPermissions(vcAddress string, vCenterPort string, sshClient
 func deleteHostsLevelPermission(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUser string, hosts []string) error {
 	for i := 0; i < len(hosts); i++ {
-		deleteHostsLevelPermissions := govcLoginCmd(vcAddress, vCenterPort) + "govc permissions.remove -principal " + testUser +
+		deleteHostsLevelPermissions := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.remove -principal " + testUser +
 			" " + hosts[i]
 		framework.Logf("Delete host level permissions from test user: %s ", deleteHostsLevelPermissions)
 		result, err := sshExec(sshClientConfig, masterIp, deleteHostsLevelPermissions)
@@ -161,7 +160,7 @@ func deleteHostsLevelPermission(vcAddress string, vCenterPort string, sshClientC
 func deleteVMsLevelPermission(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUser string, vms []string) error {
 	for i := 0; i < len(vms); i++ {
-		deleteVmsLevelPermissions := govcLoginCmd(vcAddress, vCenterPort) + "govc permissions.remove -principal " + testUser +
+		deleteVmsLevelPermissions := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.remove -principal " + testUser +
 			" " + vms[i]
 		framework.Logf("Delete vm level permissions from test user: %s ", deleteVmsLevelPermissions)
 		result, err := sshExec(sshClientConfig, masterIp, deleteVmsLevelPermissions)
@@ -178,7 +177,7 @@ func deleteVMsLevelPermission(vcAddress string, vCenterPort string, sshClientCon
 func deleteClusterLevelPermission(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUser string, clusters []string) error {
 	for i := 0; i < len(clusters); i++ {
-		deleteClusterLevelPermissions := govcLoginCmd(vcAddress, vCenterPort) + "govc permissions.remove -principal " + testUser +
+		deleteClusterLevelPermissions := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.remove -principal " + testUser +
 			" " + clusters[i]
 		framework.Logf("Delete cluster level permissions from test user: %s ", deleteClusterLevelPermissions)
 		result, err := sshExec(sshClientConfig, masterIp, deleteClusterLevelPermissions)
@@ -195,7 +194,7 @@ func deleteClusterLevelPermission(vcAddress string, vCenterPort string, sshClien
 func deleteDataStoreLevelPermission(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUser string, dataCenter string, datastores []string) error {
 	for i := 0; i < len(datastores); i++ {
-		deleteDataStoreLevelPermissions := govcLoginCmd(vcAddress, vCenterPort) + "govc permissions.remove -principal " +
+		deleteDataStoreLevelPermissions := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.remove -principal " +
 			testUser + " '" + datastores[i] + "'"
 		framework.Logf("Delete datastore level permissions from test user: %s ", deleteDataStoreLevelPermissions)
 		result, err := sshExec(sshClientConfig, masterIp, deleteDataStoreLevelPermissions)
@@ -211,7 +210,7 @@ func deleteDataStoreLevelPermission(vcAddress string, vCenterPort string, sshCli
 // deleteOtherPermissionsFromTestUser method is used to remove permissions from a test user
 func deleteOtherPermissionsFromTestUser(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUser string) error {
-	deleteOtherPermissions := govcLoginCmd(vcAddress, vCenterPort) + "govc permissions.remove -principal " +
+	deleteOtherPermissions := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.remove -principal " +
 		testUser
 	framework.Logf("Delete user permissions: %s ", deleteOtherPermissions)
 	result, err := sshExec(sshClientConfig, masterIp, deleteOtherPermissions)
@@ -226,7 +225,7 @@ func deleteOtherPermissionsFromTestUser(vcAddress string, vCenterPort string, ss
 // deleteUserRoles method is used to delete roles of a test user
 func deleteUserRoles(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUser string) error {
-	deleteRoles := govcLoginCmd(vcAddress, vCenterPort) + "govc role.remove CNS-DATASTORE-" + testUser + ";" +
+	deleteRoles := govcLoginCmd1(vcAddress, vCenterPort) + "govc role.remove CNS-DATASTORE-" + testUser + ";" +
 		"govc role.remove CNS-HOST-CONFIG-STORAGE-" + testUser + ";" +
 		"govc role.remove CNS-VM-" + testUser + ";" +
 		"govc role.remove CNS-SEARCH-AND-SPBM-" + testUser
@@ -244,7 +243,7 @@ func deleteUserRoles(vcAddress string, vCenterPort string, sshClientConfig *ssh.
 // deleteTestUser method is used to delete config secret test users
 func deleteTestUser(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUser string) error {
-	deleteUser := govcLoginCmd(vcAddress, vCenterPort) + "govc sso.user.rm " + testUser
+	deleteUser := govcLoginCmd1(vcAddress, vCenterPort) + "govc sso.user.rm " + testUser
 	framework.Logf("Delete User: %s ", deleteUser)
 	result, err := sshExec(sshClientConfig, masterIp, deleteUser)
 	if err != nil && result.Code != 0 {
@@ -259,7 +258,7 @@ func deleteTestUser(vcAddress string, vCenterPort string, sshClientConfig *ssh.C
 // createRolesForTestUser method is used to create roles for a test user
 func createRolesForTestUser(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUser string) error {
-	createRoleCmdFortestUser := govcLoginCmd(vcAddress, vCenterPort) + "govc role.create CNS-DATASTORE-" + testUser +
+	createRoleCmdFortestUser := govcLoginCmd1(vcAddress, vCenterPort) + "govc role.create CNS-DATASTORE-" + testUser +
 		" Datastore.FileManagement;" +
 		"govc role.create CNS-HOST-CONFIG-STORAGE-" + testUser + " Host.Config.Storage;" +
 		"govc role.create CNS-VM-" + testUser +
@@ -312,7 +311,7 @@ func getDataCenterDetails(vcAddress string, vCenterPort string, sshClientConfig 
 	var dataCenterList []string
 	// fetch datacenter details
 	ginkgo.By("Executing command for fetching data center details")
-	dataCenter := govcLoginCmd(vcAddress, vCenterPort) + "govc datacenter.info | grep -i Name | awk '{print $2}'"
+	dataCenter := govcLoginCmd1(vcAddress, vCenterPort) + "govc datacenter.info | grep -i Name | awk '{print $2}'"
 	framework.Logf("Fetch dataCenter: %s ", dataCenter)
 	dcResult, err := sshExec(sshClientConfig, masterIp, dataCenter)
 	if err != nil && dcResult.Code != 0 {
@@ -337,7 +336,7 @@ func getClusterDetails(vcAddress string, vCenterPort string, sshClientConfig *ss
 	// fetch cluster details
 	ginkgo.By("Executing command for fetching cluster details")
 	for i := 0; i < len(dataCenter); i++ {
-		cluster := govcLoginCmd(vcAddress, vCenterPort) + "govc ls /" + dataCenter[i] + "/host"
+		cluster := govcLoginCmd1(vcAddress, vCenterPort) + "govc ls /" + dataCenter[i] + "/host"
 		framework.Logf("Fetch Cluster: %s ", cluster)
 		clusterResult, err := sshExec(sshClientConfig, masterIp, cluster)
 		if err != nil && clusterResult.Code != 0 {
@@ -368,7 +367,7 @@ func getEsxiHostDetails(vcAddress string, vCenterPort string, sshClientConfig *s
 	// Get all esxi hosts details
 	ginkgo.By("Executing command for fetching esxi host details")
 	for i := 0; i < len(cluster); i++ {
-		hosts := govcLoginCmd(vcAddress, vCenterPort) + "govc ls " + cluster[i] + " " + " | grep 10."
+		hosts := govcLoginCmd1(vcAddress, vCenterPort) + "govc ls " + cluster[i] + " " + " | grep 10."
 		framework.Logf("Fetch host details: %s ", hosts)
 		hostsResult, err := sshExec(sshClientConfig, masterIp, hosts)
 		if err != nil && hostsResult.Code != 0 {
@@ -398,7 +397,7 @@ func getVmDetails(vcAddress string, vCenterPort string, sshClientConfig *ssh.Cli
 	// get vm details
 	ginkgo.By("Executing command for fetching k8s vm details")
 	for i := 0; i < len(dataCenter); i++ {
-		vms := govcLoginCmd(vcAddress, vCenterPort) + "govc ls /" + dataCenter[i] + "/vm" + " " + "| grep 'k8s\\|haproxy'"
+		vms := govcLoginCmd1(vcAddress, vCenterPort) + "govc ls /" + dataCenter[i] + "/vm" + " " + "| grep 'k8s\\|haproxy'"
 		framework.Logf("Fetch vm details: %s ", vms)
 		vMsResult, err := sshExec(sshClientConfig, masterIp, vms)
 		if err != nil && vMsResult.Code != 0 {
@@ -428,7 +427,7 @@ func getDatastoreDetails(vcAddress string, vCenterPort string, sshClientConfig *
 	// get vm details
 	ginkgo.By("Executing command for fetching datastore details")
 	for i := 0; i < len(dataCenter); i++ {
-		ds := govcLoginCmd(vcAddress, vCenterPort) + "govc ls /" + dataCenter[i] + "/datastore"
+		ds := govcLoginCmd1(vcAddress, vCenterPort) + "govc ls /" + dataCenter[i] + "/datastore"
 		framework.Logf("Fetch datastore details: %s ", ds)
 		dsResult, err := sshExec(sshClientConfig, masterIp, ds)
 		if err != nil && dsResult.Code != 0 {
@@ -453,7 +452,7 @@ func getDatastoreDetails(vcAddress string, vCenterPort string, sshClientConfig *
 // setDataCenterLevelPermission is used to set data center level permissions for test user
 func setDataCenterLevelPermission(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, dataCenter string, testUser string) error {
-	setPermissionForDataCenter := govcLoginCmd(vcAddress, vCenterPort) + "govc permissions.set -principal " + testUser +
+	setPermissionForDataCenter := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.set -principal " + testUser +
 		" -propagate=false -role ReadOnly " + dataCenter + " | tr -d '\n'"
 	framework.Logf("Assign datacenter level Permissions to user: %s ", setPermissionForDataCenter)
 	result, err := sshExec(sshClientConfig, masterIp, setPermissionForDataCenter)
@@ -469,7 +468,7 @@ func setDataCenterLevelPermission(vcAddress string, vCenterPort string, sshClien
 func setHostLevelPermission(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUser string, hosts []string) error {
 	for i := 0; i < len(hosts); i++ {
-		setPermissionForHosts := govcLoginCmd(vcAddress, vCenterPort) + "govc permissions.set -principal " +
+		setPermissionForHosts := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.set -principal " +
 			testUser + " -propagate=false -role ReadOnly " + hosts[i] + "| tr -d '\n'"
 		framework.Logf("Assign host level Permissions to user: %s ", setPermissionForHosts)
 		result, err := sshExec(sshClientConfig, masterIp, setPermissionForHosts)
@@ -486,7 +485,7 @@ func setHostLevelPermission(vcAddress string, vCenterPort string, sshClientConfi
 func setVMLevelPermission(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUserAlias string, testUser string, vms []string) error {
 	for i := 0; i < len(vms); i++ {
-		setPermissionForK8sVms := govcLoginCmd(vcAddress, vCenterPort) + "govc permissions.set -principal " +
+		setPermissionForK8sVms := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.set -principal " +
 			testUserAlias + " -propagate=false -role CNS-VM-" + testUser +
 			" " + vms[i] + " | tr -d '\n'"
 		framework.Logf("Assign vm level Permissions to user: %s ", setPermissionForK8sVms)
@@ -503,7 +502,7 @@ func setVMLevelPermission(vcAddress string, vCenterPort string, sshClientConfig 
 // setClusterLevelPermission is used to set cluster level permissions for test user
 func setClusterLevelPermission(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUserAlias string, testUser string, cluster string) error {
-	setPermissionForCluster := govcLoginCmd(vcAddress, vCenterPort) + "govc permissions.set -principal " +
+	setPermissionForCluster := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.set -principal " +
 		testUserAlias + " -propagate=false -role CNS-HOST-CONFIG-STORAGE-" + testUser + " " + cluster + " | tr -d '\n'"
 	framework.Logf("Assign cluster level Permissions to user: %s ", setPermissionForCluster)
 	result, err := sshExec(sshClientConfig, masterIp, setPermissionForCluster)
@@ -519,7 +518,7 @@ func setClusterLevelPermission(vcAddress string, vCenterPort string, sshClientCo
 func setDataStoreLevelPermission(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUserAlias string, testUser string, dataCenter string, datastores []string) error {
 	for i := 0; i < len(datastores); i++ {
-		setPermissionForDataStore := govcLoginCmd(vcAddress, vCenterPort) + "govc permissions.set -principal " +
+		setPermissionForDataStore := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.set -principal " +
 			testUserAlias + " " +
 			"-propagate=false -role CNS-DATASTORE-" + testUser + " '" + datastores[i] + "'"
 		framework.Logf("Assign datastore level Permissions to user: %s ", setPermissionForDataStore)
@@ -536,7 +535,7 @@ func setDataStoreLevelPermission(vcAddress string, vCenterPort string, sshClient
 // setSearchlevelPermission method is used to set search level permissions
 func setSearchlevelPermission(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, testUserAlias string, testUser string) error {
-	setSearchLevelPermission := govcLoginCmd(vcAddress, vCenterPort) + "govc permissions.set -principal " + testUserAlias +
+	setSearchLevelPermission := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.set -principal " + testUserAlias +
 		" -propagate=false -role CNS-SEARCH-AND-SPBM-" + testUser + " /"
 	framework.Logf("Assign search level Permissions to user: %s ", setSearchLevelPermission)
 	result, err := sshExec(sshClientConfig, masterIp, setSearchLevelPermission)
@@ -669,22 +668,6 @@ func deleteCsiVsphereSecret(sshClientConfig *ssh.ClientConfig, masterIp string) 
 			deleteConf, masterIp, err)
 	}
 	return nil
-}
-
-// restartCSIDriver method restarts the csi driver
-func restartCSIDriver(ctx context.Context, client clientset.Interface, namespace string,
-	csiReplicas int32) (bool, error) {
-	isServiceStopped, err := stopCSIPods(ctx, client)
-	if err != nil {
-		return isServiceStopped, err
-	}
-	isServiceStarted, err := startCSIPods(ctx, client, csiReplicas)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	if err != nil {
-		return isServiceStarted, err
-	}
-	time.Sleep(3 * time.Minute)
-	return true, nil
 }
 
 // getConfigSecretFileValues method is used to fetch config secret file values

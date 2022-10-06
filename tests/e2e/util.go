@@ -2150,12 +2150,12 @@ func deleteResourceQuota(client clientset.Interface, namespace string) {
 }
 
 // checks if resource quota gets updated or not
-func checkResourceQuota(client clientset.Interface, namespace string, size string) error {
+func checkResourceQuota(client clientset.Interface, namespace string, name string, size string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
-		currentResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace, metav1.GetOptions{})
+		currentResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("currentResourceQuota %v", currentResourceQuota)
 		if err != nil {
@@ -2186,7 +2186,7 @@ func setResourceQuota(client clientset.Interface, namespace string, size string)
 			ctx, requestStorageQuota, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
-		err = checkResourceQuota(client, namespace, size)
+		err = checkResourceQuota(client, namespace, existingResourceQuota.GetName(), size)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -2780,7 +2780,9 @@ func verifyEntityReferenceInCRDInSupervisor(ctx context.Context, f *framework.Fr
 // trimQuotes takes a quoted string as input and returns the same string unquoted.
 func trimQuotes(str string) string {
 	str = strings.TrimPrefix(str, "\"")
+	str = strings.TrimSuffix(str, " ")
 	str = strings.TrimSuffix(str, "\"")
+
 	return str
 }
 
@@ -2809,9 +2811,16 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			continue
 		}
 		words := strings.Split(line, " = ")
+		if strings.Contains(words[0], "topology-categories=") {
+			words = strings.Split(line, "=")
+		}
+
 		if len(words) == 1 {
 			// Case Snapshot
 			if strings.Contains(words[0], "Snapshot") {
+				continue
+			}
+			if strings.Contains(words[0], "Labels") {
 				continue
 			}
 			// Case VirtualCenter.
@@ -2851,11 +2860,12 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			config.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "topology-categories":
-			config.Global.TopologyCategories = value
-		case "targetvSANFileShareDatastoreURLs":
-			config.Global.TargetvSANFileShareDatastoreURLs = value
+			config.Labels.TopologyCategories = value
 		case "global-max-snapshots-per-block-volume":
 			config.Snapshot.GlobalMaxSnapshotsPerBlockVolume, strconvErr = strconv.Atoi(value)
+			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
+		case "csi-fetch-preferred-datastores-intervalinmin":
+			config.Global.CSIFetchPreferredDatastoresIntervalInMin, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
@@ -2868,11 +2878,16 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 // that into a string.
 func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
 	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
-		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n"+
-		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d",
+		"csi-fetch-preferred-datastores-intervalinmin = %d\n\n"+
+		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n\n"+
+		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n"+
+		"[Labels]\ntopology-categories = \"%s\"",
 		cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
+		cfg.Global.CSIFetchPreferredDatastoresIntervalInMin,
 		cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
-		cfg.Global.Datacenters, cfg.Global.VCenterPort, cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
+		cfg.Global.Datacenters, cfg.Global.VCenterPort,
+		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume,
+		cfg.Labels.TopologyCategories)
 	return result, nil
 }
 
