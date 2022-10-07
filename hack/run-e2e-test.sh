@@ -51,7 +51,7 @@ else
     read -ra OPTS <<< "-v $GINKGO_OPTS"
 fi
 
-OPTS+=("-timeout=24h")
+#OPTS+=("-timeout=24h")
 if [ "$FOCUS" == "csi-block-vanilla" ]
 then
     ginkgo -mod=mod "${OPTS[@]}" --focus="csi-block-vanilla-destructive" tests/e2e
