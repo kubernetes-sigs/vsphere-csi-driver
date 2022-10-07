@@ -27,6 +27,7 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"golang.org/x/crypto/ssh"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -37,6 +38,7 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
@@ -577,4 +579,82 @@ func verifyVolumeMetadataOnDeployments(ctx context.Context,
 			}
 		}
 	}
+}
+
+// execStopContainerOnGc logs into gc master node using ssh private key and stops csi container
+// running on that node
+func execStopContainerOnGc(sshClientConfig *ssh.ClientConfig, svcMasterIP string, containerName string,
+	gcMasterIP string, svcNamespace string) error {
+	sshSecretName := GetAndExpectStringEnvVar(sshSecretName)
+	cmdToGetPrivateKey := fmt.Sprintf("kubectl get secret %s -n %s -o"+
+		"jsonpath={'.data.ssh-privatekey'} | base64 -d > key", sshSecretName, svcNamespace)
+	framework.Logf("Invoking command '%v' on host %v", cmdToGetPrivateKey,
+		svcMasterIP)
+	cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
+		cmdToGetPrivateKey)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmdToGetPrivateKey, svcMasterIP, err)
+	}
+
+	enablePermissionCmd := "chmod 600 key"
+	framework.Logf("Invoking command '%v' on host %v", enablePermissionCmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		enablePermissionCmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			enablePermissionCmd, svcMasterIP, err)
+	}
+
+	cmdToGetContainerInfo := fmt.Sprintf("ssh -o 'StrictHostKeyChecking=no' -i key %s@%s "+
+		"'sudo -i crictl ps| grep %s' > container.log  2> /dev/null", gcNodeUser, gcMasterIP, containerName)
+	framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerInfo,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmdToGetContainerInfo)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmdToGetContainerInfo, svcMasterIP, err)
+	}
+
+	cmdToGetContainerId := "cat container.log | awk '{print $1}' | tr -d '\n'"
+	framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerInfo,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmdToGetContainerId)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmdToGetContainerId, svcMasterIP, err)
+	}
+	containerID := cmdResult.Stdout
+
+	containerStopCmd := fmt.Sprintf("ssh -o 'StrictHostKeyChecking=no' -i key %s@%s "+
+		"'sudo -i crictl stop %s' 2> /dev/null", gcNodeUser, gcMasterIP, containerID)
+	framework.Logf("Invoking command '%v' on host %v", containerStopCmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		containerStopCmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			containerStopCmd, svcMasterIP, err)
+	}
+
+	// delete the temporary log file
+	cmd := "rm container.log"
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		svcMasterIP)
+	result, err := sshExec(sshClientConfig, svcMasterIP,
+		cmd)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, svcMasterIP, err)
+	}
+	return nil
 }

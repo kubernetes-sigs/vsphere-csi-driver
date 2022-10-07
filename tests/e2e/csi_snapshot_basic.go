@@ -4246,8 +4246,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		csipods, err := client.CoreV1().Pods(csiSystemNamespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Delete elected leader CSi-Controller-Pod where csi-snapshotter is running")
-		err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, c, sshClientConfig,
-			csi_controller_pod)
+		err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, csi_controller_pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = fpod.WaitForPodsRunningReady(c, csiSystemNamespace, int32(csipods.Size()),
 			0, pollTimeoutShort*2, nil)
@@ -4285,8 +4284,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		/* Delete elected leader CSI-Controller-Pod where csi-snapshotter is running */
 		ginkgo.By("Delete elected leader CSi-Controller-Pod where csi-snapshotter is running")
-		err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, c, sshClientConfig,
-			csi_controller_pod)
+		err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, csi_controller_pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
