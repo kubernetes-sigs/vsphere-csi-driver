@@ -31,10 +31,12 @@ import (
 	"google.golang.org/grpc/status"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeinfo"
 )
 
 // validateVanillaDeleteVolumeRequest is the helper function to validate
@@ -190,4 +192,42 @@ func getBlockVolumeToHostMap(ctx context.Context, cMgr *common.Manager,
 		}
 	}
 	return volumeIDNodeUUIDMap, nil
+}
+
+// getVolumeManagerForVolumeID returns volume manager for the given volumeId.
+// If multi-vcenter-csi-topology feature is disabled legacy volume manager is removed
+// from `controller.manager.VolumeManager`.
+// If multi-vcenter-csi-topology feature is enabled but volumeInfoService is not instantiated volume manager
+// is returned from controller.managers.VolumeManagers for `controller.managers.CnsConfig.Global.VCenterIP`.
+// If multi-vcenter-csi-topology feature is enabled and volumeInfoService is instantiated volume manager is returned for
+// the vCenter IP mapped to the requested VolumeID. vCenter for the requested volume is obtained from volumeInfoService.
+func getVolumeManagerForVolumeID(ctx context.Context, controller *controller, volumeId string,
+	volumeInfoService cnsvolumeinfo.VolumeInfoService) (cnsvolume.Manager, error) {
+	log := logger.GetLogger(ctx)
+	var volumeManager cnsvolume.Manager
+	var volumeManagerfound bool
+	if multivCenterCSITopologyEnabled {
+		if len(controller.managers.VcenterConfigs) > 1 {
+			// Multi vCenter Deployment
+			vCenter, err := volumeInfoService.GetvCenterForVolumeID(ctx, volumeId)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get vCenter for the volumeID: %q with err=%+v", volumeId, err)
+			}
+			if volumeManager, volumeManagerfound = controller.managers.VolumeManagers[vCenter]; !volumeManagerfound {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"could not get volume manager for the vCenter: %q", vCenter)
+			}
+		} else {
+			// Single vCenter Deployment
+			if volumeManager, volumeManagerfound =
+				controller.managers.VolumeManagers[controller.managers.CnsConfig.Global.VCenterIP]; !volumeManagerfound {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"could not get volume manager for the vCenter: %q", controller.managers.CnsConfig.Global.VCenterIP)
+			}
+		}
+	} else {
+		volumeManager = controller.manager.VolumeManager
+	}
+	return volumeManager, nil
 }

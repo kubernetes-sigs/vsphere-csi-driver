@@ -596,12 +596,12 @@ func getHostVsanUUID(ctx context.Context, hostMoID string, vc *vsphere.VirtualCe
 }
 
 // AttachVolumeUtil is the helper function to attach CNS volume to specified vm.
-func AttachVolumeUtil(ctx context.Context, manager *Manager,
+func AttachVolumeUtil(ctx context.Context, volumeManager cnsvolume.Manager,
 	vm *vsphere.VirtualMachine,
 	volumeID string, checkNVMeController bool) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CSI driver is attaching volume: %q to vm: %q", volumeID, vm.String())
-	diskUUID, faultType, err := manager.VolumeManager.AttachVolume(ctx, vm, volumeID, checkNVMeController)
+	diskUUID, faultType, err := volumeManager.AttachVolume(ctx, vm, volumeID, checkNVMeController)
 	if err != nil {
 		log.Errorf("failed to attach disk %q with VM: %q. err: %+v faultType %q", volumeID, vm.String(), err, faultType)
 		return "", faultType, err
@@ -612,12 +612,12 @@ func AttachVolumeUtil(ctx context.Context, manager *Manager,
 
 // DetachVolumeUtil is the helper function to detach CNS volume from specified
 // vm.
-func DetachVolumeUtil(ctx context.Context, manager *Manager,
+func DetachVolumeUtil(ctx context.Context, volumeManager cnsvolume.Manager,
 	vm *vsphere.VirtualMachine,
 	volumeID string) (string, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CSI driver is detaching volume: %s from node vm: %s", volumeID, vm.InventoryPath)
-	faultType, err := manager.VolumeManager.DetachVolume(ctx, vm, volumeID)
+	faultType, err := volumeManager.DetachVolume(ctx, vm, volumeID)
 	if err != nil {
 		log.Errorf("failed to detach disk %s with err %+v", volumeID, err)
 		return faultType, err
