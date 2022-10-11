@@ -59,7 +59,7 @@ else
         exit 1
 fi
 
-qualified_version="v6.0.1"
+qualified_version="v6.1.0"
 volumesnapshotclasses_crd="volumesnapshotclasses.snapshot.storage.k8s.io"
 volumesnapshotcontents_crd="volumesnapshotcontents.snapshot.storage.k8s.io"
 volumesnapshots_crd="volumesnapshots.snapshot.storage.k8s.io"
@@ -161,9 +161,6 @@ deploy_snapshot_controller(){
 	kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml 2>/dev/null || true
 	echo -e "✅ Created  RBACs for snapshot-controller"
 	kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml 2>/dev/null || true
-	# The released yaml for v6.0.1 does not have v6.0.1 image for snapshot-controller, explicitly updating it.
-	snapshot_controller_image="gcr.io/k8s-staging-sig-storage/snapshot-controller:"${qualified_version}
-	kubectl -n kube-system set image deployment/snapshot-controller snapshot-controller=$snapshot_controller_image
 	kubectl patch deployment -n kube-system snapshot-controller --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/control-plane": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","operator":"Exists", "effect":"NoSchedule"}]}}}}'
 	kubectl patch deployment -n kube-system snapshot-controller --type=json \
 	-p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kube-api-qps=100"},{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kube-api-burst=100"}]'
