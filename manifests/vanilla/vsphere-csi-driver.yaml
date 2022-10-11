@@ -210,6 +210,7 @@ spec:
         app: vsphere-csi-controller
         role: vsphere-csi
     spec:
+      priorityClassName: system-cluster-critical # Guarantees scheduling for critical system pods
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -421,6 +422,7 @@ spec:
         app: vsphere-csi-node
         role: vsphere-csi
     spec:
+      priorityClassName: system-node-critical
       nodeSelector:
         kubernetes.io/os: linux
       serviceAccountName: vsphere-csi-node
@@ -569,6 +571,7 @@ spec:
         app: vsphere-csi-node-windows
         role: vsphere-csi-windows
     spec:
+      priorityClassName: system-node-critical
       nodeSelector:
         kubernetes.io/os: windows
       serviceAccountName: vsphere-csi-node
