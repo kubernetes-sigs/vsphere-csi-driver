@@ -48,6 +48,7 @@ import (
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeinfo"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
@@ -75,16 +76,22 @@ type controller struct {
 	topologyMgr commoncotypes.ControllerTopologyService
 }
 
-// volumeMigrationService holds the pointer to VolumeMigration instance.
-var volumeMigrationService migration.VolumeMigrationService
+var (
+	// volumeMigrationService holds the pointer to VolumeMigration instance.
+	volumeMigrationService migration.VolumeMigrationService
 
-// multivCenterCSITopologyEnabled holds the feature gate status for
-// multi-vcenter-csi-topology feature
-var multivCenterCSITopologyEnabled bool
+	// volumeInfoService holds the pointer to VolumeInfo service instance
+	// This will hold mapping for VolumeID to vCenter for multi vCenter CSI topology deployment
+	volumeInfoService cnsvolumeinfo.VolumeInfoService
 
-// variables for list volumes
-var volIDsInK8s = make([]string, 0)
-var cnsQueryResult *cnstypes.CnsQueryResult = nil
+	// multivCenterCSITopologyEnabled holds the feature gate status for
+	// multi-vcenter-csi-topology feature
+	multivCenterCSITopologyEnabled bool
+
+	// variables for list volumes
+	volIDsInK8s                             = make([]string, 0)
+	cnsQueryResult *cnstypes.CnsQueryResult = nil
+)
 
 // New creates a CNS controller.
 func New() csitypes.CnsController {
@@ -249,6 +256,16 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 						go common.ComputeFSEnabledClustersToDsMap(authMgr, config.Global.CSIAuthCheckIntervalInMin)
 					}
 				}
+			}
+		}
+		if len(c.managers.VcenterConfigs) > 1 {
+			log.Info("Loading CnsVolumeInfo Service to persist mapping for VolumeID to vCenter")
+			volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to load volumeInfoService service. Err: %v", err)
+			}
+			if volumeInfoService != nil {
+				log.Infof("Successfully initialized VolumeInfoService")
 			}
 		}
 	}

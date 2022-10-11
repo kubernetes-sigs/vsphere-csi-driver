@@ -55,6 +55,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 	internalapis "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis"
+	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology/v1alpha1"
 )
@@ -210,6 +211,11 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 		err = csinodetopologyv1alpha1.AddToScheme(scheme)
 		if err != nil {
 			log.Errorf("failed to add CSINodeTopology to scheme with error: %+v", err)
+			return nil, err
+		}
+		err = cnsvolumeinfov1alpha1.AddToScheme(scheme)
+		if err != nil {
+			log.Errorf("failed to add CNSVolumeInfo to scheme with error: %+v", err)
 			return nil, err
 		}
 	}

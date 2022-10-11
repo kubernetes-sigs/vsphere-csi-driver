@@ -471,6 +471,5 @@ func GetCSINamespace() string {
 	if CSINamespace == "" {
 		CSINamespace = cnsconfig.DefaultCSINamespace
 	}
-
 	return CSINamespace
 }
