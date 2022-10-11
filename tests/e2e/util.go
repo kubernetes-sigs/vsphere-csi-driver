@@ -4672,11 +4672,18 @@ func updateSts(c clientset.Interface, ns, name string, update func(ss *appsv1.St
 }
 
 // Scale scales ss to count replicas.
-func scaleStatefulSetPods(c clientset.Interface, ss *appsv1.StatefulSet, count int32) (*appsv1.StatefulSet, error) {
+func scaleStatefulSetPods(c clientset.Interface, ss *appsv1.StatefulSet, count int32,
+	is256Disk bool) (*appsv1.StatefulSet, error) {
 	name := ss.Name
 	ns := ss.Namespace
-	StatefulSetPoll := 10 * time.Second
-	StatefulSetTimeout := 10 * time.Minute
+	var StatefulSetPoll time.Duration
+	var StatefulSetTimeout time.Duration
+	if is256Disk {
+		StatefulSetPoll = 10 * time.Second
+		StatefulSetTimeout = 30 * time.Minute
+	}
+	StatefulSetPoll = 10 * time.Second
+	StatefulSetTimeout = 10 * time.Minute
 	framework.Logf("Scaling statefulset %s to %d", name, count)
 	ss = updateSts(c, ns, name, func(ss *appsv1.StatefulSet) { *(ss.Spec.Replicas) = count })
 
@@ -4708,15 +4715,23 @@ func scaleStatefulSetPods(c clientset.Interface, ss *appsv1.StatefulSet, count i
 scaleDownStatefulSetPod is a utility method which is used to scale down the count of StatefulSet replicas.
 */
 func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
-	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool) {
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32,
+	parallelStatefulSetCreation bool, is256Disk bool) {
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleDown *v1.PodList
-	if parallelStatefulSetCreation {
-		_, scaledownErr := scaleStatefulSetPods(client, statefulset, replicas)
+	if parallelStatefulSetCreation && !is256Disk {
+		_, scaledownErr := scaleStatefulSetPods(client, statefulset, replicas, is256Disk)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulset)
-	} else {
+	}
+	if parallelStatefulSetCreation && is256Disk {
+		_, scaledownErr := scaleStatefulSetPods(client, statefulset, replicas, true)
+		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulset)
+	}
+	if !parallelStatefulSetCreation && !is256Disk {
 		_, scaledownErr := fss.Scale(client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
@@ -4761,11 +4776,12 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 scaleUpStatefulSetPod is a utility method which is used to scale up the count of StatefulSet replicas.
 */
 func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
-	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool) {
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32,
+	parallelStatefulSetCreation bool, is256Disk bool) {
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleUp *v1.PodList
-	if parallelStatefulSetCreation {
-		_, scaleupErr := scaleStatefulSetPods(client, statefulset, replicas)
+	if parallelStatefulSetCreation && !is256Disk {
+		_, scaleupErr := scaleStatefulSetPods(client, statefulset, replicas, is256Disk)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
@@ -4775,7 +4791,20 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
-	} else {
+	}
+	if parallelStatefulSetCreation && is256Disk {
+		_, scaleupErr := scaleStatefulSetPods(client, statefulset, replicas, is256Disk)
+		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReplicas(client, statefulset, replicas)
+		WaitForStsPodsReadyReplicaStatus(client, statefulset, replicas)
+
+		ssPodsAfterScaleUp = GetListOfPodsInSts(client, statefulset)
+		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+	}
+	if !parallelStatefulSetCreation && !is256Disk {
 		_, scaleupErr := fss.Scale(client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(client, statefulset, replicas)
@@ -5928,5 +5957,27 @@ func waitForScToGetCreated(client clientset.Interface, ctx context.Context, poli
 		return fmt.Errorf("couldn't find storageclass: %s in SVC", policyName)
 	}
 	return nil
+}
 
+func WaitForStsPodsReadyReplicaStatus(c clientset.Interface, ss *appsv1.StatefulSet, expectedReplicas int32) {
+	framework.Logf("Waiting for statefulset status.replicas updated to %d", expectedReplicas)
+	ns, name := ss.Namespace, ss.Name
+	pollErr := wait.PollImmediate(StatefulSetPollFor256DiskSupport, StatefulSetTimeoutFor256DiskSupport,
+		func() (bool, error) {
+			ssGet, err := c.AppsV1().StatefulSets(ns).Get(context.TODO(), name, metav1.GetOptions{})
+			if err != nil {
+				return false, err
+			}
+			if ssGet.Status.ObservedGeneration < ss.Generation {
+				return false, nil
+			}
+			if ssGet.Status.ReadyReplicas != expectedReplicas {
+				framework.Logf("Waiting for stateful set status.readyReplicas to become %d, currently %d", expectedReplicas, ssGet.Status.ReadyReplicas)
+				return false, nil
+			}
+			return true, nil
+		})
+	if pollErr != nil {
+		framework.Failf("Failed waiting for stateful set status.readyReplicas updated to %d: %v", expectedReplicas, pollErr)
+	}
 }

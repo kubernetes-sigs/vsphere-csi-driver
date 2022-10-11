@@ -468,7 +468,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaleup
 		replicas = 10
 		ginkgo.By("Scale up statefulset replica count from 3 to 10")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
@@ -590,7 +590,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaleup
 		replicas = 10
 		ginkgo.By("Scale up statefulset replica count from 3 to 10")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
@@ -606,7 +606,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaledown
 		replicas = 5
 		ginkgo.By("Scale down statefulset replica count from 10 to 5")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 	})
 
 	/*
@@ -1308,7 +1308,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		sts1Replicas = 10
 		ginkgo.By("Scale up statefulset replica count from 3 to 10")
 		preferredDatastorePaths = append(preferredDatastorePaths, preferredDatastore...)
-		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		//verifying volume is provisioned on the preferred datastore
 		ginkgo.By("Verify volume is provisioned on the specified datatsore")
@@ -1439,7 +1439,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaleup
 		sts1Replicas = 13
 		ginkgo.By("Scale up statefulset replica count from 3 to 13")
-		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the specified datatsore")
@@ -1455,7 +1455,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaledown
 		sts1Replicas = 6
 		ginkgo.By("Scale down statefulset replica count from 13 to 6")
-		scaleDownStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleDownStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		ginkgo.By("Remove preferred datastore tag chosen for volume provisioning")
 		err = detachTagCreatedOnPreferredDatastore(masterIp, preferredDatastorePaths[1], allowedTopologyRacks[0])
@@ -1481,7 +1481,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaleup
 		sts1Replicas = 20
 		ginkgo.By("Scale up statefulset replica count from 6 to 20")
-		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the specified datatsore")
@@ -1620,7 +1620,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaleup
 		sts1Replicas = 7
 		ginkgo.By("Scale up statefulset replica count from 3 to 7")
-		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		//verify volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
@@ -1655,7 +1655,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaleup
 		sts1Replicas = 13
 		ginkgo.By("Scale up statefulset replica count from 7 to 13")
-		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		// verify volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
@@ -2074,7 +2074,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaleup
 		sts1Replicas = 13
 		ginkgo.By("Scale up statefulset replica count from 7 to 13")
-		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")

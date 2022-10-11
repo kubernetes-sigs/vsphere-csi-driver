@@ -196,7 +196,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale down statefulset to 0 replicas
 		replicas -= 3
 		ginkgo.By("Scale down statefulset replica count to 0")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 	})
 
 	/*
@@ -271,12 +271,12 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale up statefulset replica count to 5
 		replicas += 5
 		ginkgo.By("Scale up statefulset replica count to 5")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 
 		// Scale down statefulset replica count to 1
 		replicas -= 1
 		ginkgo.By("Scale down statefulset replica count to 1")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 
 		// Verify newly created PV node affinity details  and that the new PODS are running on appropriate nodes
 		ginkgo.By("Verify newly created PV node affinity details  and that the new PODS are running on appropriate nodes")
@@ -286,7 +286,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale down statefulset replicas to 0
 		replicas = 0
 		ginkgo.By("Scale down statefulset replica count to 0")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 	})
 
 	/*
@@ -362,7 +362,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale up statefulset replicas to 5
 		replicas += 5
 		ginkgo.By("Scale up statefulset replica count to 5")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 
 		/* Verify newly created PV node affinity and that the news PODS are running
 		on appropriate node as specified in the allowed topologies of SC */
@@ -374,7 +374,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale down statefulset replicas to 0
 		replicas = 0
 		ginkgo.By("Scale down statefulset replica count to 0")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 	})
 
 	/*
@@ -450,12 +450,12 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale up statefulset replicas to 5
 		replicas += 5
 		ginkgo.By("Scale up statefulset replica count to 5")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 
 		// Scale down statefulset replicas to 1
 		replicas -= 1
 		ginkgo.By("Scale down statefulset replica count to 1")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 
 		/* "Verify newly created PV node affinity and that the new PODS are
 		running on appropriate node as specified in the allowed topologies of SC */
@@ -467,7 +467,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale down statefulset replicas to 0
 		replicas = 0
 		ginkgo.By("Scale down statefulset replica count to 0")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 	})
 
 	/*
@@ -552,12 +552,12 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale up statefulset replicas to 5
 		replicas += 5
 		ginkgo.By("Scale up statefulset replica count to 5")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 
 		// Scale down statefulset replicas to 1
 		replicas -= 1
 		ginkgo.By("Scale down statefulset replica count to 1")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 
 		/* Verify newly created PV node affinity and that the new PODS are running on
 		appropriate node as specified in the allowed topologies of SC */
@@ -569,7 +569,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale down statefulset replicas to 0
 		replicas = 0
 		ginkgo.By("Scale down statefulset replica count to 0")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 	})
 
 	/*
@@ -719,7 +719,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale down statefulset to 0 replicas
 		replicas -= 3
 		ginkgo.By("Scale down statefulset replica count to 0")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 	})
 
 	/*
