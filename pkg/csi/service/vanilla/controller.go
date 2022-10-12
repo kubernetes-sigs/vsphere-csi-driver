@@ -106,19 +106,14 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	log.Infof("Initializing CNS controller")
 	var err error
 	var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
-	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.CSIVolumeManagerIdempotency)
-	if idempotencyHandlingEnabled {
-		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
-		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
-			config.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
-			func() bool {
-				return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-			})
-		if err != nil {
-			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
-			return err
-		}
+	operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
+		config.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
+		func() bool {
+			return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+		})
+	if err != nil {
+		log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
+		return err
 	}
 	multivCenterCSITopologyEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.MultiVCenterCSITopology)
@@ -140,7 +135,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		c.manager = &common.Manager{
 			VcenterConfig:  vcenterconfig,
 			CnsConfig:      config,
-			VolumeManager:  cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled),
+			VolumeManager:  cnsvolume.GetManager(ctx, vcenter, operationStore, true),
 			VcenterManager: vcManager,
 		}
 		vc, err := common.GetVCenter(ctx, c.manager)
@@ -221,7 +216,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			}
 			c.managers.VcenterConfigs[vcenterconfig.Host] = vcenterconfig
 			c.managers.VolumeManagers[vcenterconfig.Host] = cnsvolume.GetManager(ctx, vcenter,
-				operationStore, idempotencyHandlingEnabled)
+				operationStore, true)
 		}
 		vCenters, err := common.GetVCenters(ctx, c.managers)
 		if err != nil {
@@ -282,7 +277,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		return err
 	}
 
-	go cnsvolume.ClearTaskInfoObjects()
 	cfgPath := common.GetConfigPath(ctx)
 
 	watcher, err := fsnotify.NewWatcher()
@@ -417,23 +411,19 @@ func (c *controller) ReloadConfiguration() error {
 			vcenter.Config = newVCConfig
 		}
 		var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
-		idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-			common.CSIVolumeManagerIdempotency)
-		if idempotencyHandlingEnabled {
-			log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
-			operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
-				c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
-				func() bool {
-					return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-				})
-			if err != nil {
-				log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
-				return err
-			}
+		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
+			c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
+			func() bool {
+				return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+			})
+		if err != nil {
+			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
+			return err
 		}
+
 		c.manager.VolumeManager.ResetManager(ctx, vcenter)
 		c.manager.VcenterConfig = newVCConfig
-		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled)
+		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore, true)
 		// Re-Initialize Node Manager to cache latest vCenter config.
 		useNodeUuid := false
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
