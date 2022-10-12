@@ -3426,9 +3426,6 @@ func stopHostDOnHost(ctx context.Context, addr string) {
 
 	err = waitForHostConnectionState(ctx, addr, "notResponding")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	output := getHostDStatusOnHost(addr)
-	gomega.Expect(strings.Contains(output, "hostd is not running.")).NotTo(gomega.BeFalse())
 }
 
 // startHostDOnHost executes hostd start service commands on the given ESX host
