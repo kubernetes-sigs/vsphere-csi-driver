@@ -262,6 +262,8 @@ var (
 	preferredDatastoreTimeOutInterval     = 1 * time.Minute
 	preferredDSCat                        = "cns.vmware.topology-preferred-datastores"
 	preferredTagDesc                      = "preferred datastore tag"
+	nfsStoragePolicyName                  = "NFS_STORAGE_POLICY_NAME"
+	nfstoragePolicyDatastoreUrl           = "NFS_STORAGE_POLICY_DATASTORE_URL"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.
