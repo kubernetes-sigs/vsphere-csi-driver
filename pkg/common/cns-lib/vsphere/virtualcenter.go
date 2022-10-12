@@ -616,6 +616,24 @@ func GetVirtualCenterInstanceForVCenterConfig(ctx context.Context,
 	return vCenterInstances[vcconfig.Host], nil
 }
 
+// GetVirtualCenterInstanceForVCenterHost returns the vcenter object for given vCenter host.
+func GetVirtualCenterInstanceForVCenterHost(ctx context.Context, vcHost string) (*VirtualCenter, error) {
+	log := logger.GetLogger(ctx)
+	vCenterInstancesLock.RLock()
+	defer vCenterInstancesLock.RUnlock()
+
+	vc, found := vCenterInstances[vcHost]
+	if !found || vc == nil {
+		return nil, logger.LogNewErrorf(log, "failed to get VirtualCenter instance for host %q.", vcHost)
+	}
+	err := vc.Connect(ctx)
+	if err != nil {
+		return nil, logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q. Error: %v",
+			vcHost, err)
+	}
+	return vc, nil
+}
+
 // GetAllVirtualMachines gets the VM Managed Objects with the given properties from the
 // VM object.
 func (vc *VirtualCenter) GetAllVirtualMachines(ctx context.Context,
