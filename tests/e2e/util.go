@@ -2854,6 +2854,8 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			config.Global.Password = value
 		case "datacenters":
 			config.Global.Datacenters = value
+		case "targetvSANFileShareDatastoreURLs":
+			config.Global.TargetvSANFileShareDatastoreURLs = value
 		case "port":
 			config.Global.VCenterPort = value
 		case "cnsregistervolumes-cleanup-intervalinmin":
