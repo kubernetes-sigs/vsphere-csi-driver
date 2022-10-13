@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -591,6 +592,16 @@ func (osUtils *OsUtils) GetDevice(path string) (*Device, error) {
 
 	fi, err := os.Lstat(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			err = syscall.Access(path, syscall.F_OK)
+			if err == nil {
+				// The access syscall says the file exists, the stat syscall says it
+				// doesn't.
+				//let's fake that error and treat the path as existing but corrupted.
+				return nil, syscall.ESTALE
+			}
+			return nil, nil
+		}
 		return nil, err
 	}
 
