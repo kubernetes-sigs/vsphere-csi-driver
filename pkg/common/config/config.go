@@ -343,6 +343,10 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		log.Error(ErrMissingTopologyCategoriesForMultiVCenterSetup)
 		return ErrMissingTopologyCategoriesForMultiVCenterSetup
 	}
+	var setCfgGlobalvCenter bool
+	if len(cfg.VirtualCenter) == 1 {
+		setCfgGlobalvCenter = true
+	}
 	for vcServer, vcConfig := range cfg.VirtualCenter {
 		log.Debugf("Initializing vc server %s", vcServer)
 		if vcServer == "" {
@@ -375,6 +379,9 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		insecure := vcConfig.InsecureFlag
 		if !insecure {
 			vcConfig.InsecureFlag = cfg.Global.InsecureFlag
+		}
+		if setCfgGlobalvCenter && cfg.Global.VCenterIP == "" {
+			cfg.Global.VCenterIP = vcServer
 		}
 		// Print out the config. WARNING: This will print the password used in plain text.
 		log.Debugf("vc server %s config: %+v", vcServer, vcConfig)

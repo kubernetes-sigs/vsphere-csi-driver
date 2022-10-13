@@ -66,11 +66,13 @@ type NodeManagerInterface interface {
 }
 
 type controller struct {
-	// Deprecated - To be removed after multi vCenter support is added
+	// Deprecated
+	// To be removed after multi vCenter support is added
 	manager  *common.Manager
 	managers *common.Managers
 	nodeMgr  NodeManagerInterface
-	// Deprecated - To be removed after multi vCenter support is added
+	// Deprecated
+	// To be removed after multi vCenter support is added
 	authMgr     common.AuthorizationService
 	authMgrs    map[string]*common.AuthManager
 	topologyMgr commoncotypes.ControllerTopologyService
@@ -335,11 +337,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		} else {
 			if len(c.managers.VcenterConfigs) == 1 {
 				log.Info("CSI Migration Feature is Enabled. Loading Volume Migration Service")
-				var vcHost string
-				for _, vcconfig := range c.managers.VcenterConfigs {
-					vcHost = vcconfig.Host
-				}
-				volumeManager := c.managers.VolumeManagers[vcHost]
+				volumeManager := c.managers.VolumeManagers[c.managers.CnsConfig.Global.VCenterIP]
 				volumeMigrationService, err = migration.GetVolumeMigrationService(ctx, &volumeManager, config, false)
 				if err != nil {
 					log.Errorf("failed to get migration service. Err: %v", err)
@@ -1113,6 +1111,11 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				"validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
 		}
 		publishInfo := make(map[string]string)
+		volumeManager, err := getVolumeManagerForVolumeID(ctx, c, req.VolumeId, volumeInfoService)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get volume manager for volume Id: %q. Error: %v", req.VolumeId, err)
+		}
 		// Check whether its a block or file volume.
 		if common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()}) {
 			volumeType = prometheus.PrometheusFileVolumeType
@@ -1126,7 +1129,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				},
 			}
 			// Select only the backing object details.
-			queryResult, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+			queryResult, err := volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"queryVolume failed for volumeID: %q with err=%+v", req.VolumeId, err)
@@ -1161,6 +1164,14 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 					// Migration feature switch is disabled.
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
+				} else {
+					if multivCenterCSITopologyEnabled && len(c.managers.VcenterConfigs) > 1 {
+						// Migration feature switch is enabled and multi vCenter feature is enabled, and
+						// Kubernetes Cluster is spread on multiple vCenter Servers.
+						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+							"volume-migration feature is not supported on the Multi-vCenter deployment. "+
+								"Cannot use volume with vmdk path :%q", req.VolumeId)
+					}
 				}
 				// Migration feature switch is enabled.
 				storagePolicyName := req.VolumeContext[common.AttributeStoragePolicyName]
@@ -1202,7 +1213,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			}
 			log.Debugf("Found VirtualMachine for node:%q.", req.NodeId)
 			// faultType is returned from manager.AttachVolume.
-			diskUUID, faultType, err := common.AttachVolumeUtil(ctx, c.manager, nodevm, req.VolumeId, false)
+			diskUUID, faultType, err := common.AttachVolumeUtil(ctx, volumeManager, nodevm, req.VolumeId,
+				false)
 			if err != nil {
 				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to attach disk: %+q with node: %q err %+v", req.VolumeId, req.NodeId, err)
@@ -1255,6 +1267,12 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
 		}
+
+		volumeManager, err := getVolumeManagerForVolumeID(ctx, c, req.VolumeId, volumeInfoService)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get volume manager for volume Id: %q. Error: %v", req.VolumeId, err)
+		}
 		if !strings.Contains(req.VolumeId, ".vmdk") {
 			// Check if volume is block or file, skip detach for file volume.
 			queryFilter := cnstypes.CnsQueryFilter{
@@ -1266,7 +1284,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				},
 			}
 			// Select only the volume type.
-			queryResult, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+			queryResult, err := volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 			// TODO: QueryAllVolumeUtil need return faultType
 			//	and we should return the faultType.
 			// Currently, just return "csi.fault.Internal"
@@ -1291,6 +1309,14 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				// Migration feature switch is disabled.
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"volume-migration feature switch is disabled. Cannot use volume with vmdk path: %q", req.VolumeId)
+			} else {
+				if multivCenterCSITopologyEnabled && len(c.managers.VcenterConfigs) > 1 {
+					// Migration feature switch is enabled and multi vCenter feature is enabled, and
+					// Kubernetes Cluster is spread on multiple vCenter Servers.
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"volume-migration feature is not supported on the Multi-vCenter deployment. "+
+							"Cannot use volume with vmdk path :%q", req.VolumeId)
+				}
 			}
 			// Migration feature switch is enabled.
 			//
@@ -1339,7 +1365,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 					"failed to find VirtualMachine for node:%q. Error: %v", req.NodeId, err)
 			}
 		}
-		faultType, err = common.DetachVolumeUtil(ctx, c.manager, nodevm, req.VolumeId)
+		faultType, err = common.DetachVolumeUtil(ctx, volumeManager, nodevm, req.VolumeId)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
