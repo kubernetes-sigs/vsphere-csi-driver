@@ -866,7 +866,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 		if cnsVolumeType == common.UnknownVolumeType {
-			cnsVolumeType, err = common.GetCnsVolumeType(ctx, c.manager, req.VolumeId)
+			cnsVolumeType, err = common.GetCnsVolumeType(ctx, c.manager.VolumeManager, req.VolumeId)
 			if err != nil {
 				if err.Error() == common.ErrNotFound.Error() {
 					// The volume couldn't be found during query, assuming the delete operation as success
@@ -1642,7 +1642,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// Later we may need to define different csi faults.
 		// Check if the volume contains CNS snapshots only for block volumes.
 		if cnsVolumeType == common.UnknownVolumeType {
-			cnsVolumeType, err = common.GetCnsVolumeType(ctx, c.manager, req.VolumeId)
+			cnsVolumeType, err = common.GetCnsVolumeType(ctx, c.manager.VolumeManager, req.VolumeId)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to determine CNS volume type for volume: %q. Error: %+v", req.VolumeId, err)

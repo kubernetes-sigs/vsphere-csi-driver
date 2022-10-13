@@ -975,13 +975,19 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
 		// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
 		// Later we may need to define different csi faults.
-		var faultType string
-		var err error
+		var (
+			faultType      string
+			err            error
+			volumePath     string
+			volumeManager  cnsvolume.Manager
+			vCenterHost    string
+			vCenterManager cnsvsphere.VirtualCenterManager
+		)
+
 		err = validateVanillaDeleteVolumeRequest(ctx, req)
 		if err != nil {
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
-		var volumePath string
 		if strings.Contains(req.VolumeId, ".vmdk") {
 			volumeType = prometheus.PrometheusBlockVolumeType
 			cnsVolumeType = common.BlockVolumeType
@@ -992,6 +998,12 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 					"volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
 			}
 			// Migration feature switch is enabled.
+			// If this is multi-VC configuration, fail the operation.
+			if multivCenterCSITopologyEnabled && len(c.managers.VcenterConfigs) > 1 {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"migrated volumes are not supported in multi-VC setup. Cannot use volume with vmdk path: %q", req.VolumeId)
+			}
+
 			volumePath = req.VolumeId
 			// In case if feature state switch is enabled after controller is
 			// deployed, we need to initialize the volumeMigrationService.
@@ -1005,8 +1017,16 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 					"failed to get VolumeID from volumeMigrationService for volumePath: %q", volumePath)
 			}
 		}
+		// Fetch vCenterHost, vCenterManager & volumeManager for given volume, based on VC configuration
+		vCenterManager = getVCenterManagerForVCenter(ctx, c)
+		vCenterHost, volumeManager, err = getVCenterAndVolumeManagerForVolumeID(ctx, c, req.VolumeId, volumeInfoService)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get vCenter/volume manager for volume Id: %q. Error: %v", req.VolumeId, err)
+		}
+
 		if cnsVolumeType == common.UnknownVolumeType {
-			cnsVolumeType, err = common.GetCnsVolumeType(ctx, c.manager, req.VolumeId)
+			cnsVolumeType, err = common.GetCnsVolumeType(ctx, volumeManager, req.VolumeId)
 			if err != nil {
 				if err.Error() == common.ErrNotFound.Error() {
 					// The volume couldn't be found during query, assuming the delete operation as success
@@ -1021,14 +1041,13 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		// Check if the volume contains CNS snapshots only for block volumes.
 		if cnsVolumeType == common.BlockVolumeType &&
 			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
-			isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
-				c.manager.VcenterConfig.Host)
+			isCnsSnapshotSupported, err := vCenterManager.IsCnsSnapshotSupported(ctx, vCenterHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to check if cns snapshot operations are supported on VC due to error: %v", err)
 			}
 			if isCnsSnapshotSupported {
-				snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, req.VolumeId,
+				snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, volumeManager, req.VolumeId,
 					common.QuerySnapshotLimit)
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1044,7 +1063,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 				}
 			}
 		}
-		faultType, err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
+		faultType, err = common.DeleteVolumeUtil(ctx, volumeManager, req.VolumeId, true)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to delete volume: %q. Error: %+v", req.VolumeId, err)
@@ -1056,6 +1075,14 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to delete volumeInfo CR for volume: %q. Error: %+v", req.VolumeId, err)
+			}
+		}
+		// If this is multi-VC configuration, delete CnsVolumeInfo CR
+		if multivCenterCSITopologyEnabled && len(c.managers.VcenterConfigs) > 1 {
+			err = volumeInfoService.DeleteVolumeInfo(ctx, req.VolumeId)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to delete cnsvolumeInfo CR for volume: %q. Error: %+v", req.VolumeId, err)
 			}
 		}
 		return &csi.DeleteVolumeResponse{}, "", nil
@@ -1101,7 +1128,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				"validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
 		}
 		publishInfo := make(map[string]string)
-		volumeManager, err := getVolumeManagerForVolumeID(ctx, c, req.VolumeId, volumeInfoService)
+		_, volumeManager, err := getVCenterAndVolumeManagerForVolumeID(ctx, c, req.VolumeId, volumeInfoService)
 		if err != nil {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to get volume manager for volume Id: %q. Error: %v", req.VolumeId, err)
@@ -1258,7 +1285,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				"validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
 		}
 
-		volumeManager, err := getVolumeManagerForVolumeID(ctx, c, req.VolumeId, volumeInfoService)
+		_, volumeManager, err := getVCenterAndVolumeManagerForVolumeID(ctx, c, req.VolumeId, volumeInfoService)
 		if err != nil {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to get volume manager for volume Id: %q. Error: %v", req.VolumeId, err)
