@@ -1079,6 +1079,11 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		ginkgo.By("Draining of node: " + nodeToCordon.Name)
 		err = drain.RunNodeDrain(&dh, nodeToCordon.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By("Uncordoning of node: " + nodeToCordon.Name)
+			err = drain.RunCordonOrUncordon(&dh, nodeToCordon, false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		// verify Pods running state
 		statefulSetReplicaCount = 63
