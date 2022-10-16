@@ -1288,6 +1288,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 
 		ginkgo.By("Verify statefulset-4 pods status")
 		statefulSetReplicaCount = 1
+		sts4Pods = GetListOfPodsInSts(client, statefulset4)
 		WaitForStsPodsToBeInRunningReadyState(client, statefulSetReplicaCount, statefulset4)
 		fss.WaitForStatusReadyReplicas(client, statefulset4, statefulSetReplicaCount)
 		gomega.Expect(CheckMountForStsPods(client, statefulset4, mountPath)).NotTo(gomega.HaveOccurred())
@@ -1509,6 +1510,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 
 			ginkgo.By("Verify statefulset-3 pods status")
 			statefulSetReplicaCount = 1
+			sts3Pods = GetListOfPodsInSts(client, statefulset3)
 			WaitForStsPodsToBeInRunningReadyState(client, statefulSetReplicaCount, statefulset3)
 			fss.WaitForStatusReadyReplicas(client, statefulset3, statefulSetReplicaCount)
 			gomega.Expect(CheckMountForStsPods(client, statefulset3, mountPath)).NotTo(gomega.HaveOccurred())
