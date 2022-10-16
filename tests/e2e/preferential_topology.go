@@ -182,10 +182,6 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		err = createTagForPreferredDatastore(masterIp, allowedTopologyRacks)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		framework.Logf("Waiting for %v for preferred datastore to get refreshed in the environment",
-			preferredDatastoreTimeOutInterval)
-		time.Sleep(preferredDatastoreTimeOutInterval)
-
 		if isSPSServiceStopped {
 			framework.Logf("Bringing sps up before terminating the test")
 			startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
