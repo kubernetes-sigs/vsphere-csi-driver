@@ -127,7 +127,7 @@ func deleteDataCenterPermissions(vcAddress string, vCenterPort string, sshClient
 	masterIp string, testUser string, dataCenter []string) error {
 	for i := 0; i < len(dataCenter); i++ {
 		deleteDataCenterPermissions := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.remove -principal " + testUser +
-			" " + dataCenter[i]
+			" /" + dataCenter[i]
 		framework.Logf("Delete datacenter level permissions: %s ", deleteDataCenterPermissions)
 		result, err := sshExec(sshClientConfig, masterIp, deleteDataCenterPermissions)
 		if err != nil && result.Code != 0 {
@@ -453,7 +453,7 @@ func getDatastoreDetails(vcAddress string, vCenterPort string, sshClientConfig *
 func setDataCenterLevelPermission(vcAddress string, vCenterPort string, sshClientConfig *ssh.ClientConfig,
 	masterIp string, dataCenter string, testUser string) error {
 	setPermissionForDataCenter := govcLoginCmd1(vcAddress, vCenterPort) + "govc permissions.set -principal " + testUser +
-		" -propagate=false -role ReadOnly " + dataCenter + " | tr -d '\n'"
+		" -propagate=false -role ReadOnly /" + dataCenter + " | tr -d '\n'"
 	framework.Logf("Assign datacenter level Permissions to user: %s ", setPermissionForDataCenter)
 	result, err := sshExec(sshClientConfig, masterIp, setPermissionForDataCenter)
 	if err != nil && result.Code != 0 {
