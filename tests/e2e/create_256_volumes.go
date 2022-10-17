@@ -1520,4 +1520,136 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 				"Number of Pods in the statefulset should match with number of replicas")
 		}()
 	})
+
+	/*
+		TESTCASE-6
+		Perform multiple times scaleup/scaledown operation when creating 765 volume attachment
+
+		Steps//
+		1. Create Storage Class with Immediate Binding mode
+		2. Trigger StatefulSet-1 with replica count 63 and with 4 PVC's attached to it
+		 using above created SC
+		3. Verify PVC's are in Bound state and Statefulset Pods are in up and running state.
+		4. Trigger StatefulSet-2 with replica count 43 and with 4 PVC's attached to it
+		 using above created SC
+		5. Verify PVC's are in Bound state and Statefulset Pods are in up and running state.
+		6. Trigger StatefulSet-3 with replica count 30 and with 4 PVC's attached to it
+		 using above created SC
+		7. Verify PVC's are in Bound state and Statefulset Pods are in up and running state.
+		8. Perform scaledown operation of StatefulSet-1. Scale down replica count from 63 to 40.
+		9. Verify scaledown operation went successful.
+		10. Perform scaleup operation of StatefulSet-2. Increase the replica count from 43 to 50.
+		10. Verify scaleup operation went successful.
+		11. Perform scaleup operation of StatefulSet-3. Scale up replica count from 30 to 50.
+		12. Verify scaleup operation went successful.
+		13. Perform scaleup operation of StatefulSet-1. Scale up replica count from 40 to 63.
+		14. Verify scaleup operation went successful.
+		15. Perform scaleup operation of StatefulSet-1. Scale up replica count from 50 to 63.
+		16. Verify scaleup operation went successful.
+		17. Perform scaleup operation of StatefulSet-1. Scale up replica count from 50 to 63.
+		18. Verify scaleup operation went successful.
+		19. Create 9 standalone PVC's.
+		20. Verify standalone PVC's are in Bound state.
+		21. Create 9 Pods using above created PVC's
+		22. Verify standalone Pods are in up and running state.
+		23. Perform cleanup. Delete StatefulSet Pods, PVC's, PV.
+	*/
+
+	ginkgo.It("Create delete recreate statefulset pods", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("Create Storage Class")
+		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "nginx-sc")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
+		ginkgo.By("Create statefulset-1 with 63 replica pods and each replica pod is attached to 4 pvcs")
+		statefulSetReplicaCount = 63
+		statefulset1 := GetStatefulSetFromManifestFor265Disks(namespace)
+		statefulset1.Spec.Replicas = &statefulSetReplicaCount
+		statefulset1.Name = "sts1"
+		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset1, client, statefulSetReplicaCount)
+		defer func() {
+			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
+			DeleteMultipleStsInGivenNameSpace(client, namespace)
+		}()
+
+		// verify that the StatefulSets pods are in ready state
+		fss.WaitForStatusReadyReplicas(client, statefulset1, statefulSetReplicaCount)
+		gomega.Expect(CheckMountForStsPods(client, statefulset1, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPods := GetListOfPodsInSts(client, statefulset1)
+		gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset1.Name))
+		gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+
+		ginkgo.By("Scaledown statefulset-1 replica pod count to 0")
+		statefulSetReplicaCount = 0
+		scaleDownStatefulSetPod(ctx, client, statefulset1, namespace, statefulSetReplicaCount, true, true)
+
+		ginkgo.By("Create statefulset-2 with 50 replica pods and each replica pod is attached to 4 pvcs")
+		statefulSetReplicaCount = 50
+		statefulset2 := GetStatefulSetFromManifestFor265Disks(namespace)
+		statefulset2.Spec.Replicas = &statefulSetReplicaCount
+		statefulset2.Name = "sts2"
+		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset2, client,
+			statefulSetReplicaCount)
+
+		// verify that the StatefulSets pods are in ready state
+		fss.WaitForStatusReadyReplicas(client, statefulset2, statefulSetReplicaCount)
+		gomega.Expect(CheckMountForStsPods(client, statefulset2, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPods = GetListOfPodsInSts(client, statefulset2)
+		gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset2.Name))
+		gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+
+		ginkgo.By("Scaleup statefulset-1 replica pod count to 63")
+		statefulSetReplicaCount = 63
+		scaleUpStatefulSetPod(ctx, client, statefulset1, namespace, statefulSetReplicaCount, true, true)
+
+		ginkgo.By("Scaledown statefulset-2 replica pod count to 0")
+		statefulSetReplicaCount = 0
+		scaleDownStatefulSetPod(ctx, client, statefulset2, namespace, statefulSetReplicaCount, true, true)
+
+		ginkgo.By("Create statefulset-3 with 60 replica pods and each replica pod is attached to 4 pvcs")
+		statefulSetReplicaCount = 60
+		statefulset3 := GetStatefulSetFromManifestFor265Disks(namespace)
+		statefulset3.Spec.Replicas = &statefulSetReplicaCount
+		statefulset3.Name = "sts3"
+		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset3, client,
+			statefulSetReplicaCount)
+
+		// verify that the StatefulSets pods are in ready state
+		fss.WaitForStatusReadyReplicas(client, statefulset3, statefulSetReplicaCount)
+		gomega.Expect(CheckMountForStsPods(client, statefulset3, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPods = GetListOfPodsInSts(client, statefulset3)
+		gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset3.Name))
+		gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+
+		ginkgo.By("Scaledown statefulset-3 replica pod count to 0")
+		statefulSetReplicaCount = 0
+		scaleDownStatefulSetPod(ctx, client, statefulset3, namespace, statefulSetReplicaCount, true, true)
+
+		ginkgo.By("Scaleup statefulset-2 replica pod count to 63")
+		statefulSetReplicaCount = 63
+		scaleUpStatefulSetPod(ctx, client, statefulset2, namespace, statefulSetReplicaCount, true, true)
+
+		ginkgo.By("Scaleup statefulset-3 replica pod count to 63")
+		statefulSetReplicaCount = 63
+		scaleUpStatefulSetPod(ctx, client, statefulset3, namespace, statefulSetReplicaCount, true, true)
+
+	})
 })
