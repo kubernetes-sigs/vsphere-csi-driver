@@ -5581,7 +5581,6 @@ func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object
 	}
 	var hosts []*object.HostSystem
 	for _, cluster := range clusterComputeResource {
-		framework.Logf("clusterComputeResource %v", clusterComputeResource)
 		if strings.Contains(cluster.Name(), computeCluster) {
 			hosts, err = cluster.Hosts(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5940,7 +5939,6 @@ func getHostIpWhereVmIsPresent(vmIp string) string {
 	govcCmd := "export GOVC_INSECURE=1;"
 	govcCmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:Admin!23@%s';", vcAddress)
 	govcCmd += fmt.Sprintf("govc vm.info --vm.ip=%s -dc=%s;", vmIp, dc)
-
 	framework.Logf("Running command: %s", govcCmd)
 	result, err := exec.Command("/bin/bash", "-c", govcCmd).Output()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

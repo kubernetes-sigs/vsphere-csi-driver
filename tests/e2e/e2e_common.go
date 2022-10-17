@@ -60,6 +60,7 @@ const (
 	diskSizeInMinMb                            = int64(200)
 	e2eTestPassword                            = "E2E-test-password!23"
 	e2evSphereCSIDriverName                    = "csi.vsphere.vmware.com"
+	ensureAccessibilityMModeType               = "ensureObjectAccessibility"
 	envClusterFlavor                           = "CLUSTER_FLAVOR"
 	envDiskSizeLarge                           = "LARGE_DISK_SIZE"
 	envCSINamespace                            = "CSI_NAMESPACE"
@@ -101,6 +102,7 @@ const (
 		"chmod o+rX /mnt /mnt/volume1/Pod2.html && while true ; do sleep 2 ; done"
 	ext3FSType                                = "ext3"
 	ext4FSType                                = "ext4"
+	evacMModeType                             = "evacuateAllData"
 	fcdName                                   = "BasicStaticFCD"
 	fileSizeInMb                              = int64(2048)
 	fullSyncFss                               = "trigger-csi-fullsync"

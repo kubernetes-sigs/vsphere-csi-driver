@@ -27,6 +27,8 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/object"
+	vim25types "github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -804,4 +806,35 @@ func waitForApiServerToBeUp(svcMasterIp string, sshClientConfig *ssh.ClientConfi
 		return false, nil
 	})
 	return waitErr
+}
+
+// enterHostIntoMM puts a host into maintenance mode with a particular timeout and
+// maintenance mode type
+func enterHostIntoMM(ctx context.Context, host *object.HostSystem, mmModeType string,
+	timeout int32, evacuateVms bool) {
+	mmSpec := vim25types.VsanHostDecommissionMode{
+		ObjectAction: mmModeType,
+	}
+	hostMMSpec := vim25types.HostMaintenanceSpec{
+		VsanMode: &mmSpec,
+		Purpose:  "",
+	}
+	task, err := host.EnterMaintenanceMode(ctx, timeout, false, &hostMMSpec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	_, err = task.WaitForResult(ctx, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Host: %v in in maintenance mode", host)
+}
+
+// exitHostMM exits a host from maintenance mode with a particular timeout
+func exitHostMM(ctx context.Context, host *object.HostSystem, timeout int32) {
+	task, err := host.ExitMaintenanceMode(ctx, timeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	_, err = task.WaitForResult(ctx, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Host: %v exited from maintenance mode", host)
 }
