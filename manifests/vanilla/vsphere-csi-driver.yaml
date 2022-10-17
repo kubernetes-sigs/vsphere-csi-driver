@@ -153,7 +153,6 @@ data:
   "online-volume-extend": "true"
   "trigger-csi-fullsync": "false"
   "async-query-volume": "true"
-  "improved-csi-idempotency": "true"
   "block-volume-snapshot": "true"
   "csi-windows-support": "false"
   "use-csinode-id": "true"
