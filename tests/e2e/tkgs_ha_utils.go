@@ -33,6 +33,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
@@ -657,4 +658,150 @@ func execStopContainerOnGc(sshClientConfig *ssh.ClientConfig, svcMasterIP string
 			cmd, svcMasterIP, err)
 	}
 	return nil
+}
+
+// getPodsFromNodeNames fetches list of pods scheduled on a given list of nodes
+func getPodsFromNodeNames(pods []*v1.Pod, nodeNames []string) []string {
+	var podScheduledOnNodes []string
+	for _, pod := range pods {
+		if isValuePresentInTheList(nodeNames, pod.Spec.NodeName) {
+			podScheduledOnNodes = append(podScheduledOnNodes, pod.Name)
+		}
+	}
+	return podScheduledOnNodes
+}
+
+// getNodesOfZone fetches list of k8s node names for a given availability zone
+func getNodesOfZone(nodeList *v1.NodeList, availabilityZone string) []string {
+	var nodeNames []string
+	for _, node := range nodeList.Items {
+		nodeLabels := node.Labels
+		if nodeLabels[zoneKey] == availabilityZone {
+			nodeNames = append(nodeNames, node.Name)
+		}
+	}
+	return nodeNames
+}
+
+// getClusterNameFromZone fetches clusterName for a given availability zone
+func getClusterNameFromZone(ctx context.Context, availabilityZone string) string {
+	clusterName := ""
+	clusterComputeResourceList, _, err := getClusterName(ctx, &e2eVSphere)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	cmd := fmt.Sprintf("dcli +username %s +password %s +skip +show com vmware "+
+		"vcenter consumptiondomains zones cluster associations get --zone "+
+		"%s", adminUser, adminPassword, availabilityZone)
+	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+	framework.Logf("Invoking command %v on vCenter host %v", cmd, vcAddress)
+	result, err := fssh.SSH(cmd, vcAddress, framework.TestContext.Provider)
+	framework.Logf("result: %v", result)
+	clusterId := strings.Split(result.Stdout, "- ")[1]
+	clusterID := strings.TrimSpace(clusterId)
+	framework.Logf("clusterId: %v", clusterID)
+	fmt.Print(clusterId)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		framework.Failf("couldn't execute command: %s on vCenter host: %v", cmd, err)
+	}
+	for _, cluster := range clusterComputeResourceList {
+		clusterMoId := cluster.Reference().Value
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("cluster MOID %v", clusterMoId)
+		if clusterMoId == clusterID {
+			framework.Logf("Found matching cluster domain!!")
+			clusterName = cluster.Name()
+			break
+		}
+	}
+	framework.Logf("cluster on zone is: %s", clusterName)
+	if clusterName == "" {
+		framework.Failf("couldn't find cluster on zone %s", availabilityZone)
+	}
+	return clusterName
+
+}
+
+// waitForPodsToBeInTerminatingPhase waits for pods to come to terminating state
+// in guest cluster by running kubectl commands
+func waitForPodsToBeInTerminatingPhase(sshClientConfig *ssh.ClientConfig, svcMasterIP string,
+	podName string, namespace string, timeout time.Duration) error {
+	kubeConfigPath := GetAndExpectStringEnvVar(gcKubeConfigPath)
+	waitErr := wait.PollImmediate(poll, timeout, func() (bool, error) {
+		cmd := fmt.Sprintf("kubectl get pod %s --kubeconfig %s -n %s --no-headers|awk '{print $3}'",
+			podName, kubeConfigPath, namespace)
+		framework.Logf("Invoking command '%v' on host %v", cmd,
+			svcMasterIP)
+		cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
+			cmd)
+		if err != nil || cmdResult.Code != 0 {
+			fssh.LogResult(cmdResult)
+			return false, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				cmd, svcMasterIP, err)
+		}
+
+		framework.Logf("result %v", cmdResult)
+		framework.Logf("stdout %s", cmdResult.Stdout)
+		podPhase := strings.TrimSpace(cmdResult.Stdout)
+		if podPhase == "Terminating" {
+			framework.Logf("Pod %s is in terminating state", podName)
+			return true, nil
+		}
+		return false, nil
+	})
+	return waitErr
+}
+
+// getApiServerIpOfZone fetches the supervisor apiserver ip of  a particular zone
+func getApiServerIpOfZone(ctx context.Context, zone string) string {
+	var hostNames []string
+	apiServerIpInZone := ""
+	// Get Cluster details
+	clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	apiServerIPs := GetAndExpectStringEnvVar(apiServerIPs)
+	apiServerIps := strings.Split(apiServerIPs, ",")
+	framework.Logf("apiServerIps: %v", apiServerIps)
+	clusterName := getClusterNameFromZone(ctx, zone)
+	hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, clusterName)
+	for _, hostObj := range hostsInCluster {
+		hostNames = append(hostNames, hostObj.Name())
+	}
+	framework.Logf("hostNames: %v", hostNames)
+	for _, apiServer := range apiServerIps {
+		host := getHostIpWhereVmIsPresent(apiServer)
+		if isValuePresentInTheList(hostNames, host) {
+			framework.Logf("Found apiserver in zone: %v", apiServer)
+			apiServerIpInZone = apiServer
+			break
+		}
+	}
+	if apiServerIpInZone == "" {
+		framework.Failf("couldn't find cluster on zone %s", zone)
+	}
+	return apiServerIpInZone
+
+}
+
+// waitForApiServerToBeUp waits for supervisor apiserver ip to be up by running kubectl commands
+func waitForApiServerToBeUp(svcMasterIp string, sshClientConfig *ssh.ClientConfig,
+	timeout time.Duration) error {
+	kubeConfigPath := GetAndExpectStringEnvVar(gcKubeConfigPath)
+	waitErr := wait.PollImmediate(poll, timeout, func() (bool, error) {
+		cmd := fmt.Sprintf("kubectl get ns,sc --kubeconfig %s",
+			kubeConfigPath)
+		framework.Logf("Invoking command '%v' on host %v", cmd,
+			svcMasterIp)
+		cmdResult, err := sshExec(sshClientConfig, svcMasterIp,
+			cmd)
+		framework.Logf("result %v", cmdResult)
+		if err != nil {
+			return false, nil
+		}
+		if err == nil {
+			framework.Logf("Apiserver is fully up")
+			return true, nil
+		}
+		return false, nil
+	})
+	return waitErr
 }

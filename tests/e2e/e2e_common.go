@@ -28,7 +28,9 @@ import (
 )
 
 const (
+	adminUser                                  = "Administrator@vsphere.local"
 	adminPassword                              = "Admin!23"
+	apiServerIPs                               = "API_SERVER_IPS"
 	attacherContainerName                      = "csi-attacher"
 	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
 	nginxImage                                 = "k8s.gcr.io/nginx-slim:0.8"
@@ -44,6 +46,7 @@ const (
 	csiFssCM                                   = "internal-feature-states.csi.vsphere.vmware.com"
 	csiVolAttrVolType                          = "vSphere CNS Block Volume"
 	csiDriverContainerName                     = "vsphere-csi-controller"
+	datacenter                                 = "DATACENTER"
 	defaultFullSyncIntervalInMin               = "30"
 	defaultProvisionerTimeInSec                = "300"
 	defaultFullSyncWaitTime                    = 1800

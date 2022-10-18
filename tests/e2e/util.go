@@ -5579,6 +5579,7 @@ func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object
 		framework.Logf("Cluster name is either wrong or empty, returning nil hosts")
 		return nil
 	}
+	var hosts []*object.HostSystem
 	for _, cluster := range clusterComputeResource {
 		framework.Logf("clusterComputeResource %v", clusterComputeResource)
 		if strings.Contains(cluster.Name(), computeCluster) {
@@ -5617,7 +5618,7 @@ func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName str
 		for _, esxInfo := range tbinfo.esxHosts {
 			host := hostsInCluster[i].Common.InventoryPath
 			hostIp := strings.Split(host, "/")
-			if hostIp[6] == esxInfo["ip"] {
+			if hostIp[len(hostIp)-1] == esxInfo["ip"] {
 				esxHostName := esxInfo["vmName"]
 				powerOffHostsList = append(powerOffHostsList, esxHostName)
 				err = vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, esxHostName, false)
@@ -5929,4 +5930,22 @@ func waitForScToGetCreated(client clientset.Interface, ctx context.Context, poli
 	}
 	return nil
 
+}
+
+// getHostIpWhereVmIsPresent uses govc command to fetch the host name where
+// vm is present
+func getHostIpWhereVmIsPresent(vmIp string) string {
+	vcAddress := e2eVSphere.Config.Global.VCenterHostname
+	dc := GetAndExpectStringEnvVar(datacenter)
+	govcCmd := "export GOVC_INSECURE=1;"
+	govcCmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:Admin!23@%s';", vcAddress)
+	govcCmd += fmt.Sprintf("govc vm.info --vm.ip=%s -dc=%s;", vmIp, dc)
+
+	framework.Logf("Running command: %s", govcCmd)
+	result, err := exec.Command("/bin/bash", "-c", govcCmd).Output()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("res is: %v", result)
+	hostIp := strings.Split(string(result), "Host:")
+	host := strings.TrimSpace(hostIp[1])
+	return host
 }

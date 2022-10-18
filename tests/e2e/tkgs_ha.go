@@ -25,6 +25,7 @@ import (
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	"golang.org/x/crypto/ssh"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -55,6 +56,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		zonalPolicy                string
 		zonalWffcPolicy            string
 		isVsanHealthServiceStopped bool
+		isSPSServiceStopped        bool
 		sshWcpConfig               *ssh.ClientConfig
 		svcMasterIp                string
 	)
@@ -2083,4 +2085,314 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		})
 
+	/*
+		Verify the behaviour when SPS service is down along with CSI Provisioner
+		1. Identify the process where CSI Provisioner is the leader.
+		2. create storage policy on a shared datastore and assign it to gc-namespace
+		3. Add resource quota to Storageclass
+		4. Using the zonal SC with immediate binding mode
+		5. Bring down SPS service (service-control --stop sps)
+		6. Using the above created SC , Create around 5 statefulsets with parallel POD
+			management policy each with 10 replica's
+		7. While the Statefulsets is creating PVCs and Pods, delete the CSI controller
+			Pod identified in the step 1, where CSI provisioner is the leader.
+			csi-provisioner in other replica should take the leadership to help provisioning
+			of the volume.
+		8. Bring up SPS service (service-control --start sps)
+		9. Wait until all PVCs and Pods are created for Statefulsets
+		10.Expect all PVCs for Statefulsets to be in the bound state.
+		11.Verify node affinity details on PV's
+		12.Expect all Pods for Statefulsets to be in the running state
+		13.Delete Statefulsets and Delete PVCs.
+	*/
+	ginkgo.It("Verify the behaviour when SPS service is down along with CSI Provisioner", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("CNS_TEST: Running for GC setup")
+		nodeList, err := fnodes.GetReadySchedulableNodes(client)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+		if !(len(nodeList.Items) > 0) {
+			framework.Failf("Unable to find ready and schedulable Node")
+		}
+		volumeOpsScale := 5
+		var replicas int32 = 3
+		var stsList []*appsv1.StatefulSet
+
+		csiControllerPod, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
+			client, sshWcpConfig, provisionerContainerName)
+		framework.Logf("%s leader is running on pod %s "+
+			"which is running on master node %s", provisionerContainerName, csiControllerPod, k8sMasterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		scParameters[svStorageClassName] = zonalPolicy
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		// Bring down SPS service
+		ginkgo.By("Bring down SPS service")
+		isSPSServiceStopped = true
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		err = invokeVCenterServiceControl(stopOperation, spsServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
+		}()
+
+		// Creating Service for StatefulSet
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
+		ginkgo.By("Trigger multiple StatefulSets creation in parallel. During StatefulSets " +
+			"creation, in between delete elected leader Csi-Controller-Pod where CSI-Provisioner " +
+			"is running")
+		for i := 0; i < volumeOpsScale; i++ {
+			statefulset := GetStatefulSetFromManifest(namespace)
+			ginkgo.By("Creating statefulset")
+			statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+			statefulset.Name = "sts-" + strconv.Itoa(i) + "-" + statefulset.Name
+			statefulset.Spec.Template.Labels["app"] = statefulset.Name
+			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+				Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+			*statefulset.Spec.Replicas = replicas
+			_, err := client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			stsList = append(stsList, statefulset)
+			if i == 2 {
+				/* Delete elected leader CSi-Controller-Pod where CSI-Attacher is running */
+				ginkgo.By("Delete elected leader CSi-Controller-Pod where CSI-Provisioner is running")
+				err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, csiControllerPod)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+		}
+
+		ginkgo.By("Get newly elected current Leader Csi-Controller-Pod where CSI " +
+			"Provisioner is running and find the master node IP where " +
+			"this Csi-Controller-Pod is running")
+		csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
+			client, sshWcpConfig, provisionerContainerName)
+		framework.Logf("%s is running on newly elected Leader Pod %s "+
+			"which is running on master node %s", provisionerContainerName, csiControllerPod, k8sMasterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Bring up SPS service
+		if isSPSServiceStopped {
+			startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
+		}
+
+		defer func() {
+			scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, claim := range pvcs.Items {
+				pv := getPvFromClaim(client, namespace, claim.Name)
+				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+					pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volumeHandle := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeHandle))
+			}
+		}()
+
+		ginkgo.By("Verify SVC PVC annotations and node affinities on GC and SVC PVs")
+		for _, statefulset := range stsList {
+			verifyVolumeMetadataOnStatefulsets(client, ctx, namespace, statefulset, replicas,
+				allowedTopologyHAMap, categories, zonalPolicy, nodeList, f)
+		}
+
+	})
+
+	/*
+		verify Label update when syncer container goes down
+		1. Identify the process where CSI syncer is the leader.
+		2. create storage policy on a shared datastore and assign it to gc-namespace
+		3. Add resource quota to Storageclass
+		4. Using the cross-zonal SC with immediate binding mode
+		5. Create multiple PVC's (around 10) using above SC
+		6. Add labels to PVC's and PV's
+		7. Delete the CSI process identified in the step 1,
+		   where CSI syncer is the leader.
+		8. csi-syncer in another replica should take the leadership to help label update.
+		9. Verify CNS metadata for PVC's to check newly added labels
+		10.Identify the process where CSI syncer is the leader
+		11.Delete labels from PVC's and PV's
+		12.Delete the CSI process identified in the step 8, where CSI syncer is the leader.
+		13.Verify CNS metadata for PVC's and PV's , Make sure label entries should got removed.
+	*/
+	ginkgo.It("verify Label update when syncer container goes down", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("CNS_TEST: Running for GC setup")
+		nodeList, err := fnodes.GetReadySchedulableNodes(client)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+		if !(len(nodeList.Items) > 0) {
+			framework.Failf("Unable to find ready and schedulable Node")
+		}
+		volumeOpsScale := 10
+		labelKey := "app"
+		labelValue := "e2e-labels"
+
+		csiControllerPod, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
+			client, sshWcpConfig, syncerContainerName)
+		framework.Logf("%s leader is running on pod %s "+
+			"which is running on master node %s", syncerContainerName, csiControllerPod, k8sMasterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create 10 PVCs with with zonal SC")
+		createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		scParameters[svStorageClassName] = zonalPolicy
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+			pvclaimsList, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			for _, pvclaim := range pvclaimsList {
+				pv := getPvFromClaim(client, namespace, pvclaim.Name)
+				err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				ginkgo.By("Verify PVs, volumes are deleted from CNS")
+				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll,
+					framework.PodDeleteTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volumeID := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeID))
+			}
+		}()
+
+		labels := make(map[string]string)
+		labels[labelKey] = labelValue
+
+		ginkgo.By("Wait for GC PVCs to come to bound state and create POD for each PVC")
+		for i := 0; i < len(pvclaimsList); i++ {
+			pvc := pvclaimsList[i]
+			pv := pvs[i]
+			volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+			svcPVCName := pv.Spec.CSI.VolumeHandle
+			svcPVC := getPVCFromSupervisorCluster(svcPVCName)
+			ginkgo.By("Verify SV storageclass points to GC storageclass")
+			gomega.Expect(*svcPVC.Spec.StorageClassName == storageclass.Name).To(
+				gomega.BeTrue(), "SV storageclass does not match with gc storageclass")
+			framework.Logf("GC PVC's storageclass matches SVC PVC's storageclass")
+
+			ginkgo.By("Verify annotations on SVC PV and required node affinity details on SVC PV and GC PV")
+			svcPV := getPvFromSupervisorCluster(svcPVCName)
+			_, err = verifyVolumeTopologyForLevel5(pv, allowedTopologyHAMap)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("GC PV: %s has required Pv node affinity details", pv.Name)
+
+			ginkgo.By("Verify SV PV has has required PV node affinity details")
+			_, err = verifyVolumeTopologyForLevel5(svcPV, allowedTopologyHAMap)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("SVC PV: %s has required PV node affinity details", svcPV.Name)
+
+			ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
+			pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvc.Labels = labels
+			_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Updating labels %+v for pv %s", labels, pv.Name))
+			pv, err = client.CoreV1().PersistentVolumes().Get(ctx, pv.Name, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pv.Labels = labels
+			_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			if i == 4 {
+				ginkgo.By("Delete elected leader CSi-Controller-Pod where vsphere-syncer is running")
+				err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, csiControllerPod)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				/* Get newly elected current leader Csi-Controller-Pod where CSI Syncer is running" +
+				find new master node IP where this Csi-Controller-Pod is running */
+				ginkgo.By("Get newly elected current Leader Csi-Controller-Pod where CSI Syncer is " +
+					"running and find the master node IP where this Csi-Controller-Pod is running")
+				csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
+					client, sshWcpConfig, syncerContainerName)
+				framework.Logf("%s is running on elected Leader Pod %s which is running "+
+					"on master node %s", syncerContainerName, csiControllerPod, k8sMasterIP)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+
+		for i := 0; i < len(pvclaimsList); i++ {
+			pvc := pvclaimsList[i]
+			pv := pvs[i]
+			volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+
+			ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
+				labels, pvc.Name, pvc.Namespace))
+			err = e2eVSphere.waitForLabelsToBeUpdated(volHandle,
+				pvc.Labels, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
+			err = e2eVSphere.waitForLabelsToBeUpdated(volHandle,
+				pv.Labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
+
+		for i := 0; i < len(pvclaimsList); i++ {
+			pvc := pvclaimsList[i]
+			pv := pvs[i]
+			volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+
+			ginkgo.By(fmt.Sprintf("Fetching updated pvc %s in namespace %s", pvc.Name, pvc.Namespace))
+			pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Deleting labels %+v for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
+			pvc.Labels = make(map[string]string)
+			_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be deleted for pvc %s in namespace %s",
+				labels, pvc.Name, pvc.Namespace))
+			err = e2eVSphere.waitForLabelsToBeUpdated(volHandle,
+				pvc.Labels, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Fetching updated pv %s", pv.Name))
+			pv, err = client.CoreV1().PersistentVolumes().Get(ctx, pv.Name, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Deleting labels %+v for pv %s", labels, pv.Name))
+			pv.Labels = make(map[string]string)
+			_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be deleted for pv %s", labels, pv.Name))
+			err = e2eVSphere.waitForLabelsToBeUpdated(volHandle,
+				pv.Labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	})
 })
