@@ -194,40 +194,64 @@ func getBlockVolumeToHostMap(ctx context.Context, cMgr *common.Manager,
 	return volumeIDNodeUUIDMap, nil
 }
 
-// getVolumeManagerForVolumeID returns volume manager for the given volumeId.
-// If multi-vcenter-csi-topology feature is disabled legacy volume manager is removed
-// from `controller.manager.VolumeManager`.
+// getVCenterAndVolumeManagerForVolumeID returns vCenterHost & volume manager for the given volumeId.
+// If multi-vcenter-csi-topology feature is disabled legacy volume manager is returned
+// from `controller.manager.VolumeManager` & vCenter from `controller.manager.VCenterConfig.Host`.
 // If multi-vcenter-csi-topology feature is enabled but volumeInfoService is not instantiated volume manager
-// is returned from controller.managers.VolumeManagers for `controller.managers.CnsConfig.Global.VCenterIP`.
+// is returned from controller.managers.VolumeManagers for `controller.managers.CnsConfig.Global.VCenterIP`
+// And vCenter from controller.managers.VCenterConfigs for `controller.managers.CnsConfig.Global.VCenterIP`.
 // If multi-vcenter-csi-topology feature is enabled and volumeInfoService is instantiated volume manager is returned for
 // the vCenter IP mapped to the requested VolumeID. vCenter for the requested volume is obtained from volumeInfoService.
-func getVolumeManagerForVolumeID(ctx context.Context, controller *controller, volumeId string,
-	volumeInfoService cnsvolumeinfo.VolumeInfoService) (cnsvolume.Manager, error) {
+func getVCenterAndVolumeManagerForVolumeID(ctx context.Context, controller *controller, volumeId string,
+	volumeInfoService cnsvolumeinfo.VolumeInfoService) (string, cnsvolume.Manager, error) {
 	log := logger.GetLogger(ctx)
 	var volumeManager cnsvolume.Manager
 	var volumeManagerfound bool
+	var vCenter string
 	if multivCenterCSITopologyEnabled {
 		if len(controller.managers.VcenterConfigs) > 1 {
 			// Multi vCenter Deployment
 			vCenter, err := volumeInfoService.GetvCenterForVolumeID(ctx, volumeId)
 			if err != nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				return "", nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get vCenter for the volumeID: %q with err=%+v", volumeId, err)
 			}
 			if volumeManager, volumeManagerfound = controller.managers.VolumeManagers[vCenter]; !volumeManagerfound {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				return vCenter, nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"could not get volume manager for the vCenter: %q", vCenter)
 			}
 		} else {
 			// Single vCenter Deployment
+			vCenterConfig, vCenterFound := controller.managers.VcenterConfigs[controller.managers.CnsConfig.Global.VCenterIP]
+			if !vCenterFound {
+				return "", nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"could not get vCenter config for the vCenter: %q", controller.managers.CnsConfig.Global.VCenterIP)
+			}
+			vCenter = vCenterConfig.Host
 			if volumeManager, volumeManagerfound =
-				controller.managers.VolumeManagers[controller.managers.CnsConfig.Global.VCenterIP]; !volumeManagerfound {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"could not get volume manager for the vCenter: %q", controller.managers.CnsConfig.Global.VCenterIP)
+				controller.managers.VolumeManagers[vCenter]; !volumeManagerfound {
+				return "", nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"could not get volume manager for the vCenter: %q", vCenter)
 			}
 		}
 	} else {
+		vCenter = controller.manager.VcenterConfig.Host
 		volumeManager = controller.manager.VolumeManager
 	}
-	return volumeManager, nil
+	return vCenter, volumeManager, nil
+}
+
+// getVCenterManagerForVCenter returns vCenter manager for the given volumeId.
+// If multi-vcenter-csi-topology feature is disabled, legacy vCenter manager is returned
+// from `controller.manager.VCenterManager`.
+// If multi-vcenter-csi-topology feature is enabled, vCenter manager is returned from
+// `controller.managers.VCenterManager`.
+func getVCenterManagerForVCenter(ctx context.Context, controller *controller) vsphere.VirtualCenterManager {
+	var vCenterManager vsphere.VirtualCenterManager
+	if multivCenterCSITopologyEnabled {
+		vCenterManager = controller.managers.VcenterManager
+	} else {
+		vCenterManager = controller.manager.VcenterManager
+	}
+	return vCenterManager
 }

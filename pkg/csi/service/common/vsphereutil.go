@@ -1074,7 +1074,7 @@ func DeleteSnapshotUtil(ctx context.Context, manager *Manager, csiSnapshotID str
 }
 
 // GetCnsVolumeType is the helper function that determines the volume type based on the volume-id
-func GetCnsVolumeType(ctx context.Context, manager *Manager, volumeId string) (string, error) {
+func GetCnsVolumeType(ctx context.Context, volumeManager cnsvolume.Manager, volumeId string) (string, error) {
 	log := logger.GetLogger(ctx)
 	var volumeType string
 	queryFilter := cnstypes.CnsQueryFilter{
@@ -1086,7 +1086,7 @@ func GetCnsVolumeType(ctx context.Context, manager *Manager, volumeId string) (s
 		},
 	}
 	// Select only the volume type.
-	queryResult, err := manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err := volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 	if err != nil {
 		return "", logger.LogNewErrorCodef(log, codes.Internal,
 			"queryVolume failed for volumeID: %q with err=%+v", volumeId, err)
