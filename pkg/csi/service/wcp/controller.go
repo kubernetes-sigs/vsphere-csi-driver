@@ -1678,7 +1678,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 		var faultType string
-		faultType, err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB,
+		faultType, err = common.ExpandVolumeUtil(ctx, c.manager.VcenterManager,
+			c.manager.VcenterConfig.Host, c.manager.VolumeManager, volumeID, volSizeMB,
 			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
