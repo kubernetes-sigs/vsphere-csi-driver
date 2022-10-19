@@ -37,7 +37,6 @@ import (
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
@@ -187,18 +186,6 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 			csinodetopologyconfig.EmbedCSINodeTopologyFileName)
 		if err != nil {
 			log.Errorf("Failed to create %q CRD. Error: %+v", csinodetopology.CRDSingular, err)
-			return err
-		}
-		// Initialize node manager so that CSINodeTopology controller can
-		// retrieve NodeVM using the NodeID in the spec.
-		useNodeUuid := false
-		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.UseCSINodeId) {
-			useNodeUuid = true
-		}
-		nodeMgr := &node.Nodes{}
-		err = nodeMgr.Initialize(ctx, useNodeUuid)
-		if err != nil {
-			log.Errorf("failed to initialize nodeManager. Error: %+v", err)
 			return err
 		}
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
