@@ -111,6 +111,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	}
 
 	useNodeUuid := coCommonInterface.IsFSSEnabled(ctx, common.UseCSINodeId)
+	isMultiVCFSSEnabled := coCommonInterface.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
 	// Initialize kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
@@ -128,17 +129,23 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme,
 		corev1.EventSource{Component: csinodetopologyv1alpha1.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, recorder, useNodeUuid,
-		enableTKGsHAinGuest, vmOperatorClient, supervisorNamespace))
+		enableTKGsHAinGuest, isMultiVCFSSEnabled, vmOperatorClient, supervisorNamespace))
 }
 
 // newReconciler returns a new `reconcile.Reconciler`.
 func newReconciler(mgr manager.Manager, configInfo *cnsconfig.ConfigurationInfo, recorder record.EventRecorder,
-	useNodeUuid bool, enableTKGsHAinGuest bool, vmOperatorClient client.Client,
+	useNodeUuid bool, enableTKGsHAinGuest bool, isMultiVCFSSEnabled bool, vmOperatorClient client.Client,
 	supervisorNamespace string) reconcile.Reconciler {
-	return &ReconcileCSINodeTopology{client: mgr.GetClient(), scheme: mgr.GetScheme(),
-		configInfo: configInfo, recorder: recorder,
-		useNodeUuid: useNodeUuid, enableTKGsHAinGuest: enableTKGsHAinGuest,
-		vmOperatorClient: vmOperatorClient, supervisorNamespace: supervisorNamespace}
+	return &ReconcileCSINodeTopology{
+		client:              mgr.GetClient(),
+		scheme:              mgr.GetScheme(),
+		configInfo:          configInfo,
+		recorder:            recorder,
+		useNodeUuid:         useNodeUuid,
+		enableTKGsHAinGuest: enableTKGsHAinGuest,
+		isMultiVCFSSEnabled: isMultiVCFSSEnabled,
+		vmOperatorClient:    vmOperatorClient,
+		supervisorNamespace: supervisorNamespace}
 }
 
 // add adds a new Controller to mgr with r as the `reconcile.Reconciler`.
@@ -203,6 +210,7 @@ type ReconcileCSINodeTopology struct {
 	recorder            record.EventRecorder
 	useNodeUuid         bool
 	enableTKGsHAinGuest bool
+	isMultiVCFSSEnabled bool
 	vmOperatorClient    client.Client
 	supervisorNamespace string
 }
@@ -304,7 +312,7 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 		log.Infof("Detected a topology aware cluster")
 
 		// Fetch topology labels for nodeVM.
-		topologyLabels, err := getNodeTopologyInfo(ctx, nodeVM, r.configInfo.Cfg)
+		topologyLabels, err := getNodeTopologyInfo(ctx, nodeVM, r.configInfo.Cfg, r.isMultiVCFSSEnabled)
 		if err != nil {
 			msg := fmt.Sprintf("failed to fetch topology information for the nodeVM %q. Error: %v",
 				instance.Name, err)
@@ -457,15 +465,26 @@ func updateCRStatus(ctx context.Context, r *ReconcileCSINodeTopology, instance *
 	return nil
 }
 
-func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine, cfg *cnsconfig.Config) (
-	[]csinodetopologyv1alpha1.TopologyLabel, error) {
+func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine, cfg *cnsconfig.Config,
+	isMultiVCFSSEnabled bool) ([]csinodetopologyv1alpha1.TopologyLabel, error) {
 	log := logger.GetLogger(ctx)
-
+	var (
+		vcenter *cnsvsphere.VirtualCenter
+		err     error
+	)
 	// Get VC instance.
-	vcenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
-	if err != nil {
-		log.Errorf("failed to get virtual center instance with error: %v", err)
-		return nil, err
+	if isMultiVCFSSEnabled {
+		vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterHost(ctx, nodeVM.VirtualCenterHost)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, err: %v",
+				nodeVM.VirtualCenterHost, err)
+		}
+	} else {
+		vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
+		if err != nil {
+			log.Errorf("failed to get virtual center instance with error: %v", err)
+			return nil, err
+		}
 	}
 
 	// Get tag manager instance.
