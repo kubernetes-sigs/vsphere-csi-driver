@@ -1416,6 +1416,14 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	controllerExpandVolumeInternal := func() (
 		*csi.ControllerExpandVolumeResponse, string, error) {
+		var (
+			vCenterHost    string
+			vCenterManager cnsvsphere.VirtualCenterManager
+			volumeManager  cnsvolume.Manager
+			err            error
+			faultType      string
+		)
+
 		log.Infof("ControllerExpandVolume: called with args %+v", *req)
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -1430,8 +1438,15 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 				"cannot expand migrated vSphere volume. :%q", req.VolumeId)
 		}
 
-		isOnlineExpansionSupported, err := c.manager.VcenterManager.IsOnlineExtendVolumeSupported(ctx,
-			c.manager.VcenterConfig.Host)
+		// Fetch vCenterHost, vCenterManager & volumeManager for given volume, based on VC configuration
+		vCenterManager = getVCenterManagerForVCenter(ctx, c)
+		vCenterHost, volumeManager, err = getVCenterAndVolumeManagerForVolumeID(ctx, c, req.VolumeId, volumeInfoService)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get vCenter/volume manager for volume Id: %q. Error: %v", req.VolumeId, err)
+		}
+
+		isOnlineExpansionSupported, err := vCenterManager.IsOnlineExtendVolumeSupported(ctx, vCenterHost)
 		if err != nil {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to check if online expansion is supported due to error: %v", err)
@@ -1448,17 +1463,15 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		volumeID := req.GetVolumeId()
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
-		var faultType string
 		// Check if the volume contains CNS snapshots.
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
-			isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
-				c.manager.VcenterConfig.Host)
+			isCnsSnapshotSupported, err := vCenterManager.IsCnsSnapshotSupported(ctx, vCenterHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to check if cns snapshot is supported on VC due to error: %v", err)
 			}
 			if isCnsSnapshotSupported {
-				snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, volumeID,
+				snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, volumeManager, volumeID,
 					common.QuerySnapshotLimit)
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1475,8 +1488,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			}
 		}
 
-		faultType, err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB,
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+		faultType, err = common.ExpandVolumeUtil(ctx, vCenterManager, vCenterHost, volumeManager, volumeID,
+			volSizeMB, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
