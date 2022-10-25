@@ -36,7 +36,7 @@ require (
 	k8s.io/client-go v1.5.2
 	k8s.io/kubectl v0.25.2
 	k8s.io/kubernetes v1.25.2
-	k8s.io/mount-utils v0.24.6
+	k8s.io/mount-utils v0.25.3
 	k8s.io/pod-security-admission v0.25.2
 	k8s.io/sample-controller v0.25.2
 	k8s.io/utils v0.0.0-20220922133306-665eaaec4324
