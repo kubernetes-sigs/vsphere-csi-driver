@@ -77,7 +77,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		if err != nil {
 			return err
 		}
-		volumeManager = volumes.GetManager(ctx, vCenter, nil, false)
+		volumeManager = volumes.GetManager(ctx, vCenter, nil, false, false)
 	}
 
 	// Get a config to talk to the apiserver

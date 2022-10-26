@@ -137,6 +137,8 @@ type CnsSnapshotInfo struct {
 var (
 	// managerInstance is a Manager singleton.
 	managerInstance *defaultManager
+	// managerInstanceMap hold volume manager for vCenter servers
+	managerInstanceMap = make(map[string]*defaultManager)
 	// managerInstanceLock is used for mitigating race condition during
 	// read/write on manager instance.
 	managerInstanceLock sync.Mutex
@@ -165,19 +167,34 @@ type createVolumeTaskDetails struct {
 // GetManager returns the Manager instance.
 func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 	operationStore cnsvolumeoperationrequest.VolumeOperationRequest,
-	idempotencyHandlingEnabled bool) Manager {
+	idempotencyHandlingEnabled bool, multivCenterEnabled bool) Manager {
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
-	if managerInstance != nil {
-		log.Infof("Retrieving existing defaultManager...")
-		return managerInstance
-	}
-	log.Infof("Initializing new defaultManager...")
-	managerInstance = &defaultManager{
-		virtualCenter:              vc,
-		operationStore:             operationStore,
-		idempotencyHandlingEnabled: idempotencyHandlingEnabled,
+	if !multivCenterEnabled {
+		if managerInstance != nil {
+			log.Infof("Retrieving existing defaultManager...")
+			return managerInstance
+		}
+		log.Infof("Initializing new defaultManager...")
+		managerInstance = &defaultManager{
+			virtualCenter:              vc,
+			operationStore:             operationStore,
+			idempotencyHandlingEnabled: idempotencyHandlingEnabled,
+		}
+	} else {
+		managerInstance = managerInstanceMap[vc.Config.Host]
+		if managerInstance != nil {
+			log.Infof("Retrieving existing defaultManager for vCenter: %q", vc.Config.Host)
+			return managerInstance
+		}
+		log.Infof("Initializing new defaultManager for vCenter: %q", vc.Config.Host)
+		managerInstance = &defaultManager{
+			virtualCenter:              vc,
+			operationStore:             operationStore,
+			idempotencyHandlingEnabled: idempotencyHandlingEnabled,
+		}
+		managerInstanceMap[vc.Config.Host] = managerInstance
 	}
 	return managerInstance
 }

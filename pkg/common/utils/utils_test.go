@@ -144,7 +144,7 @@ func TestQuerySnapshotsUtil(t *testing.T) {
 	// Create context
 	commonUtilsTestInstance := getCommonUtilsTest(t)
 
-	volumeManager := cnsvolumes.GetManager(ctx, commonUtilsTestInstance.vcenter, nil, false)
+	volumeManager := cnsvolumes.GetManager(ctx, commonUtilsTestInstance.vcenter, nil, false, false)
 	queryFilter := types.CnsSnapshotQueryFilter{
 		SnapshotQuerySpecs: nil,
 		Cursor: &types.CnsCursor{
