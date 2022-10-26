@@ -382,17 +382,19 @@ func setPreferredDatastoreTimeInterval(client clientset.Interface, ctx context.C
 	originalConf := string(currentSecret.Data[vSphereCSIConf])
 	vsphereCfg, err := readConfigFromSecretString(originalConf)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	vsphereCfg.Global.CSIFetchPreferredDatastoresIntervalInMin = preferredDatastoreRefreshTimeInterval
-	modifiedConf, err := writeConfigToSecretString(vsphereCfg)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ginkgo.By("Updating the secret to reflect new changes")
-	currentSecret.Data[vSphereCSIConf] = []byte(modifiedConf)
-	_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	// restart csi driver
-	restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
-	gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if vsphereCfg.Global.CSIFetchPreferredDatastoresIntervalInMin == 0 {
+		vsphereCfg.Global.CSIFetchPreferredDatastoresIntervalInMin = preferredDatastoreRefreshTimeInterval
+		modifiedConf, err := writeConfigToSecretString(vsphereCfg)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Updating the secret to reflect new changes")
+		currentSecret.Data[vSphereCSIConf] = []byte(modifiedConf)
+		_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// restart csi driver
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 }
 
 /*
