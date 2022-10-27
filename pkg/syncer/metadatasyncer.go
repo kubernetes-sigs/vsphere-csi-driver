@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeinfo"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/featurestates"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/storagepool"
@@ -59,6 +60,8 @@ import (
 var (
 	// volumeMigrationService holds the pointer to VolumeMigration instance.
 	volumeMigrationService migration.VolumeMigrationService
+	// volumeInfoService holds the pointer to VolumeInfo instance.
+	volumeInfoService cnsvolumeinfo.VolumeInfoService
 	// COInitParams stores the input params required for initiating the
 	// CO agnostic orchestrator for the syncer container.
 	COInitParams interface{}
@@ -69,6 +72,9 @@ var (
 	// Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
 	clusterComputeResourceMoIds = make([]string, 0)
 	clusterIDforVolumeMetadata  string
+
+	// isMultiVCenterFssEnabled is true if the Multi VC support FSS is enabled, false otherwise.
+	isMultiVCenterFssEnabled bool
 )
 
 // newInformer returns uninitialized metadataSyncInformer.
@@ -160,6 +166,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	MetadataSyncer = metadataSyncer
 	metadataSyncer.configInfo = configInfo
 
+	isMultiVCenterFssEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
+
 	// Create the kubernetes client from config.
 	k8sClient, err := k8s.NewClient(ctx)
 	if err != nil {
@@ -240,7 +248,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 	} else {
 		// Initialize volume manager with vcenter credentials for Vanilla flavor
-		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultiVCenterCSITopology) {
+		if !isMultiVCenterFssEnabled {
 			// Initialize volume manager with vcenter credentials
 			vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
 			if err != nil {
@@ -260,6 +268,13 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, err: %v", vcconfig.Host, err)
 				}
 				metadataSyncer.volumeManagers[vcconfig.Host] = volumes.GetManager(ctx, vCenter, nil, false)
+			}
+			// If it is a multi VC deployment, initialize volumeInfoService
+			if len(vcconfigs) > 1 && volumeInfoService == nil {
+				volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
+				if err != nil {
+					return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
+				}
 			}
 		}
 	}
@@ -453,7 +468,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					}
 				} else {
 					//  TODO: Multi-VC : Temporary disabled full sync for development
-					if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultiVCenterCSITopology) {
+					if !isMultiVCenterFssEnabled {
 						err := CsiFullSync(ctx, metadataSyncer)
 						if err != nil {
 							log.Infof("CSI full sync failed with error: %+v", err)
@@ -716,6 +731,16 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 	// Verify if csi migration is ON and check if there is any label update or
 	// migrated-to annotation was received for the PVC.
 	if migrationEnabled && pv.Spec.VsphereVolume != nil {
+
+		// If it is a multi VC setup, then skip this volume as we do not support vSphere to CSI migrated volumes
+		// on a multi VC deployment.
+		if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+			log.Infof("PVCUpdated: %q is a vSphere volume claim in namespace %q."+
+				"In-tree vSphere volume are not supported in a multi VC setup. Skipping update",
+				newPvc.Name, newPvc.Namespace)
+			return
+		}
+
 		if !isValidvSphereVolumeClaim(ctx, newPvc.ObjectMeta) {
 			if !isValidvSphereVolume(ctx, pv) {
 				log.Debugf("PVCUpdated: %q is not a valid vSphere volume claim in namespace %q. Skipping update",
@@ -791,6 +816,16 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	}
 	migrationEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
 	if migrationEnabled && pv.Spec.VsphereVolume != nil {
+
+		// If it is a multi VC setup, then skip this volume as we do not support vSphere to CSI migrated volumes
+		// on a multi VC deployment.
+		if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+			log.Infof("PVCDeleted: %q is a vSphere volume claim in namespace %q."+
+				"In-tree vSphere volume are not supported in a multi VC setup. Skipping delettion of PVC metadata.",
+				pvc.Name, pvc.Namespace)
+			return
+		}
+
 		if !isValidvSphereVolumeClaim(ctx, pvc.ObjectMeta) {
 			if !isValidvSphereVolume(ctx, pv) {
 				log.Debugf("PVCDeleted: %q is not a valid vSphere volume claim in namespace %q. "+
@@ -1063,8 +1098,13 @@ func updatePodMetadata(ctx context.Context, pod *v1.Pod, metadataSyncer *metadat
 func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 	pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
-	var volumeHandle string
-	var err error
+	var (
+		volumeHandle string
+		err          error
+		vcHost       string
+		cnsVolumeMgr volumes.Manager
+	)
+
 	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
 		// In case if feature state switch is enabled after syncer is deployed,
 		// we need to initialize the volumeMigrationService.
@@ -1083,6 +1123,13 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 	} else {
 		volumeFound := false
 		volumeHandle = pv.Spec.CSI.VolumeHandle
+
+		vcHost, cnsVolumeMgr, err = getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, volumeHandle)
+		if err != nil {
+			log.Errorf("PVCUpdated: Failed to get VC host and volume manager for the given volume: %v. "+
+				"Error occoured: %+v", volumeHandle, err)
+			return
+		}
 		// Following wait poll is required to avoid race condition between
 		// pvcUpdated and pvUpdated. This helps avoid race condition between
 		// pvUpdated and pvcUpdated handlers when static PV and PVC is created
@@ -1093,7 +1140,7 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 			}
 			// Query with empty selection. CNS returns only the volume ID from
 			// its cache.
-			queryResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
+			queryResult, err := cnsVolumeMgr.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
 			if err != nil {
 				log.Errorf("PVCUpdated: QueryVolume failed for volume %q with err=%+v", volumeHandle, err.Error())
 				return false, err
@@ -1118,6 +1165,12 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 		}
 	}
 
+	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+	if !vcHostObjFound {
+		log.Errorf("PVCUpdated: failed to find VC host for given volume: %q.", volumeHandle)
+		return
+	}
+
 	// Create updateSpec.
 	var metadataList []cnstypes.BaseCnsEntityMetadata
 	entityReference := cnsvsphere.CreateCnsKuberenetesEntityReference(string(cnstypes.CnsKubernetesEntityTypePV),
@@ -1128,7 +1181,7 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
 	containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
-		metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor,
+		vcHostObj.User, metadataSyncer.clusterFlavor,
 		metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
@@ -1143,7 +1196,7 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 	}
 
 	log.Debugf("PVCUpdated: Calling UpdateVolumeMetadata with updateSpec: %+v", spew.Sdump(updateSpec))
-	if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
+	if err := cnsVolumeMgr.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
 		log.Errorf("PVCUpdated: UpdateVolumeMetadata failed with err %v", err)
 	}
 }
@@ -1186,9 +1239,22 @@ func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 	} else {
 		volumeHandle = pv.Spec.CSI.VolumeHandle
 	}
+
+	vcHost, cnsVolumeMgr, err := getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, volumeHandle)
+	if err != nil {
+		log.Errorf("PVC Deleted: Failed to get VC host and volume manager for the given volume: %v. "+
+			"Error occoured: %+v", volumeHandle, err)
+		return
+	}
+
+	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+	if !vcHostObjFound {
+		log.Errorf("PVCDeleted: failed to find VC host for given volume: %q.", volumeHandle)
+		return
+	}
+
 	containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
-		metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
-		metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
+		vcHostObj.User, metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 		VolumeId: cnstypes.CnsVolumeId{
 			Id: volumeHandle,
@@ -1202,7 +1268,8 @@ func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 
 	log.Debugf("PVCDeleted: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v",
 		updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
-	if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
+
+	if err := cnsVolumeMgr.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
 		log.Errorf("PVCDeleted: UpdateVolumeMetadata failed with err %v", err)
 	}
 }
