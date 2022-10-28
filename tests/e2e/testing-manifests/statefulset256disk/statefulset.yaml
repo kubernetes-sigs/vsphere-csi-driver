@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: web
+spec:
+  serviceName: "nginx"
+  replicas: 63
+  selector:
+    matchLabels:
+      app: nginx
+  serviceName: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: gcr.io/google_containers/nginx-slim:0.8
+          ports:
+            - containerPort: 80
+              name: web
+          volumeMounts:
+            - name: www
+              mountPath: /usr/share/nginx/html
+            - name: logs
+              mountPath: /logs
+            - name: logs1
+              mountPath: /logs1
+            - name: logs2
+              mountPath: /logs2 
+  volumeClaimTemplates:
+    - metadata:
+        name: logs
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: nginx-sc
+        resources:
+          requests:
+            storage: 10Mi
+    - metadata:
+        name: www
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: nginx-sc
+        resources:
+          requests:
+            storage: 10Mi
+    - metadata:
+        name: logs1
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: nginx-sc
+        resources:
+          requests:
+            storage: 10Mi
+    - metadata:
+        name: logs2
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: nginx-sc
+        resources:
+          requests:
+            storage: 10Mi     
