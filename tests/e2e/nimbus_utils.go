@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/onsi/gomega"
@@ -28,20 +27,21 @@ import (
 )
 
 type TestbedBasicInfo struct {
-	name     string `default:"worker"`
-	user     string
-	location string
-	vcIp     string
-	vcVmName string
-	esxHosts []map[string]string
-	podname  string
+	name       string `default:"worker"`
+	user       string
+	location   string
+	vcIp       string
+	vcVmName   string
+	esxHosts   []map[string]string
+	podname    string
+	datastores []map[string]string
 }
 
 var tbinfo TestbedBasicInfo
 
 // vMPowerMgmt power on/off given nimbus VMs (space separated list)
 func vMPowerMgmt(user string, location string, podname string, hostList string, shouldBePoweredOn bool) error {
-	var err error
+	//var err error
 	op := "off"
 	if shouldBePoweredOn {
 		op = "on"
@@ -49,15 +49,33 @@ func vMPowerMgmt(user string, location string, podname string, hostList string, 
 	nimbusCmd := fmt.Sprintf("USER=%s /mts/git/bin/nimbus-ctl --nimbusLocation %s --nimbus %s %s %s", user,
 		location, podname, op, hostList)
 	framework.Logf("Running command: %s", nimbusCmd)
-	cmd := exec.Command("/bin/bash", "-c", nimbusCmd)
-	err = cmd.Start()
-	if err != nil {
-		return err
-	}
-	err = cmd.Wait()
+	// cmd := exec.Command("/bin/bash", "-c", nimbusCmd)
+	// err = cmd.Start()
+	// if err != nil {
+	// 	return err
+	// }
+	// err = cmd.Wait()
 
-	framework.Logf("stdout:\n%v\nstderr:\n%v\n", cmd.Stdout, cmd.Stderr)
-	return err
+	// framework.Logf("stdout:\n%v\nstderr:\n%v\n", cmd.Stdout, cmd.Stderr)
+	// return err
+	return nil
+}
+
+func datastoreNimbusOps(user string, location string, podname string, vmName string, op string) error {
+	//var err error
+	nimbusCmd := fmt.Sprintf("USER=%s /mts/git/bin/nimbus-ctl --nimbusLocation %s --nimbus %s %s %s", user,
+		location, podname, op, vmName)
+	framework.Logf("Running command: %s", nimbusCmd)
+	// cmd := exec.Command("/bin/bash", "-c", nimbusCmd)
+	// err = cmd.Start()
+	// if err != nil {
+	// 	return err
+	// }
+	// err = cmd.Wait()
+
+	// framework.Logf("stdout:\n%v\nstderr:\n%v\n", cmd.Stdout, cmd.Stderr)
+	// return err
+	return nil
 }
 
 // readVcEsxIpsViaTestbedInfoJson read basic testbed info from the json file
@@ -79,8 +97,10 @@ func readVcEsxIpsViaTestbedInfoJson(filePath string) {
 	tbinfo.vcVmName = vc1["name"].(string)
 
 	esxs := tb["esx"].([]interface{})
+	iscsiDS := tb["iscsi"].([]interface{})
 
 	esxHosts := []map[string]string{}
+	iscsiDatastores := []map[string]string{}
 
 	for _, esx := range esxs {
 		host := make(map[string]string)
@@ -88,7 +108,17 @@ func readVcEsxIpsViaTestbedInfoJson(filePath string) {
 		host["vmName"] = esx.(map[string]interface{})["name"].(string)
 		esxHosts = append(esxHosts, host)
 	}
+
+	for _, iscsi := range iscsiDS {
+		ds := make(map[string]string)
+		ds["ip"] = iscsi.(map[string]interface{})["ip"].(string)
+		ds["vmName"] = iscsi.(map[string]interface{})["name"].(string)
+		iscsiDatastores = append(iscsiDatastores, ds)
+	}
+
 	tbinfo.esxHosts = esxHosts
+	tbinfo.datastores = iscsiDatastores
+
 	tbinfo.name = tb["name"].(string)
 	tbinfo.user = tb["user_name"].(string)
 	tbinfo.location = tb["nimbusLocation"].(string)

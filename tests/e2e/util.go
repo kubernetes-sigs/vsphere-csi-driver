@@ -5579,10 +5579,9 @@ func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object
 		framework.Logf("Cluster name is either wrong or empty, returning nil hosts")
 		return nil
 	}
-	var hosts []*object.HostSystem
 	for _, cluster := range clusterComputeResource {
 		framework.Logf("clusterComputeResource %v", clusterComputeResource)
-		if strings.Contains(cluster.Name(), computeCluster) {
+		if strings.Contains(computeCluster, cluster.Name()) {
 			hosts, err = cluster.Hosts(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

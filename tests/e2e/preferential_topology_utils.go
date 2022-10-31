@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/onsi/ginkgo/v2"
@@ -28,6 +29,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
@@ -438,3 +440,115 @@ func createTagForPreferredDatastore(masterIp string, tagName []string) error {
 	}
 	return nil
 }
+
+func powerOffPreferredDatastore(ctx context.Context, vs *vSphere, opName string) string {
+	dsName := ""
+	for _, dsInfo := range tbinfo.datastores {
+		dsName := dsInfo["vmName"]
+		err := datastoreNimbusOps(tbinfo.user, tbinfo.location, tbinfo.podname, dsName, opName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitForDataStoreToBeDown(dsInfo["ip"])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	return dsName
+}
+
+// waitForHostToBeDown wait for host to be down
+func waitForDataStoreToBeDown(ip string) error {
+	framework.Logf("checking status of %s", ip)
+	gomega.Expect(ip).NotTo(gomega.BeNil())
+	gomega.Expect(ip).NotTo(gomega.BeEmpty())
+	waitErr := wait.Poll(poll*2, pollTimeoutShort*2, func() (bool, error) {
+		_, err := net.DialTimeout("tcp", ip+":22", poll)
+		if err == nil {
+			framework.Logf("datastore is reachable")
+			return false, nil
+		}
+		framework.Logf("datatsore is now unreachable. Error: %s", err.Error())
+		return true, nil
+	})
+	return waitErr
+}
+
+func powerOnPreferredDatastore(datastoreToPowerOn string, opName string) {
+	err := datastoreNimbusOps(tbinfo.user, tbinfo.location, tbinfo.podname, datastoreToPowerOn, opName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = waitForHostToBeUp(datastoreToPowerOn)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+func fetchWorkerNodeVmsForRack2(masterIp string, dataCenter []*object.Datacenter) ([]string, error) {
+	var clusFolderTemp []string
+	var clusterFolderName string
+	var k8svMList []string
+	for i := 0; i < len(dataCenter); i++ {
+		clusterFolder := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
+		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder)
+		if err != nil && clusterFolderNameResult.Code != 0 {
+			fssh.LogResult(clusterFolderNameResult)
+			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				clusterFolder, masterIp, err)
+		}
+		if clusterFolderNameResult.Stdout != "" {
+			clusFolderTemp = strings.Split(clusterFolderNameResult.Stdout, "\n")
+		}
+		for i := 0; i < len(clusFolderTemp)-1; i++ {
+			if strings.Contains(clusFolderTemp[i], "vm") {
+				clusterFolderName = clusFolderTemp[i]
+				break
+			}
+		}
+		listWokerVms := govcLoginCmd() + "govc ls " + clusterFolderName + " | grep 'k8s2'"
+		result, err := sshExec(sshClientConfig, masterIp, listWokerVms)
+		if err != nil && result.Code != 0 {
+			fssh.LogResult(result)
+			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				listWokerVms, masterIp, err)
+		}
+		vMList := strings.Split(result.Stdout, "\n")
+		for i := 0; i < len(vMList)-1; i++ {
+			k8svMList = append(k8svMList, vMList[i])
+		}
+	}
+	return k8svMList, nil
+}
+
+func migrateVmsFromDatastore(masterIp string, destDatastore string, vMsToMigrate []string) (bool, error) {
+	for i := 0; i < len(vMsToMigrate); i++ {
+		migrateVm := govcLoginCmd() + "govc vm.migrate -ds " + destDatastore + " " +
+			vMsToMigrate[i]
+		migrateVmRes, err := sshExec(sshClientConfig, masterIp, migrateVm)
+		if err != nil && migrateVmRes.Code != 0 {
+			fssh.LogResult(migrateVmRes)
+			return false, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				migrateVm, masterIp, err)
+		}
+	}
+	return false, nil
+}
+
+// func putPreferredDatastoreInMaintenanceMode(masterIp string, dataCenter []*object.Datacenter,
+// 	datastoreName string) error {
+// 	for i := 0; i < len(dataCenter); i++ {
+// 		enableDrsModeCmd := govcLoginCmd() +
+// 			"govc datastore.cluster.change -drs-mode automated " + dataCenter[i].InventoryPath
+// 		framework.Logf("Enable drs mode: %s ", enableDrsModeCmd)
+// 		enableDrsMode, err := sshExec(sshClientConfig, masterIp, enableDrsModeCmd)
+// 		if err != nil && enableDrsMode.Code != 0 {
+// 			fssh.LogResult(enableDrsMode)
+// 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+// 				enableDrsModeCmd, masterIp, err)
+// 		}
+// 		putDatastoreInMMmodeCmd := govcLoginCmd() +
+// 			"govc datastore.maintenance.enter -ds " + datastoreName
+// 		framework.Logf("Enable drs mode: %s ", putDatastoreInMMmodeCmd)
+// 		putDatastoreInMMmode, err := sshExec(sshClientConfig, masterIp, putDatastoreInMMmodeCmd)
+// 		if err != nil && putDatastoreInMMmode.Code != 0 {
+// 			fssh.LogResult(putDatastoreInMMmode)
+// 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+// 				putDatastoreInMMmode, masterIp, err)
+// 		}
+// 	}
+
+// 	return nil
+// }
