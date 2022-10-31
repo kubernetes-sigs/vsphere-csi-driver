@@ -2348,9 +2348,17 @@ func getPvFromSupervisorCluster(pvcName string) *v1.PersistentVolume {
 
 func verifyFilesExistOnVSphereVolume(namespace string, podName string, filePaths ...string) {
 	for _, filePath := range filePaths {
-		_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
-			podName, "--", "/bin/ls", filePath)
-		framework.ExpectNoError(err, fmt.Sprintf("failed to verify file: %q on the pod: %q", filePath, podName))
+		if windowsEnv {
+			_, err := framework.LookForStringInPodExec(namespace, podName,
+				[]string{"powershell.exe", "ls", filePath}, "", time.Minute)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		} else {
+			_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
+				podName, "--", "/bin/ls", filePath)
+			framework.ExpectNoError(err, fmt.Sprintf("failed to verify file: %q on the pod: %q", filePath, podName))
+		}
+
 	}
 }
 
@@ -3782,6 +3790,37 @@ func waitForCNSRegisterVolumeToGetDeleted(ctx context.Context, restConfig *rest.
 	return fmt.Errorf("CnsRegisterVolume %s deletion is failed within %v", cnsRegisterVolumeName, timeout)
 }
 
+func execCommanOnWindowsWorker(ctx context.Context, client clientset.Interface, windowsWorkerIP string) int64 {
+	// ips := getK8sMasterIPs(ctx,client)
+	// k8sMasterIP := ips[0]
+	sshClient, err := simplessh.ConnectWithPassword(windowsWorkerIP, "Administrator", esxPassword)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer sshClient.Close()
+	//cmd := "ssh capv@" + windowsWorkerIP + " 'Get-Partition -DiskNumber 1 -PartitionNumber 2 | Format-List -Property Size'"
+	// cmd := fmt.Sprintf(
+	// 	"sshpass -p %s ssh Administrator@%s -o 'StrictHostKeyChecking no' 'Get-Disk | Format-List -Property Manufacturer,Size'",
+	// 	esxPassword, windowsWorkerIP)
+	cmd := "Get-Disk | Format-List -Property Manufacturer,Size"
+	framework.Logf("command to be executed in windows node %s", cmd)
+	output, err := sshClient.Exec(cmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("GetDisk output %s\n", string(output))
+	fullStr := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
+	var originalSizeInbytes int64
+	for index, line := range fullStr {
+		if strings.Contains(line, "VMware") {
+			sizeList := strings.Split(fullStr[index+1], ":")
+			size := strings.TrimSpace(sizeList[1])
+			originalSizeInbytes, _ = strconv.ParseInt(size, 10, 64)
+			if originalSizeInbytes < 96636764160 {
+				return originalSizeInbytes
+			}
+		}
+	}
+	return originalSizeInbytes
+}
+
 // getK8sMasterIP gets k8s master ip in vanilla setup.
 func getK8sMasterIPs(ctx context.Context, client clientset.Interface) []string {
 	var err error
@@ -5119,7 +5158,7 @@ func getPersistentVolumeSpecWithStorageClassFCDNodeSelector(volumeHandle string,
 				Driver:       e2evSphereCSIDriverName,
 				VolumeHandle: volumeHandle,
 				ReadOnly:     false,
-				FSType:       "ext4",
+				FSType:       "ntfs",
 			},
 		},
 		Prebind: nil,
