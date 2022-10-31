@@ -145,17 +145,29 @@ func convertCnsVolumeType(ctx context.Context, cnsVolumeType string) string {
 	return volumeType
 }
 
-func getBlockVolumeToHostMap(ctx context.Context, cMgr *common.Manager,
+func getBlockVolumeToHostMap(ctx context.Context, c *controller,
 	allnodeVMs []*vsphere.VirtualMachine) (map[string]string, error) {
+	var vCenters []*vsphere.VirtualCenter
+	var err error
 
 	log := logger.GetLogger(ctx)
 	vmRefToUUID := make(map[string]string)
 	volumeIDNodeUUIDMap := make(map[string]string)
-	// Get VirtualCenter object
-	vc, err := common.GetVCenter(ctx, cMgr)
-	if err != nil {
-		log.Errorf("GetVcenter error %v", err)
-		return nil, fmt.Errorf("failed to get vCenter from Manager, err: %v", err)
+	// Get VirtualCenter object(s)
+	// For multi-VC configuration, create map for volumes in all vCenters
+	if multivCenterCSITopologyEnabled && len(c.managers.VcenterConfigs) > 1 {
+		vCenters, err = common.GetVCenters(ctx, c.managers)
+		if err != nil {
+			log.Errorf("GetVcenters error %v", err)
+			return nil, fmt.Errorf("failed to get vCenters from Managers, err: %v", err)
+		}
+	} else {
+		vc, err := common.GetVCenter(ctx, c.manager)
+		if err != nil {
+			log.Errorf("GetVcenter error %v", err)
+			return nil, fmt.Errorf("failed to get vCenter from Manager, err: %v", err)
+		}
+		vCenters = append(vCenters, vc)
 	}
 
 	var vmRefs []types.ManagedObjectReference
@@ -167,12 +179,15 @@ func getBlockVolumeToHostMap(ctx context.Context, cMgr *common.Manager,
 		vmRefs = append(vmRefs, nodeVM.Reference())
 		vmRefToUUID[vmRef] = nodeVM.UUID
 	}
-	pc := property.DefaultCollector(vc.Client.Client)
-	// Obtain host MoID and virtual disk ID
-	err = pc.Retrieve(ctx, vmRefs, properties, &vmMoList)
-	if err != nil {
-		log.Errorf("failed to get VM managed objects from VM objects, err: %v", err)
-		return volumeIDNodeUUIDMap, err
+
+	for _, vc := range vCenters {
+		pc := property.DefaultCollector(vc.Client.Client)
+		// Obtain host MoID and virtual disk ID
+		err = pc.Retrieve(ctx, vmRefs, properties, &vmMoList)
+		if err != nil {
+			log.Errorf("failed to get VM managed objects from VM objects, err: %v", err)
+			return volumeIDNodeUUIDMap, err
+		}
 	}
 	// Iterate through all the VMs and build the vmMoIDToHostUUID map
 	// and the volumeID to VMMoiD map
