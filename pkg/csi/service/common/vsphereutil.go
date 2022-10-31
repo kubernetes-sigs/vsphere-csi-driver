@@ -645,7 +645,8 @@ func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeI
 
 // ExpandVolumeUtil is the helper function to extend CNS volume for given
 // volumeId.
-func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, capacityInMb int64,
+func ExpandVolumeUtil(ctx context.Context, vCenterManager vsphere.VirtualCenterManager,
+	vCenterHost string, volumeManager cnsvolume.Manager, volumeID string, capacityInMb int64,
 	useAsyncQueryVolume bool) (string, error) {
 	var err error
 	log := logger.GetLogger(ctx)
@@ -654,7 +655,7 @@ func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, ca
 	var isvSphere8AndAbove, expansionRequired bool
 
 	// Checking if vsphere version is 8 and above.
-	vc, err := GetVCenter(ctx, manager)
+	vc, err := GetVCenterFromVCHost(ctx, vCenterManager, vCenterHost)
 	if err != nil {
 		log.Errorf("failed to get vcenter. err=%v", err)
 		return csifault.CSIInternalFault, err
@@ -668,7 +669,8 @@ func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, ca
 
 	if !isvSphere8AndAbove {
 		// Query Volume to check Volume Size for vSphere version below 8.0
-		expansionRequired, err = isExpansionRequired(ctx, volumeID, capacityInMb, manager, useAsyncQueryVolume)
+		expansionRequired, err = isExpansionRequired(ctx, volumeID, capacityInMb,
+			volumeManager, useAsyncQueryVolume)
 		if err != nil {
 			return csifault.CSIInternalFault, err
 		}
@@ -677,7 +679,7 @@ func ExpandVolumeUtil(ctx context.Context, manager *Manager, volumeID string, ca
 		expansionRequired = true
 	}
 	if expansionRequired {
-		faultType, err = manager.VolumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
+		faultType, err = volumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
 		if err != nil {
 			log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
 			return faultType, err
@@ -994,7 +996,7 @@ func getDatastoreInfoObj(ctx context.Context, vc *vsphere.VirtualCenter,
 // isExpansionRequired verifies if the requested size to expand a volume is
 // greater than the current size.
 func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int64,
-	manager *Manager, useAsyncQueryVolume bool) (bool, error) {
+	volumeManager cnsvolume.Manager, useAsyncQueryVolume bool) (bool, error) {
 	log := logger.GetLogger(ctx)
 	volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
 	queryFilter := cnstypes.CnsQueryFilter{
@@ -1007,7 +1009,7 @@ func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int
 		},
 	}
 	// Query only the backing object details.
-	queryResult, err := manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err := volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 	if err != nil {
 		log.Errorf("queryVolume failed for volumeID: %q with err=%v", volumeID, err)
 		return false, err
@@ -1074,7 +1076,7 @@ func DeleteSnapshotUtil(ctx context.Context, manager *Manager, csiSnapshotID str
 }
 
 // GetCnsVolumeType is the helper function that determines the volume type based on the volume-id
-func GetCnsVolumeType(ctx context.Context, manager *Manager, volumeId string) (string, error) {
+func GetCnsVolumeType(ctx context.Context, volumeManager cnsvolume.Manager, volumeId string) (string, error) {
 	log := logger.GetLogger(ctx)
 	var volumeType string
 	queryFilter := cnstypes.CnsQueryFilter{
@@ -1086,7 +1088,7 @@ func GetCnsVolumeType(ctx context.Context, manager *Manager, volumeId string) (s
 		},
 	}
 	// Select only the volume type.
-	queryResult, err := manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err := volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 	if err != nil {
 		return "", logger.LogNewErrorCodef(log, codes.Internal,
 			"queryVolume failed for volumeID: %q with err=%+v", volumeId, err)

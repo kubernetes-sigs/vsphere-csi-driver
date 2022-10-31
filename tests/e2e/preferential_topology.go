@@ -161,7 +161,6 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 
 		//set preferred datatsore time interval
 		setPreferredDatastoreTimeInterval(client, ctx, csiNamespace, namespace, csiReplicas)
-
 	})
 
 	ginkgo.AfterEach(func() {
@@ -181,10 +180,6 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		framework.Logf("Recreate preferred datastore tags post cleanup")
 		err = createTagForPreferredDatastore(masterIp, allowedTopologyRacks)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		framework.Logf("Waiting for %v for preferred datastore to get refreshed in the environment",
-			preferredDatastoreTimeOutInterval)
-		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		if isSPSServiceStopped {
 			framework.Logf("Bringing sps up before terminating the test")
@@ -1794,8 +1789,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		preferredDatastoreChosen = 1
 		preferredDatastorePaths = nil
 		scParameters := make(map[string]string)
-		thickDSPolicy := GetAndExpectStringEnvVar(envStoragePolicyNameWithThickProvision)
-		scParameters[scParamStoragePolicyName] = thickDSPolicy
+		scParameters[scParamStoragePolicyName] = "Management Storage Policy - Regular"
 
 		// choose preferred datastore
 		ginkgo.By("Tag preferred datatsore for volume provisioning in rack-2(cluster-2)")

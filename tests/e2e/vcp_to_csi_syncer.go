@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/hashicorp/go-version"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/find"
@@ -73,6 +74,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		pvsToDelete                []*v1.PersistentVolume
 		fullSyncWaitTime           int
 		podsToDelete               []*v1.Pod
+		migrationEnabledByDefault  bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -113,6 +115,17 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
 		vcpPvsPreMig = nil
 		vcpPvsPostMig = nil
+		v, err := client.Discovery().ServerVersion()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		v1, err := version.NewVersion(v.GitVersion)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		v2, err := version.NewVersion("v1.25.0")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if v1.GreaterThanOrEqual(v2) {
+			migrationEnabledByDefault = true
+		} else {
+			migrationEnabledByDefault = false
+		}
 	})
 
 	ginkgo.JustAfterEach(func() {
@@ -367,7 +380,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
@@ -404,7 +417,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		}
 
 		ginkgo.By("Verify annotations on PV/PVCs created post migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false, migrationEnabledByDefault)
 
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes created post migration " +
 			"along with their respective CnsVSphereVolumeMigration CRDs")
@@ -465,7 +478,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vmdks = []string{}
 
 		ginkgo.By("Creating PVC1 with PV1 and VCP SC")
-		pvc1 := getVcpPersistentVolumeClaimSpec(namespace, "", vcpSc, nil, "")
+		pvc1 := getVcpPersistentVolumeClaimSpec(migrationEnabledByDefault, namespace, "", vcpSc, nil, "")
 		pvc1.Spec.StorageClassName = &vcpSc.Name
 		pvc1, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc1, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -497,7 +510,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync to finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -518,7 +531,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vmdks = []string{}
 
 		ginkgo.By("Creating PVC2 with PV2 and VCP SC")
-		pvc2 := getVcpPersistentVolumeClaimSpec(namespace, "", vcpSc, nil, "")
+		pvc2 := getVcpPersistentVolumeClaimSpec(migrationEnabledByDefault, namespace, "", vcpSc, nil, "")
 		pvc2.Spec.StorageClassName = &vcpSc.Name
 		pvc2, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc2, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -542,8 +555,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify annotations on PV/PVCs created post migration")
-		// isMigrated should be true for static vols even if created post migration
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, true)
+		// isMigratedVol should be true for static vols even if created post migration
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, true, migrationEnabledByDefault)
 
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes created post migration " +
 			"along with their respective CnsVSphereVolumeMigration CRDs")
@@ -613,7 +626,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
@@ -628,7 +641,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify annotations on PV/PVCs created post migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false, migrationEnabledByDefault)
 
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes created post migration " +
 			"along with their respective CnsVSphereVolumeMigration CRDs")
@@ -751,7 +764,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
@@ -798,7 +811,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vcpPvsPostMig = append(vcpPvsPostMig, pvs...)
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false, migrationEnabledByDefault)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc after statefulset scale down")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPostMig)
@@ -902,7 +915,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
@@ -921,7 +934,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify annotations on PV/PVCs created post migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false, migrationEnabledByDefault)
 
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes created post migration " +
 			"along with their respective CnsVSphereVolumeMigration CRDs")
@@ -1159,7 +1172,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		kcmMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
@@ -1335,7 +1348,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		kubectlMigEnabled = true
 
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
@@ -1368,7 +1381,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 			stssPostMig = append(stssPostMig, statefulset)
 		}
 		ginkgo.By("Verify annotations on PV/PVCs created post migration")
-		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false)
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false, migrationEnabledByDefault)
 
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes created post migration " +
 			"along with their respective CnsVSphereVolumeMigration CRDs")

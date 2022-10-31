@@ -147,7 +147,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	c.manager = &common.Manager{
 		VcenterConfig:  vcenterconfig,
 		CnsConfig:      config,
-		VolumeManager:  cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled),
+		VolumeManager:  cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled, false),
 		VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 	}
 
@@ -351,7 +351,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 		c.manager.VolumeManager.ResetManager(ctx, vcenter)
 		c.manager.VcenterConfig = newVCConfig
 		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore,
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency))
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency), false)
 		if c.authMgr != nil {
 			c.authMgr.ResetvCenterInstance(ctx, vcenter)
 			log.Debugf("Updated vCenter in auth manager")
@@ -866,7 +866,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 		if cnsVolumeType == common.UnknownVolumeType {
-			cnsVolumeType, err = common.GetCnsVolumeType(ctx, c.manager, req.VolumeId)
+			cnsVolumeType, err = common.GetCnsVolumeType(ctx, c.manager.VolumeManager, req.VolumeId)
 			if err != nil {
 				if err.Error() == common.ErrNotFound.Error() {
 					// The volume couldn't be found during query, assuming the delete operation as success
@@ -1642,7 +1642,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// Later we may need to define different csi faults.
 		// Check if the volume contains CNS snapshots only for block volumes.
 		if cnsVolumeType == common.UnknownVolumeType {
-			cnsVolumeType, err = common.GetCnsVolumeType(ctx, c.manager, req.VolumeId)
+			cnsVolumeType, err = common.GetCnsVolumeType(ctx, c.manager.VolumeManager, req.VolumeId)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to determine CNS volume type for volume: %q. Error: %+v", req.VolumeId, err)
@@ -1678,7 +1678,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 		var faultType string
-		faultType, err = common.ExpandVolumeUtil(ctx, c.manager, volumeID, volSizeMB,
+		faultType, err = common.ExpandVolumeUtil(ctx, c.manager.VcenterManager,
+			c.manager.VcenterConfig.Host, c.manager.VolumeManager, volumeID, volSizeMB,
 			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,

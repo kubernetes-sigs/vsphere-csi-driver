@@ -23,14 +23,14 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
@@ -188,6 +188,20 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 					os.Exit(1)
 				}
 			}()
+		}
+		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+			// Initialize node manager so that syncer components can
+			// retrieve NodeVM using the NodeID.
+			useNodeUuid := false
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
+				useNodeUuid = true
+			}
+			nodeMgr := &node.Nodes{}
+			err = nodeMgr.Initialize(ctx, useNodeUuid)
+			if err != nil {
+				log.Errorf("failed to initialize nodeManager. Error: %+v", err)
+				os.Exit(1)
+			}
 		}
 		go func() {
 			if err := manager.InitCnsOperator(ctx, clusterFlavor, configInfo, coInitParams); err != nil {

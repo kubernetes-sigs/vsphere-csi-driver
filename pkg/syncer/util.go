@@ -305,8 +305,29 @@ func initVolumeMigrationService(ctx context.Context, metadataSyncer *metadataSyn
 		return nil
 	}
 	var err error
+	var volManager volumes.Manager
+
+	if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.MultiVCenterCSITopology) {
+		volManager = metadataSyncer.volumeManager
+	} else {
+		if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+			// Migration feature switch is enabled and multi vCenter feature is enabled, and
+			// Kubernetes Cluster is spread on multiple vCenter Servers.
+			return logger.LogNewErrorf(log,
+				"volume-migration feature is not supported on Multi-vCenter deployment")
+		}
+
+		// It is a single VC setup with Multi VC FSS enabled, we need to pick up the one and only volume manager in inventory.
+		vCenter := metadataSyncer.configInfo.Cfg.Global.VCenterIP
+		cnsVolumeMgr, volMgrFound := metadataSyncer.volumeManagers[vCenter]
+		if !volMgrFound {
+			return logger.LogNewErrorf(log, "could not get volume manager for the vCenter: %q", vCenter)
+		}
+		volManager = cnsVolumeMgr
+	}
+
 	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx,
-		&metadataSyncer.volumeManager, metadataSyncer.configInfo.Cfg, true)
+		&volManager, metadataSyncer.configInfo.Cfg, true)
 	if err != nil {
 		log.Errorf("failed to get migration service. Err: %v", err)
 		return err
@@ -363,4 +384,47 @@ func SyncerInitConfigInfo(ctx context.Context) (*cnsconfig.ConfigurationInfo, er
 		Cfg: cfg,
 	}
 	return configInfo, nil
+}
+
+// getVcHostAndVolumeManagerForVolumeID returns VC host and the corresponding
+// volume manager that can access the given volume on VC.
+// In case of a single VC setup, we simply return
+// the metadataSyncer's host and volumeManager fields.
+func getVcHostAndVolumeManagerForVolumeID(ctx context.Context,
+	metadataSyncer *metadataSyncInformer,
+	volumeID string) (string, volumes.Manager, error) {
+	log := logger.GetLogger(ctx)
+
+	// isMultiVCenterFssEnabled feature gate is always going to be disabled for flavors other than vanilla.
+	if !isMultiVCenterFssEnabled {
+		return metadataSyncer.host, metadataSyncer.volumeManager, nil
+	}
+
+	if len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
+		vCenter := metadataSyncer.configInfo.Cfg.Global.VCenterIP
+		cnsVolumeMgr, volMgrFound := metadataSyncer.volumeManagers[vCenter]
+		if !volMgrFound {
+			return "", nil, logger.LogNewErrorf(log,
+				"could not get volume manager for the vCenter: %q", vCenter)
+		}
+		return vCenter, cnsVolumeMgr, nil
+	}
+
+	if volumeInfoService != nil {
+		vCenter, err := volumeInfoService.GetvCenterForVolumeID(ctx, volumeID)
+		if err != nil {
+			log.Errorf("failed to get vCenter for the volumeID: %q with err=%+v", volumeID, err)
+			return "", nil, logger.LogNewErrorf(log,
+				"failed to get vCenter for the volumeID: %q with err=%+v", volumeID, err)
+		}
+		volumeManager, volumeManagerfound := metadataSyncer.volumeManagers[vCenter]
+		if !volumeManagerfound {
+			return "", nil, logger.LogNewErrorf(log,
+				"could not get volume manager for the vCenter: %q", vCenter)
+		}
+		return vCenter, volumeManager, nil
+	}
+
+	return "", nil, logger.LogNewErrorf(log,
+		"failed to get VC host and volume manager. VolumeInfoService is not initialized.")
 }

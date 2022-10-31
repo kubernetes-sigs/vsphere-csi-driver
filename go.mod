@@ -11,6 +11,7 @@ require (
 	github.com/golang/protobuf v1.5.2
 	github.com/google/uuid v1.3.0
 	github.com/kubernetes-csi/csi-lib-utils v0.11.0
+	github.com/hashicorp/go-version v1.6.0
 	github.com/kubernetes-csi/csi-proxy/client v1.0.1
 	github.com/kubernetes-csi/external-snapshotter/client/v4 v4.1.0
 	github.com/onsi/ginkgo/v2 v2.1.6
@@ -35,7 +36,7 @@ require (
 	k8s.io/client-go v1.5.2
 	k8s.io/kubectl v0.25.2
 	k8s.io/kubernetes v1.25.2
-	k8s.io/mount-utils v0.24.6
+	k8s.io/mount-utils v0.25.3
 	k8s.io/pod-security-admission v0.25.2
 	k8s.io/sample-controller v0.25.2
 	k8s.io/utils v0.0.0-20220922133306-665eaaec4324

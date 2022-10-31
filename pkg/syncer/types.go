@@ -114,6 +114,13 @@ type metadataSyncInformer struct {
 	pvcLister          corelisters.PersistentVolumeClaimLister
 	podLister          corelisters.PodLister
 	coCommonInterface  commonco.COCommonInterface
+	// topologyVCMap maintains a cache of topology tags to the vCenter IP/FQDN which holds the tag.
+	// Example - {region1: {VC1: struct{}{}, VC2: struct{}{}},
+	//            zone1: {VC1: struct{}{}},
+	//            zone2: {VC2: struct{}{}}}
+	// The vCenter IP/FQDN under each tag are maintained as a map of string with nil values to improve
+	// retrieval and deletion performance.
+	topologyVCMap map[string]map[string]struct{}
 }
 
 const (

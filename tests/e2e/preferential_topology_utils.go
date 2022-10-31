@@ -22,12 +22,16 @@ import (
 	"net"
 	"strings"
 
+	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/object"
 	"golang.org/x/crypto/ssh"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
@@ -380,17 +384,19 @@ func setPreferredDatastoreTimeInterval(client clientset.Interface, ctx context.C
 	originalConf := string(currentSecret.Data[vSphereCSIConf])
 	vsphereCfg, err := readConfigFromSecretString(originalConf)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	vsphereCfg.Global.CSIFetchPreferredDatastoresIntervalInMin = preferredDatastoreRefreshTimeInterval
-	modifiedConf, err := writeConfigToSecretString(vsphereCfg)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ginkgo.By("Updating the secret to reflect new changes")
-	currentSecret.Data[vSphereCSIConf] = []byte(modifiedConf)
-	_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	// restart csi driver
-	restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
-	gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if vsphereCfg.Global.CSIFetchPreferredDatastoresIntervalInMin == 0 {
+		vsphereCfg.Global.CSIFetchPreferredDatastoresIntervalInMin = preferredDatastoreRefreshTimeInterval
+		modifiedConf, err := writeConfigToSecretString(vsphereCfg)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Updating the secret to reflect new changes")
+		currentSecret.Data[vSphereCSIConf] = []byte(modifiedConf)
+		_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// restart csi driver
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 }
 
 /*
@@ -439,6 +445,82 @@ func createTagForPreferredDatastore(masterIp string, tagName []string) error {
 		}
 	}
 	return nil
+}
+
+/*
+createSnapshotClassAndVolSnapshot util method is used to create volume snapshot class,
+volume snapshot and to verify if volume snapshot has created or not
+*/
+func createSnapshotClassAndVolSnapshot(ctx context.Context, snapc *snapclient.Clientset,
+	namespace string, pvclaim *v1.PersistentVolumeClaim,
+	volHandle string, stsPvc bool) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotClass, string) {
+
+	framework.Logf("Create volume snapshot class")
+	volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
+		getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil), metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Create a volume snapshot")
+	volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+		getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Verify volume snapshot is created")
+	volumeSnapshot, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, volumeSnapshot.Name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if !stsPvc {
+		gomega.Expect(volumeSnapshot.Status.RestoreSize.Cmp(resource.MustParse(diskSize))).To(gomega.BeZero())
+	}
+	if stsPvc {
+		gomega.Expect(volumeSnapshot.Status.RestoreSize.Cmp(resource.MustParse("1Gi"))).To(gomega.BeZero())
+	}
+
+	framework.Logf("Verify volume snapshot content is created")
+	snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
+		*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(*snapshotContent.Status.ReadyToUse).To(gomega.BeTrue())
+
+	framework.Logf("Get volume snapshot ID from snapshot handle")
+	snapshothandle := *snapshotContent.Status.SnapshotHandle
+	snapshotId := strings.Split(snapshothandle, "+")[1]
+
+	framework.Logf("Query CNS and check the volume snapshot entry")
+	err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return volumeSnapshot, volumeSnapshotClass, snapshotId
+}
+
+/*
+performCleanUpForSnapshotCreated util method is used to perfomr cleanup for volume
+snapshot class, volume snapshot created for pvc post testcase completion
+*/
+func performCleanUpForSnapshotCreated(ctx context.Context, snapc *snapclient.Clientset,
+	namespace string, volHandle string, volumeSnapshot *snapV1.VolumeSnapshot, snapshotId string,
+	volumeSnapshotClass *snapV1.VolumeSnapshotClass) {
+
+	framework.Logf("Delete volume snapshot and verify the snapshot content is deleted")
+	err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, volumeSnapshot.Name, metav1.DeleteOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Wait till the volume snapshot is deleted")
+	err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Verify snapshot entry is deleted from CNS")
+	err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Deleting volume snapshot Again to check Not found error")
+	err = snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, volumeSnapshot.Name, metav1.DeleteOptions{})
+	if !apierrors.IsNotFound(err) {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	framework.Logf("Deleting volume snapshot class")
+	err = snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name, metav1.DeleteOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 func powerOffPreferredDatastore(ctx context.Context, vs *vSphere, opName string) string {

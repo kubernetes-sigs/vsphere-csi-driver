@@ -192,14 +192,14 @@ func TestSyncerWorkflows(t *testing.T) {
 		}
 	}()
 
-	volumeManager = cnsvolumes.GetManager(ctx, virtualCenter, nil, false)
+	volumeManager = cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false)
 
 	// Initialize metadata syncer object.
 	metadataSyncer = &metadataSyncInformer{}
 	configInfo := &cnsconfig.ConfigurationInfo{}
 	configInfo.Cfg = csiConfig
 	metadataSyncer.configInfo = configInfo
-	metadataSyncer.volumeManager = cnsvolumes.GetManager(ctx, virtualCenter, nil, false)
+	metadataSyncer.volumeManager = cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false)
 	metadataSyncer.host = virtualCenter.Config.Host
 
 	// Create the kubernetes client from config or env.
@@ -896,4 +896,110 @@ func getPodSpec(namespace string, labels map[string]string, pvcName string, phas
 // objects, we need to ensure listers used in the metadata syncer are synced.
 func waitForListerSync() {
 	time.Sleep(1 * time.Second)
+}
+
+func TestGetVCForTopologySegments(t *testing.T) {
+	// Create context.
+	ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+
+	tests := []struct {
+		name                      string
+		topologyVCMap             map[string]map[string]struct{}
+		requestedTopologySegments map[string]string
+		expectedVC                string
+		expectingErr              bool
+	}{
+		{
+			name: "Higher-level topology label present in more than one VC",
+			topologyVCMap: map[string]map[string]struct{}{
+				"region-1": {"10.100.100.0": {}, "10.100.100.1": {}},
+				"zone-1":   {"10.100.100.0": {}},
+				"zone-2":   {"10.100.100.1": {}},
+			},
+			requestedTopologySegments: map[string]string{
+				"topology.csi.vmware.com/region": "region-1",
+				"topology.csi.vmware.com/zone":   "zone-2",
+			},
+			expectedVC:   "10.100.100.1",
+			expectingErr: false,
+		},
+		{
+			name: "Invalid topology label given as input",
+			topologyVCMap: map[string]map[string]struct{}{
+				"region-1": {"10.100.100.0": {}, "10.100.100.1": {}},
+				"zone-1":   {"10.100.100.0": {}},
+				"zone-2":   {"10.100.100.1": {}},
+			},
+			requestedTopologySegments: map[string]string{
+				"topology.csi.vmware.com/region": "region-1",
+				"topology.csi.vmware.com/zone":   "zone-3",
+			},
+			expectedVC:   "",
+			expectingErr: true,
+		},
+		{
+			name: "Topology label belongs to more than one VC",
+			topologyVCMap: map[string]map[string]struct{}{
+				"region-1": {"10.100.100.0": {}, "10.100.100.1": {}},
+				"zone-1":   {"10.100.100.0": {}, "10.100.100.1": {}},
+				"zone-2":   {"10.100.100.1": {}},
+			},
+			requestedTopologySegments: map[string]string{
+				"topology.csi.vmware.com/region": "region-1",
+				"topology.csi.vmware.com/zone":   "zone-1",
+			},
+			expectedVC:   "",
+			expectingErr: true,
+		},
+		{
+			name: "Leaf-level topology label present in more than one VC",
+			topologyVCMap: map[string]map[string]struct{}{
+				"region-1": {"10.100.100.0": {}},
+				"region-2": {"10.100.100.1": {}},
+				"zone-1":   {"10.100.100.0": {}, "10.100.100.1": {}},
+			},
+			requestedTopologySegments: map[string]string{
+				"topology.csi.vmware.com/region": "region-2",
+				"topology.csi.vmware.com/zone":   "zone-1",
+			},
+			expectedVC:   "10.100.100.1",
+			expectingErr: false,
+		},
+		{
+			name: "Topology labels distinct across VCs",
+			topologyVCMap: map[string]map[string]struct{}{
+				"region-1": {"10.100.100.0": {}},
+				"region-2": {"10.100.100.1": {}},
+				"zone-1":   {"10.100.100.0": {}},
+				"zone-2":   {"10.100.100.1": {}},
+				"city-1":   {"10.100.100.0": {}},
+				"city-2":   {"10.100.100.1": {}},
+			},
+			requestedTopologySegments: map[string]string{
+				"topology.csi.vmware.com/region": "region-2",
+				"topology.csi.vmware.com/zone":   "zone-2",
+				"topology.csi.vmware.com/city":   "city-2",
+			},
+			expectedVC:   "10.100.100.1",
+			expectingErr: false,
+		},
+	}
+
+	MetadataSyncer = &metadataSyncInformer{}
+	for _, tc := range tests {
+		t.Run(tc.name, func(tt *testing.T) {
+			MetadataSyncer.topologyVCMap = tc.topologyVCMap
+			vc, err := getVCForTopologySegments(ctx, tc.requestedTopologySegments)
+			gotError := err != nil
+			if tc.expectingErr != gotError {
+				tt.Errorf("Error expectation did not meet. Expected error: %t. Got error: %t. Error: %v",
+					tc.expectingErr, gotError, err)
+			}
+			if tc.expectedVC != vc {
+				tt.Errorf("VC expectation did not meet. Expected VC: %q. Got VC: %q",
+					tc.expectedVC, vc)
+			}
+		})
+	}
 }
