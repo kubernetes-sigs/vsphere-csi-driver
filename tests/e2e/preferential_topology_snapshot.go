@@ -76,6 +76,8 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		storageclass                   *storagev1.StorageClass
 		err                            error
 		pandoraSyncWaitTime            int
+		csiReplicas                    int32
+		csiNamespace                   string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -164,6 +166,15 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 				allowedTopologyRacks = append(allowedTopologyRacks, allowedTopologyForSC[i].Values[j])
 			}
 		}
+
+		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
+			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicas = *csiDeployment.Spec.Replicas
+
+		//set preferred datatsore time interval
+		setPreferredDatastoreTimeInterval(client, ctx, csiNamespace, namespace, csiReplicas)
 	})
 
 	ginkgo.AfterEach(func() {
