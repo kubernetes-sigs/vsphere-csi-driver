@@ -232,3 +232,192 @@ func updateVmfsPolicyAlloctype(
 	framework.Logf("policy content after update", spew.Sdump(policyContent))
 	return nil
 }
+
+// createVsanDStoragePolicy create a vsand storage policy with given volume allocation type and category/tag map
+func createVsanDStoragePolicy(ctx context.Context, pbmClient *pbm.Client, allocationType string,
+	categoryTagMap map[string]string) (*pbmtypes.PbmProfileId, string) {
+	s1 := rand.NewSource(time.Now().UnixNano())
+	r1 := rand.New(s1)
+	profileName := fmt.Sprintf("vsand-policy-%v-%v", time.Now().UnixNano(), strconv.Itoa(r1.Intn(1000)))
+	pbmCreateSpec := pbm.CapabilityProfileCreateSpec{
+		Name:        profileName,
+		Description: "VSAND test policy",
+		Category:    "REQUIREMENT",
+		CapabilityList: []pbm.Capability{
+			{
+				ID:        "vSANDirectVolumeAllocation",
+				Namespace: "vSANDirect",
+				PropertyList: []pbm.Property{
+					{
+						ID:       "vSANDirectVolumeAllocation",
+						Value:    allocationType,
+						DataType: "string",
+					},
+				},
+			},
+			{
+				ID:        "vSANDirectType",
+				Namespace: "vSANDirect",
+				PropertyList: []pbm.Property{
+					{
+						ID:       "vSANDirectType",
+						Value:    "vSANDirect",
+						DataType: "string",
+					},
+				},
+			},
+		},
+	}
+	for k, v := range categoryTagMap {
+
+		pbmCreateSpec.CapabilityList = append(pbmCreateSpec.CapabilityList, pbm.Capability{
+			ID:        k,
+			Namespace: "http://www.vmware.com/storage/tag",
+			PropertyList: []pbm.Property{
+				{
+					ID:       "com.vmware.storage.tag." + k + ".property",
+					Value:    v,
+					DataType: "set",
+				},
+			},
+		})
+	}
+	createSpecVSAND, err := pbm.CreateCapabilityProfileSpec(pbmCreateSpec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	profileID, err := pbmClient.CreateProfile(ctx, *createSpecVSAND)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("VSAND profile with id: %v and name: '%v' created", profileID.UniqueId, profileName)
+
+	return profileID, profileName
+}
+
+// createStoragePolicyWithSharedVmfsNVsand create a storage policy with vmfs and vsand rules
+// with given volume allocation type and category/tag map
+func createStoragePolicyWithSharedVmfsNVsand(ctx context.Context, pbmClient *pbm.Client,
+	allocationType string, categoryTagMap map[string]string) (*pbmtypes.PbmProfileId, string) {
+	s1 := rand.NewSource(time.Now().UnixNano())
+	r1 := rand.New(s1)
+	var category, tag string
+	profileName := fmt.Sprintf("storage-policy-%v-%v", time.Now().UnixNano(), strconv.Itoa(r1.Intn(1000)))
+
+	for k, v := range categoryTagMap {
+		category = k
+		tag = v
+	}
+	framework.Logf("category: %v, tag: %v", category, tag)
+
+	pbmCapabilityProfileSpec := pbmtypes.PbmCapabilityProfileCreateSpec{
+		Name:        profileName,
+		Description: "VSAND-VMFS test policy",
+		Category:    "REQUIREMENT",
+		ResourceType: pbmtypes.PbmProfileResourceType{
+			ResourceType: string(pbmtypes.PbmProfileResourceTypeEnumSTORAGE),
+		},
+		Constraints: &pbmtypes.PbmCapabilitySubProfileConstraints{
+			SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
+				{
+					Capability: []pbmtypes.PbmCapabilityInstance{
+						{
+							Id: pbmtypes.PbmCapabilityMetadataUniqueId{
+								Id:        "vSANDirectVolumeAllocation",
+								Namespace: "vSANDirect",
+							},
+							Constraint: []pbmtypes.PbmCapabilityConstraintInstance{
+								{
+									PropertyInstance: []pbmtypes.PbmCapabilityPropertyInstance{
+										{
+											Id:    "vSANDirectVolumeAllocation",
+											Value: allocationType,
+										},
+									},
+								},
+							},
+						},
+						{
+							Id: pbmtypes.PbmCapabilityMetadataUniqueId{
+								Id:        "vSANDirectType",
+								Namespace: "vSANDirect",
+							},
+							Constraint: []pbmtypes.PbmCapabilityConstraintInstance{
+								{
+									PropertyInstance: []pbmtypes.PbmCapabilityPropertyInstance{
+										{
+											Id:    "vSANDirectType",
+											Value: "vSANDirect",
+										},
+									},
+								},
+							},
+						},
+						{
+							Id: pbmtypes.PbmCapabilityMetadataUniqueId{
+								Id:        category,
+								Namespace: "http://www.vmware.com/storage/tag",
+							},
+							Constraint: []pbmtypes.PbmCapabilityConstraintInstance{
+								{
+									PropertyInstance: []pbmtypes.PbmCapabilityPropertyInstance{
+										{
+											Id: "com.vmware.storage.tag." + category + ".property",
+											Value: pbmtypes.PbmCapabilityDiscreteSet{
+												Values: []vim25types.AnyType{tag},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					Name: "vsandirect rules",
+				},
+				{
+					Capability: []pbmtypes.PbmCapabilityInstance{
+						{
+							Id: pbmtypes.PbmCapabilityMetadataUniqueId{
+								Id:        "VolumeAllocationType",
+								Namespace: "com.vmware.storage.volumeallocation",
+							},
+							Constraint: []pbmtypes.PbmCapabilityConstraintInstance{
+								{
+									PropertyInstance: []pbmtypes.PbmCapabilityPropertyInstance{
+										{
+											Id:    "VolumeAllocationType",
+											Value: allocationType,
+										},
+									},
+								},
+							},
+						},
+						{
+							Id: pbmtypes.PbmCapabilityMetadataUniqueId{
+								Id:        category,
+								Namespace: "http://www.vmware.com/storage/tag",
+							},
+							Constraint: []pbmtypes.PbmCapabilityConstraintInstance{
+								{
+									PropertyInstance: []pbmtypes.PbmCapabilityPropertyInstance{
+										{
+											Id: "com.vmware.storage.tag." + category + ".property",
+											Value: pbmtypes.PbmCapabilityDiscreteSet{
+												Values: []vim25types.AnyType{tag},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					Name: "vmfs rules",
+				},
+			},
+		},
+	}
+	profileID, err := pbmClient.CreateProfile(ctx, pbmCapabilityProfileSpec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("VSAND and vmfs profile with id: %v and name: '%v' created", profileID.UniqueId, profileName)
+
+	return profileID, profileName
+}

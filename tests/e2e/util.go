@@ -6319,3 +6319,141 @@ func cleaupStatefulset(client clientset.Interface, ctx context.Context, namespac
 				"kubernetes", volumeHandle))
 	}
 }
+
+// getVsanDPersistentVolumeClaimSpecWithStorageClass return the PersistentVolumeClaim
+// spec for vsanDirect datastore with specified storage class.
+func getVsanDPersistentVolumeClaimSpecWithStorageClass(namespace string, ds string,
+	storageclass *storagev1.StorageClass, pvcName string, podName string,
+	accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
+	pvcAnnotations := make(map[string]string)
+	pvcAnnotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+	pvcAnnotations["placement.beta.vmware.com/storagepool_antiAffinityRequired"] = podName
+
+	pvclaimlabels := make(map[string]string)
+	pvclaimlabels["supervisor"] = "true"
+
+	disksize := diskSize
+	if ds != "" {
+		disksize = ds
+	}
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		accessMode = v1.ReadWriteOnce
+	}
+
+	claim := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
+				},
+			},
+			StorageClassName: &(storageclass.Name),
+		},
+	}
+	claim.Labels = pvclaimlabels
+	claim.Annotations = pvcAnnotations
+	framework.Logf("pvc spec: %v", claim)
+	return claim
+}
+
+// getVsanDPodSpec returns pod spec for vsan direct datastore for a given persistentVolumeClaim
+func getVsanDPodSpec(ns string, nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim,
+	isPrivileged bool, command string, podName string) *v1.Pod {
+
+	podlabels := make(map[string]string)
+	podlabels["psp.vmware.com/pod-placement-opt-in"] = "true"
+	podSpec := &v1.Pod{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Pod",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: ns,
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name:            "write-pod",
+					Image:           nginxImage,
+					SecurityContext: fpod.GenerateContainerSecurityContext(isPrivileged),
+				},
+			},
+			RestartPolicy: v1.RestartPolicyOnFailure,
+		},
+	}
+	var volumeMounts = make([]v1.VolumeMount, len(pvclaims))
+	var volumes = make([]v1.Volume, len(pvclaims))
+	for index, pvclaim := range pvclaims {
+		volumename := "data0"
+		volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/data0"}
+		volumes[index] = v1.Volume{Name: volumename, VolumeSource: v1.VolumeSource{
+			PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: false}}}
+	}
+	podSpec.Spec.Containers[0].VolumeMounts = volumeMounts
+	podSpec.Spec.Volumes = volumes
+	if nodeSelector != nil {
+		podSpec.Spec.NodeSelector = nodeSelector
+	}
+
+	podSpec.Labels = podlabels
+	podSpec.Spec.ServiceAccountName = "default"
+	podSpec.Spec.RestartPolicy = v1.RestartPolicyAlways
+	taintKeys := []string{v1.TaintNodeNotReady, v1.TaintNodeUnreachable}
+	podSpec.Spec.Subdomain = "sample-pe-svc"
+	var x int64 = 300
+	var tolerations []v1.Toleration
+	for _, taintkey := range taintKeys {
+		var toleration v1.Toleration
+		toleration.Key = taintkey
+		toleration.Operator = v1.TolerationOpExists
+		toleration.TolerationSeconds = &x
+		toleration.Effect = v1.TaintEffectNoExecute
+		framework.Logf("toleration: %v", toleration)
+		tolerations = append(tolerations, toleration)
+	}
+	podSpec.Spec.Tolerations = tolerations
+	framework.Logf("pod spec: %v", podSpec)
+	return podSpec
+}
+
+// createVsanDPvcAndPod creates pvc and pod for vsan direct as per wffc policy.
+// It ensures that pvc and pod is in in healthy state.
+func createVsanDPvcAndPod(client clientset.Interface, ctx context.Context,
+	namespace string, sc *storagev1.StorageClass, pvcName string,
+	podName string) (*v1.PersistentVolumeClaim, *v1.Pod) {
+	framework.Logf("Creating pvc %s with storage class %s", pvcName, sc.Name)
+	pvclaim, err := fpv.CreatePVC(client, namespace,
+		getVsanDPersistentVolumeClaimSpecWithStorageClass(namespace,
+			diskSize, sc, pvcName, podName, ""))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Expect claim status to be in Pending state")
+	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+		namespace, pvclaim.Name, framework.Poll, time.Minute)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		"Failed to find the volume: %s in pending state with err: %v", pvcName, err)
+
+	ginkgo.By("Creating a pod")
+	podSpec := getVsanDPodSpec(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand, podName)
+	pod, err := client.CoreV1().Pods(namespace).Create(ctx, podSpec, metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Expect claim to be in Bound state and provisioning volume passes")
+	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+		namespace, pvclaim.Name, framework.Poll, time.Minute)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume with err: %v", err)
+
+	return pvclaim, pod
+}

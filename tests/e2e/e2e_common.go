@@ -78,6 +78,9 @@ const (
 	envSharedNFSDatastoreURL                   = "SHARED_NFS_DATASTORE_URL"
 	envSharedVMFSDatastoreURL                  = "SHARED_VMFS_DATASTORE_URL"
 	envSharedVMFSDatastore2URL                 = "SHARED_VMFS_DATASTORE2_URL"
+	envVsanDirectSetup                         = "USE_VSAN_DIRECT_DATASTORE_IN_WCP"
+	envVsanDDatastoreURL                       = "SHARED_VSAND_DATASTORE_URL"
+	envVsanDDatastore2URL                      = "SHARED_VSAND_DATASTORE2_URL"
 	envStoragePolicyNameForNonSharedDatastores = "STORAGE_POLICY_FOR_NONSHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores    = "STORAGE_POLICY_FOR_SHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores2   = "STORAGE_POLICY_FOR_SHARED_DATASTORES_2"
@@ -223,10 +226,11 @@ const (
 // The following variables are required to know cluster type to run common e2e
 // tests. These variables will be set once during test suites initialization.
 var (
-	vanillaCluster    bool
-	supervisorCluster bool
-	guestCluster      bool
-	rwxAccessMode     bool
+	vanillaCluster       bool
+	supervisorCluster    bool
+	guestCluster         bool
+	rwxAccessMode        bool
+	wcpVsanDirectCluster bool
 )
 
 // For VCP to CSI migration tests.
