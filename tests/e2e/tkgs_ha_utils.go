@@ -838,3 +838,25 @@ func exitHostMM(ctx context.Context, host *object.HostSystem, timeout int32) {
 
 	framework.Logf("Host: %v exited from maintenance mode", host)
 }
+
+//
+func getPodAffinityTerm(allowedTopologyHAMap map[string][]string) []v1.PodAffinityTerm {
+	var podAffinityTerm v1.PodAffinityTerm
+	var podAffinityTerms []v1.PodAffinityTerm
+	var labelSelector *metav1.LabelSelector
+	var labelSelectorRequirements []metav1.LabelSelectorRequirement
+	var labelSelectorRequirement metav1.LabelSelectorRequirement
+
+	labelSelectorRequirement.Key = "app"
+	labelSelectorRequirement.Operator = "In"
+	labelSelectorRequirement.Values = []string{"nginx"}
+	labelSelectorRequirements = append(labelSelectorRequirements, labelSelectorRequirement)
+	labelSelector = new(metav1.LabelSelector)
+	labelSelector.MatchExpressions = labelSelectorRequirements
+	podAffinityTerm.LabelSelector = labelSelector
+	for key := range allowedTopologyHAMap {
+		podAffinityTerm.TopologyKey = key
+	}
+	podAffinityTerms = append(podAffinityTerms, podAffinityTerm)
+	return podAffinityTerms
+}
