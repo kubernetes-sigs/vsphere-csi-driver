@@ -335,7 +335,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 		manager := &common.Manager{
 			VcenterConfig:  vcenterconfig,
 			CnsConfig:      config,
-			VolumeManager:  cnsvolume.GetManager(ctx, vcenter, fakeOpStore, true, false),
+			VolumeManager:  cnsvolume.GetManager(ctx, vcenter, fakeOpStore, true, false, false),
 			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 		}
 
@@ -2135,7 +2135,7 @@ func TestDeleteBlockVolumeSnapshotWithManagedObjectNotFound(t *testing.T) {
 	instanceName := "deletesnapshot-" + volID + "-" + snapshotID
 	operationInstance := cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
 		instanceName, "", "", 0, metav1.Now(),
-		taskID, "", cnsvolumeoperationrequest.TaskInvocationStatusInProgress, "")
+		taskID, "", "", cnsvolumeoperationrequest.TaskInvocationStatusInProgress, "")
 	_ = ct.operationStore.StoreRequestDetails(ctx, operationInstance)
 
 	//logger.SetLoggerLevel(logger.DevelopmentLogLevel) // enable debug level log
@@ -2266,7 +2266,7 @@ func TestCreateSnapshotWithManagedObjectNotFound(t *testing.T) {
 	instanceName := snapshotName + "-" + volID
 	operationInstance := cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
 		instanceName, volID, "", 0, metav1.Now(),
-		taskID, "", cnsvolumeoperationrequest.TaskInvocationStatusInProgress, "")
+		taskID, "", "", cnsvolumeoperationrequest.TaskInvocationStatusInProgress, "")
 	_ = ct.operationStore.StoreRequestDetails(ctx, operationInstance)
 	// Attempt to create snapshot again, but the task-id is non-existent.
 	// Since the snapshot already exists, no error is expected.

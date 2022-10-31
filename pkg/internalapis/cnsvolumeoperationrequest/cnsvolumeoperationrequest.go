@@ -156,7 +156,8 @@ func (or *operationRequestStore) GetRequestDetails(
 
 	return CreateVolumeOperationRequestDetails(instance.Spec.Name, instance.Status.VolumeID, instance.Status.SnapshotID,
 			instance.Status.Capacity, operationDetailsToReturn.TaskInvocationTimestamp, operationDetailsToReturn.TaskID,
-			operationDetailsToReturn.OpID, operationDetailsToReturn.TaskStatus, operationDetailsToReturn.Error),
+			operationDetailsToReturn.VCenterServer, operationDetailsToReturn.OpID, operationDetailsToReturn.TaskStatus,
+			operationDetailsToReturn.Error),
 		nil
 }
 

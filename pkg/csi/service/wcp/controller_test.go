@@ -180,7 +180,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 		manager := &common.Manager{
 			VcenterConfig:  vcenterconfig,
 			CnsConfig:      config,
-			VolumeManager:  cnsvolume.GetManager(ctx, vcenter, fakeOpStore, true, false),
+			VolumeManager:  cnsvolume.GetManager(ctx, vcenter, fakeOpStore, true, false, false),
 			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 		}
 

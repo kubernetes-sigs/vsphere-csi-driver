@@ -78,6 +78,9 @@ spec:
                     description: TaskID stores the task for an operation that was
                       invoked on CNS for a volume.
                     type: string
+                  vCenterServer:
+                    description: vCenter server on which task is created
+                    type: string
                   taskInvocationTimestamp:
                     description: TaskInvocationTimestamp represents the time at which
                       the task was invoked. This timestamp is derived from the cluster
@@ -112,6 +115,9 @@ spec:
                     taskId:
                       description: TaskID stores the task for an operation that was
                         invoked on CNS for a volume.
+                      type: string
+                    vCenterServer:
+                      description: vCenter server on which task is created
                       type: string
                     taskInvocationTimestamp:
                       description: TaskInvocationTimestamp represents the time at
