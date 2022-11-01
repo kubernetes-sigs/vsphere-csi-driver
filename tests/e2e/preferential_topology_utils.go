@@ -19,7 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"net"
 	"strings"
 
 	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
@@ -33,7 +32,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
@@ -523,43 +521,44 @@ func performCleanUpForSnapshotCreated(ctx context.Context, snapc *snapclient.Cli
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func powerOffPreferredDatastore(ctx context.Context, vs *vSphere, opName string) string {
+/*
+powerOffPreferredDatastore method is used to put preferred datastore in power off or
+inaccessible state
+*/
+func powerOffPreferredDatastore(ctx context.Context, vs *vSphere, opName string, dsNameToPowerOff string) string {
 	dsName := ""
 	for _, dsInfo := range tbinfo.datastores {
-		dsName := dsInfo["vmName"]
-		err := datastoreNimbusOps(tbinfo.user, tbinfo.location, tbinfo.podname, dsName, opName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForDataStoreToBeDown(dsInfo["ip"])
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if strings.Contains(dsInfo["vmName"], dsNameToPowerOff) {
+			dsName = dsInfo["vmName"]
+			err := datastoreNimbusOps(tbinfo.user, tbinfo.location, tbinfo.podname, dsName, opName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = waitForHostToBeDown(dsInfo["ip"])
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			break
+		}
 	}
 	return dsName
 }
 
-// waitForHostToBeDown wait for host to be down
-func waitForDataStoreToBeDown(ip string) error {
-	framework.Logf("checking status of %s", ip)
-	gomega.Expect(ip).NotTo(gomega.BeNil())
-	gomega.Expect(ip).NotTo(gomega.BeEmpty())
-	waitErr := wait.Poll(poll*2, pollTimeoutShort*2, func() (bool, error) {
-		_, err := net.DialTimeout("tcp", ip+":22", poll)
-		if err == nil {
-			framework.Logf("datastore is reachable")
-			return false, nil
-		}
-		framework.Logf("datatsore is now unreachable. Error: %s", err.Error())
-		return true, nil
-	})
-	return waitErr
-}
-
+/*
+powerOnPreferredDatastore method is used to put preferred datastore in power on or
+accessible state
+*/
 func powerOnPreferredDatastore(datastoreToPowerOn string, opName string) {
 	err := datastoreNimbusOps(tbinfo.user, tbinfo.location, tbinfo.podname, datastoreToPowerOn, opName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	err = waitForHostToBeUp(datastoreToPowerOn)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, dsInfo := range tbinfo.datastores {
+		if strings.Contains(dsInfo["vmName"], datastoreToPowerOn) {
+			err = waitForHostToBeUp(dsInfo["ip"])
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			break
+		}
+	}
 }
 
-func fetchWorkerNodeVmsForRack2(masterIp string, dataCenter []*object.Datacenter) ([]string, error) {
+/* fetchWorkerNodeVms fetches the list of vms */
+func fetchWorkerNodeVms(masterIp string, dataCenter []*object.Datacenter,
+	workerNodeAlias string) ([]string, error) {
 	var clusFolderTemp []string
 	var clusterFolderName string
 	var k8svMList []string
@@ -580,7 +579,9 @@ func fetchWorkerNodeVmsForRack2(masterIp string, dataCenter []*object.Datacenter
 				break
 			}
 		}
-		listWokerVms := govcLoginCmd() + "govc ls " + clusterFolderName + " | grep 'k8s2'"
+		listWokerVms := govcLoginCmd() + "govc ls " + clusterFolderName + " | grep " +
+			workerNodeAlias + "-.*worker"
+		framework.Logf("cmd : %s ", listWokerVms)
 		result, err := sshExec(sshClientConfig, masterIp, listWokerVms)
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
@@ -591,14 +592,30 @@ func fetchWorkerNodeVmsForRack2(masterIp string, dataCenter []*object.Datacenter
 		for i := 0; i < len(vMList)-1; i++ {
 			k8svMList = append(k8svMList, vMList[i])
 		}
+		listvCLSVms := govcLoginCmd() + "govc ls " + clusterFolderName + "/vCLS"
+		framework.Logf("cmd : %s ", listvCLSVms)
+		listvCLSVmsRes, err := sshExec(sshClientConfig, masterIp, listvCLSVms)
+		if err != nil && listvCLSVmsRes.Code != 0 {
+			fssh.LogResult(listvCLSVmsRes)
+			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				listvCLSVms, masterIp, err)
+		}
+		vCLSVMList := strings.Split(listvCLSVmsRes.Stdout, "\n")
+		for i := 0; i < len(vCLSVMList)-1; i++ {
+			k8svMList = append(k8svMList, vCLSVMList[i])
+		}
 	}
 	return k8svMList, nil
 }
 
+/*
+migrateVmsFromDatastore method is use to migrate the vms to destination preferred datastore
+*/
 func migrateVmsFromDatastore(masterIp string, destDatastore string, vMsToMigrate []string) (bool, error) {
 	for i := 0; i < len(vMsToMigrate); i++ {
 		migrateVm := govcLoginCmd() + "govc vm.migrate -ds " + destDatastore + " " +
 			vMsToMigrate[i]
+		framework.Logf("cmd : %s ", migrateVm)
 		migrateVmRes, err := sshExec(sshClientConfig, masterIp, migrateVm)
 		if err != nil && migrateVmRes.Code != 0 {
 			fssh.LogResult(migrateVmRes)
@@ -606,31 +623,52 @@ func migrateVmsFromDatastore(masterIp string, destDatastore string, vMsToMigrate
 				migrateVm, masterIp, err)
 		}
 	}
-	return false, nil
+	return true, nil
 }
 
-// func putPreferredDatastoreInMaintenanceMode(masterIp string, dataCenter []*object.Datacenter,
-// 	datastoreName string) error {
-// 	for i := 0; i < len(dataCenter); i++ {
-// 		enableDrsModeCmd := govcLoginCmd() +
-// 			"govc datastore.cluster.change -drs-mode automated " + dataCenter[i].InventoryPath
-// 		framework.Logf("Enable drs mode: %s ", enableDrsModeCmd)
-// 		enableDrsMode, err := sshExec(sshClientConfig, masterIp, enableDrsModeCmd)
-// 		if err != nil && enableDrsMode.Code != 0 {
-// 			fssh.LogResult(enableDrsMode)
-// 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-// 				enableDrsModeCmd, masterIp, err)
-// 		}
-// 		putDatastoreInMMmodeCmd := govcLoginCmd() +
-// 			"govc datastore.maintenance.enter -ds " + datastoreName
-// 		framework.Logf("Enable drs mode: %s ", putDatastoreInMMmodeCmd)
-// 		putDatastoreInMMmode, err := sshExec(sshClientConfig, masterIp, putDatastoreInMMmodeCmd)
-// 		if err != nil && putDatastoreInMMmode.Code != 0 {
-// 			fssh.LogResult(putDatastoreInMMmode)
-// 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-// 				putDatastoreInMMmode, masterIp, err)
-// 		}
-// 	}
+/*
+preferredDatastoreInMaintenanceMode method is use to put preferred datastore in
+maintenance mode
+*/
+func preferredDatastoreInMaintenanceMode(masterIp string, dataCenter []*object.Datacenter,
+	datastoreName string) error {
+	for i := 0; i < len(dataCenter); i++ {
+		enableDrsModeCmd := govcLoginCmd() + "govc datastore.cluster.change -drs-mode automated"
+		framework.Logf("Enable drs mode: %s ", enableDrsModeCmd)
+		enableDrsMode, err := sshExec(sshClientConfig, masterIp, enableDrsModeCmd)
+		if err != nil && enableDrsMode.Code != 0 {
+			fssh.LogResult(enableDrsMode)
+			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				enableDrsModeCmd, masterIp, err)
+		}
+		putDatastoreInMMmodeCmd := govcLoginCmd() +
+			"govc datastore.maintenance.enter -ds " + datastoreName
+		framework.Logf("Enable drs mode: %s ", putDatastoreInMMmodeCmd)
+		putDatastoreInMMmodeRes, err := sshExec(sshClientConfig, masterIp, putDatastoreInMMmodeCmd)
+		if err != nil && putDatastoreInMMmodeRes.Code != 0 {
+			fssh.LogResult(putDatastoreInMMmodeRes)
+			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				putDatastoreInMMmodeCmd, masterIp, err)
+		}
+	}
 
-// 	return nil
-// }
+	return nil
+}
+
+/*
+exitDatastoreFromMaintenanceMode method is use to exit preferred datastore from
+maintenance mode
+*/
+func exitDatastoreFromMaintenanceMode(masterIp string, dataCenter []*object.Datacenter,
+	datastoreName string) error {
+	exitMmMode := govcLoginCmd() +
+		" govc datastore.maintenance.exit -ds " + datastoreName
+	framework.Logf("Exit maintenance mode: %s ", exitMmMode)
+	exitMmModeMMmodeRes, err := sshExec(sshClientConfig, masterIp, exitMmMode)
+	if err != nil && exitMmModeMMmodeRes.Code != 0 {
+		fssh.LogResult(exitMmModeMMmodeRes)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			exitMmMode, masterIp, err)
+	}
+	return nil
+}

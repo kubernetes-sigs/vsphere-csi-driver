@@ -97,9 +97,11 @@ func readVcEsxIpsViaTestbedInfoJson(filePath string) {
 	tbinfo.vcVmName = vc1["name"].(string)
 
 	esxs := tb["esx"].([]interface{})
+	nfsDS := tb["nfs"].([]interface{})
 	iscsiDS := tb["iscsi"].([]interface{})
 
 	esxHosts := []map[string]string{}
+	nfsDatastores := []map[string]string{}
 	iscsiDatastores := []map[string]string{}
 
 	for _, esx := range esxs {
@@ -109,12 +111,20 @@ func readVcEsxIpsViaTestbedInfoJson(filePath string) {
 		esxHosts = append(esxHosts, host)
 	}
 
+	for _, nfs := range nfsDS {
+		ds := make(map[string]string)
+		ds["ip"] = nfs.(map[string]interface{})["ip"].(string)
+		ds["vmName"] = nfs.(map[string]interface{})["name"].(string)
+		nfsDatastores = append(nfsDatastores, ds)
+	}
+
 	for _, iscsi := range iscsiDS {
 		ds := make(map[string]string)
 		ds["ip"] = iscsi.(map[string]interface{})["ip"].(string)
 		ds["vmName"] = iscsi.(map[string]interface{})["name"].(string)
 		iscsiDatastores = append(iscsiDatastores, ds)
 	}
+	iscsiDatastores = append(iscsiDatastores, nfsDatastores...)
 
 	tbinfo.esxHosts = esxHosts
 	tbinfo.datastores = iscsiDatastores

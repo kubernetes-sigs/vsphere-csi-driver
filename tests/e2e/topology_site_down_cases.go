@@ -193,13 +193,13 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ginkgo.By("Bring down 1 ESXi host that belongs to zone1 and Bring down 1 ESXi " +
 			"host that belongs to zone2")
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[0],
-			noOfHostToBringDown)
+			noOfHostToBringDown, true)
 		defer func() {
 			ginkgo.By("Bring up ESXi host which were powered off in zone1")
 			powerOnEsxiHostByCluster(powerOffHostsList[0])
 		}()
 		powerOffHostsList1 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
-			noOfHostToBringDown)
+			noOfHostToBringDown, true)
 		defer func() {
 			ginkgo.By("Bring up  ESXi host which were powered off in zone2")
 			powerOnEsxiHostByCluster(powerOffHostsList1[0])
@@ -398,13 +398,13 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ginkgo.By("Bring down 1 ESXi host that belongs to Cluster2 and Bring down 1 ESXi " +
 			"host that belongs to Cluster3")
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
-			noOfHostToBringDown)
+			noOfHostToBringDown, true)
 		defer func() {
 			ginkgo.By("Bring up ESXi host which were powered off in zone2")
 			powerOnEsxiHostByCluster(powerOffHostsList[0])
 		}()
 		powerOffHostsList1 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
-			noOfHostToBringDown)
+			noOfHostToBringDown, true)
 		defer func() {
 			ginkgo.By("Bring up ESXi host which were powered off in zone3")
 			powerOnEsxiHostByCluster(powerOffHostsList1[0])
@@ -594,19 +594,19 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		// Bring down ESXi host that belongs to zone1, zone2 and zone3
 		ginkgo.By("Bring down ESXi host that belongs to zone1, zone2 and zone3")
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[0],
-			noOfHostToBringDown)
+			noOfHostToBringDown, true)
 		defer func() {
 			ginkgo.By("Bring up ESXi host which were powered off in zone1")
 			powerOnEsxiHostByCluster(powerOffHostsList[0])
 		}()
 		powerOffHostsList2 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
-			noOfHostToBringDown)
+			noOfHostToBringDown, true)
 		defer func() {
 			ginkgo.By("Bring up ESXi host which were powered off in zone2")
 			powerOnEsxiHostByCluster(powerOffHostsList2[0])
 		}()
 		powerOffHostsList3 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
-			noOfHostToBringDown)
+			noOfHostToBringDown, true)
 		defer func() {
 			ginkgo.By("Bring up ESXi host which were powered off in zone3")
 			powerOnEsxiHostByCluster(powerOffHostsList3[0])
@@ -785,7 +785,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ginkgo.By("Bring down ESXi hosts that belongs to zone2")
 		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, topologyClusterList[1])
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
-			(len(hostsInCluster) - 2))
+			(len(hostsInCluster) - 2), true)
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off in zone2")
 			for i := 0; i < len(powerOffHostsList); i++ {
@@ -976,7 +976,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ginkgo.By("Bring down ESXi hosts that belongs to zone3")
 		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, topologyClusterList[2])
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
-			(len(hostsInCluster) - 2))
+			(len(hostsInCluster) - 2), true)
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off")
 			for i := 0; i < len(powerOffHostsList); i++ {
@@ -1163,7 +1163,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ginkgo.By("Bring down all ESXi hosts that belongs to zone2")
 		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, topologyClusterList[1])
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
-			len(hostsInCluster))
+			len(hostsInCluster), true)
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off in zone2")
 			for i := 0; i < len(powerOffHostsList); i++ {

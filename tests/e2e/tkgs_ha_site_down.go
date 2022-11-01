@@ -201,7 +201,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		ginkgo.By("Bring down ESX hosts of AZ1")
 		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, clusterName)
 		powerOffHostsList := powerOffEsxiHostByCluster(ctx, &e2eVSphere, clusterName,
-			len(hostsInCluster))
+			len(hostsInCluster), false)
 		defer func() {
 			ginkgo.By("Bring up ESXi host which were powered off in zone1")
 			for i := 0; i < len(powerOffHostsList); i++ {
@@ -347,11 +347,11 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		ginkgo.By("Bring down ESX hosts of AZ1 and AZ2")
 		hostsInCluster1 := getHostsByClusterName(ctx, clusterComputeResource, clusterName1)
 		powerOffHostsList1 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, clusterName1,
-			len(hostsInCluster1))
+			len(hostsInCluster1), false)
 
 		hostsInCluster2 := getHostsByClusterName(ctx, clusterComputeResource, clusterName2)
 		powerOffHostsList2 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, clusterName2,
-			len(hostsInCluster2))
+			len(hostsInCluster2), false)
 		powerOffHostsList = append(powerOffHostsList, powerOffHostsList1...)
 		powerOffHostsList = append(powerOffHostsList, powerOffHostsList2...)
 		defer func() {
