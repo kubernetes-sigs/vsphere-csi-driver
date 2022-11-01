@@ -5624,10 +5624,9 @@ func powerOnEsxiHostByCluster(hostToPowerOn string) {
 
 // This util method takes cluster name as input parameter and powers off esxi host of that cluster
 func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName string,
-	esxCount int, isPreferentialTopology bool) []string {
+	esxCount int) []string {
 	var powerOffHostsList []string
 	var hostsInCluster []*object.HostSystem
-	var esxHostName string
 	clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	hostsInCluster = getHostsByClusterName(ctx, clusterComputeResource, clusterName)
@@ -5635,21 +5634,16 @@ func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName str
 		for _, esxInfo := range tbinfo.esxHosts {
 			host := hostsInCluster[i].Common.InventoryPath
 			hostIp := strings.Split(host, "/")
-			if isPreferentialTopology {
-				if hostIp[len(hostIp)] == esxInfo["ip"] {
-					esxHostName = esxInfo["vmName"]
-				}
-			} else {
-				if hostIp[len(hostIp)-1] == esxInfo["ip"] {
-					esxHostName = esxInfo["vmName"]
-				}
+			fmt.Println(hostIp[len(hostIp)-1])
+			fmt.Println(esxInfo["ip"])
+			if hostIp[len(hostIp)-1] == esxInfo["ip"] {
+				esxHostName := esxInfo["vmName"]
+				powerOffHostsList = append(powerOffHostsList, esxHostName)
+				err = vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, esxHostName, false)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = waitForHostToBeDown(esxInfo["ip"])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
-			powerOffHostsList = append(powerOffHostsList, esxHostName)
-			err = vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, esxHostName, false)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitForHostToBeDown(esxInfo["ip"])
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		}
 	}
 	return powerOffHostsList

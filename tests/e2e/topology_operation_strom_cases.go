@@ -209,7 +209,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		ginkgo.By("Bring down few esxi hosts that belongs to zone3")
 		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, topologyClusterList[2])
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
-			(len(hostsInCluster) - 2), false)
+			(len(hostsInCluster) - 2))
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off in zone3")
 			for i := 0; i < len(powerOffHostsList); i++ {
@@ -270,7 +270,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		hostsInCluster = getHostsByClusterName(ctx, clusterComputeResource, topologyClusterList[1])
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
-			(len(hostsInCluster) - 2), false)
+			(len(hostsInCluster) - 2))
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off in zone2")
 			for i := 0; i < len(powerOffHostsList); i++ {
@@ -446,7 +446,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		ginkgo.By("Bring down all ESXi hosts that belongs to zone2")
 		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, topologyClusterList[1])
 		powerOffHostsList = powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
-			len(hostsInCluster), false)
+			len(hostsInCluster))
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off in zone2")
 			for i := 0; i < len(powerOffHostsList); i++ {
