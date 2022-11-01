@@ -262,6 +262,7 @@ spec:
             - "--leader-election-lease-duration=120s"
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
+            - "--worker-threads=25"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
