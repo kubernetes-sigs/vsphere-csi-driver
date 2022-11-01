@@ -57,6 +57,8 @@ type OperationDetails struct {
 	TaskInvocationTimestamp metav1.Time `json:"taskInvocationTimestamp"`
 	// TaskID stores the task for an operation that was invoked on CNS for a volume.
 	TaskID string `json:"taskId"`
+	// vCenter server on which the task is created
+	VCenterServer string `json:"vCenterServer,omitempty"`
 	// OpID stores the OpID for a task that was invoked on CNS for a volume.
 	OpID string `json:"opId,omitempty"`
 	// TaskStatus describes the current status of the task invoked on CNS.

@@ -239,7 +239,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			return err
 		}
 		metadataSyncer.host = vCenter.Config.Host
-		metadataSyncer.volumeManager = volumes.GetManager(ctx, vCenter, nil, false, false)
+		metadataSyncer.volumeManager = volumes.GetManager(ctx, vCenter, nil, false, false, false)
 		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSISVFeatureStateReplication) {
 			svParams, ok := COInitParams.(k8sorchestrator.K8sSupervisorInitParams)
 			if !ok {
@@ -264,19 +264,24 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				return err
 			}
 			metadataSyncer.host = vCenter.Config.Host
-			metadataSyncer.volumeManager = volumes.GetManager(ctx, vCenter, nil, false, false)
+			metadataSyncer.volumeManager = volumes.GetManager(ctx, vCenter, nil, false, false, false)
 		} else {
 			vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, configInfo.Cfg)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err: %v", err)
 			}
 			metadataSyncer.volumeManagers = make(map[string]volumes.Manager)
+			var multivCenterTopologyDeployment bool
+			if len(vcconfigs) > 1 {
+				multivCenterTopologyDeployment = true
+			}
 			for _, vcconfig := range vcconfigs {
 				vCenter, err := cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
 				if err != nil {
 					return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, err: %v", vcconfig.Host, err)
 				}
-				metadataSyncer.volumeManagers[vcconfig.Host] = volumes.GetManager(ctx, vCenter, nil, false, true)
+				metadataSyncer.volumeManagers[vcconfig.Host] = volumes.GetManager(ctx, vCenter, nil,
+					false, true, multivCenterTopologyDeployment)
 			}
 			// If it is a multi VC deployment, initialize volumeInfoService
 			if len(vcconfigs) > 1 && volumeInfoService == nil {
@@ -901,7 +906,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 				vcenter.Config = newVCConfig
 			}
 			metadataSyncer.volumeManager.ResetManager(ctx, vcenter)
-			metadataSyncer.volumeManager = volumes.GetManager(ctx, vcenter, nil, false, false)
+			metadataSyncer.volumeManager = volumes.GetManager(ctx, vcenter, nil, false, false, false)
 			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 				storagepool.ResetVC(ctx, vcenter)
 			}

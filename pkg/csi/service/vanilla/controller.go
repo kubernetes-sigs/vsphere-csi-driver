@@ -136,7 +136,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		c.manager = &common.Manager{
 			VcenterConfig:  vcenterconfig,
 			CnsConfig:      config,
-			VolumeManager:  cnsvolume.GetManager(ctx, vcenter, operationStore, true, false),
+			VolumeManager:  cnsvolume.GetManager(ctx, vcenter, operationStore, true, false, false),
 			VcenterManager: vcManager,
 		}
 		vc, err := common.GetVCenter(ctx, c.manager)
@@ -209,6 +209,10 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err=%v", err)
 		}
+		var multivCenterTopologyDeployment bool
+		if len(vcenterconfigs) > 1 {
+			multivCenterTopologyDeployment = true
+		}
 		for _, vcenterconfig := range vcenterconfigs {
 			vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
 			if err != nil {
@@ -217,7 +221,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			}
 			c.managers.VcenterConfigs[vcenterconfig.Host] = vcenterconfig
 			c.managers.VolumeManagers[vcenterconfig.Host] = cnsvolume.GetManager(ctx, vcenter, operationStore,
-				true, true)
+				true, true, multivCenterTopologyDeployment)
 		}
 		vCenters, err := common.GetVCenters(ctx, c.managers)
 		if err != nil {
@@ -424,7 +428,8 @@ func (c *controller) ReloadConfiguration() error {
 
 		c.manager.VolumeManager.ResetManager(ctx, vcenter)
 		c.manager.VcenterConfig = newVCConfig
-		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore, true, false)
+		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore, true,
+			false, false)
 		// Re-Initialize Node Manager to cache latest vCenter config.
 		useNodeUuid := false
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {

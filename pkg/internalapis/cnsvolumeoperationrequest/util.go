@@ -50,6 +50,7 @@ type VolumeOperationRequestDetails struct {
 type OperationDetails struct {
 	TaskInvocationTimestamp metav1.Time
 	TaskID                  string
+	VCenterServer           string
 	OpID                    string
 	TaskStatus              string
 	Error                   string
@@ -58,7 +59,8 @@ type OperationDetails struct {
 // CreateVolumeOperationRequestDetails returns an object of type
 // VolumeOperationRequestDetails from the input parameters.
 func CreateVolumeOperationRequestDetails(name, volumeID, snapshotID string, capacity int64,
-	taskInvocationTimestamp metav1.Time, taskID, opID, taskStatus, error string) *VolumeOperationRequestDetails {
+	taskInvocationTimestamp metav1.Time, taskID, vCenterServer, opID,
+	taskStatus, error string) *VolumeOperationRequestDetails {
 	return &VolumeOperationRequestDetails{
 		Name:       name,
 		VolumeID:   volumeID,
@@ -67,6 +69,7 @@ func CreateVolumeOperationRequestDetails(name, volumeID, snapshotID string, capa
 		OperationDetails: &OperationDetails{
 			TaskInvocationTimestamp: taskInvocationTimestamp,
 			TaskID:                  taskID,
+			VCenterServer:           vCenterServer,
 			OpID:                    opID,
 			TaskStatus:              taskStatus,
 			Error:                   error,
