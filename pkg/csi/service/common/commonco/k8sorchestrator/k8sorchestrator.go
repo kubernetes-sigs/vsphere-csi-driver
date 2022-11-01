@@ -261,7 +261,7 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 			k8sOrchestratorInstance.clusterFlavor = controllerClusterFlavor
 			k8sOrchestratorInstance.k8sClient = k8sClient
 			k8sOrchestratorInstance.snapshotterClient = snapshotterClient
-			k8sOrchestratorInstance.informerManager = k8s.NewInformer(k8sClient)
+			k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, true)
 			coInstanceErr = initFSS(ctx, k8sClient, controllerClusterFlavor, params)
 			if coInstanceErr != nil {
 				log.Errorf("Failed to initialize the orchestrator. Error: %v", coInstanceErr)

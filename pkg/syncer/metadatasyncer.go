@@ -388,7 +388,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 
 	// Set up kubernetes resource listeners for metadata syncer.
-	metadataSyncer.k8sInformerManager = k8s.NewInformer(k8sClient)
+	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sClient, true)
 	metadataSyncer.k8sInformerManager.AddPVCListener(
 		nil, // Add.
 		func(oldObj interface{}, newObj interface{}) { // Update.

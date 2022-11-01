@@ -206,7 +206,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	// Here we should use a faked client to avoid test inteference with running
 	// metadata syncer pod in real Kubernetes cluster.
 	k8sclient = testclient.NewSimpleClientset()
-	metadataSyncer.k8sInformerManager = k8s.NewInformer(k8sclient)
+	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sclient, true)
 	metadataSyncer.k8sInformerManager.GetPodLister()
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
 	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()

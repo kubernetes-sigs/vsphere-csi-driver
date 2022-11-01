@@ -123,7 +123,7 @@ func StartSvFSSReplicationService(ctx context.Context, svFeatureStatConfigMapNam
 	}
 
 	// Create k8s Informer and watch on configmaps and namespaces.
-	informer := k8s.NewInformer(k8sClient)
+	informer := k8s.NewInformer(ctx, k8sClient, true)
 	// Configmap informer to watch on SV featurestate config-map.
 	informer.AddConfigMapListener(ctx, k8sClient, svFeatureStateConfigMapNamespace,
 		// Add.
