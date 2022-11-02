@@ -271,7 +271,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: csi-resizer
-          image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.5.0_vmware.1
+          image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.6.0_vmware.1
           imagePullPolicy: IfNotPresent
           args:
             - --v=4
