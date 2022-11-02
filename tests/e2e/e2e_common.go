@@ -277,6 +277,8 @@ var (
 	preferredTagDesc                      = "preferred datastore tag"
 	nfsStoragePolicyName                  = "NFS_STORAGE_POLICY_NAME"
 	nfstoragePolicyDatastoreUrl           = "NFS_STORAGE_POLICY_DATASTORE_URL"
+	workerClusterMap                      = "WORKER_CLUSTER_MAP"
+	datastoreClusterMap                   = "DATASTORE_CLUSTER_MAP"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.
