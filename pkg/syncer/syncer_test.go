@@ -906,7 +906,7 @@ func TestGetVCForTopologySegments(t *testing.T) {
 	tests := []struct {
 		name                      string
 		topologyVCMap             map[string]map[string]struct{}
-		requestedTopologySegments map[string]string
+		requestedTopologySegments map[string][]string
 		expectedVC                string
 		expectingErr              bool
 	}{
@@ -917,9 +917,9 @@ func TestGetVCForTopologySegments(t *testing.T) {
 				"zone-1":   {"10.100.100.0": {}},
 				"zone-2":   {"10.100.100.1": {}},
 			},
-			requestedTopologySegments: map[string]string{
-				"topology.csi.vmware.com/region": "region-1",
-				"topology.csi.vmware.com/zone":   "zone-2",
+			requestedTopologySegments: map[string][]string{
+				"topology.csi.vmware.com/region": {"region-1"},
+				"topology.csi.vmware.com/zone":   {"zone-2"},
 			},
 			expectedVC:   "10.100.100.1",
 			expectingErr: false,
@@ -931,9 +931,9 @@ func TestGetVCForTopologySegments(t *testing.T) {
 				"zone-1":   {"10.100.100.0": {}},
 				"zone-2":   {"10.100.100.1": {}},
 			},
-			requestedTopologySegments: map[string]string{
-				"topology.csi.vmware.com/region": "region-1",
-				"topology.csi.vmware.com/zone":   "zone-3",
+			requestedTopologySegments: map[string][]string{
+				"topology.csi.vmware.com/region": {"region-1"},
+				"topology.csi.vmware.com/zone":   {"zone-3"},
 			},
 			expectedVC:   "",
 			expectingErr: true,
@@ -945,9 +945,9 @@ func TestGetVCForTopologySegments(t *testing.T) {
 				"zone-1":   {"10.100.100.0": {}, "10.100.100.1": {}},
 				"zone-2":   {"10.100.100.1": {}},
 			},
-			requestedTopologySegments: map[string]string{
-				"topology.csi.vmware.com/region": "region-1",
-				"topology.csi.vmware.com/zone":   "zone-1",
+			requestedTopologySegments: map[string][]string{
+				"topology.csi.vmware.com/region": {"region-1"},
+				"topology.csi.vmware.com/zone":   {"zone-1"},
 			},
 			expectedVC:   "",
 			expectingErr: true,
@@ -959,9 +959,9 @@ func TestGetVCForTopologySegments(t *testing.T) {
 				"region-2": {"10.100.100.1": {}},
 				"zone-1":   {"10.100.100.0": {}, "10.100.100.1": {}},
 			},
-			requestedTopologySegments: map[string]string{
-				"topology.csi.vmware.com/region": "region-2",
-				"topology.csi.vmware.com/zone":   "zone-1",
+			requestedTopologySegments: map[string][]string{
+				"topology.csi.vmware.com/region": {"region-2"},
+				"topology.csi.vmware.com/zone":   {"zone-1"},
 			},
 			expectedVC:   "10.100.100.1",
 			expectingErr: false,
@@ -976,12 +976,27 @@ func TestGetVCForTopologySegments(t *testing.T) {
 				"city-1":   {"10.100.100.0": {}},
 				"city-2":   {"10.100.100.1": {}},
 			},
-			requestedTopologySegments: map[string]string{
-				"topology.csi.vmware.com/region": "region-2",
-				"topology.csi.vmware.com/zone":   "zone-2",
-				"topology.csi.vmware.com/city":   "city-2",
+			requestedTopologySegments: map[string][]string{
+				"topology.csi.vmware.com/region": {"region-2"},
+				"topology.csi.vmware.com/zone":   {"zone-2"},
+				"topology.csi.vmware.com/city":   {"city-2"},
 			},
 			expectedVC:   "10.100.100.1",
+			expectingErr: false,
+		},
+		{
+			name: "Multiple values for same topology key",
+			topologyVCMap: map[string]map[string]struct{}{
+				"region-1": {"10.100.100.0": {}},
+				"region-2": {"10.100.100.0": {}},
+				"zone-1":   {"10.100.100.0": {}},
+				"zone-2":   {"10.100.100.1": {}},
+			},
+			requestedTopologySegments: map[string][]string{
+				"topology.csi.vmware.com/region": {"region-1", "region-2"},
+				"topology.csi.vmware.com/zone":   {"zone-1"},
+			},
+			expectedVC:   "10.100.100.0",
 			expectingErr: false,
 		},
 	}
