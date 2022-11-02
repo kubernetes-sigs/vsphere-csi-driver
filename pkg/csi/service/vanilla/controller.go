@@ -35,6 +35,7 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
@@ -626,8 +627,13 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 
 	volumeOperationDetails, err := operationStore.GetRequestDetails(ctx, req.Name)
 	if err != nil {
-		log.Debugf("CreateVolume task details for volume %s are not found, %+v",
-			req.Name, err)
+		if apierrors.IsNotFound(err) {
+			log.Debugf("CreateVolume task details for block volume %s are not found.", req.Name)
+		} else {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"Error occurred while getting CreateVolume task details for block volume %s, err: %+v",
+				req.Name, err)
+		}
 	} else if volumeOperationDetails.OperationDetails != nil {
 		if volumeOperationDetails.OperationDetails.TaskStatus ==
 			cnsvolumeoperationrequest.TaskInvocationStatusSuccess &&
@@ -926,39 +932,118 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			"parsing storage class parameters failed with error: %+v", err)
 	}
 
-	var createVolumeSpec = common.CreateVolumeSpec{
-		CapacityMB: volSizeMB,
-		Name:       req.Name,
-		ScParams:   scParams,
-		VolumeType: common.FileVolumeType,
+	// Check if vCenter task for this volume is already registered as part of
+	// improved idempotency CR
+	log.Debugf("Checking if vCenter task for file volume %s is already registered.", req.Name)
+	var (
+		volTaskAlreadyRegistered bool
+		faultType                string
+		volumeID                 string
+	)
+	// Get operation store
+	operationStore := c.manager.VolumeManager.GetOperationStore()
+	if operationStore == nil {
+		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+			"Operation store cannot be nil")
 	}
-	var volumeID string
-	var faultType string
-	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
-		fsEnabledClusterToDsInfoMap := c.authMgr.GetFsEnabledClusterToDsMap(ctx)
+	volumeOperationDetails, err := operationStore.GetRequestDetails(ctx, req.Name)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Debugf("CreateVolume task details for file volume %s are not found.", req.Name)
+		} else {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"Error occurred while getting CreateVolume task details for file volume %s, err: %+v",
+				req.Name, err)
+		}
+	} else if volumeOperationDetails.OperationDetails != nil {
+		if volumeOperationDetails.OperationDetails.TaskStatus ==
+			cnsvolumeoperationrequest.TaskInvocationStatusSuccess &&
+			volumeOperationDetails.VolumeID != "" {
+			// If task status is successful for this volume, then it means that volume is
+			// already created and there is no need to create it again.
+			log.Infof("File volume with name %q and id %q is already created on CNS with opId: %q.",
+				req.Name, volumeOperationDetails.VolumeID, volumeOperationDetails.OperationDetails.OpID)
 
-		var filteredDatastores []*cnsvsphere.DatastoreInfo
-		for _, datastores := range fsEnabledClusterToDsInfoMap {
-			filteredDatastores = append(filteredDatastores, datastores...)
+			volumeID = volumeOperationDetails.VolumeID
+			volTaskAlreadyRegistered = true
+		} else if volumeOperationDetails.OperationDetails.TaskStatus ==
+			cnsvolumeoperationrequest.TaskInvocationStatusInProgress &&
+			volumeOperationDetails.OperationDetails.TaskID != "" {
+			var (
+				volumeInfo *cnsvolume.CnsVolumeInfo
+				vcenter    *cnsvsphere.VirtualCenter
+			)
+			// Get VirtualCenter instance
+			vcenter, err = c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get vCenter. Err: %v", err)
+			}
+			// If task is created in CNS for this volume but task is in progress, then
+			// we need to monitor the task to check if volume creation is completed or not.
+			log.Infof("File volume with name %s has CreateVolume task %s pending on CNS.",
+				req.Name, volumeOperationDetails.OperationDetails.TaskID)
+			taskMoRef := types.ManagedObjectReference{
+				Type:  "Task",
+				Value: volumeOperationDetails.OperationDetails.TaskID,
+			}
+			task := object.NewTask(vcenter.Client.Client, taskMoRef)
+
+			volumeInfo, faultType, err = c.manager.VolumeManager.MonitorCreateVolumeTask(ctx,
+				&volumeOperationDetails, task, req.Name, c.manager.CnsConfig.Global.ClusterID)
+			if err != nil {
+				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to monitor task for file volume %s. Error: %+v", req.Name, err)
+			}
+			// Persist the operation details.
+			if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
+				volumeOperationDetails.OperationDetails.TaskStatus !=
+					cnsvolumeoperationrequest.TaskInvocationStatusInProgress {
+				err := operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+				if err != nil {
+					log.Warnf("failed to store CreateVolume details with error: %v", err)
+				}
+			}
+
+			volumeID = volumeInfo.VolumeID.Id
+			volTaskAlreadyRegistered = true
+		}
+	}
+
+	if !volTaskAlreadyRegistered {
+		var createVolumeSpec = common.CreateVolumeSpec{
+			CapacityMB: volSizeMB,
+			Name:       req.Name,
+			ScParams:   scParams,
+			VolumeType: common.FileVolumeType,
 		}
 
-		if len(filteredDatastores) == 0 {
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-				"no datastores found to create file volume")
-		}
-		volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
-			c.manager, &createVolumeSpec, filteredDatastores, filterSuspendedDatastores, false)
-		if err != nil {
-			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to create volume. Error: %+v", err)
-		}
-	} else {
-		volumeID, faultType, err = common.CreateFileVolumeUtilOld(ctx, cnstypes.CnsClusterFlavorVanilla,
-			c.manager, &createVolumeSpec, filterSuspendedDatastores, false)
-		if err != nil {
-			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to create volume. Error: %+v", err)
+		filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+			fsEnabledClusterToDsInfoMap := c.authMgr.GetFsEnabledClusterToDsMap(ctx)
+
+			var filteredDatastores []*cnsvsphere.DatastoreInfo
+			for _, datastores := range fsEnabledClusterToDsInfoMap {
+				filteredDatastores = append(filteredDatastores, datastores...)
+			}
+
+			if len(filteredDatastores) == 0 {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+					"no datastores found to create file volume")
+			}
+			volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
+				c.manager, &createVolumeSpec, filteredDatastores, filterSuspendedDatastores, false)
+			if err != nil {
+				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to create volume. Error: %+v", err)
+			}
+		} else {
+			volumeID, faultType, err = common.CreateFileVolumeUtilOld(ctx, cnstypes.CnsClusterFlavorVanilla,
+				c.manager, &createVolumeSpec, filterSuspendedDatastores, false)
+			if err != nil {
+				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to create volume. Error: %+v", err)
+			}
 		}
 	}
 
