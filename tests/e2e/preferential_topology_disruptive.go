@@ -68,6 +68,8 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		leafNodeTag1                   int
 		workerInitialAlias             []string
 		dsNameToPerformNimbusOps       []string
+		csiReplicas                    int32
+		csiNamespace                   string
 	)
 	ginkgo.BeforeEach(func() {
 		var cancel context.CancelFunc
@@ -146,6 +148,15 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 			topologyLength, leafNode, leafNodeTag0)
 		allowedTopologyForRack2 = getTopologySelector(topologyAffinityDetails, topologyCategories,
 			topologyLength, leafNode, leafNodeTag1)
+
+		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
+			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicas = *csiDeployment.Spec.Replicas
+		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+
+		//set preferred datatsore time interval
+		setPreferredDatastoreTimeInterval(client, ctx, csiNamespace, namespace, csiReplicas)
 
 	})
 
@@ -319,7 +330,7 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 
 		ginkgo.By("Bring down few esxi hosts in rack-2(cluster-2)")
 		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, clusters[1])
-		powerOffHostsList := powerOffEsxiHostByCluster(ctx, &e2eVSphere, clusters[1], (len(hostsInCluster) - 1), true)
+		powerOffHostsList := powerOffEsxiHostByCluster(ctx, &e2eVSphere, clusters[1], (len(hostsInCluster) - 1))
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off")
 			for i := 0; i < len(powerOffHostsList); i++ {

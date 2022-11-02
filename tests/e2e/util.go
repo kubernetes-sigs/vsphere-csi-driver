@@ -5597,6 +5597,7 @@ func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object
 		framework.Logf("Cluster name is either wrong or empty, returning nil hosts")
 		return nil
 	}
+	var hosts []*object.HostSystem
 	for _, cluster := range clusterComputeResource {
 		if strings.Contains(computeCluster, cluster.Name()) {
 			hosts, err = cluster.Hosts(ctx)
@@ -5634,8 +5635,6 @@ func powerOffEsxiHostByCluster(ctx context.Context, vs *vSphere, clusterName str
 		for _, esxInfo := range tbinfo.esxHosts {
 			host := hostsInCluster[i].Common.InventoryPath
 			hostIp := strings.Split(host, "/")
-			fmt.Println(hostIp[len(hostIp)-1])
-			fmt.Println(esxInfo["ip"])
 			if hostIp[len(hostIp)-1] == esxInfo["ip"] {
 				esxHostName := esxInfo["vmName"]
 				powerOffHostsList = append(powerOffHostsList, esxHostName)

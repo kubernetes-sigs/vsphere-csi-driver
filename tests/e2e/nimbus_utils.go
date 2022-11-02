@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/onsi/gomega"
@@ -41,7 +42,7 @@ var tbinfo TestbedBasicInfo
 
 // vMPowerMgmt power on/off given nimbus VMs (space separated list)
 func vMPowerMgmt(user string, location string, podname string, hostList string, shouldBePoweredOn bool) error {
-	//var err error
+	var err error
 	op := "off"
 	if shouldBePoweredOn {
 		op = "on"
@@ -49,33 +50,34 @@ func vMPowerMgmt(user string, location string, podname string, hostList string, 
 	nimbusCmd := fmt.Sprintf("USER=%s /mts/git/bin/nimbus-ctl --nimbusLocation %s --nimbus %s %s %s", user,
 		location, podname, op, hostList)
 	framework.Logf("Running command: %s", nimbusCmd)
-	// cmd := exec.Command("/bin/bash", "-c", nimbusCmd)
-	// err = cmd.Start()
-	// if err != nil {
-	// 	return err
-	// }
-	// err = cmd.Wait()
+	cmd := exec.Command("/bin/bash", "-c", nimbusCmd)
+	err = cmd.Start()
+	if err != nil {
+		return err
+	}
+	err = cmd.Wait()
 
-	// framework.Logf("stdout:\n%v\nstderr:\n%v\n", cmd.Stdout, cmd.Stderr)
-	// return err
-	return nil
+	framework.Logf("stdout:\n%v\nstderr:\n%v\n", cmd.Stdout, cmd.Stderr)
+	return err
 }
 
+/*
+datastoreNimbusOps method is used to perform datatsore nimbus operations
+*/
 func datastoreNimbusOps(user string, location string, podname string, vmName string, op string) error {
-	//var err error
+	var err error
 	nimbusCmd := fmt.Sprintf("USER=%s /mts/git/bin/nimbus-ctl --nimbusLocation %s --nimbus %s %s %s", user,
 		location, podname, op, vmName)
 	framework.Logf("Running command: %s", nimbusCmd)
-	// cmd := exec.Command("/bin/bash", "-c", nimbusCmd)
-	// err = cmd.Start()
-	// if err != nil {
-	// 	return err
-	// }
-	// err = cmd.Wait()
+	cmd := exec.Command("/bin/bash", "-c", nimbusCmd)
+	err = cmd.Start()
+	if err != nil {
+		return err
+	}
+	err = cmd.Wait()
 
-	// framework.Logf("stdout:\n%v\nstderr:\n%v\n", cmd.Stdout, cmd.Stderr)
-	// return err
-	return nil
+	framework.Logf("stdout:\n%v\nstderr:\n%v\n", cmd.Stdout, cmd.Stderr)
+	return err
 }
 
 // readVcEsxIpsViaTestbedInfoJson read basic testbed info from the json file

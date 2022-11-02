@@ -651,7 +651,6 @@ func preferredDatastoreInMaintenanceMode(masterIp string, dataCenter []*object.D
 				putDatastoreInMMmodeCmd, masterIp, err)
 		}
 	}
-
 	return nil
 }
 
