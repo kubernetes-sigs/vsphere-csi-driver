@@ -827,6 +827,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		//Add a check to validate CnsVolumeMetadata crd
 		verifyCRDInSupervisorWithWait(ctx, f, pvcNameInSV, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
 
+		bootstrap(true)
 		// Verify using CNS Query API if VolumeID retrieved from PV is present.
 		framework.Logf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", fcdIDInCNS)
 		queryResult, err = e2eVSphere.queryCNSVolumeWithResult(fcdIDInCNS)

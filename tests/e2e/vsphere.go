@@ -64,6 +64,7 @@ const (
 func (vs *vSphere) queryCNSVolumeWithResult(fcdID string) (*cnstypes.CnsQueryResult, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	bootstrap()
 	// Connect to VC
 	connect(ctx, vs)
 	var volumeIds []cnstypes.CnsVolumeId
