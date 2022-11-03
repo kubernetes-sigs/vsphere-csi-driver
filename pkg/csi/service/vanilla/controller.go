@@ -92,8 +92,8 @@ var (
 	multivCenterCSITopologyEnabled bool
 
 	// variables for list volumes
-	volIDsInK8s                             = make([]string, 0)
-	cnsQueryResult *cnstypes.CnsQueryResult = nil
+	volIDsInK8s             = make([]string, 0)
+	CNSVolumesforListVolume = make([]cnstypes.CnsVolume, 0)
 )
 
 // New creates a CNS controller.
@@ -1639,7 +1639,6 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	}
 
 	listVolumesInternal := func() (*csi.ListVolumesResponse, string, error) {
-		var cnsVolumes []cnstypes.CnsVolume
 		log.Debugf("ListVolumes: called with args %+v", *req)
 
 		startingToken := 0
@@ -1655,7 +1654,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		// Step 1: Get all the volume IDs of PVs, from K8s cluster
 		// If startingToken is 0, then listVolume request is a new one and not part of a previous request.
 		// Therefore, fetch all the volumes from K8s and CNS.
-		if startingToken == 0 || cnsQueryResult == nil {
+		if startingToken == 0 || len(CNSVolumesforListVolume) == 0 {
 			volIDsInK8s = commonco.ContainerOrchestratorUtility.GetAllK8sVolumes()
 			log.Debugf("Number of Volume IDs of PVs from K8s cluster %v, list of volumes %v", len(volIDsInK8s),
 				volIDsInK8s)
@@ -1671,8 +1670,9 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			}
 			// For multi-VC configuration, query volumes from all vCenters
 			if multivCenterCSITopologyEnabled {
+				var cnsVolumes = make([]cnstypes.CnsVolume, 0)
 				for vcHost, volumeManager := range c.managers.VolumeManagers {
-					cnsQueryResult, err = volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+					cnsQueryResult, err := volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 					if err != nil {
 						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 							"queryVolume failed on Cluster ID %q for vCenter %s with err = %+v ",
@@ -1680,28 +1680,29 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 					}
 					cnsVolumes = append(cnsVolumes, cnsQueryResult.Volumes...)
 				}
+				CNSVolumesforListVolume = cnsVolumes
 			} else {
-				cnsQueryResult, err = c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+				cnsQueryResult, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"queryVolume failed on Cluster ID %q with err = %+v ", cfg.Global.ClusterID, err)
 				}
-				cnsVolumes = cnsQueryResult.Volumes
+				CNSVolumesforListVolume = cnsQueryResult.Volumes
 			}
 		}
 
 		// Step 3: If the difference between number of K8s volumes and CNS volumes is greater than threshold,
 		// fail the operation, as it can result in too many attach calls.
-		if len(volIDsInK8s)-len(cnsVolumes) > cfg.Global.ListVolumeThreshold {
+		if len(volIDsInK8s)-len(CNSVolumesforListVolume) > cfg.Global.ListVolumeThreshold {
 			log.Errorf("difference between number of K8s volumes: %d, and CNS volumes: %d, is greater than "+
-				"threshold: %d, and completely out of sync.", len(volIDsInK8s), len(cnsVolumes),
+				"threshold: %d, and completely out of sync.", len(volIDsInK8s), len(CNSVolumesforListVolume),
 				cfg.Global.ListVolumeThreshold)
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 				"difference between number of K8s volumes and CNS volumes is greater than threshold.")
 		}
 
-		if maxEntries > len(cnsVolumes) {
-			maxEntries = len(cnsVolumes)
+		if maxEntries > len(CNSVolumesforListVolume) {
+			maxEntries = len(CNSVolumesforListVolume)
 		}
 		// Step 4: process queryLimit number of items starting from ListVolumeRequest.start_token
 		var allNodeVMs []*cnsvsphere.VirtualMachine
@@ -1716,13 +1717,13 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 
 		nextToken := ""
 		endIndex := maxEntries + startingToken
-		if endIndex > len(cnsVolumes) {
-			endIndex = len(cnsVolumes)
+		if endIndex > len(CNSVolumesforListVolume) {
+			endIndex = len(CNSVolumesforListVolume)
 		}
 		log.Debugf("Starting token: %d, End index: %d, Length of Query volume result: %d, Max entries: %d ",
-			startingToken, endIndex, len(cnsVolumes), maxEntries)
+			startingToken, endIndex, len(CNSVolumesforListVolume), maxEntries)
 		entries, nextToken, volumeType, err = c.processQueryResultsListVolumes(ctx, startingToken, endIndex,
-			cnsVolumes, allNodeVMs)
+			CNSVolumesforListVolume, allNodeVMs)
 		if err != nil {
 			return nil, csifault.CSIInternalFault, fmt.Errorf("error while processing query results for list "+
 				" volumes, err: %v", err)
