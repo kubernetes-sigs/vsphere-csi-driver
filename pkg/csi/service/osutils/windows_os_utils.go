@@ -388,22 +388,23 @@ func (osUtils *OsUtils) ResizeVolume(ctx context.Context, devicePath, volumePath
 		return err
 	}
 	log.Infof("resizing using csi proxy, devicePath %s", devicePath)
-	err = mounter.ResizeVolume(devicePath, reqVolSizeBytes)
-	if err != nil {
-		return fmt.Errorf(
-			"error when resizing filesystem on devicePath %s and volumePath %s, err: %v ", devicePath, volumePath, err)
-	}
+
 	// Check the block size.
 	currentBlockSizeBytes, err := mounter.GetDiskTotalBytes(devicePath)
 	if err != nil {
 		return logger.LogNewErrorCodef(log, codes.Internal,
 			"error when getting size of block volume at path %s: %v", devicePath, err)
 	}
-	// For windows volume size is less than the disk size by some mb. Since Resize is successful
-	// check if disk size was good
-	if currentBlockSizeBytes < reqVolSizeBytes {
-		return logger.LogNewErrorCodef(log, codes.Internal,
-			"requested volume size was %d, but got volume with size %d", reqVolSizeBytes, currentBlockSizeBytes)
+	// For windows volume size is less than the disk size by some mb.
+	if reqVolSizeBytes-currentBlockSizeBytes < 1024*1024 {
+		log.Infof("minimum extent size is 1 MB. Skip resize for volume %s from currentBytes=%d to wantedBytes=%d ",
+			devicePath, currentBlockSizeBytes, reqVolSizeBytes)
+		return nil
+	}
+	err = mounter.ResizeVolume(devicePath, reqVolSizeBytes)
+	if err != nil {
+		return fmt.Errorf(
+			"error when resizing filesystem on devicePath %s and volumePath %s, err: %v ", devicePath, volumePath, err)
 	}
 	return nil
 }
