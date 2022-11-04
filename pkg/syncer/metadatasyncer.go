@@ -1804,9 +1804,12 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 	log := logger.GetLogger(ctx)
 	// Iterate through volumes attached to pod.
 	for _, volume := range pod.Spec.Volumes {
-		var volumeHandle string
-		var metadataList []cnstypes.BaseCnsEntityMetadata
-		var podMetadata *cnstypes.CnsKubernetesEntityMetadata
+		var (
+			volumeHandle string
+			metadataList []cnstypes.BaseCnsEntityMetadata
+			podMetadata  *cnstypes.CnsKubernetesEntityMetadata
+			err          error = nil
+		)
 		if volume.PersistentVolumeClaim != nil {
 			valid, pv, pvc := IsValidVolume(ctx, volume, pod, metadataSyncer)
 			if valid {
@@ -1827,7 +1830,6 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 						clusterIDforVolumeMetadata, nil)
 				}
 				metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
-				var err error
 				if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
 					// In case if feature state switch is enabled after syncer is
 					// deployed, we need to initialize the volumeMigrationService.
@@ -1895,9 +1897,23 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 				continue
 			}
 		}
+
+		// Fetch vCenterHost & volumeManager for given volume, based on VC configuration
+		vcHost, cnsVolumeMgr, err := getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, volumeHandle)
+		if err != nil {
+			log.Errorf("csiUpdatePod: Failed to get VC host and volume manager for the given volume: %v. "+
+				"Error occoured: %+v", volumeHandle, err)
+			return
+		}
+		vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+		if !vcHostObjFound {
+			log.Errorf("csiUpdatePod: failed to find VC host for given volume: %q.", volumeHandle)
+			return
+		}
+
 		containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
-			metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
-			metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
+			vcHostObj.User, metadataSyncer.clusterFlavor,
+			metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 			VolumeId: cnstypes.CnsVolumeId{
 				Id: volumeHandle,
@@ -1911,7 +1927,7 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 
 		log.Debugf("Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v",
 			updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
-		if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
+		if err := cnsVolumeMgr.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
 			log.Errorf("UpdateVolumeMetadata failed for volume %s with err: %v", volume.Name, err)
 		}
 
