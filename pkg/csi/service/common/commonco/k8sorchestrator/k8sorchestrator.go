@@ -72,6 +72,7 @@ var (
 // FSSConfigMapInfo contains details about the FSS configmap(s) present in
 // all flavors.
 type FSSConfigMapInfo struct {
+	featureStatesLock  *sync.RWMutex
 	featureStates      map[string]string
 	configMapName      string
 	configMapNamespace string
@@ -308,6 +309,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 	)
 	// Store configmap info in global variables to access later.
 	if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		k8sOrchestratorInstance.supervisorFSS.featureStatesLock = &sync.RWMutex{}
 		k8sOrchestratorInstance.supervisorFSS.featureStates = make(map[string]string)
 		// Validate init params
 		svInitParams, ok := params.(K8sSupervisorInitParams)
@@ -320,6 +322,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 		serviceMode = svInitParams.ServiceMode
 	}
 	if controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		k8sOrchestratorInstance.internalFSS.featureStatesLock = &sync.RWMutex{}
 		k8sOrchestratorInstance.internalFSS.featureStates = make(map[string]string)
 		// Validate init params.
 		vanillaInitParams, ok := params.(K8sVanillaInitParams)
@@ -332,7 +335,9 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 		serviceMode = vanillaInitParams.ServiceMode
 	}
 	if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		k8sOrchestratorInstance.supervisorFSS.featureStatesLock = &sync.RWMutex{}
 		k8sOrchestratorInstance.supervisorFSS.featureStates = make(map[string]string)
+		k8sOrchestratorInstance.internalFSS.featureStatesLock = &sync.RWMutex{}
 		k8sOrchestratorInstance.internalFSS.featureStates = make(map[string]string)
 		// Validate init params.
 		guestInitParams, ok := params.(K8sGuestInitParams)
@@ -367,16 +372,20 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 				return err
 			}
 			// Update values.
+			k8sOrchestratorInstance.internalFSS.featureStatesLock.Lock()
 			k8sOrchestratorInstance.internalFSS.featureStates = fssConfigMap.Data
 			log.Infof("New internal feature states values stored successfully: %v",
 				k8sOrchestratorInstance.internalFSS.featureStates)
+			k8sOrchestratorInstance.internalFSS.featureStatesLock.Unlock()
 		}
 	}
 
 	if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest && serviceMode != "node" {
 		var isFSSCREnabled bool
 		// Check if csi-sv-feature-states-replication FSS exists and is enabled.
+		k8sOrchestratorInstance.internalFSS.featureStatesLock.RLock()
 		if val, ok := k8sOrchestratorInstance.internalFSS.featureStates[common.CSISVFeatureStateReplication]; ok {
+			k8sOrchestratorInstance.internalFSS.featureStatesLock.RUnlock()
 			isFSSCREnabled, err = strconv.ParseBool(val)
 			if err != nil {
 				log.Errorf("unable to convert %v to bool. csi-sv-feature-states-replication FSS disabled. Error: %v",
@@ -384,6 +393,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 				return err
 			}
 		} else {
+			k8sOrchestratorInstance.internalFSS.featureStatesLock.RUnlock()
 			return logger.LogNewError(log, "csi-sv-feature-states-replication FSS not present")
 		}
 
@@ -426,11 +436,13 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 			} else {
 				setSvFssCRAvailability(true)
 				// Store supervisor FSS values in cache.
+				k8sOrchestratorInstance.supervisorFSS.featureStatesLock.Lock()
 				for _, svFSS := range svFssCR.Spec.FeatureStates {
 					k8sOrchestratorInstance.supervisorFSS.featureStates[svFSS.Name] = strconv.FormatBool(svFSS.Enabled)
 				}
 				log.Infof("New supervisor feature states values stored successfully from %s CR object: %v",
 					featurestates.SVFeatureStateCRName, k8sOrchestratorInstance.supervisorFSS.featureStates)
+				k8sOrchestratorInstance.supervisorFSS.featureStatesLock.Unlock()
 			}
 
 			// Create an informer to watch on the cnscsisvfeaturestate CR.
@@ -499,9 +511,11 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 				return err
 			}
 			// Update values.
+			k8sOrchestratorInstance.supervisorFSS.featureStatesLock.Lock()
 			k8sOrchestratorInstance.supervisorFSS.featureStates = fssConfigMap.Data
 			log.Infof("New supervisor feature states values stored successfully: %v",
 				k8sOrchestratorInstance.supervisorFSS.featureStates)
+			k8sOrchestratorInstance.supervisorFSS.featureStatesLock.Unlock()
 		}
 	}
 	// Set up kubernetes configmap listener for CSI namespace.
@@ -587,15 +601,19 @@ func configMapAdded(obj interface{}) {
 			return
 		}
 		// Update supervisor FSS.
+		k8sOrchestratorInstance.supervisorFSS.featureStatesLock.Lock()
 		k8sOrchestratorInstance.supervisorFSS.featureStates = fssConfigMap.Data
 		log.Infof("configMapAdded: Supervisor feature state values from %q stored successfully: %v",
 			fssConfigMap.Name, k8sOrchestratorInstance.supervisorFSS.featureStates)
+		k8sOrchestratorInstance.supervisorFSS.featureStatesLock.Unlock()
 	} else if fssConfigMap.Name == k8sOrchestratorInstance.internalFSS.configMapName &&
 		fssConfigMap.Namespace == k8sOrchestratorInstance.internalFSS.configMapNamespace {
 		// Update internal FSS.
+		k8sOrchestratorInstance.internalFSS.featureStatesLock.Lock()
 		k8sOrchestratorInstance.internalFSS.featureStates = fssConfigMap.Data
 		log.Infof("configMapAdded: Internal feature state values from %q stored successfully: %v",
 			fssConfigMap.Name, k8sOrchestratorInstance.internalFSS.featureStates)
+		k8sOrchestratorInstance.internalFSS.featureStatesLock.Unlock()
 	}
 }
 
@@ -634,15 +652,19 @@ func configMapUpdated(oldObj, newObj interface{}) {
 			return
 		}
 		// Update supervisor FSS.
+		k8sOrchestratorInstance.supervisorFSS.featureStatesLock.Lock()
 		k8sOrchestratorInstance.supervisorFSS.featureStates = newFssConfigMap.Data
 		log.Warnf("configMapUpdated: Supervisor feature state values from %q stored successfully: %v",
 			newFssConfigMap.Name, k8sOrchestratorInstance.supervisorFSS.featureStates)
+		k8sOrchestratorInstance.supervisorFSS.featureStatesLock.Unlock()
 	} else if newFssConfigMap.Name == k8sOrchestratorInstance.internalFSS.configMapName &&
 		newFssConfigMap.Namespace == k8sOrchestratorInstance.internalFSS.configMapNamespace {
 		// Update internal FSS.
+		k8sOrchestratorInstance.internalFSS.featureStatesLock.Lock()
 		k8sOrchestratorInstance.internalFSS.featureStates = newFssConfigMap.Data
 		log.Warnf("configMapUpdated: Internal feature state values from %q stored successfully: %v",
 			newFssConfigMap.Name, k8sOrchestratorInstance.internalFSS.featureStates)
+		k8sOrchestratorInstance.internalFSS.featureStatesLock.Unlock()
 	}
 }
 
@@ -693,11 +715,13 @@ func fssCRAdded(obj interface{}) {
 		return
 	}
 	setSvFssCRAvailability(true)
+	k8sOrchestratorInstance.supervisorFSS.featureStatesLock.Lock()
 	for _, fss := range svFSSObject.Spec.FeatureStates {
 		k8sOrchestratorInstance.supervisorFSS.featureStates[fss.Name] = strconv.FormatBool(fss.Enabled)
 	}
 	log.Infof("fssCRAdded: New supervisor feature states values stored successfully from %s CR object: %v",
 		featurestates.SVFeatureStateCRName, k8sOrchestratorInstance.supervisorFSS.featureStates)
+	k8sOrchestratorInstance.supervisorFSS.featureStatesLock.Unlock()
 }
 
 // fssCRUpdated updates supervisor feature state switch values from the
@@ -731,11 +755,13 @@ func fssCRUpdated(oldObj, newObj interface{}) {
 		log.Warnf("fssCRUpdated: Ignoring %s CR object with name %q", featurestates.CRDSingular, newSvFSSObject.Name)
 		return
 	}
+	k8sOrchestratorInstance.supervisorFSS.featureStatesLock.Lock()
 	for _, fss := range newSvFSSObject.Spec.FeatureStates {
 		k8sOrchestratorInstance.supervisorFSS.featureStates[fss.Name] = strconv.FormatBool(fss.Enabled)
 	}
 	log.Warnf("fssCRUpdated: New supervisor feature states values stored successfully from %s CR object: %v",
 		featurestates.SVFeatureStateCRName, k8sOrchestratorInstance.supervisorFSS.featureStates)
+	k8sOrchestratorInstance.supervisorFSS.featureStatesLock.Unlock()
 }
 
 // fssCRDeleted crashes the container if the cnscsisvfeaturestate CR object
@@ -942,7 +968,9 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 	)
 	if c.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		// Check internal FSS map.
+		c.internalFSS.featureStatesLock.RLock()
 		if flag, ok := c.internalFSS.featureStates[featureName]; ok {
+			c.internalFSS.featureStatesLock.RUnlock()
 			internalFeatureState, err = strconv.ParseBool(flag)
 			if err != nil {
 				log.Errorf("Error while converting %v feature state value: %v to boolean. "+
@@ -951,12 +979,15 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 			}
 			return internalFeatureState
 		}
+		c.internalFSS.featureStatesLock.RUnlock()
 		log.Debugf("Could not find the %s feature state in ConfigMap %s. "+
 			"Setting the feature state to false", featureName, c.internalFSS.configMapName)
 		return false
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		// Check SV FSS map.
+		c.supervisorFSS.featureStatesLock.RLock()
 		if flag, ok := c.supervisorFSS.featureStates[featureName]; ok {
+			c.supervisorFSS.featureStatesLock.RUnlock()
 			supervisorFeatureState, err = strconv.ParseBool(flag)
 			if err != nil {
 				log.Errorf("Error while converting %v feature state value: %v to boolean. "+
@@ -965,12 +996,15 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 			}
 			return supervisorFeatureState
 		}
+		c.supervisorFSS.featureStatesLock.RUnlock()
 		log.Debugf("Could not find the %s feature state in ConfigMap %s. "+
 			"Setting the feature state to false", featureName, c.supervisorFSS.configMapName)
 		return false
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Check internal FSS map.
+		c.internalFSS.featureStatesLock.RLock()
 		if flag, ok := c.internalFSS.featureStates[featureName]; ok {
+			c.internalFSS.featureStatesLock.RUnlock()
 			internalFeatureState, err := strconv.ParseBool(flag)
 			if err != nil {
 				log.Errorf("Error while converting %v feature state value: %v to boolean. "+
@@ -983,13 +1017,16 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 				return internalFeatureState
 			}
 		} else {
+			c.internalFSS.featureStatesLock.RUnlock()
 			log.Debugf("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false",
 				featureName, c.internalFSS.configMapName)
 			return false
 		}
 		if serviceMode != "node" {
 			// Check SV FSS map.
+			c.supervisorFSS.featureStatesLock.RLock()
 			if flag, ok := c.supervisorFSS.featureStates[featureName]; ok {
+				c.supervisorFSS.featureStatesLock.RUnlock()
 				supervisorFeatureState, err := strconv.ParseBool(flag)
 				if err != nil {
 					log.Errorf("Error while converting %v feature state value: %v to boolean. "+
@@ -1002,6 +1039,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 					return supervisorFeatureState
 				}
 			} else {
+				c.supervisorFSS.featureStatesLock.RUnlock()
 				log.Debugf("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false",
 					featureName, c.supervisorFSS.configMapName)
 				return false

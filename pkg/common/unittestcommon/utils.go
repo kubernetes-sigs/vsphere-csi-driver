@@ -44,6 +44,7 @@ var mapVolumePathToID map[string]map[string]string
 func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCommonInterface, error) {
 	if orchestratorType == common.Kubernetes {
 		fakeCO := &FakeK8SOrchestrator{
+			featureStatesLock: &sync.RWMutex{},
 			featureStates: map[string]string{
 				"volume-extend":                     "true",
 				"volume-health":                     "true",
@@ -65,13 +66,16 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 func (c *FakeK8SOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) bool {
 	var featureState bool
 	var err error
+	c.featureStatesLock.RLock()
 	if flag, ok := c.featureStates[featureName]; ok {
+		c.featureStatesLock.RUnlock()
 		featureState, err = strconv.ParseBool(flag)
 		if err != nil {
 			return false
 		}
 		return featureState
 	}
+	c.featureStatesLock.RUnlock()
 	return false
 }
 
