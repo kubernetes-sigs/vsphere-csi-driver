@@ -1801,13 +1801,9 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		}
 
 		nextToken := ""
-		endIndex := maxEntries + startingToken
-		if endIndex > len(CNSVolumesforListVolume) {
-			endIndex = len(CNSVolumesforListVolume)
-		}
-		log.Debugf("Starting token: %d, End index: %d, Length of Query volume result: %d, Max entries: %d ",
-			startingToken, endIndex, len(CNSVolumesforListVolume), maxEntries)
-		entries, nextToken, volumeType, err = c.processQueryResultsListVolumes(ctx, startingToken, endIndex,
+		log.Debugf("Starting token: %d, Length of Query volume result: %d, Max entries: %d ",
+			startingToken, len(CNSVolumesforListVolume), maxEntries)
+		entries, nextToken, volumeType, err = c.processQueryResultsListVolumes(ctx, startingToken, maxEntries,
 			CNSVolumesforListVolume, allNodeVMs)
 		if err != nil {
 			return nil, csifault.CSIInternalFault, fmt.Errorf("error while processing query results for list "+
@@ -1836,21 +1832,23 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	return listVolResponse, err
 }
 
-func (c *controller) processQueryResultsListVolumes(ctx context.Context, startingToken int, endIndex int,
+func (c *controller) processQueryResultsListVolumes(ctx context.Context, startingToken int, maxEntries int,
 	cnsVolumes []cnstypes.CnsVolume, allNodeVMs []*cnsvsphere.VirtualMachine) ([]*csi.ListVolumesResponse_Entry,
 	string, string, error) {
 
 	volumeType := ""
 	nextToken := ""
+	volCounter := 0
+	nextTokenCounter := 0
 	log := logger.GetLogger(ctx)
 	var entries []*csi.ListVolumesResponse_Entry
 
-	volumeIDToNodeUUIDMap, err := getBlockVolumeToHostMap(ctx, c, allNodeVMs)
+	volumeIDToNodeUUIDMap, err := getBlockVolumeIDToNodeUUIDMap(ctx, c, allNodeVMs)
 	if err != nil {
 		return entries, nextToken, volumeType, err
 	}
 
-	for i := startingToken; i < endIndex; i++ {
+	for i := startingToken; i < len(cnsVolumes); i++ {
 		if cnsVolumes[i].VolumeType == common.FileVolumeType {
 			// If this is multi-VC configuration, then
 			// skip processing query results for file volumes
@@ -1875,6 +1873,7 @@ func (c *controller) processQueryResultsListVolumes(ctx context.Context, startin
 						log.Errorf("Failed to get node vm object from the node name, err:%v", err)
 						return entries, nextToken, volumeType, err
 					}
+					volCounter += 1
 					nodeVMUUID := nodeVMObj.UUID
 
 					// Populate published node
@@ -1891,11 +1890,16 @@ func (c *controller) processQueryResultsListVolumes(ctx context.Context, startin
 					entries = append(entries, entry)
 				}
 			}
+			if volCounter == maxEntries {
+				nextTokenCounter = i + 1
+				break
+			}
 		} else {
 			volumeType = prometheus.PrometheusBlockVolumeType
 			blockVolID := cnsVolumes[i].VolumeId.Id
 			nodeVMUUID, found := volumeIDToNodeUUIDMap[blockVolID]
 			if found {
+				volCounter += 1
 				//Populate csi.Volume info for the given volume
 				blockVolumeInfo := &csi.Volume{
 					VolumeId: blockVolID,
@@ -1910,18 +1914,22 @@ func (c *controller) processQueryResultsListVolumes(ctx context.Context, startin
 				}
 				// Populate List Volumes Entry Response
 				entries = append(entries, entry)
+				if volCounter == maxEntries {
+					nextTokenCounter = i + 1
+					break
+				}
 			}
 		}
 	}
 
-	// if length of queryAll entries > queryLimit, set nextToken to
-	// start_token + queryLimit
-	if len(cnsVolumes) > endIndex {
-		nextTokenInt := endIndex
-		nextToken = strconv.Itoa(nextTokenInt)
+	// if nextTokenCounter = 0, it means all cns volumes were processed(i = len(cnsVolumes)), and
+	// fewer than 'maxEntries' no. of volumes were found. So nextToken is empty.
+	// If nextTokenCounter is not 0 and there are more volumes to process, then set the nextToken
+	if nextTokenCounter != 0 && len(cnsVolumes) > nextTokenCounter {
+		nextToken = strconv.Itoa(nextTokenCounter)
 	}
-	return entries, nextToken, volumeType, nil
 
+	return entries, nextToken, volumeType, nil
 }
 
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (

@@ -145,7 +145,7 @@ func convertCnsVolumeType(ctx context.Context, cnsVolumeType string) string {
 	return volumeType
 }
 
-func getBlockVolumeToHostMap(ctx context.Context, c *controller,
+func getBlockVolumeIDToNodeUUIDMap(ctx context.Context, c *controller,
 	allnodeVMs []*vsphere.VirtualMachine) (map[string]string, error) {
 	var vCenters []*vsphere.VirtualCenter
 	var err error
