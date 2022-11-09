@@ -245,7 +245,7 @@ func (r *ReconcileTriggerCsiFullSync) Reconcile(ctx context.Context,
 	if r.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		fullSyncErr = syncer.PvcsiFullSync(ctx, syncer.MetadataSyncer)
 	} else {
-		fullSyncErr = syncer.CsiFullSync(ctx, syncer.MetadataSyncer)
+		fullSyncErr = syncer.CsiFullSync(ctx, syncer.MetadataSyncer, r.configInfo.Cfg.Global.VCenterIP)
 	}
 	err = r.client.Get(ctx, request.NamespacedName, instance)
 	if err != nil {
