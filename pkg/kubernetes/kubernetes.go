@@ -22,6 +22,7 @@ import (
 	"flag"
 	"net"
 	"os"
+	datamoverv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/datamover/v1alpha1"
 	"strconv"
 	"time"
 
@@ -216,6 +217,12 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 		err = cnsvolumeinfov1alpha1.AddToScheme(scheme)
 		if err != nil {
 			log.Errorf("failed to add CNSVolumeInfo to scheme with error: %+v", err)
+			return nil, err
+		}
+	case datamoverv1alpha1.GroupName:
+		err = datamoverv1alpha1.AddToScheme(scheme)
+		if err != nil {
+			log.Errorf("failed to add Upload/Download to scheme with error: %+v", err)
 			return nil, err
 		}
 	}

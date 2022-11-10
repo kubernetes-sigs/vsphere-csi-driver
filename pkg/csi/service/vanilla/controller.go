@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/datamover"
 	"strconv"
 	"strings"
 	"time"
@@ -83,6 +84,9 @@ type controller struct {
 var (
 	// volumeMigrationService holds the pointer to VolumeMigration instance.
 	volumeMigrationService migration.VolumeMigrationService
+
+	// durableSnapshotService holds the pointer to DurableSnapshot instance.
+	durableSnapshotService datamover.DurableSnapshotService
 
 	// volumeInfoService holds the pointer to VolumeInfo service instance
 	// This will hold mapping for VolumeID to vCenter for multi vCenter CSI topology deployment
@@ -346,6 +350,15 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			} else {
 				log.Infof("vSphere CSI Migration is not supported on the multi vCenter setup")
 			}
+		}
+	}
+
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.DurableSnapshot) {
+		log.Info("Durable Snapshot Feature is Enabled. Durable Snapshot Service")
+		durableSnapshotService, err = datamover.GetDurableSnapshotService(ctx, &c.manager.VolumeManager)
+		if err != nil {
+			log.Errorf("failed to get migration service. Err: %v", err)
+			return err
 		}
 	}
 
@@ -1960,6 +1973,24 @@ func initVolumeMigrationService(ctx context.Context, c *controller) error {
 	return nil
 }
 
+// initDurableSnapshotService is a helper method to initialize
+// durableSnapshotService in controller.
+func initDurableSnapshotService(ctx context.Context, c *controller) error {
+	log := logger.GetLogger(ctx)
+	// This check prevents unnecessary RLocks on the durableSnapshotService instance.
+	if durableSnapshotService != nil {
+		return nil
+	}
+	var err error
+	durableSnapshotService, err = datamover.GetDurableSnapshotService(ctx,
+		&c.manager.VolumeManager)
+	if err != nil {
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get durable snapshot service. Err: %v", err)
+	}
+	return nil
+}
+
 func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (
 	*csi.ControllerGetCapabilitiesResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
@@ -2013,13 +2044,40 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 			"VC version does not support snapshot operations")
 	}
 	volumeType := prometheus.PrometheusUnknownVolumeType
+	durableSnapshot := false
+	var durableSnapshotLocation string
 	createSnapshotInternal := func() (*csi.CreateSnapshotResponse, error) {
 		// Validate CreateSnapshotRequest
 		if err := validateVanillaCreateSnapshotRequestRequest(ctx, req); err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"validation for CreateSnapshot Request: %+v has failed. Error: %v", *req, err)
 		}
+
 		volumeID := req.GetSourceVolumeId()
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.DurableSnapshot) {
+			isExistingRequest, response := durableSnapshotService.IsExistingDurableSnapshotRequest(ctx, req.Name)
+			if isExistingRequest {
+				uploadComplete, err := durableSnapshotService.CheckIfUploadComplete(ctx, req.Name)
+				if err != nil {
+					return nil, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to retrieve upload status: %q. Error: %v", req.Name, err)
+				}
+				if !uploadComplete {
+					return response, nil
+				}
+				response.Snapshot.ReadyToUse = true
+				return response, nil
+			}
+		}
+		for param := range req.Parameters {
+			paramName := strings.ToLower(param)
+			if paramName == common.AttributeDurableSnapshotVolumeSnapshotClass {
+				durableSnapshot = true
+			}
+			if paramName == common.AttributeDurableSnapshotLocation {
+				durableSnapshotLocation = req.Parameters[param]
+			}
+		}
 
 		// Check if the source volume is migrated vSphere volume
 		if strings.Contains(volumeID, ".vmdk") {
@@ -2095,22 +2153,41 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				"failed to create snapshot on volume %q: %v", volumeID, err)
 		}
 		snapshotCreateTimeInProto := timestamppb.New(*snapshotCreateTimePtr)
-
 		createSnapshotResponse := &csi.CreateSnapshotResponse{
 			Snapshot: &csi.Snapshot{
 				SizeBytes:      snapshotSizeInMB * common.MbInBytes,
 				SnapshotId:     snapshotID,
 				SourceVolumeId: volumeID,
 				CreationTime:   snapshotCreateTimeInProto,
-				ReadyToUse:     true,
+				ReadyToUse:     false,
 			},
 		}
+		if durableSnapshot && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.DurableSnapshot) {
+			// Register the snapshot as a Durable Snapshot Request.
+			err = durableSnapshotService.RegisterDurableSnapshotRequest(ctx, req.Name, createSnapshotResponse)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to register the durable snapshot request %q: %v", req.Name, err)
+			}
 
-		log.Infof("CreateSnapshot succeeded for snapshot %s "+
-			"on volume %s size %d Time proto %+v Timestamp %+v Response: %+v",
-			snapshotID, volumeID, snapshotSizeInMB*common.MbInBytes, snapshotCreateTimeInProto,
-			*snapshotCreateTimePtr, createSnapshotResponse)
-		return createSnapshotResponse, nil
+			err = durableSnapshotService.UploadSnapshot(ctx, req.Name, snapshotID, durableSnapshotLocation)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to upload snapshot request %q, snapshot: %q, err: %v", req.Name, snapshotID, err)
+			}
+			log.Infof("Durable CreateSnapshot upload in progress for snapshot %s "+
+				"on volume %s size %d Time proto %+v Timestamp %+v Response: %+v",
+				snapshotID, volumeID, snapshotSizeInMB*common.MbInBytes, snapshotCreateTimeInProto,
+				*snapshotCreateTimePtr, createSnapshotResponse)
+			return createSnapshotResponse, nil
+		} else {
+			createSnapshotResponse.Snapshot.ReadyToUse = true
+			log.Infof("CreateSnapshot succeeded for snapshot %s "+
+				"on volume %s size %d Time proto %+v Timestamp %+v Response: %+v",
+				snapshotID, volumeID, snapshotSizeInMB*common.MbInBytes, snapshotCreateTimeInProto,
+				*snapshotCreateTimePtr, createSnapshotResponse)
+			return createSnapshotResponse, nil
+		}
 	}
 
 	start := time.Now()
@@ -2122,7 +2199,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateSnapshotOpType,
 			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 	} else {
-		log.Infof("Snapshot for volume %q created successfully.", req.GetSourceVolumeId())
+		//log.Infof("Snapshot for volume %q created successfully.", req.GetSourceVolumeId())
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusCreateSnapshotOpType,
 			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}

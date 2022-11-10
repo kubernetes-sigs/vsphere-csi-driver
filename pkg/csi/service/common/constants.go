@@ -355,6 +355,8 @@ const (
 	// BlockVolumeSnapshot is the feature to support CSI Snapshots for block
 	// volume on vSphere CSI driver.
 	BlockVolumeSnapshot = "block-volume-snapshot"
+	// DurableSnapshot is feature flag for Durable Snapshot feature
+	DurableSnapshot = "durable-snapshot"
 	// SiblingReplicaBoundPvcCheck is the feature to check whether a PVC of
 	// a given replica can be placed on a node such that it does not have PVCs
 	// of any of its sibling replicas.
@@ -385,4 +387,8 @@ const (
 	// CSIInternalGeneratedClusterID enables support to generate unique cluster
 	// ID internally if user doesn't provide it in vSphere config secret.
 	CSIInternalGeneratedClusterID = "csi-internal-generated-cluster-id"
+	// AttributeDurableSnapshotVolumeSnapshotClass represents if the VolumeSnapshotClass specifies durable snapshot
+	AttributeDurableSnapshotVolumeSnapshotClass = "durablesnapshot"
+	// AttributeDurableSnapshotLocation represents the location for the durable snapshot
+	AttributeDurableSnapshotLocation = "snapshotlocation"
 )

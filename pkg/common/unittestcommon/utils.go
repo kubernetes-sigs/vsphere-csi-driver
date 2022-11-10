@@ -53,6 +53,7 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"tkgs-ha":                           "true",
 				"list-volumes":                      "true",
 				"csi-internal-generated-cluster-id": "true",
+				"durable-snapshot":                  "true",
 			},
 		}
 		return fakeCO, nil
