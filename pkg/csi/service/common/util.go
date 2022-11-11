@@ -273,10 +273,6 @@ func ParseStorageClassParams(ctx context.Context, params map[string]string,
 					return nil, fmt.Errorf("invalid parameter. key:%v, value:%v", param, value)
 				}
 			}
-		} else {
-			if len(otherParams) != 0 {
-				return nil, fmt.Errorf("invalid parameters :%v", otherParams)
-			}
 		}
 	}
 	return scParams, nil

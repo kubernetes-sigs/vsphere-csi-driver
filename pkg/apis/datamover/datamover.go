@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/datamover/v1alpha1"
 	"strings"
 	"sync"
@@ -19,10 +21,13 @@ import (
 
 type DurableSnapshotService interface {
 	UploadSnapshot(ctx context.Context, snapshotName string, csiSnapshotId string, snapshotLocation string) error
-	DownloadSnapshot(ctx context.Context, csiSnapshotId string) error
-	RegisterDurableSnapshotRequest(ctx context.Context, snapshotName string, response *csi.CreateSnapshotResponse) error
-	IsExistingDurableSnapshotRequest(ctx context.Context, snapshotName string) (bool, *csi.CreateSnapshotResponse)
+	DownloadSnapshot(ctx context.Context, createRequestName string, csiSnapshotId string, volumeId string, snapshotLocation string) error
+	RegisterDurableSnapshotUploadRequest(ctx context.Context, snapshotName string, response *csi.CreateSnapshotResponse) error
+	RegisterDurableSnapshotDownloadRequest(ctx context.Context, createRequestName string, response *csi.CreateVolumeResponse) error
+	IsExistingDurableSnapshotUploadRequest(ctx context.Context, snapshotName string) (bool, *csi.CreateSnapshotResponse)
+	IsExistingDurableSnapshotDownloadRequest(ctx context.Context, createVolumeRequest string) (bool, *csi.CreateVolumeResponse)
 	CheckIfUploadComplete(ctx context.Context, snapshotName string) (bool, error)
+	MonitorDownloadComplete(ctx context.Context, createRequestName string, snapshotId string) (bool, error)
 }
 
 type durableSnapshotter struct {
@@ -30,10 +35,14 @@ type durableSnapshotter struct {
 	k8sClient client.Client
 	// volumeManager helps perform Volume Operations.
 	volumeManager *cnsvolume.Manager
-	// requestResponse holds the snapshot request name ask key and the response as value
-	requestResponse sync.Map
+	// uploadRequestResponse holds the snapshot request name ask key and the response as value
+	uploadRequestResponse sync.Map
+	// downloadRequestResponse holds the mapping of createvolume request to response
+	downloadRequestResponse sync.Map
 	// requestUpload stores the mapping between request and upload name
 	requestUpload sync.Map
+	// requestDownload stores the mapping between request and download name
+	requestDownload sync.Map
 }
 
 const (
@@ -125,21 +134,61 @@ func (durableSnapshotter *durableSnapshotter) UploadSnapshot(ctx context.Context
 	return nil
 }
 
-func (durableSnapshotter *durableSnapshotter) DownloadSnapshot(ctx context.Context, csiSnapshotId string) error {
+func (durableSnapshotter *durableSnapshotter) DownloadSnapshot(ctx context.Context, createRequestName string, csiSnapshotId string, destVolumeId string, snapshotLocation string) error {
+	log := logger.GetLogger(ctx)
+	veleroNs := "velero"
+	sourceVolumeId, sourceSnapshotId, err := ParseCSISnapshotID(csiSnapshotId)
+	if err != nil {
+		return err
+	}
+	downloadName := GenerateDownloadCRName(sourceSnapshotId)
+	downloadSourceSnapshotPEID := GenerateDownloadSnapshotPeId(sourceVolumeId, sourceSnapshotId)
+	downloadDestinationPEID := GenerateDownloadPeId(destVolumeId)
+	log.Infof("Creating Download CR: %s / %s", "velero", downloadName)
+	downloadBuilder := ForDownload(veleroNs, downloadName).
+		RestoreTimestamp(time.Now()).
+		NextRetryTimestamp(time.Now()).
+		SnapshotID(downloadSourceSnapshotPEID).
+		Phase(v1alpha1.DownloadPhaseNew).
+		BackupRepositoryName(snapshotLocation).
+		ProtectedEntityID(downloadDestinationPEID)
+	download := downloadBuilder.Result()
+	err = durableSnapshotter.k8sClient.Create(ctx, download)
+	if err != nil {
+		log.Errorf("Failed to create Download CR : %+v, err: %+v", download, err)
+		return err
+	}
+	durableSnapshotter.requestDownload.Store(createRequestName, downloadName)
 	return nil
 }
 
-func (durableSnapshotter *durableSnapshotter) RegisterDurableSnapshotRequest(ctx context.Context, snapshotName string, response *csi.CreateSnapshotResponse) error {
-	durableSnapshotter.requestResponse.Store(snapshotName, response)
+func (durableSnapshotter *durableSnapshotter) RegisterDurableSnapshotUploadRequest(ctx context.Context, snapshotName string, response *csi.CreateSnapshotResponse) error {
+	durableSnapshotter.uploadRequestResponse.Store(snapshotName, response)
 	return nil
 }
 
-func (durableSnapshotter *durableSnapshotter) IsExistingDurableSnapshotRequest(ctx context.Context, snapshotName string) (bool, *csi.CreateSnapshotResponse) {
+func (durableSnapshotter *durableSnapshotter) RegisterDurableSnapshotDownloadRequest(ctx context.Context, createRequestName string, response *csi.CreateVolumeResponse) error {
+	durableSnapshotter.downloadRequestResponse.Store(createRequestName, response)
+	return nil
+}
+
+func (durableSnapshotter *durableSnapshotter) IsExistingDurableSnapshotUploadRequest(ctx context.Context, snapshotName string) (bool, *csi.CreateSnapshotResponse) {
 	//log := logger.GetLogger(ctx)
-	val, ok := durableSnapshotter.requestResponse.Load(snapshotName)
+	val, ok := durableSnapshotter.uploadRequestResponse.Load(snapshotName)
 	if ok {
 		//log.Infof("Detected existing durable snapshot request: %q", snapshotName)
 		response := val.(*csi.CreateSnapshotResponse)
+		return ok, response
+	}
+	return ok, nil
+}
+
+func (durableSnapshotter *durableSnapshotter) IsExistingDurableSnapshotDownloadRequest(ctx context.Context, createVolumeRequest string) (bool, *csi.CreateVolumeResponse) {
+	log := logger.GetLogger(ctx)
+	val, ok := durableSnapshotter.downloadRequestResponse.Load(createVolumeRequest)
+	if ok {
+		log.Infof("Detected existing durable snapshot download request: %q", createVolumeRequest)
+		response := val.(*csi.CreateVolumeResponse)
 		return ok, response
 	}
 	return ok, nil
@@ -163,6 +212,34 @@ func (durableSnapshotter *durableSnapshotter) CheckIfUploadComplete(ctx context.
 	}
 	log.Infof("Snapshot %q is still uploading..", snapshotName)
 	return false, nil
+}
+
+func (durableSnapshotter *durableSnapshotter) MonitorDownloadComplete(ctx context.Context, createRequestName string, snapshotId string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	val, _ := durableSnapshotter.requestDownload.Load(createRequestName)
+	veleroNs := "velero"
+	downloadName := val.(string)
+
+	err := wait.PollImmediateInfinite(2*time.Second, func() (bool, error) {
+		download := &v1alpha1.Download{}
+		downloadErr := durableSnapshotter.k8sClient.Get(ctx, client.ObjectKey{Name: downloadName, Namespace: veleroNs}, download)
+		if downloadErr != nil {
+			log.Errorf("failed to retrieve download: %q, err: %+v", downloadName, downloadErr)
+			return false, downloadErr
+		}
+		downloadPhase := download.Status.Phase
+		if downloadPhase != v1alpha1.DownloadPhaseCompleted {
+			log.Infof("Snapshot %q is still downloading..", snapshotId)
+			return false, nil
+		}
+		return true, nil
+	})
+	if err != nil {
+		log.Errorf("failed download: %q, err: %+v", downloadName, err)
+		return false, err
+	}
+	log.Infof("Snapshot %q Download is Complete!", snapshotId)
+	return true, nil
 }
 
 func AppendVeleroExcludeLabels(origLabels map[string]string) map[string]string {
@@ -198,6 +275,24 @@ func GenerateUploadCRName(snapshotId string) string {
 	return "upload-" + snapshotId
 }
 
+func GenerateDownloadCRName(snapshotId string) string {
+	log := logger.GetLogger(context.TODO())
+	uuID, err := uuid.NewRandom()
+	if err != nil {
+		log.Errorf("Failed to generate random UUID.")
+		return "download-" + snapshotId + "temp"
+	}
+	return "download-" + snapshotId + uuID.String()
+}
+
 func GenerateUploadSnapshotPeId(volumeId string, snapshotId string) string {
+	return "ivd:" + volumeId + ":" + snapshotId
+}
+
+func GenerateDownloadPeId(volumeId string) string {
+	return "ivd:" + volumeId
+}
+
+func GenerateDownloadSnapshotPeId(volumeId string, snapshotId string) string {
 	return "ivd:" + volumeId + ":" + snapshotId
 }

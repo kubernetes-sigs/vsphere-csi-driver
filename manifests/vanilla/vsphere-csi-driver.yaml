@@ -383,6 +383,8 @@ spec:
             - "--kube-api-burst=100"
             - "--leader-election"
             - "--default-fstype=ext4"
+            - "--extra-create-metadata"
+            - "--timeout=150m"
             # needed only for topology aware setup
             #- "--feature-gates=Topology=true"
             #- "--strict-topology"

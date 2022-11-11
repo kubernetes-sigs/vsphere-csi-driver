@@ -391,4 +391,8 @@ const (
 	AttributeDurableSnapshotVolumeSnapshotClass = "durablesnapshot"
 	// AttributeDurableSnapshotLocation represents the location for the durable snapshot
 	AttributeDurableSnapshotLocation = "snapshotlocation"
+	// AttributePvcKeyName holds the PVC name in the request params
+	AttributePvcKeyName = "csi.storage.k8s.io/pvc/name"
+	// AttributePvcKeyNamespace holds the namespace of PVC
+	AttributePvcKeyNamespace = "csi.storage.k8s.io/pvc/namespace"
 )
