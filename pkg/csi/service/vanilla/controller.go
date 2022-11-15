@@ -93,8 +93,9 @@ var (
 	multivCenterCSITopologyEnabled bool
 
 	// variables for list volumes
-	volIDsInK8s             = make([]string, 0)
-	CNSVolumesforListVolume = make([]cnstypes.CnsVolume, 0)
+	volIDsInK8s               = make([]string, 0)
+	CNSVolumesforListVolume   = make([]cnstypes.CnsVolume, 0)
+	checkCompatibleDataStores = true
 )
 
 // New creates a CNS controller.
@@ -539,7 +540,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				volSizeBytes, snapshotSizeInBytes)
 		}
 	}
-
 	// Fetching the feature state for csi-migration before parsing storage class
 	// params.
 	scParams, err := common.ParseStorageClassParams(ctx, req.Parameters, csiMigrationFeatureState)
@@ -744,9 +744,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					"failed to create volume. Error: %+v", err)
 			}
 		}
-
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
-			c.manager, &createVolumeSpec, sharedDatastores, filterSuspendedDatastores, false)
+			c.manager, &createVolumeSpec, sharedDatastores, filterSuspendedDatastores, false, checkCompatibleDataStores)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create volume. Error: %+v", err)
@@ -1019,32 +1018,26 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		}
 
 		filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
-			fsEnabledClusterToDsInfoMap := c.authMgr.GetFsEnabledClusterToDsMap(ctx)
+		fsEnabledClusterToDsInfoMap := c.authMgr.GetFsEnabledClusterToDsMap(ctx)
 
-			var filteredDatastores []*cnsvsphere.DatastoreInfo
-			for _, datastores := range fsEnabledClusterToDsInfoMap {
-				filteredDatastores = append(filteredDatastores, datastores...)
-			}
-
-			if len(filteredDatastores) == 0 {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-					"no datastores found to create file volume")
-			}
-			volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
-				c.manager, &createVolumeSpec, filteredDatastores, filterSuspendedDatastores, false)
-			if err != nil {
-				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to create volume. Error: %+v", err)
-			}
-		} else {
-			volumeID, faultType, err = common.CreateFileVolumeUtilOld(ctx, cnstypes.CnsClusterFlavorVanilla,
-				c.manager, &createVolumeSpec, filterSuspendedDatastores, false)
-			if err != nil {
-				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to create volume. Error: %+v", err)
-			}
+		var filteredDatastores []*cnsvsphere.DatastoreInfo
+		for _, datastores := range fsEnabledClusterToDsInfoMap {
+			filteredDatastores = append(filteredDatastores, datastores...)
 		}
+
+		if len(filteredDatastores) == 0 {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+				"no datastores found to create file volume")
+		}
+
+		volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
+			c.manager, &createVolumeSpec, filteredDatastores, filterSuspendedDatastores,
+			false, checkCompatibleDataStores)
+		if err != nil {
+			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to create volume. Error: %+v", err)
+		}
+
 	}
 
 	attributes := make(map[string]string)
@@ -1067,6 +1060,10 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	start := time.Now()
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
+	if chkDataStoreCompatibility := req.Parameters["checkCompatibleDatastores"]; chkDataStoreCompatibility == "false" {
+		checkCompatibleDataStores = false
+		delete(req.Parameters, "checkCompatibleDatastores")
+	}
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	createVolumeInternal := func() (
 		*csi.CreateVolumeResponse, string, error) {

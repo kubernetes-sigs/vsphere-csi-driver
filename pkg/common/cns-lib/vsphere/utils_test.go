@@ -32,7 +32,8 @@ func TestFilterSuspendedDatastoresWhenDatastoreIsSuspended(t *testing.T) {
 		},
 	}
 
-	outputDsInfo := FilterSuspendedDatastores(context.TODO(), dsInfo)
+	outputDsInfo, err := FilterSuspendedDatastores(context.TODO(), dsInfo)
+	assert.NotNil(t, err)
 	assert.Equal(t, 0, len(outputDsInfo))
 }
 func TestFilterSuspendedDatastoresWhenDatastoreIsNotSuspended(t *testing.T) {
@@ -55,6 +56,8 @@ func TestFilterSuspendedDatastoresWhenDatastoreIsNotSuspended(t *testing.T) {
 		},
 	}
 
-	outputDsInfo := FilterSuspendedDatastores(context.TODO(), dsInfo)
+	outputDsInfo, err := FilterSuspendedDatastores(context.TODO(), dsInfo)
+	assert.Nil(t, err)
 	assert.Equal(t, 1, len(outputDsInfo))
+
 }

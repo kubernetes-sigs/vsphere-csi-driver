@@ -568,7 +568,7 @@ func IsVolumeCreationSuspended(ctx context.Context, datastoreInfo *DatastoreInfo
 }
 
 // FilterSuspendedDatastores filters out datastores which cns.vmware.com/datastoreSuspended customValue
-func FilterSuspendedDatastores(ctx context.Context, datastoreInfoList []*DatastoreInfo) []*DatastoreInfo {
+func FilterSuspendedDatastores(ctx context.Context, datastoreInfoList []*DatastoreInfo) ([]*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 
 	var filteredList []*DatastoreInfo
@@ -578,6 +578,10 @@ func FilterSuspendedDatastores(ctx context.Context, datastoreInfoList []*Datasto
 		}
 	}
 
+	if len(filteredList) == 0 {
+		return filteredList, logger.LogNewErrorf(log, "No datastores are available after filtering suspended datastores")
+	}
+
 	log.Infof("Updated filtered list of datastores %+v", filteredList)
-	return filteredList
+	return filteredList, nil
 }

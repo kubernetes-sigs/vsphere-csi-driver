@@ -404,7 +404,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 			},
 		},
 	}
-
+	params["checkCompatibleDatastores"] = "false"
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
