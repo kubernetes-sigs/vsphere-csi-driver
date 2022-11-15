@@ -1996,14 +1996,29 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	*csi.CreateSnapshotResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
+	var (
+		vCenterHost    string
+		vCenterManager cnsvsphere.VirtualCenterManager
+		volumeManager  cnsvolume.Manager
+		err            error
+	)
 	log.Infof("CreateSnapshot: called with args %+v", *req)
 
 	isBlockVolumeSnapshotEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	if !isBlockVolumeSnapshotEnabled {
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "createSnapshot")
 	}
-	isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
-		c.manager.VcenterConfig.Host)
+
+	volumeID := req.GetSourceVolumeId()
+	// Fetch vCenterHost, vCenterManager & volumeManager for given snapshot, based on VC configuration
+	vCenterManager = getVCenterManagerForVCenter(ctx, c)
+	vCenterHost, volumeManager, err = getVCenterAndVolumeManagerForVolumeID(ctx, c, volumeID, volumeInfoService)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get vCenter/volume manager for volume Id: %q. Error: %v", volumeID, err)
+	}
+
+	isCnsSnapshotSupported, err := vCenterManager.IsCnsSnapshotSupported(ctx, vCenterHost)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to check if cns snapshot is supported on VC due to error: %v", err)
@@ -2019,7 +2034,6 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"validation for CreateSnapshot Request: %+v has failed. Error: %v", *req, err)
 		}
-		volumeID := req.GetSourceVolumeId()
 
 		// Check if the source volume is migrated vSphere volume
 		if strings.Contains(volumeID, ".vmdk") {
@@ -2029,7 +2043,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		volumeType = prometheus.PrometheusBlockVolumeType
 		// Query capacity in MB and datastore url for block volume snapshot
 		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
-		cnsVolumeDetailsMap, err := utils.QueryVolumeDetailsUtil(ctx, c.manager.VolumeManager, volumeIds)
+		cnsVolumeDetailsMap, err := utils.QueryVolumeDetailsUtil(ctx, volumeManager, volumeIds)
 		if err != nil {
 			return nil, err
 		}
@@ -2072,7 +2086,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		}
 
 		// Check if snapshots number of this volume reaches the limit
-		snapshotList, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, volumeID,
+		snapshotList, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, volumeManager, volumeID,
 			common.QuerySnapshotLimit)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -2089,7 +2103,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// sign. That is, a string of "<UUID>+<UUID>". Because, all other CNS snapshot APIs still require both
 		// VolumeID and SnapshotID as the input, while corresponding snapshot APIs in upstream CSI require SnapshotID.
 		// So, we need to bridge the gap in vSphere CSI driver and return a combined SnapshotID to CSI Snapshotter.
-		snapshotID, snapshotCreateTimePtr, err := common.CreateSnapshotUtil(ctx, c.manager, volumeID, req.Name)
+		snapshotID, snapshotCreateTimePtr, err := common.CreateSnapshotUtil(ctx, volumeManager, volumeID, req.Name)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create snapshot on volume %q: %v", volumeID, err)
@@ -2133,6 +2147,12 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	*csi.DeleteSnapshotResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
+	var (
+		vCenterHost    string
+		vCenterManager cnsvsphere.VirtualCenterManager
+		volumeManager  cnsvolume.Manager
+		err            error
+	)
 	log.Infof("DeleteSnapshot: called with args %+v", *req)
 
 	isBlockVolumeSnapshotEnabled :=
@@ -2141,8 +2161,19 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "deleteSnapshot")
 	}
 
-	isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
-		c.manager.VcenterConfig.Host)
+	volumeID, _, err := common.ParseCSISnapshotID(req.SnapshotId)
+	if err != nil {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, err.Error())
+	}
+	// Fetch vCenterHost, vCenterManager & volumeManager for given snapshot, based on VC configuration
+	vCenterManager = getVCenterManagerForVCenter(ctx, c)
+	vCenterHost, volumeManager, err = getVCenterAndVolumeManagerForVolumeID(ctx, c, volumeID, volumeInfoService)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get vCenter/volume manager for snapshot Id: %q. Error: %v", req.SnapshotId, err)
+	}
+
+	isCnsSnapshotSupported, err := vCenterManager.IsCnsSnapshotSupported(ctx, vCenterHost)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to check if cns snapshot is supported on VC due to error: %v", err)
@@ -2154,7 +2185,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 
 	deleteSnapshotInternal := func() (*csi.DeleteSnapshotResponse, error) {
 		csiSnapshotID := req.GetSnapshotId()
-		err := common.DeleteSnapshotUtil(ctx, c.manager, csiSnapshotID)
+		err := common.DeleteSnapshotUtil(ctx, volumeManager, csiSnapshotID)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"Failed to delete snapshot %q. Error: %+v",
@@ -2180,7 +2211,6 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
 	return resp, err
-
 }
 
 func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (

@@ -1036,12 +1036,12 @@ func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int
 //
 // The returned string is a combination of CNS VolumeID and CNS SnapshotID concatenated by the "+" sign.
 // The returned *time.Time denotes the creation time of snapshot from the storage system, i.e., CNS.
-func CreateSnapshotUtil(ctx context.Context, manager *Manager, volumeID string, snapshotName string) (string,
-	*time.Time, error) {
+func CreateSnapshotUtil(ctx context.Context, volumeManager cnsvolume.Manager, volumeID string,
+	snapshotName string) (string, *time.Time, error) {
 	log := logger.GetLogger(ctx)
 
 	log.Debugf("vSphere CSI driver is creating snapshot with description, %q, on volume: %q", snapshotName, volumeID)
-	cnsSnapshotInfo, err := manager.VolumeManager.CreateSnapshot(ctx, volumeID, snapshotName)
+	cnsSnapshotInfo, err := volumeManager.CreateSnapshot(ctx, volumeID, snapshotName)
 	if err != nil {
 		log.Errorf("failed to create snapshot on volume %q with description %q with error %+v",
 			volumeID, snapshotName, err)
@@ -1056,7 +1056,7 @@ func CreateSnapshotUtil(ctx context.Context, manager *Manager, volumeID string, 
 }
 
 // DeleteSnapshotUtil is the helper function to delete CNS snapshot for given snapshotId
-func DeleteSnapshotUtil(ctx context.Context, manager *Manager, csiSnapshotID string) error {
+func DeleteSnapshotUtil(ctx context.Context, volumeManager cnsvolume.Manager, csiSnapshotID string) error {
 	log := logger.GetLogger(ctx)
 
 	cnsVolumeID, cnsSnapshotID, err := ParseCSISnapshotID(csiSnapshotID)
@@ -1065,7 +1065,7 @@ func DeleteSnapshotUtil(ctx context.Context, manager *Manager, csiSnapshotID str
 	}
 
 	log.Debugf("vSphere CSI driver is deleting snapshot %q on volume: %q", cnsSnapshotID, cnsVolumeID)
-	err = manager.VolumeManager.DeleteSnapshot(ctx, cnsVolumeID, cnsSnapshotID)
+	err = volumeManager.DeleteSnapshot(ctx, cnsVolumeID, cnsSnapshotID)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to delete snapshot %q on volume %q with error %+v",
 			cnsSnapshotID, cnsVolumeID, err)

@@ -1482,7 +1482,8 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// sign. That is, a string of "<UUID>+<UUID>". Because, all other CNS snapshot APIs still require both
 		// VolumeID and SnapshotID as the input, while corresponding snapshot APIs in upstream CSI require SnapshotID.
 		// So, we need to bridge the gap in vSphere CSI driver and return a combined SnapshotID to CSI Snapshotter.
-		snapshotID, snapshotCreateTimePtr, err := common.CreateSnapshotUtil(ctx, c.manager, volumeID, req.Name)
+		snapshotID, snapshotCreateTimePtr, err := common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
+			volumeID, req.Name)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create snapshot on volume %q: %v", volumeID, err)
@@ -1546,7 +1547,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	}
 	deleteSnapshotInternal := func() (*csi.DeleteSnapshotResponse, error) {
 		csiSnapshotID := req.GetSnapshotId()
-		err := common.DeleteSnapshotUtil(ctx, c.manager, csiSnapshotID)
+		err := common.DeleteSnapshotUtil(ctx, c.manager.VolumeManager, csiSnapshotID)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"Failed to delete WCP snapshot %q. Error: %+v",
