@@ -1153,12 +1153,6 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 					"volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
 			}
 			// Migration feature switch is enabled.
-			// If this is multi-VC configuration, fail the operation.
-			if multivCenterCSITopologyEnabled && len(c.managers.VcenterConfigs) > 1 {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"migrated volumes are not supported in multi-VC setup. Cannot use volume with vmdk path: %q", req.VolumeId)
-			}
-
 			volumePath = req.VolumeId
 			// In case if feature state switch is enabled after controller is
 			// deployed, we need to initialize the volumeMigrationService.
@@ -1336,14 +1330,6 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 					// Migration feature switch is disabled.
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
-				} else {
-					if multivCenterCSITopologyEnabled && len(c.managers.VcenterConfigs) > 1 {
-						// Migration feature switch is enabled and multi vCenter feature is enabled, and
-						// Kubernetes Cluster is spread on multiple vCenter Servers.
-						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-							"volume-migration feature is not supported on the Multi-vCenter deployment. "+
-								"Cannot use volume with vmdk path :%q", req.VolumeId)
-					}
 				}
 				// Migration feature switch is enabled.
 				storagePolicyName := req.VolumeContext[common.AttributeStoragePolicyName]
@@ -1481,14 +1467,6 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				// Migration feature switch is disabled.
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"volume-migration feature switch is disabled. Cannot use volume with vmdk path: %q", req.VolumeId)
-			} else {
-				if multivCenterCSITopologyEnabled && len(c.managers.VcenterConfigs) > 1 {
-					// Migration feature switch is enabled and multi vCenter feature is enabled, and
-					// Kubernetes Cluster is spread on multiple vCenter Servers.
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"volume-migration feature is not supported on the Multi-vCenter deployment. "+
-							"Cannot use volume with vmdk path :%q", req.VolumeId)
-				}
 			}
 			// Migration feature switch is enabled.
 			//
@@ -1948,8 +1926,24 @@ func initVolumeMigrationService(ctx context.Context, c *controller) error {
 	// In case if feature state switch is enabled after controller is deployed,
 	// we need to initialize the volumeMigrationService.
 	var err error
-	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx,
-		&c.manager.VolumeManager, c.manager.CnsConfig, false)
+
+	// If this is multi-VC config, return without initializing service
+	// currently CSI migration is not supported in multi-VC config
+	if multivCenterCSITopologyEnabled {
+		if len(c.managers.VcenterConfigs) > 1 {
+			// Multi-VC case
+			return logger.LogNewErrorf(log,
+				"volume-migration feature is not supported on Multi-vCenter deployment")
+		} else {
+			// Single-VC case
+			volumeManager := c.managers.VolumeManagers[c.managers.CnsConfig.Global.VCenterIP]
+			volumeMigrationService, err = migration.GetVolumeMigrationService(ctx,
+				&volumeManager, c.managers.CnsConfig, false)
+		}
+	} else {
+		volumeMigrationService, err = migration.GetVolumeMigrationService(ctx,
+			&c.manager.VolumeManager, c.manager.CnsConfig, false)
+	}
 	if err != nil {
 		return logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to get migration service. Err: %v", err)
