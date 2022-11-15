@@ -1030,8 +1030,10 @@ func isDataStoreCompatible(ctx context.Context, manager *Manager, spec *CreateVo
 			}
 		}
 		if !compatibleDsAccessible {
+			log.Errorf("no compatible datastore for storage policy ID %q is in list of shared datastores %+v",
+				spec.StoragePolicyID, datastores)
 			return csifault.CSIInvalidStoragePolicyConfigurationFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"none of compatible datastores for given storage policy ID %q is in the "+
+				"none of compatible datastores for given storage policy ID %q, is in the "+
 					"list of shared datastore accessible to all nodes", spec.StoragePolicyID)
 		}
 		if datastoreObj != nil {
