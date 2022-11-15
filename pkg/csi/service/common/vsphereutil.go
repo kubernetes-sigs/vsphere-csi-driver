@@ -993,6 +993,7 @@ func GetNodeVMsWithAccessToDatastore(ctx context.Context, vc *vsphere.VirtualCen
 	return accessibleNodes, nil
 }
 
+// isDataStoreCompatible validates if datastore is accesible from all nodes.
 func isDataStoreCompatible(ctx context.Context, manager *Manager, spec *CreateVolumeSpec,
 	datastores []vim25types.ManagedObjectReference, datastoreObj *vsphere.Datastore) (string, error) {
 	log := logger.GetLogger(ctx)
@@ -1030,8 +1031,8 @@ func isDataStoreCompatible(ctx context.Context, manager *Manager, spec *CreateVo
 		}
 		if !compatibleDsAccessible {
 			return csifault.CSIInvalidStoragePolicyConfigurationFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"none of compatible datastores for given storage policy is in the "+
-					"list of shared datastore accessible to all nodes")
+				"none of compatible datastores for given storage policy ID %q is in the "+
+					"list of shared datastore accessible to all nodes", spec.StoragePolicyID)
 		}
 		if datastoreObj != nil {
 			if _, exists := compatibleDsMoids[datastoreObj.Reference().Value]; !exists {
