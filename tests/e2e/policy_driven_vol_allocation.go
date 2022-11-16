@@ -386,6 +386,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				}
 				err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				connect(ctx, &e2eVSphere)
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
