@@ -82,10 +82,12 @@ func (vs *vSphere) queryCNSVolumeWithResult(fcdID string) (*cnstypes.CnsQueryRes
 
 	err := connectCns(ctx, vs)
 	if err != nil {
+		framework.Logf("error1 %v", err)
 		return nil, err
 	}
 	res, err := cnsmethods.CnsQueryVolume(ctx, vs.CnsClient.Client, &req)
 	if err != nil {
+		framework.Logf("error2 %v", err)
 		return nil, err
 	}
 	return &res.Returnval, nil
