@@ -28,7 +28,9 @@ import (
 
 // FakeK8SOrchestrator is used to mock common K8S Orchestrator instance to store FSS values
 type FakeK8SOrchestrator struct {
-	featureStates map[string]string
+	// RWMutex to synchronize access to 'featureStates' field from multiple callers
+	featureStatesLock *sync.RWMutex
+	featureStates     map[string]string
 }
 
 // volumeMigration holds mocked migrated volume information

@@ -51,6 +51,7 @@ func TestIsFSSEnabledInGcWithSync(t *testing.T) {
 		configMapName:      cnsconfig.DefaultSupervisorFSSConfigMapName,
 		configMapNamespace: cnsconfig.DefaultCSINamespace,
 		featureStates:      svFSS,
+		featureStatesLock:  &sync.RWMutex{},
 	}
 	internalFSS := map[string]string{
 		"volume-extend": "true",
@@ -60,6 +61,7 @@ func TestIsFSSEnabledInGcWithSync(t *testing.T) {
 		configMapName:      cnsconfig.DefaultInternalFSSConfigMapName,
 		configMapNamespace: cnsconfig.DefaultCSINamespace,
 		featureStates:      internalFSS,
+		featureStatesLock:  &sync.RWMutex{},
 	}
 	k8sOrchestrator := K8sOrchestrator{
 		supervisorFSS: svFSSConfigMapInfo,
@@ -88,6 +90,7 @@ func TestIsFSSEnabledInGcWithoutSync(t *testing.T) {
 		configMapName:      cnsconfig.DefaultSupervisorFSSConfigMapName,
 		configMapNamespace: cnsconfig.DefaultCSINamespace,
 		featureStates:      svFSS,
+		featureStatesLock:  &sync.RWMutex{},
 	}
 	internalFSS := map[string]string{
 		"volume-extend": "false",
@@ -97,6 +100,7 @@ func TestIsFSSEnabledInGcWithoutSync(t *testing.T) {
 		configMapName:      cnsconfig.DefaultInternalFSSConfigMapName,
 		configMapNamespace: cnsconfig.DefaultCSINamespace,
 		featureStates:      internalFSS,
+		featureStatesLock:  &sync.RWMutex{},
 	}
 	k8sOrchestrator := K8sOrchestrator{
 		supervisorFSS: svFSSConfigMapInfo,
@@ -125,6 +129,7 @@ func TestIsFSSEnabledInGcWrongValues(t *testing.T) {
 		configMapName:      cnsconfig.DefaultSupervisorFSSConfigMapName,
 		configMapNamespace: cnsconfig.DefaultCSINamespace,
 		featureStates:      svFSS,
+		featureStatesLock:  &sync.RWMutex{},
 	}
 	internalFSS := map[string]string{
 		"volume-extend": "enabled",
@@ -133,6 +138,7 @@ func TestIsFSSEnabledInGcWrongValues(t *testing.T) {
 		configMapName:      cnsconfig.DefaultInternalFSSConfigMapName,
 		configMapNamespace: cnsconfig.DefaultCSINamespace,
 		featureStates:      internalFSS,
+		featureStatesLock:  &sync.RWMutex{},
 	}
 	k8sOrchestrator := K8sOrchestrator{
 		supervisorFSS: svFSSConfigMapInfo,
@@ -162,6 +168,7 @@ func TestIsFSSEnabledInSV(t *testing.T) {
 		configMapName:      cnsconfig.DefaultSupervisorFSSConfigMapName,
 		configMapNamespace: cnsconfig.DefaultCSINamespace,
 		featureStates:      svFSS,
+		featureStatesLock:  &sync.RWMutex{},
 	}
 	k8sOrchestrator := K8sOrchestrator{
 		supervisorFSS: svFSSConfigMapInfo,
@@ -198,6 +205,7 @@ func TestIsFSSEnabledInVanilla(t *testing.T) {
 		configMapName:      cnsconfig.DefaultInternalFSSConfigMapName,
 		configMapNamespace: cnsconfig.DefaultCSINamespace,
 		featureStates:      internalFSS,
+		featureStatesLock:  &sync.RWMutex{},
 	}
 	k8sOrchestrator := K8sOrchestrator{
 		clusterFlavor: cnstypes.CnsClusterFlavorVanilla,
