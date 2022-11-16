@@ -383,74 +383,180 @@ func (c *controller) ReloadConfiguration() error {
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
 	}
-	newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
-	if err != nil {
-		log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
-		return err
-	}
-	if newVCConfig != nil {
-		var vcenter *cnsvsphere.VirtualCenter
-		if c.manager.VcenterConfig.Host != newVCConfig.Host ||
-			c.manager.VcenterConfig.Username != newVCConfig.Username ||
-			c.manager.VcenterConfig.Password != newVCConfig.Password {
-
-			// Verify if new configuration has valid credentials by connecting to
-			// vCenter. Proceed only if the connection succeeds, else return error.
-			newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
-			if err = newVC.Connect(ctx); err != nil {
-				return logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q, Err: %+v",
-					newVCConfig.Host, err)
-			}
-
-			// Reset vCenter singleton instance by passing reload flag as true.
-			log.Info("Obtaining new vCenterInstance using new credentials")
-			vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
-			if err != nil {
-				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
-			}
-		} else {
-			// If it's not a VC host or VC credentials update, same singleton
-			// instance can be used and it's Config field can be updated.
-			vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
-			if err != nil {
-				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
-			}
-			vcenter.Config = newVCConfig
+	if multivCenterCSITopologyEnabled {
+		var multivCenterTopologyDeployment bool
+		if len(c.managers.VcenterConfigs) > 1 {
+			multivCenterTopologyDeployment = true
 		}
-		var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
-		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
-			c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
-			func() bool {
-				return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-			})
+		newVcenterConfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, cfg)
 		if err != nil {
-			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
+			return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err=%v", err)
+		}
+		if newVcenterConfigs != nil {
+			for _, newVCConfig := range newVcenterConfigs {
+				var vcenter *cnsvsphere.VirtualCenter
+				// Get vCenter config cached in c.managers.VcenterConfigs for the VC Host
+				oldvcconfig, found := c.managers.VcenterConfigs[newVCConfig.Host]
+				// Compare cached vCenerConfig against new vCenterConfig and determine if vCenter Client needs to be
+				// Refreshed or recreated.
+				if !found || oldvcconfig.Username != newVCConfig.Username || oldvcconfig.Password != newVCConfig.Password {
+					newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
+					if err = newVC.Connect(ctx); err != nil {
+						return logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q, Err: %+v",
+							newVCConfig.Host, err)
+					}
+					// Reset vCenter singleton instance by passing reload flag as true.
+					log.Info("Obtaining new vCenterInstance using new credentials")
+					vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, newVCConfig, true)
+					if err != nil {
+						return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: "+
+							"%q, err: %v", newVCConfig.Host, err)
+					}
+				} else {
+					// If it's not VC credentials update, same singleton
+					// instance can be used and it's Config field can be updated.
+					vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
+					if err != nil {
+						return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+					}
+					vcenter.Config = newVCConfig
+				}
+				var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
+				operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
+					c.managers.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
+					func() bool {
+						return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+					})
+				if err != nil {
+					log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
+					return err
+				}
+				c.managers.VcenterConfigs[newVCConfig.Host] = newVCConfig
+				if c.managers.VolumeManagers[newVCConfig.Host] != nil {
+					c.managers.VolumeManagers[newVCConfig.Host].ResetManager(ctx, vcenter)
+				} else {
+					c.managers.VolumeManagers[newVCConfig.Host] = cnsvolume.GetManager(ctx, vcenter, operationStore,
+						true, true, multivCenterTopologyDeployment)
+				}
+				if c.authMgrs[newVCConfig.Host] != nil {
+					c.authMgrs[newVCConfig.Host].ResetvCenterInstance(ctx, vcenter)
+					log.Debugf("Updated vCenter in auth manager")
+				} else {
+					authmanager, err := common.GetNewAuthorizationService(ctx, vcenter)
+					if err != nil {
+						log.Errorf("failed to initialize authorization service for vCenter:%q with error: %v",
+							vcenter.Config.Host, err)
+						return err
+					}
+					c.authMgrs[newVCConfig.Host] = authmanager
+					go common.ComputeDatastoreMapForBlockVolumes(c.authMgrs[newVCConfig.Host], cfg.Global.CSIAuthCheckIntervalInMin)
+				}
+			}
+			// Remove old VC entries from c.managers.VcenterConfigs, c.managers.VolumeManagers and c.authMgrs
+			// which are not present in the newVcenterConfigs
+			// This is required for the case when VC IP changed to FQDN
+			vcConfigsToRetain := make(map[string]*cnsvsphere.VirtualCenterConfig)
+			for _, config := range c.managers.VcenterConfigs {
+				var retainVCconfig bool
+				for _, newconfig := range newVcenterConfigs {
+					if newconfig.Host == config.Host {
+						retainVCconfig = true
+						break
+					}
+				}
+				if retainVCconfig {
+					vcConfigsToRetain[config.Host] = config
+				} else {
+					log.Infof("Deleting volumemanager for vCenter: %q", config.Host)
+					delete(c.managers.VolumeManagers, config.Host)
+					log.Infof("Deleting authmanager for vCenter: %q", config.Host)
+					delete(c.authMgrs, config.Host)
+				}
+			}
+			c.managers.VcenterConfigs = vcConfigsToRetain
+			// Re-Initialize Node Manager to cache latest vCenter config.
+			c.nodeMgr = &node.Nodes{}
+			err = c.nodeMgr.Initialize(ctx, true)
+			if err != nil {
+				log.Errorf("failed to re-initialize nodeMgr. err=%v", err)
+				return err
+			}
+		}
+		if cfg != nil {
+			c.managers.CnsConfig = cfg
+			log.Debugf("Updated managers.CnsConfig")
+		}
+	} else {
+		// multivCenterCSITopology feature is disabled
+		newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
+		if err != nil {
+			log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
 			return err
 		}
+		if newVCConfig != nil {
+			var vcenter *cnsvsphere.VirtualCenter
+			if c.manager.VcenterConfig.Host != newVCConfig.Host ||
+				c.manager.VcenterConfig.Username != newVCConfig.Username ||
+				c.manager.VcenterConfig.Password != newVCConfig.Password {
 
-		c.manager.VolumeManager.ResetManager(ctx, vcenter)
-		c.manager.VcenterConfig = newVCConfig
-		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore, true,
-			false, false)
-		// Re-Initialize Node Manager to cache latest vCenter config.
-		useNodeUuid := false
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
-			useNodeUuid = true
+				// Verify if new configuration has valid credentials by connecting to
+				// vCenter. Proceed only if the connection succeeds, else return error.
+				newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
+				if err = newVC.Connect(ctx); err != nil {
+					return logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q, Err: %+v",
+						newVCConfig.Host, err)
+				}
+
+				// Reset vCenter singleton instance by passing reload flag as true.
+				log.Info("Obtaining new vCenterInstance using new credentials")
+				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
+				if err != nil {
+					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+				}
+			} else {
+				// If it's not a VC host or VC credentials update, same singleton
+				// instance can be used and it's Config field can be updated.
+				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
+				if err != nil {
+					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+				}
+				vcenter.Config = newVCConfig
+			}
+			var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
+			operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
+				c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
+				func() bool {
+					return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+				})
+			if err != nil {
+				log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
+				return err
+			}
+
+			c.manager.VolumeManager.ResetManager(ctx, vcenter)
+			c.manager.VcenterConfig = newVCConfig
+			c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore, true,
+				false, false)
+			// Re-Initialize Node Manager to cache latest vCenter config.
+			useNodeUuid := false
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
+				useNodeUuid = true
+			}
+			c.nodeMgr = &node.Nodes{}
+			err = c.nodeMgr.Initialize(ctx, useNodeUuid)
+			if err != nil {
+				log.Errorf("failed to re-initialize nodeMgr. err=%v", err)
+				return err
+			}
+			if c.authMgr != nil {
+				c.authMgr.ResetvCenterInstance(ctx, vcenter)
+				log.Debugf("Updated vCenter in auth manager")
+			}
 		}
-		c.nodeMgr = &node.Nodes{}
-		err = c.nodeMgr.Initialize(ctx, useNodeUuid)
-		if err != nil {
-			log.Errorf("failed to re-initialize nodeMgr. err=%v", err)
-			return err
+		if cfg != nil {
+			c.manager.CnsConfig = cfg
+			log.Debugf("Updated manager.CnsConfig")
 		}
-		if c.authMgr != nil {
-			c.authMgr.ResetvCenterInstance(ctx, vcenter)
-			log.Debugf("Updated vCenter in auth manager")
-		}
-	}
-	if cfg != nil {
-		c.manager.CnsConfig = cfg
-		log.Debugf("Updated manager.CnsConfig")
 	}
 	return nil
 }

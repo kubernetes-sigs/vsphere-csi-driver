@@ -115,6 +115,20 @@ func GetAuthorizationServices(ctx context.Context, vcs []*cnsvsphere.VirtualCent
 	return authManagerInstances, nil
 }
 
+// GetNewAuthorizationService returns the new AuthManager instance for supplied vCenter server
+func GetNewAuthorizationService(ctx context.Context, vc *cnsvsphere.VirtualCenter) (*AuthManager, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("Initializing authorization service for vCenter: %q", vc.Config.Host)
+	authManagerInstance = &AuthManager{
+		datastoreMapForBlockVolumes: make(map[string]*cnsvsphere.DatastoreInfo),
+		fsEnabledClusterToDsMap:     make(map[string][]*cnsvsphere.DatastoreInfo),
+		rwMutex:                     sync.RWMutex{},
+		vcenter:                     vc,
+	}
+	log.Info("authorization service initialized for vCenter: %q", vc.Config.Host)
+	return authManagerInstance, nil
+}
+
 // GetDatastoreMapForBlockVolumes returns a DatastoreMapForBlockVolumes. This
 // map maps datastore url to datastore info which need to be used when creating
 // block volume.
