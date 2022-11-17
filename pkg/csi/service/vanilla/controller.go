@@ -248,21 +248,23 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			for _, authMgr := range authMgrs {
 				go common.ComputeDatastoreMapForBlockVolumes(authMgr, config.Global.CSIAuthCheckIntervalInMin)
 			}
-			for _, vcconfig := range c.managers.VcenterConfigs {
-				isvSANFileServicesSupported, err := c.managers.VcenterManager.IsvSANFileServicesSupported(ctx,
-					vcconfig.Host)
-				if err != nil {
-					return logger.LogNewErrorf(log, "failed to verify if vSAN file services is supported or not for vCenter: %s. "+
-						"Error:%+v", vcconfig.Host, err)
-				}
-				if isvSANFileServicesSupported {
-					for _, authMgr := range authMgrs {
-						go common.ComputeFSEnabledClustersToDsMap(authMgr, config.Global.CSIAuthCheckIntervalInMin)
+			if !multivCenterTopologyDeployment {
+				for _, vcconfig := range c.managers.VcenterConfigs {
+					isvSANFileServicesSupported, err := c.managers.VcenterManager.IsvSANFileServicesSupported(ctx,
+						vcconfig.Host)
+					if err != nil {
+						return logger.LogNewErrorf(log, "failed to verify if vSAN file services is supported or not for vCenter: %s. "+
+							"Error:%+v", vcconfig.Host, err)
+					}
+					if isvSANFileServicesSupported {
+						for _, authMgr := range authMgrs {
+							go common.ComputeFSEnabledClustersToDsMap(authMgr, config.Global.CSIAuthCheckIntervalInMin)
+						}
 					}
 				}
 			}
 		}
-		if len(c.managers.VcenterConfigs) > 1 {
+		if multivCenterTopologyDeployment {
 			log.Info("Loading CnsVolumeInfo Service to persist mapping for VolumeID to vCenter")
 			volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
 			if err != nil {
