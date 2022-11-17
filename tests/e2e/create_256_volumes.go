@@ -81,7 +81,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		csiReplicas = *csiDeployment.Spec.Replicas
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
 
-		setvCenterFlagFor255Disks()
+		//setvCenterFlagFor255Disks()
 
 	})
 
