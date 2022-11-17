@@ -4692,12 +4692,12 @@ func updateSts(c clientset.Interface, ns, name string, update func(ss *appsv1.St
 // Scale scales ss to count replicas.
 // Scale scales ss to count replicas.
 func scaleStatefulSetPods(c clientset.Interface, ss *appsv1.StatefulSet, count int32,
-	is256Disk bool) (*appsv1.StatefulSet, error) {
+	useLargeTimeout bool) (*appsv1.StatefulSet, error) {
 	name := ss.Name
 	ns := ss.Namespace
 	var StatefulSetPoll time.Duration
 	var StatefulSetTimeout time.Duration
-	if is256Disk {
+	if useLargeTimeout {
 		StatefulSetPoll = 10 * time.Second
 		StatefulSetTimeout = 30 * time.Minute
 	} else {
@@ -4736,22 +4736,22 @@ scaleDownStatefulSetPod is a utility method which is used to scale down the coun
 */
 func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 	statefulset *appsv1.StatefulSet, namespace string, replicas int32,
-	parallelStatefulSetCreation bool, is256Disk bool) {
+	parallelStatefulSetCreation bool, useLargeTimeout bool) {
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleDown *v1.PodList
-	if parallelStatefulSetCreation && !is256Disk {
-		_, scaledownErr := scaleStatefulSetPods(client, statefulset, replicas, is256Disk)
+	if parallelStatefulSetCreation && !useLargeTimeout {
+		_, scaledownErr := scaleStatefulSetPods(client, statefulset, replicas, useLargeTimeout)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulset)
 	}
-	if parallelStatefulSetCreation && is256Disk {
+	if parallelStatefulSetCreation && useLargeTimeout {
 		_, scaledownErr := scaleStatefulSetPods(client, statefulset, replicas, true)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulset)
 	}
-	if !parallelStatefulSetCreation && !is256Disk {
+	if !parallelStatefulSetCreation && !useLargeTimeout {
 		_, scaledownErr := fss.Scale(client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
@@ -4797,11 +4797,11 @@ scaleUpStatefulSetPod is a utility method which is used to scale up the count of
 */
 func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 	statefulset *appsv1.StatefulSet, namespace string, replicas int32,
-	parallelStatefulSetCreation bool, is256Disk bool) {
+	parallelStatefulSetCreation bool, useLargeTimeout bool) {
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleUp *v1.PodList
-	if parallelStatefulSetCreation && !is256Disk {
-		_, scaleupErr := scaleStatefulSetPods(client, statefulset, replicas, is256Disk)
+	if parallelStatefulSetCreation && !useLargeTimeout {
+		_, scaleupErr := scaleStatefulSetPods(client, statefulset, replicas, useLargeTimeout)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
@@ -4812,8 +4812,8 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 	}
-	if parallelStatefulSetCreation && is256Disk {
-		_, scaleupErr := scaleStatefulSetPods(client, statefulset, replicas, is256Disk)
+	if parallelStatefulSetCreation && useLargeTimeout {
+		_, scaleupErr := scaleStatefulSetPods(client, statefulset, replicas, useLargeTimeout)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(client, statefulset, replicas)
 		WaitForStsPodsReadyReplicaStatus(client, statefulset, replicas)
@@ -4824,7 +4824,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 	}
-	if !parallelStatefulSetCreation && !is256Disk {
+	if !parallelStatefulSetCreation && !useLargeTimeout {
 		_, scaleupErr := fss.Scale(client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(client, statefulset, replicas)

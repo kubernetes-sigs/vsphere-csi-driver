@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +36,7 @@ import (
 	"k8s.io/kubectl/pkg/util/podutils"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/manifest"
+	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
@@ -65,11 +67,11 @@ func CreateMultipleStatefulSetsInSameNsFor256DiskSupport(ns string, ss *appsv1.S
 		ss.Namespace, ss.Name, replicas, ss.Spec.Selector))
 	_, err := c.AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
 	framework.ExpectNoError(err)
-	WaitForStsPodsToBeInRunningReadyState(c, replicas, ss)
+	wait4StsPodsToBeReadyWithLargeTimeout(c, replicas, ss)
 }
 
-// WaitForStsPodsToBeInRunningReadyState waits for sts pods to be in ready running state
-func WaitForStsPodsToBeInRunningReadyState(c clientset.Interface, numStatefulPods int32, ss *appsv1.StatefulSet) {
+// wait4StsPodsToBeReadyWithLargeTimeout waits for sts pods to be in ready running state
+func wait4StsPodsToBeReadyWithLargeTimeout(c clientset.Interface, numStatefulPods int32, ss *appsv1.StatefulSet) {
 	numPodsRunning := numStatefulPods
 	numPodsReady := numStatefulPods
 	{
@@ -117,8 +119,8 @@ func getOrdinalForMultipleStsPodsInGivenNS(pod *v1.Pod) int {
 	return ordinal
 }
 
-// DeleteMultipleStsInGivenNameSpace deletes all the multiple sts pods created in a given namesspace
-func DeleteMultipleStsInGivenNameSpace(c clientset.Interface, ns string) {
+// deleteAllStsAndTheirPVCInNSWithLargeTimeout deletes all the multiple sts pods created in a given namesspace
+func deleteAllStsAndTheirPVCInNSWithLargeTimeout(c clientset.Interface, ns string) {
 	ssList, err := c.AppsV1().StatefulSets(ns).List(context.TODO(),
 		metav1.ListOptions{LabelSelector: labels.Everything().String()})
 	framework.ExpectNoError(err)
@@ -210,4 +212,57 @@ func WaitForStsPodsReadyReplicaStatus(c clientset.Interface, ss *appsv1.Stateful
 	if pollErr != nil {
 		framework.Failf("Failed waiting for stateful set status.readyReplicas updated to %d: %v", expectedReplicas, pollErr)
 	}
+}
+
+func setMaxVolPerNodeInCsiYaml(ctx context.Context, client clientset.Interface, masterIp string,
+	csiSystemNamespace string) error {
+
+	deleteCsiYaml := "kubectl delete -f vsphere-csi-driver.yaml"
+	deleteCsi, err := sshExec(sshClientConfig, masterIp, deleteCsiYaml)
+	if err != nil && deleteCsi.Code != 0 {
+		fssh.LogResult(deleteCsi)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			deleteCsiYaml, masterIp, err)
+	}
+
+	findAndSetVal := "sed -i 's/59/255/g' vsphere-csi-driver.yaml"
+	framework.Logf("Set max volume per node value for 255 disks: %s ", findAndSetVal)
+	setVal, err := sshExec(sshClientConfig, masterIp, findAndSetVal)
+	if err != nil && setVal.Code != 0 {
+		fssh.LogResult(setVal)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			findAndSetVal, masterIp, err)
+	}
+
+	applyCsiYaml := "kubectl apply -f vsphere-csi-driver.yaml"
+	applyCsi, err := sshExec(sshClientConfig, masterIp, applyCsiYaml)
+	if err != nil && applyCsi.Code != 0 {
+		fssh.LogResult(applyCsi)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			applyCsiYaml, masterIp, err)
+	}
+	return nil
+}
+
+func setvCenterFlagFor255Disks() error {
+	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+	oldVal := "<pvscsiCtrlr256DiskSupportEnabled>false<\\/pvscsiCtrlr256DiskSupportEnabled>"
+	newVal := "<pvscsiCtrlr256DiskSupportEnabled>true<\\/pvscsiCtrlr256DiskSupportEnabled>"
+	grepCmd := "sed -i 's/" + oldVal + "/" + newVal + "/g' " +
+		"/usr/lib/vmware-vsan/VsanVcMgmtConfig.xml"
+
+	framework.Logf("Invoking command '%v' on vCenter host %v", grepCmd, vcAddress)
+	result, err := fssh.SSH(grepCmd, vcAddress, framework.TestContext.Provider)
+	if err != nil {
+		fssh.LogResult(result)
+		err = fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", grepCmd, vcAddress, err)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	err = invokeVCenterServiceControl(restartOperation, vsanhealthServiceName, vcAddress)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return nil
 }
