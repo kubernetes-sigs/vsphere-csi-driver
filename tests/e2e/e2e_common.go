@@ -32,8 +32,9 @@ const (
 	adminPassword                              = "Admin!23"
 	apiServerIPs                               = "API_SERVER_IPS"
 	attacherContainerName                      = "csi-attacher"
-	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
-	nginxImage                                 = "k8s.gcr.io/nginx-slim:0.8"
+	busyBoxImageOnGcr                          = "harbor-repo.vmware.com/csi/busybox:1.35"
+	nginxImage                                 = "registry.k8s.io/nginx-slim:0.26"
+	nginxImage4upg                             = "registry.k8s.io/nginx-slim:0.27"
 	configSecret                               = "vsphere-config-secret"
 	contollerClusterKubeConfig                 = "CONTROLLER_CLUSTER_KUBECONFIG"
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
@@ -249,6 +250,13 @@ var (
 	envTestbedInfoJsonPath = "TESTBEDINFO_JSON"
 )
 
+// Config secret testuser credentials
+var (
+	configSecretTestUser1Password = "VMware!23"
+	configSecretTestUser1         = "testuser1"
+	configSecretTestUser2         = "testuser2"
+)
+
 // CSI Internal FSSs
 var (
 	useCsiNodeID = "use-csinode-id"
@@ -269,6 +277,8 @@ var (
 	preferredTagDesc                      = "preferred datastore tag"
 	nfsStoragePolicyName                  = "NFS_STORAGE_POLICY_NAME"
 	nfstoragePolicyDatastoreUrl           = "NFS_STORAGE_POLICY_DATASTORE_URL"
+	workerClusterMap                      = "WORKER_CLUSTER_MAP"
+	datastoreClusterMap                   = "DATASTORE_CLUSTER_MAP"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.

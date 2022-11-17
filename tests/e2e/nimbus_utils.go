@@ -28,13 +28,14 @@ import (
 )
 
 type TestbedBasicInfo struct {
-	name     string `default:"worker"`
-	user     string
-	location string
-	vcIp     string
-	vcVmName string
-	esxHosts []map[string]string
-	podname  string
+	name       string `default:"worker"`
+	user       string
+	location   string
+	vcIp       string
+	vcVmName   string
+	esxHosts   []map[string]string
+	podname    string
+	datastores []map[string]string
 }
 
 var tbinfo TestbedBasicInfo
@@ -48,6 +49,25 @@ func vMPowerMgmt(user string, location string, podname string, hostList string, 
 	}
 	nimbusCmd := fmt.Sprintf("USER=%s /mts/git/bin/nimbus-ctl --nimbusLocation %s --nimbus %s %s %s", user,
 		location, podname, op, hostList)
+	framework.Logf("Running command: %s", nimbusCmd)
+	cmd := exec.Command("/bin/bash", "-c", nimbusCmd)
+	err = cmd.Start()
+	if err != nil {
+		return err
+	}
+	err = cmd.Wait()
+
+	framework.Logf("stdout:\n%v\nstderr:\n%v\n", cmd.Stdout, cmd.Stderr)
+	return err
+}
+
+/*
+datatoreOperations method is used to perform datatsore nimbus operations
+*/
+func datatoreOperations(user string, location string, podname string, vmName string, op string) error {
+	var err error
+	nimbusCmd := fmt.Sprintf("USER=%s /mts/git/bin/nimbus-ctl --nimbusLocation %s --nimbus %s %s %s", user,
+		location, podname, op, vmName)
 	framework.Logf("Running command: %s", nimbusCmd)
 	cmd := exec.Command("/bin/bash", "-c", nimbusCmd)
 	err = cmd.Start()
@@ -79,8 +99,12 @@ func readVcEsxIpsViaTestbedInfoJson(filePath string) {
 	tbinfo.vcVmName = vc1["name"].(string)
 
 	esxs := tb["esx"].([]interface{})
+	nfsDS := tb["nfs"].([]interface{})
+	iscsiDS := tb["iscsi"].([]interface{})
 
 	esxHosts := []map[string]string{}
+	nfsDatastores := []map[string]string{}
+	iscsiDatastores := []map[string]string{}
 
 	for _, esx := range esxs {
 		host := make(map[string]string)
@@ -88,7 +112,25 @@ func readVcEsxIpsViaTestbedInfoJson(filePath string) {
 		host["vmName"] = esx.(map[string]interface{})["name"].(string)
 		esxHosts = append(esxHosts, host)
 	}
+
+	for _, nfs := range nfsDS {
+		ds := make(map[string]string)
+		ds["ip"] = nfs.(map[string]interface{})["ip"].(string)
+		ds["vmName"] = nfs.(map[string]interface{})["name"].(string)
+		nfsDatastores = append(nfsDatastores, ds)
+	}
+
+	for _, iscsi := range iscsiDS {
+		ds := make(map[string]string)
+		ds["ip"] = iscsi.(map[string]interface{})["ip"].(string)
+		ds["vmName"] = iscsi.(map[string]interface{})["name"].(string)
+		iscsiDatastores = append(iscsiDatastores, ds)
+	}
+	iscsiDatastores = append(iscsiDatastores, nfsDatastores...)
+
 	tbinfo.esxHosts = esxHosts
+	tbinfo.datastores = iscsiDatastores
+
 	tbinfo.name = tb["name"].(string)
 	tbinfo.user = tb["user_name"].(string)
 	tbinfo.location = tb["nimbusLocation"].(string)

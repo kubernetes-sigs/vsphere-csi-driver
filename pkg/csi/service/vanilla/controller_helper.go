@@ -145,7 +145,7 @@ func convertCnsVolumeType(ctx context.Context, cnsVolumeType string) string {
 	return volumeType
 }
 
-func getBlockVolumeToHostMap(ctx context.Context, c *controller,
+func getBlockVolumeIDToNodeUUIDMap(ctx context.Context, c *controller,
 	allnodeVMs []*vsphere.VirtualMachine) (map[string]string, error) {
 	var vCenters []*vsphere.VirtualCenter
 	var err error
@@ -155,7 +155,7 @@ func getBlockVolumeToHostMap(ctx context.Context, c *controller,
 	volumeIDNodeUUIDMap := make(map[string]string)
 	// Get VirtualCenter object(s)
 	// For multi-VC configuration, create map for volumes in all vCenters
-	if multivCenterCSITopologyEnabled && len(c.managers.VcenterConfigs) > 1 {
+	if multivCenterCSITopologyEnabled {
 		vCenters, err = common.GetVCenters(ctx, c.managers)
 		if err != nil {
 			log.Errorf("GetVcenters error %v", err)

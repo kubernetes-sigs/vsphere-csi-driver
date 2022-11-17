@@ -5630,7 +5630,7 @@ func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object
 	}
 	var hosts []*object.HostSystem
 	for _, cluster := range clusterComputeResource {
-		if strings.Contains(cluster.Name(), computeCluster) {
+		if strings.Contains(computeCluster, cluster.Name()) {
 			hosts, err = cluster.Hosts(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

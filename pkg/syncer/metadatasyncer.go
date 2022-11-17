@@ -1186,6 +1186,16 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 
 	migrationEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
 	if migrationEnabled && pv.Spec.VsphereVolume != nil {
+
+		// If it is a multi VC setup, then skip this volume as we do not support vSphere to CSI migrated volumes
+		// on a multi VC deployment.
+		if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+			log.Infof("PVUpdated: %q is a vSphere volume claim in namespace %q."+
+				"In-tree vSphere volume are not supported in a multi VC setup."+
+				"Skipping deletion of PV metadata.", pv.Name, pv.Namespace)
+			return
+		}
+
 		if !isValidvSphereVolume(ctx, pv) {
 			log.Debugf("PVDeleted: PV %q is not a valid vSphereVolume. Skipping deletion of PV metadata.", pv.Name)
 			return
@@ -1663,6 +1673,30 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 
 	if IsMultiAttachAllowed(pv) {
 		// If PV is file share volume.
+
+		// If it is a multi VC setup, then skip this volume as we do not support file share volumes
+		// on a multi VC deployment
+		if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+			log.Debugf("PVDeleted: %q is a vSphere volume claim in namespace %q."+
+				"File share volumes are not supported in a multi VC setup."+
+				"Skipping deletion of PV metadata.", pv.Name, pv.Namespace)
+			return
+		}
+
+		// Setting volumeHandle as empty as there is only 1 VC so volumeID does not matter.
+		vcHost, cnsVolumeMgr, err := getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, "")
+		if err != nil {
+			log.Errorf("PVDeleted: Failed to get VC host and volume manager for single VC setup. "+
+				"Error occoured: %+v", err)
+			return
+		}
+
+		vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+		if !vcHostObjFound {
+			log.Errorf("PVDeleted: failed to find VC host for given file volume: %q.", pv.Name)
+			return
+		}
+
 		log.Debugf("PVDeleted: vSphere CSI Driver is calling UpdateVolumeMetadata to "+
 			"delete volume metadata references for PV: %q", pv.Name)
 		var metadataList []cnstypes.BaseCnsEntityMetadata
@@ -1671,8 +1705,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
 
 		containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
-			metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
-			metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
+			vcHostObj.User, metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 			VolumeId: cnstypes.CnsVolumeId{
 				Id: pv.Spec.CSI.VolumeHandle,
@@ -1686,7 +1719,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 
 		log.Debugf("PVDeleted: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v",
 			updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
-		if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
+		if err := cnsVolumeMgr.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
 			log.Errorf("PVDeleted: UpdateVolumeMetadata failed with err %v", err)
 			return
 		}
@@ -1697,7 +1730,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 				},
 			},
 		}
-		queryResult, err := utils.QueryVolumeUtil(ctx, metadataSyncer.volumeManager, queryFilter,
+		queryResult, err := utils.QueryVolumeUtil(ctx, cnsVolumeMgr, queryFilter,
 			nil, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
 			log.Error("PVDeleted: QueryVolumeUtil failed with err=%+v", err.Error())
@@ -1707,7 +1740,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			len(queryResult.Volumes[0].Metadata.EntityMetadata) == 0 {
 			log.Infof("PVDeleted: Volume: %q is not in use by any other entity. Removing CNS tag.",
 				pv.Spec.CSI.VolumeHandle)
-			_, err := metadataSyncer.volumeManager.DeleteVolume(ctx, pv.Spec.CSI.VolumeHandle, false)
+			_, err := cnsVolumeMgr.DeleteVolume(ctx, pv.Spec.CSI.VolumeHandle, false)
 			if err != nil {
 				log.Errorf("PVDeleted: Failed to delete volume %q with error %+v", pv.Spec.CSI.VolumeHandle, err)
 				return
@@ -1715,8 +1748,12 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 		}
 
 	} else {
-		var volumeHandle string
-		var err error
+		var (
+			volumeHandle string
+			err          error
+			cnsVolumeMgr volumes.Manager
+		)
+
 		// Fetch FSS value for CSI migration once.
 		migrationFeatureEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
 		if migrationFeatureEnabled && pv.Spec.VsphereVolume != nil {
@@ -1738,9 +1775,16 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			volumeHandle = pv.Spec.CSI.VolumeHandle
 		}
 
+		_, cnsVolumeMgr, err = getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, volumeHandle)
+		if err != nil {
+			log.Errorf("PVDeleted: Failed to get VC host and volume manager for single VC setup. "+
+				"Error occoured: %+v", err)
+			return
+		}
+
 		log.Debugf("PVDeleted: vSphere CSI Driver is deleting volume %v", pv)
 
-		if _, err := metadataSyncer.volumeManager.DeleteVolume(ctx, volumeHandle, false); err != nil {
+		if _, err := cnsVolumeMgr.DeleteVolume(ctx, volumeHandle, false); err != nil {
 			log.Errorf("PVDeleted: Failed to delete disk %s with error %+v", volumeHandle, err)
 		}
 		if migrationFeatureEnabled && pv.Spec.VsphereVolume != nil {
@@ -1760,9 +1804,12 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 	log := logger.GetLogger(ctx)
 	// Iterate through volumes attached to pod.
 	for _, volume := range pod.Spec.Volumes {
-		var volumeHandle string
-		var metadataList []cnstypes.BaseCnsEntityMetadata
-		var podMetadata *cnstypes.CnsKubernetesEntityMetadata
+		var (
+			volumeHandle string
+			metadataList []cnstypes.BaseCnsEntityMetadata
+			podMetadata  *cnstypes.CnsKubernetesEntityMetadata
+			err          error = nil
+		)
 		if volume.PersistentVolumeClaim != nil {
 			valid, pv, pvc := IsValidVolume(ctx, volume, pod, metadataSyncer)
 			if valid {
@@ -1783,7 +1830,6 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 						clusterIDforVolumeMetadata, nil)
 				}
 				metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
-				var err error
 				if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil {
 					// In case if feature state switch is enabled after syncer is
 					// deployed, we need to initialize the volumeMigrationService.
@@ -1851,9 +1897,23 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 				continue
 			}
 		}
+
+		// Fetch vCenterHost & volumeManager for given volume, based on VC configuration
+		vcHost, cnsVolumeMgr, err := getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, volumeHandle)
+		if err != nil {
+			log.Errorf("csiUpdatePod: Failed to get VC host and volume manager for the given volume: %v. "+
+				"Error occoured: %+v", volumeHandle, err)
+			return
+		}
+		vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+		if !vcHostObjFound {
+			log.Errorf("csiUpdatePod: failed to find VC host for given volume: %q.", volumeHandle)
+			return
+		}
+
 		containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
-			metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
-			metadataSyncer.clusterFlavor, metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
+			vcHostObj.User, metadataSyncer.clusterFlavor,
+			metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 			VolumeId: cnstypes.CnsVolumeId{
 				Id: volumeHandle,
@@ -1867,7 +1927,7 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 
 		log.Debugf("Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v",
 			updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
-		if err := metadataSyncer.volumeManager.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
+		if err := cnsVolumeMgr.UpdateVolumeMetadata(ctx, updateSpec); err != nil {
 			log.Errorf("UpdateVolumeMetadata failed for volume %s with err: %v", volume.Name, err)
 		}
 

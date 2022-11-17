@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("[vmc-gc] Deploy, Update and Scale Deployments", func() 
 		ginkgo.By("Update deployment image")
 		deployment, err = client.AppsV1().Deployments(namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		deployment.Spec.Template.Spec.Containers[0].Image = "k8s.gcr.io/nginx-slim:0.9"
+		deployment.Spec.Template.Spec.Containers[0].Image = nginxImage4upg
 		deployment, err = fdep.UpdateDeploymentWithRetries(client, namespace, deployment.Name, deployment.DeepCopyInto)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

@@ -307,7 +307,7 @@ func initVolumeMigrationService(ctx context.Context, metadataSyncer *metadataSyn
 	var err error
 	var volManager volumes.Manager
 
-	if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.MultiVCenterCSITopology) {
+	if !isMultiVCenterFssEnabled {
 		volManager = metadataSyncer.volumeManager
 	} else {
 		if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
