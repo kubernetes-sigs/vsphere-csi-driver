@@ -664,22 +664,26 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 			task := object.NewTask(vcenter.Client.Client, taskMoRef)
 
+			defer func() {
+				// Persist the operation details before returning. Only success or error
+				// needs to be stored as InProgress details are stored when the task is
+				// created on CNS.
+				if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
+					volumeOperationDetails.OperationDetails.TaskStatus !=
+						cnsvolumeoperationrequest.TaskInvocationStatusInProgress {
+					err := operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+					if err != nil {
+						log.Warnf("failed to store CreateVolume details with error: %v", err)
+					}
+				}
+			}()
+
 			volumeInfo, faultType, err = c.manager.VolumeManager.MonitorCreateVolumeTask(ctx,
 				&volumeOperationDetails, task, req.Name, c.manager.CnsConfig.Global.ClusterID)
 			if err != nil {
 				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to monitor task for volume %s. Error: %+v", req.Name, err)
 			}
-			// Persist the operation details.
-			if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
-				volumeOperationDetails.OperationDetails.TaskStatus !=
-					cnsvolumeoperationrequest.TaskInvocationStatusInProgress {
-				err := operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
-				if err != nil {
-					log.Warnf("failed to store CreateVolume details with error: %v", err)
-				}
-			}
-
 			volTaskAlreadyRegistered = true
 		}
 	}
@@ -988,20 +992,25 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			}
 			task := object.NewTask(vcenter.Client.Client, taskMoRef)
 
+			defer func() {
+				// Persist the operation details before returning. Only success or error
+				// needs to be stored as InProgress details are stored when the task is
+				// created on CNS.
+				if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
+					volumeOperationDetails.OperationDetails.TaskStatus !=
+						cnsvolumeoperationrequest.TaskInvocationStatusInProgress {
+					err := operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+					if err != nil {
+						log.Warnf("failed to store CreateVolume details with error: %v", err)
+					}
+				}
+			}()
+
 			volumeInfo, faultType, err = c.manager.VolumeManager.MonitorCreateVolumeTask(ctx,
 				&volumeOperationDetails, task, req.Name, c.manager.CnsConfig.Global.ClusterID)
 			if err != nil {
 				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to monitor task for file volume %s. Error: %+v", req.Name, err)
-			}
-			// Persist the operation details.
-			if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
-				volumeOperationDetails.OperationDetails.TaskStatus !=
-					cnsvolumeoperationrequest.TaskInvocationStatusInProgress {
-				err := operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
-				if err != nil {
-					log.Warnf("failed to store CreateVolume details with error: %v", err)
-				}
 			}
 
 			volumeID = volumeInfo.VolumeID.Id
