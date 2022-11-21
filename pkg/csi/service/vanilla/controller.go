@@ -99,6 +99,10 @@ var (
 	// errAllDSFilteredOut is an error thrown by auth service when it
 	// filters out all the potential shared datastores in a volume provisioning call.
 	errAllDSFilteredOut = errors.New("auth service could not find datastore for block volume provisioning")
+
+	// variable for list snapshots
+	CNSSnapshotsForListSnapshots = make([]cnstypes.CnsSnapshotQueryResultEntry, 0)
+	CNSVolumeDetailsMap          = make([]map[string]*utils.CnsVolumeDetails, 0)
 )
 
 // New creates a CNS controller.
@@ -2857,20 +2861,17 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusBlockVolumeType
 
-	isCnsSnapshotSupported, err := c.manager.VcenterManager.IsCnsSnapshotSupported(ctx,
-		c.manager.VcenterConfig.Host)
-	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to check if cns snapshot is supported on VC due to error: %v", err)
-	}
-	if !isCnsSnapshotSupported {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
-			"VC version does not support snapshot operations")
-	}
-
 	listSnapshotsInternal := func() (*csi.ListSnapshotsResponse, error) {
+		var (
+			vCenterManager cnsvsphere.VirtualCenterManager
+			volManager     cnsvolume.Manager
+			vCenterHost    string
+			snapshots      []*csi.Snapshot
+			nextToken      string
+			err            error
+		)
 		log.Infof("ListSnapshots: called with args %+v", *req)
-		err := validateVanillaListSnapshotRequest(ctx, req)
+		err = validateVanillaListSnapshotRequest(ctx, req)
 		if err != nil {
 			return nil, err
 		}
@@ -2878,10 +2879,66 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 		if req.MaxEntries != 0 {
 			maxEntries = int64(req.MaxEntries)
 		}
-		snapshots, nextToken, err := common.ListSnapshotsUtil(ctx, c.manager.VolumeManager, req.SourceVolumeId,
-			req.SnapshotId, req.StartingToken, maxEntries)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal, " failed to retrieve the snapshots, err: %+v", err)
+		// Fetch vCenterHost, vCenterManager & volumeManager for given snapshot, based on input given and
+		// query snapshot records from respective VC
+		if req.SnapshotId != "" {
+			// Retrieve specific snapshot information.
+			// The snapshotID is of format: <volume-id>+<snapshot-id>
+			volID, _, err := common.ParseCSISnapshotID(req.SnapshotId)
+			if err != nil {
+				log.Errorf("Unable to determine the volume-id and snapshot-id")
+				return nil, err
+			}
+			// Fetch vCenterHost & volumeManager for source volume, based on VC configuration
+			vCenterManager = getVCenterManagerForVCenter(ctx, c)
+			vCenterHost, volManager, err = getVCenterAndVolumeManagerForVolumeID(ctx, c, volID, volumeInfoService)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get vCenter/volume manager for volume Id: %q in VC %s. Error: %v", volID, vCenterHost, err)
+			}
+			// Check for snapshot support
+			isCnsSnapshotSupported, err := vCenterManager.IsCnsSnapshotSupported(ctx, vCenterHost)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to check if cns snapshot is supported on VC %s due to error: %v", vCenterHost, err)
+			}
+			if !isCnsSnapshotSupported {
+				return nil, logger.LogNewErrorCodef(log, codes.Unimplemented,
+					"VC %s version does not support snapshot operations", vCenterHost)
+			}
+			snapshots, nextToken, err = common.ListSnapshotsUtil(ctx, volManager, req.SourceVolumeId,
+				req.SnapshotId, req.StartingToken, maxEntries)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal, " failed to retrieve the snapshots, err: %+v", err)
+			}
+		} else if req.SourceVolumeId != "" {
+			// Fetch vCenterHost & volumeManager for source volume, based on VC configuration
+			vCenterManager = getVCenterManagerForVCenter(ctx, c)
+			vCenterHost, volManager, err = getVCenterAndVolumeManagerForVolumeID(ctx, c, req.SourceVolumeId, volumeInfoService)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get vCenter/volume manager for volume Id: %q in VC %s. Error: %v", req.SourceVolumeId, vCenterHost, err)
+			}
+			// Check for snapshot support
+			isCnsSnapshotSupported, err := vCenterManager.IsCnsSnapshotSupported(ctx, vCenterHost)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to check if cns snapshot is supported on VC %s due to error: %v", vCenterHost, err)
+			}
+			if !isCnsSnapshotSupported {
+				return nil, logger.LogNewErrorCodef(log, codes.Unimplemented,
+					"VC %s version does not support snapshot operations", vCenterHost)
+			}
+			snapshots, nextToken, err = common.ListSnapshotsUtil(ctx, volManager, req.SourceVolumeId,
+				req.SnapshotId, req.StartingToken, maxEntries)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal, " failed to retrieve the snapshots, err: %+v", err)
+			}
+		} else {
+			snapshots, nextToken, err = queryAllVolumeSnapshotsForMultiVC(ctx, c, req.StartingToken, maxEntries)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal, " failed to retrieve the snapshots, err: %+v", err)
+			}
 		}
 		var entries []*csi.ListSnapshotsResponse_Entry
 		for _, snapshot := range snapshots {
@@ -2909,6 +2966,179 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
 	return resp, err
+}
+
+// getSnapshots(): This func queries snapshot for given VC and returns the query results along with corresponding
+// source volume details
+func getSnapshotsAndSourceVolumeDetails(ctx context.Context, vCenterManager cnsvsphere.VirtualCenterManager,
+	volManager cnsvolume.Manager, vcHost string) ([]cnstypes.CnsSnapshotQueryResultEntry,
+	map[string]*utils.CnsVolumeDetails, error) {
+	var (
+		err                 error
+		snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter
+		snapQueryEntries    = make([]cnstypes.CnsSnapshotQueryResultEntry, 0)
+		volumeIds           []cnstypes.CnsVolumeId
+	)
+	log := logger.GetLogger(ctx)
+	// Check for snapshot support
+	isCnsSnapshotSupported, err := vCenterManager.IsCnsSnapshotSupported(ctx, vcHost)
+	if err != nil {
+		return nil, nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to check if cns snapshot is supported on VC %s due to error: %v", vcHost, err)
+	}
+	if !isCnsSnapshotSupported {
+		return nil, nil, logger.LogNewErrorCodef(log, codes.Unimplemented,
+			"VC %s version does not support snapshot operations", vcHost)
+	}
+	// fetch all snapshot records for each VC
+	snapshotQueryFilter = cnstypes.CnsSnapshotQueryFilter{
+		Cursor: &cnstypes.CnsCursor{
+			Offset: 0,
+			Limit:  utils.DefaultQuerySnapshotLimit,
+		},
+	}
+	for {
+		queryResult, err := volManager.QuerySnapshots(ctx, snapshotQueryFilter)
+		if err != nil {
+			log.Errorf("getSnapshots failed for vCenter %s with snapfilter %v. Err=%+v",
+				vcHost, snapshotQueryFilter, err)
+			return nil, nil, err
+		}
+		log.Debugf("querySnapshots returned %d entries for VC %s", len(queryResult.Entries), vcHost)
+		snapQueryEntries = append(snapQueryEntries, queryResult.Entries...)
+		// If cursor offset < total snapshot records found, then there are more snapshots
+		// to be queried, so continue the loop to fetch remaining records
+		if queryResult.Cursor.Offset >= queryResult.Cursor.TotalRecords {
+			break
+		}
+		// Assign cursor for next iteration based on previous query result
+		snapshotQueryFilter.Cursor = &queryResult.Cursor
+	}
+	// populate list of volume-ids to retrieve the volume size.
+	for _, queryResult := range snapQueryEntries {
+		if queryResult.Error != nil {
+			return nil, nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"faults are not expected when invoking QuerySnapshots without volume-id and snapshot-id, fault: %+v",
+				queryResult.Error.Fault)
+		}
+		volumeIds = append(volumeIds, queryResult.Snapshot.VolumeId)
+	}
+	// TODO: Retrieve Snapshot size directly from CnsQuerySnapshot once supported.
+	volumeDetails, err := utils.QueryVolumeDetailsUtil(ctx, volManager, volumeIds)
+	if err != nil {
+		log.Errorf("failed to retrieve volume details for volume-ids: %v for vCenter %s, err: %+v",
+			volumeIds, vcHost, err)
+		return nil, nil, err
+	}
+	return snapQueryEntries, volumeDetails, nil
+}
+
+// queryAllVolumeSnapshotsForMultiVC(): This func fetches all volume snapshots from all vCenters configured
+// and filters the result as per token provided
+func queryAllVolumeSnapshotsForMultiVC(ctx context.Context, c *controller, token string,
+	maxEntries int64) ([]*csi.Snapshot, string, error) {
+	var (
+		err              error
+		csiSnapshots     []*csi.Snapshot
+		nextToken        string
+		finalSnapEntries []cnstypes.CnsSnapshotQueryResultEntry
+		snapQueryEntries = make([]cnstypes.CnsSnapshotQueryResultEntry, 0)
+	)
+	log := logger.GetLogger(ctx)
+	startingToken := 0
+	if token != "" {
+		startingToken, err = strconv.Atoi(token)
+		if err != nil {
+			log.Errorf("failed to parse the token: %s err: %v", token, err)
+			return nil, "", err
+		}
+	}
+	// Get all snapshot entries from available vCenters
+	// startingToken = 0 indicates listSnapshots called as a new request and not part of
+	// previous request. Hence fetch all snapshots from CNS
+	if startingToken == 0 || len(CNSSnapshotsForListSnapshots) == 0 {
+		// For multi-VC configuration, query volumes from all vCenters
+		vCenterManager := getVCenterManagerForVCenter(ctx, c)
+		if multivCenterCSITopologyEnabled {
+			var cnsVolumeDetailsMap = make([]map[string]*utils.CnsVolumeDetails, 0)
+			for vcHost, volManager := range c.managers.VolumeManagers {
+				// fetch snapshots and associated source volume details
+				perVCSnapQueryEntries, volumeDetails, err := getSnapshotsAndSourceVolumeDetails(ctx, vCenterManager,
+					volManager, vcHost)
+				if err != nil {
+					log.Errorf("failed to retrieve snapshots/source volume info for vCenter %s, err: %+v", vcHost, err)
+					return nil, "", err
+				}
+				snapQueryEntries = append(snapQueryEntries, perVCSnapQueryEntries...)
+				cnsVolumeDetailsMap = append(cnsVolumeDetailsMap, volumeDetails)
+			}
+			CNSSnapshotsForListSnapshots = snapQueryEntries
+			CNSVolumeDetailsMap = cnsVolumeDetailsMap
+		} else {
+			//fetch snapshots
+			snapQueryEntries, volumeDetails, err := getSnapshotsAndSourceVolumeDetails(ctx, vCenterManager,
+				c.manager.VolumeManager, c.manager.VcenterConfig.Host)
+			if err != nil {
+				log.Errorf("failed to retrieve snapshots/source volume info for vCenter %s, err: %+v",
+					c.manager.VcenterConfig.Host, err)
+				return nil, "", err
+			}
+			CNSVolumeDetailsMap = append(CNSVolumeDetailsMap, volumeDetails)
+			CNSSnapshotsForListSnapshots = snapQueryEntries
+		}
+	}
+	// Process snapshot query result obtained from configured vCenter(s) and return final response
+	finalSnapEntries, nextToken, err = processQueryResultsListSnapshots(ctx, startingToken,
+		maxEntries, CNSSnapshotsForListSnapshots)
+	if err != nil {
+		return nil, csifault.CSIInternalFault, fmt.Errorf("error while processing query results for list "+
+			" snapshots, err: %v", err)
+	}
+	for _, queryResult := range finalSnapEntries {
+		snapshotCreateTimeInProto := timestamppb.New(queryResult.Snapshot.CreateTime)
+		csiSnapshotId := queryResult.Snapshot.VolumeId.Id +
+			common.VSphereCSISnapshotIdDelimiter + queryResult.Snapshot.SnapshotId.Id
+		// For every snapshot, find corresponding source volume details and fill the CSISnapshot response entry
+		for _, cnsVolumeDetailsMap := range CNSVolumeDetailsMap {
+			if _, ok := cnsVolumeDetailsMap[queryResult.Snapshot.VolumeId.Id]; !ok {
+				continue
+			}
+			csiSnapshotSize := cnsVolumeDetailsMap[queryResult.Snapshot.VolumeId.Id].SizeInMB * common.MbInBytes
+			csiSnapshotInfo := &csi.Snapshot{
+				SnapshotId:     csiSnapshotId,
+				SourceVolumeId: queryResult.Snapshot.VolumeId.Id,
+				CreationTime:   snapshotCreateTimeInProto,
+				SizeBytes:      csiSnapshotSize,
+				ReadyToUse:     true,
+			}
+			csiSnapshots = append(csiSnapshots, csiSnapshotInfo)
+			break
+		}
+	}
+	log.Debugf("queryAllVolumeSnapshotsForMultiVC served %d results out of total %d entries, token for next set: %s",
+		len(csiSnapshots), len(CNSSnapshotsForListSnapshots), nextToken)
+	return csiSnapshots, nextToken, nil
+}
+
+// processQueryResultsListSnapshots(): This func filters the list of snapshots as per token given
+func processQueryResultsListSnapshots(ctx context.Context, startingToken int,
+	maxEntries int64,
+	snapshotQueryResultEntries []cnstypes.CnsSnapshotQueryResultEntry) ([]cnstypes.CnsSnapshotQueryResultEntry,
+	string, error) {
+	nextToken := ""
+	nextTokenCounter := 0
+	var snapEntries = make([]cnstypes.CnsSnapshotQueryResultEntry, 0)
+	for i := startingToken; i < len(snapshotQueryResultEntries); i++ {
+		if len(snapEntries) == int(maxEntries) {
+			nextTokenCounter = i
+			break
+		}
+		snapEntries = append(snapEntries, snapshotQueryResultEntries[i])
+	}
+	if nextTokenCounter != 0 && len(snapshotQueryResultEntries) > nextTokenCounter {
+		nextToken = strconv.Itoa(nextTokenCounter)
+	}
+	return snapEntries, nextToken, nil
 }
 
 func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (
