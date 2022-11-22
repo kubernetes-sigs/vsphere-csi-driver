@@ -394,6 +394,7 @@ func getVcHostAndVolumeManagerForVolumeID(ctx context.Context,
 	metadataSyncer *metadataSyncInformer,
 	volumeID string) (string, volumes.Manager, error) {
 	log := logger.GetLogger(ctx)
+	log.Debugf("Getting VC from in-memory map for volume %s", volumeID)
 
 	// isMultiVCenterFssEnabled feature gate is always going to be disabled for flavors other than vanilla.
 	if !isMultiVCenterFssEnabled {
@@ -407,6 +408,8 @@ func getVcHostAndVolumeManagerForVolumeID(ctx context.Context,
 			return "", nil, logger.LogNewErrorf(log,
 				"could not get volume manager for the vCenter: %q", vCenter)
 		}
+		log.Debugf("Identified VC %s for single VC setup for volume %s", vCenter, volumeID)
+
 		return vCenter, cnsVolumeMgr, nil
 	}
 
@@ -422,9 +425,88 @@ func getVcHostAndVolumeManagerForVolumeID(ctx context.Context,
 			return "", nil, logger.LogNewErrorf(log,
 				"could not get volume manager for the vCenter: %q", vCenter)
 		}
+
+		log.Debugf("Identified VC %s for multi VC setup for volume %s", vCenter, volumeID)
 		return vCenter, volumeManager, nil
 	}
 
 	return "", nil, logger.LogNewErrorf(log,
 		"failed to get VC host and volume manager. VolumeInfoService is not initialized.")
+}
+
+// getTopologySegmentsFromNodeAffinityRules prepares a list of topology segments from the
+// nodeAffinity rules defined on the PV.
+func getTopologySegmentsFromNodeAffinityRules(ctx context.Context,
+	pv *v1.PersistentVolume) []map[string][]string {
+	log := logger.GetLogger(ctx)
+	topologySegments := make([]map[string][]string, 0)
+
+	if pv.Spec.NodeAffinity != nil {
+		if pv.Spec.NodeAffinity.Required != nil {
+			if pv.Spec.NodeAffinity.Required.NodeSelectorTerms != nil {
+				for _, nodeSelector := range pv.Spec.NodeAffinity.Required.NodeSelectorTerms {
+					if nodeSelector.MatchExpressions == nil {
+						continue
+					}
+					// Get topology segments on PV
+					currentTopoSegments := make(map[string][]string)
+					for _, topology := range nodeSelector.MatchExpressions {
+						currentTopoSegments[topology.Key] = append(currentTopoSegments[topology.Key], topology.Values...)
+					}
+					topologySegments = append(topologySegments, currentTopoSegments)
+				}
+			}
+		}
+	}
+
+	log.Debugf("Consolidated topology segments: %+v", topologySegments)
+	return topologySegments
+}
+
+// Based on the topology segments, this function locates
+// the right VC for the given volume. If overlapping topology segments are found in nodeAffinity rules,
+// error is returned.
+func getVcHostAndVolumeManagerFromTopologySegments(ctx context.Context, metadataSyncer *metadataSyncInformer,
+	topologySegments []map[string][]string, volumeName string) (string, volumes.Manager, error) {
+	log := logger.GetLogger(ctx)
+	var vcHost string
+
+	for _, topology := range topologySegments {
+
+		vc, err := getVCForTopologySegments(ctx, topology)
+		if err != nil {
+			return "", nil, logger.LogNewErrorf(log,
+				"failed to get VC host and volume manager. Error %+v.", err)
+		}
+
+		if vcHost != "" && vcHost != vc {
+			return "", nil, logger.LogNewErrorf(log,
+				"Found topology segments from 2 different VCs %s and %s."+
+					"Error %+v.", vcHost, vc, err)
+		}
+		vcHost = vc
+	}
+
+	cnsVolumeMgr, volMgrFound := metadataSyncer.volumeManagers[vcHost]
+	if !volMgrFound {
+		return "", nil, logger.LogNewErrorf(log,
+			"could not get volume manager for the vCenter: %q", vcHost)
+	}
+
+	log.Debugf("Identified VC %s from topology segments for volume %s", vcHost, volumeName)
+
+	return vcHost, cnsVolumeMgr, nil
+}
+
+// getVcHostAndVolumeManagerFromTopologySegments returns VC host and the corresponding
+// volume manager that can access the given volume on VC based on the nodeAffinity rules.
+func getVcHostAndVolumeManagerFromPvNodeAffinity(ctx context.Context, pv *v1.PersistentVolume,
+	metadataSyncer *metadataSyncInformer) (string, volumes.Manager, error) {
+	log := logger.GetLogger(ctx)
+
+	log.Debugf("Getting VC from topology segments for volume %s", pv.Name)
+
+	topologySegments := getTopologySegmentsFromNodeAffinityRules(ctx, pv)
+
+	return getVcHostAndVolumeManagerFromTopologySegments(ctx, metadataSyncer, topologySegments, pv.Name)
 }
