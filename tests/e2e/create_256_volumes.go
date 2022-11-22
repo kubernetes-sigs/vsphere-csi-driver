@@ -1725,8 +1725,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		12. Perform cleanup. Delete StatefulSet Pods, PVC's, PV.
 	*/
 
-	ginkgo.It("Verify volume provisioning when multiple statefulsets are triggered with 63 replicas and "+
-		"each replica pod is attached to 4 pvcs", func() {
+	ginkgo.It("Verify volume provisioning when multiple  replicas", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		statefulSetReplicaCount = 63
