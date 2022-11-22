@@ -220,13 +220,16 @@ func getBlockVolumeIDToNodeUUIDMap(ctx context.Context, c *controller,
 func getVCenterAndVolumeManagerForVolumeID(ctx context.Context, controller *controller, volumeId string,
 	volumeInfoService cnsvolumeinfo.VolumeInfoService) (string, cnsvolume.Manager, error) {
 	log := logger.GetLogger(ctx)
-	var volumeManager cnsvolume.Manager
-	var volumeManagerfound bool
-	var vCenter string
+	var (
+		volumeManager      cnsvolume.Manager
+		volumeManagerfound bool
+		vCenter            string
+		err                error
+	)
 	if multivCenterCSITopologyEnabled {
 		if len(controller.managers.VcenterConfigs) > 1 {
 			// Multi vCenter Deployment
-			vCenter, err := volumeInfoService.GetvCenterForVolumeID(ctx, volumeId)
+			vCenter, err = volumeInfoService.GetvCenterForVolumeID(ctx, volumeId)
 			if err != nil {
 				return "", nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get vCenter for the volumeID: %q with err=%+v", volumeId, err)
@@ -240,7 +243,8 @@ func getVCenterAndVolumeManagerForVolumeID(ctx context.Context, controller *cont
 			vCenterConfig, vCenterFound := controller.managers.VcenterConfigs[controller.managers.CnsConfig.Global.VCenterIP]
 			if !vCenterFound {
 				return "", nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"could not get vCenter config for the vCenter: %q", controller.managers.CnsConfig.Global.VCenterIP)
+					"could not get vCenter config for the vCenter: %q",
+					controller.managers.CnsConfig.Global.VCenterIP)
 			}
 			vCenter = vCenterConfig.Host
 			if volumeManager, volumeManagerfound =

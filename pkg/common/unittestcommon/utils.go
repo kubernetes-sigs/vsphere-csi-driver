@@ -283,3 +283,14 @@ func (c *FakeK8SOrchestrator) CreateConfigMap(ctx context.Context, name string, 
 	data map[string]string, isImmutable bool) error {
 	return nil
 }
+
+// GetCSINodeTopologyInstancesList lists CSINodeTopology instances for a given cluster.
+func (c *FakeK8SOrchestrator) GetCSINodeTopologyInstancesList() []interface{} {
+	return nil
+}
+
+// GetCSINodeTopologyInstanceByName fetches the CSINodeTopology instance for a given node name in the cluster.
+func (c *FakeK8SOrchestrator) GetCSINodeTopologyInstanceByName(nodeName string) (
+	item interface{}, exists bool, err error) {
+	return nil, false, nil
+}

@@ -76,6 +76,10 @@ type COCommonInterface interface {
 	// parameter values.
 	CreateConfigMap(ctx context.Context, name string, namespace string, data map[string]string,
 		isImmutable bool) error
+	// GetCSINodeTopologyInstancesList lists CSINodeTopology instances for a given cluster.
+	GetCSINodeTopologyInstancesList() []interface{}
+	// GetCSINodeTopologyInstanceByName fetches the CSINodeTopology instance for a given node name in the cluster.
+	GetCSINodeTopologyInstanceByName(nodeName string) (item interface{}, exists bool, err error)
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given
