@@ -426,7 +426,7 @@ data:
   "block-volume-snapshot": "false"
   "sibling-replica-bound-pvc-check": "true"
   "tkgs-ha": "true"
-  "list-volumes": "false"
+  "list-volumes": "true"
   "cnsmgr-suspend-create-volume": "true"
 kind: ConfigMap
 metadata:

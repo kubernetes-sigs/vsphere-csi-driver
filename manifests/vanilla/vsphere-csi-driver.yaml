@@ -156,7 +156,7 @@ data:
   "block-volume-snapshot": "true"
   "csi-windows-support": "false"
   "use-csinode-id": "true"
-  "list-volumes": "false"
+  "list-volumes": "true"
   "pv-to-backingdiskobjectid-mapping": "false"
   "cnsmgr-suspend-create-volume": "true"
   "topology-preferential-datastores": "true"
