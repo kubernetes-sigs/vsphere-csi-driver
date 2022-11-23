@@ -1290,7 +1290,7 @@ func podAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
 						if err != nil {
 							log.Warnf("podAdded: Failed to get VolumeID from "+
 								"volumeMigrationService for static PV: %q volumePath: %q with error %+v",
-								pv.Name, volume.VsphereVolume.VolumePath, err)
+								pv.Name, pv.Spec.VsphereVolume.VolumePath, err)
 							continue
 						}
 						log.Infof("Successfully registered in-tree vSphere inline volume: %q with "+
