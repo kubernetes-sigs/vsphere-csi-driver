@@ -310,9 +310,9 @@ spec:
             httpGet:
               path: /healthz
               port: healthz
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             timeoutSeconds: 10
-            periodSeconds: 5
+            periodSeconds: 180
             failureThreshold: 3
           env:
             - name: CSI_ENDPOINT
