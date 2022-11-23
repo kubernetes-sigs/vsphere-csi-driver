@@ -317,9 +317,9 @@ spec:
             httpGet:
               path: /healthz
               port: healthz
-            initialDelaySeconds: 10
-            timeoutSeconds: 3
-            periodSeconds: 5
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+            periodSeconds: 180
             failureThreshold: 3
         - name: liveness-probe
           image: k8s.gcr.io/sig-storage/livenessprobe:v2.7.0
