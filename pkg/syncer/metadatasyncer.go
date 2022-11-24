@@ -873,52 +873,119 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 			return logger.LogNewErrorf(log, "failed to create supervisorClient. Error: %+v", err)
 		}
 	} else {
-		newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
-		if err != nil {
-			return logger.LogNewErrorf(log, "failed to get VirtualCenterConfig. err=%v", err)
-		}
-		if newVCConfig != nil {
-			var vcenter *cnsvsphere.VirtualCenter
-			if metadataSyncer.host != newVCConfig.Host ||
-				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User != newVCConfig.Username ||
-				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].Password != newVCConfig.Password ||
-				reconnectToVCFromNewConfig {
-				// Verify if new configuration has valid credentials by connecting
-				// to vCenter. Proceed only if the connection succeeds, else return
-				// error.
-				newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
-				if err = newVC.Connect(ctx); err != nil {
-					return logger.LogNewErrorf(log,
-						"failed to connect to VirtualCenter host: %s using new credentials, Err: %+v",
-						newVCConfig.Host, err)
+		if isMultiVCenterFssEnabled {
+			var multivCenterTopologyDeployment bool
+			if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+				multivCenterTopologyDeployment = true
+			}
+			newVcenterConfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, cfg)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err=%v", err)
+			}
+			if newVcenterConfigs != nil {
+				for _, newVCConfig := range newVcenterConfigs {
+					var vcenter *cnsvsphere.VirtualCenter
+					oldvcconfig, found := metadataSyncer.configInfo.Cfg.VirtualCenter[newVCConfig.Host]
+					if !found || oldvcconfig.User != newVCConfig.Username ||
+						oldvcconfig.Password != newVCConfig.Password ||
+						reconnectToVCFromNewConfig {
+						newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
+						if err = newVC.Connect(ctx); err != nil {
+							return logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q, Err: %+v",
+								newVCConfig.Host, err)
+						}
+						// Reset vCenter singleton instance by passing reload flag as true.
+						log.Info("Obtaining new vCenterInstance using new credentials for vCenter: %q", newVCConfig.Host)
+						vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, newVCConfig, true)
+						if err != nil {
+							return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, "+
+								"err: %v", newVCConfig.Host, err)
+						}
+					} else {
+						// If it's not VC credentials update, same singleton
+						// instance can be used and it's Config field can be updated.
+						vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
+						if err != nil {
+							return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+						}
+						vcenter.Config = newVCConfig
+					}
+					if metadataSyncer.volumeManagers[newVCConfig.Host] != nil {
+						log.Infof("resetting vCenter instance in volumemanager for vCenter: %q", newVCConfig.Host)
+						metadataSyncer.volumeManagers[newVCConfig.Host].ResetManager(ctx, vcenter)
+					} else {
+						log.Infof("creating new volumemanager for vCenter: %q", newVCConfig.Host)
+						metadataSyncer.volumeManagers[newVCConfig.Host] = volumes.GetManager(ctx, vcenter, nil,
+							true, true, multivCenterTopologyDeployment)
+					}
 				}
+				// Remove Old Volume Managers which are replaced with new VC IP or FQDN
+				for vcHost := range metadataSyncer.configInfo.Cfg.VirtualCenter {
+					var retainVolumeManager bool
+					for _, newconfig := range newVcenterConfigs {
+						if newconfig.Host == vcHost {
+							retainVolumeManager = true
+							break
+						}
+					}
+					if !retainVolumeManager {
+						log.Infof("deleting volume manager for vCenter: %q", vcHost)
+						delete(metadataSyncer.volumeManagers, vcHost)
+					}
+				}
+				if cfg != nil {
+					metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{Cfg: cfg}
+					log.Infof("updated metadataSyncer.configInfo")
+				}
+			}
+		} else {
+			newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to get VirtualCenterConfig. err=%v", err)
+			}
+			if newVCConfig != nil {
+				var vcenter *cnsvsphere.VirtualCenter
+				if metadataSyncer.host != newVCConfig.Host ||
+					metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User != newVCConfig.Username ||
+					metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].Password != newVCConfig.Password ||
+					reconnectToVCFromNewConfig {
+					// Verify if new configuration has valid credentials by connecting
+					// to vCenter. Proceed only if the connection succeeds, else return
+					// error.
+					newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
+					if err = newVC.Connect(ctx); err != nil {
+						return logger.LogNewErrorf(log,
+							"failed to connect to VirtualCenter host: %s using new credentials, Err: %+v",
+							newVCConfig.Host, err)
+					}
 
-				// Reset virtual center singleton instance by passing reload flag
-				// as true.
-				log.Info("Obtaining new vCenterInstance using new credentials")
-				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
-				if err != nil {
-					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+					// Reset virtual center singleton instance by passing reload flag
+					// as true.
+					log.Info("Obtaining new vCenterInstance using new credentials")
+					vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
+					if err != nil {
+						return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+					}
+				} else {
+					// If it's not a VC host or VC credentials update, same singleton
+					// instance can be used and it's Config field can be updated.
+					vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
+					if err != nil {
+						return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+					}
+					vcenter.Config = newVCConfig
 				}
-			} else {
-				// If it's not a VC host or VC credentials update, same singleton
-				// instance can be used and it's Config field can be updated.
-				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
-				if err != nil {
-					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+				metadataSyncer.volumeManager.ResetManager(ctx, vcenter)
+				metadataSyncer.volumeManager = volumes.GetManager(ctx, vcenter, nil, false, false, false)
+				if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+					storagepool.ResetVC(ctx, vcenter)
 				}
-				vcenter.Config = newVCConfig
+				metadataSyncer.host = newVCConfig.Host
 			}
-			metadataSyncer.volumeManager.ResetManager(ctx, vcenter)
-			metadataSyncer.volumeManager = volumes.GetManager(ctx, vcenter, nil, false, false, false)
-			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-				storagepool.ResetVC(ctx, vcenter)
+			if cfg != nil {
+				metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{Cfg: cfg}
+				log.Infof("updated metadataSyncer.configInfo")
 			}
-			metadataSyncer.host = newVCConfig.Host
-		}
-		if cfg != nil {
-			metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{Cfg: cfg}
-			log.Infof("updated metadataSyncer.configInfo")
 		}
 	}
 	return nil

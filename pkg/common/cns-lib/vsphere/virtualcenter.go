@@ -588,14 +588,16 @@ func GetVirtualCenterInstanceForVCenterConfig(ctx context.Context,
 	defer vCenterInstancesLock.Unlock()
 
 	_, found := vCenterInstances[vcconfig.Host]
-	if !found || reinitialize {
+	if reinitialize {
 		log.Infof("Initializing new vCenterInstance for vCenter %q", vcconfig.Host)
 		// Initialize the virtual center manager.
 		virtualcentermanager := GetVirtualCenterManager(ctx)
-		// Unregister the VC from virtual center manager.
-		if err := virtualcentermanager.UnregisterVirtualCenter(ctx, vcconfig.Host); err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to unregister VirtualCenter %q with "+
-				"virtualCenterManager. Err: %+v", vcconfig.Host, err)
+		if found {
+			// Unregister the VC from virtual center manager.
+			if err := virtualcentermanager.UnregisterVirtualCenter(ctx, vcconfig.Host); err != nil {
+				return nil, logger.LogNewErrorf(log, "failed to unregister VirtualCenter %q with "+
+					"virtualCenterManager. Err: %+v", vcconfig.Host, err)
+			}
 		}
 		// Register with virtual center manager.
 		vcInstance, err := virtualcentermanager.RegisterVirtualCenter(ctx, vcconfig)
