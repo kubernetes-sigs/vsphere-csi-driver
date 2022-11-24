@@ -35,6 +35,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
@@ -95,14 +96,26 @@ func GetVCenterFromVCHost(ctx context.Context, vCenterManager cnsvsphere.Virtual
 	vcenter, err := vCenterManager.GetVirtualCenter(ctx, vCenterHost)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log,
-			"failed to get VirtualCenter instance for VChost: %q. err=%v", vCenterHost, err)
+			"failed to get VirtualCenter instance for VC host: %q. Error: %v", vCenterHost, err)
 	}
 	err = vcenter.Connect(ctx)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log,
-			"failed to connect to VirtualCenter host: %q. err=%v", vCenterHost, err)
+			"failed to connect to VirtualCenter host: %q. Error: %v", vCenterHost, err)
 	}
 	return vcenter, nil
+}
+
+// GetVolumeManagerFromVCHost retreives the volume manager associated with
+// vCenterHost under managers. Error out if the vCenterHost does not exist.
+func GetVolumeManagerFromVCHost(ctx context.Context, managers *Managers, vCenterHost string) (
+	cnsvolume.Manager, error) {
+	log := logger.GetLogger(ctx)
+	volumeMgr, exists := managers.VolumeManagers[vCenterHost]
+	if !exists {
+		return nil, logger.LogNewErrorf(log, "failed to find vCenter %q under volume managers.", vCenterHost)
+	}
+	return volumeMgr, nil
 }
 
 // GetUUIDFromProviderID Returns VM UUID from Node's providerID.

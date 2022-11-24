@@ -31,8 +31,12 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 )
 
-// ErrVMNotFound is returned when a virtual machine isn't found.
-var ErrVMNotFound = errors.New("virtual machine wasn't found")
+var (
+	// ErrVMNotFound is returned when a virtual machine isn't found.
+	ErrVMNotFound = errors.New("virtual machine wasn't found")
+	// ErrNoSharedDatastoresFound is raised when no shared datastores are found among the given NodeVMs.
+	ErrNoSharedDatastoresFound = errors.New("no shared datastores found among given NodeVMs")
+)
 
 // VirtualMachine holds details of a virtual machine instance.
 type VirtualMachine struct {
@@ -384,7 +388,7 @@ func GetSharedDatastoresForVMs(ctx context.Context, nodeVMs []*VirtualMachine) (
 			sharedDatastores = sharedAccessibleDatastores
 		}
 		if len(sharedDatastores) == 0 {
-			return nil, fmt.Errorf("no shared datastores found for nodeVm: %+v", nodeVM)
+			return nil, ErrNoSharedDatastoresFound
 		}
 	}
 	return sharedDatastores, nil

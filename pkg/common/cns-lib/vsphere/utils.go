@@ -554,7 +554,6 @@ func IsvSphereVersion70U3orAbove(ctx context.Context, aboutInfo types.AboutInfo)
 // IsVolumeCreationSuspended checks whether a given Datastore has cns.vmware.com/datastoreSuspended customValue
 func IsVolumeCreationSuspended(ctx context.Context, datastoreInfo *DatastoreInfo) bool {
 	log := logger.GetLogger(ctx)
-
 	for _, customValField := range datastoreInfo.CustomValues {
 		customVal := customValField.(*types.CustomFieldStringValue)
 		if customVal.Value == cnsMgrDatastoreSuspended {
@@ -563,25 +562,22 @@ func IsVolumeCreationSuspended(ctx context.Context, datastoreInfo *DatastoreInfo
 			return true
 		}
 	}
-
 	return false
 }
 
 // FilterSuspendedDatastores filters out datastores which cns.vmware.com/datastoreSuspended customValue
 func FilterSuspendedDatastores(ctx context.Context, datastoreInfoList []*DatastoreInfo) ([]*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
-
 	var filteredList []*DatastoreInfo
 	for _, ds := range datastoreInfoList {
 		if !IsVolumeCreationSuspended(ctx, ds) {
 			filteredList = append(filteredList, ds)
 		}
 	}
-
 	if len(filteredList) == 0 {
-		return filteredList, logger.LogNewErrorf(log, "No datastores are available after filtering suspended datastores")
+		return filteredList, logger.LogNewErrorf(log,
+			"No datastores are available after filtering suspended datastores")
 	}
-
-	log.Infof("Updated filtered list of datastores %+v", filteredList)
+	log.Infof("Filtered list of datastores after removing suspended ones are: %+v", filteredList)
 	return filteredList, nil
 }

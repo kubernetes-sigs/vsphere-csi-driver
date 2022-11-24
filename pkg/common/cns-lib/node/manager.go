@@ -66,6 +66,10 @@ type Manager interface {
 	// nodes. If nodes are added or removed concurrently, they may or may not be
 	// reflected in the result of a call to this method.
 	GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMachine, error)
+	// GetAllNodesByVC refreshes and returns VirtualMachine for all registered
+	// nodes in the given VC. If nodes are added or removed concurrently, they
+	// may or may not be reflected in the result of a call to this method.
+	GetAllNodesByVC(ctx context.Context, vcHost string) ([]*vsphere.VirtualMachine, error)
 	// UnregisterNode unregisters a registered node given its name.
 	UnregisterNode(ctx context.Context, nodeName string) error
 }
@@ -283,6 +287,76 @@ func (m *defaultManager) GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMac
 
 		nodeUUID := nodeUUIDInf.(string)
 		vm := vmInf.(*vsphere.VirtualMachine)
+
+		if reconnectedHosts[vm.VirtualCenterHost] {
+			log.Debugf("Renewing VM %v, no new connection needed: nodeUUID %s", vm, nodeUUID)
+			err = vm.Renew(ctx, false)
+		} else {
+			log.Debugf("Renewing VM %v with new connection: nodeUUID %s", vm, nodeUUID)
+			err = vm.Renew(ctx, true)
+			reconnectedHosts[vm.VirtualCenterHost] = true
+		}
+
+		if err != nil {
+			log.Errorf("failed to renew VM %v with nodeUUID %s, aborting get all nodes", vm, nodeUUID)
+			return false
+		}
+
+		log.Debugf("Updated VM %v for node with nodeUUID %s", vm, nodeUUID)
+		vms = append(vms, vm)
+		return true
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return vms, nil
+}
+
+// GetAllNodesByVC refreshes and returns VirtualMachine for all registered nodes in the given vcHost.
+func (m *defaultManager) GetAllNodesByVC(ctx context.Context, vcHost string) ([]*vsphere.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
+	var vms []*vsphere.VirtualMachine
+	var err error
+	reconnectedHosts := make(map[string]bool)
+
+	m.nodeNameToUUID.Range(func(nodeName, nodeUUID interface{}) bool {
+		if nodeName != nil && nodeUUID != nil && nodeUUID.(string) == "" {
+			log.Infof("Empty node UUID observed for the node: %q", nodeName)
+			k8snodeUUID, err := k8s.GetNodeUUID(ctx, m.k8sClient,
+				nodeName.(string), m.useNodeUuid)
+			if err != nil {
+				log.Errorf("failed to get node UUID from node: %q. Err: %v", nodeName, err)
+				return true
+			}
+			if k8snodeUUID == "" {
+				log.Errorf("Node: %q with empty node UUID found in the cluster. "+
+					"aborting get all nodes", nodeName)
+				return true
+			}
+			m.nodeNameToUUID.Store(nodeName, k8snodeUUID)
+			return false
+		}
+		return true
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	m.nodeVMs.Range(func(nodeUUIDInf, vmInf interface{}) bool {
+		// If an entry was concurrently deleted from vm, Range could
+		// possibly return a nil value for that key.
+		// See https://golang.org/pkg/sync/#Map.Range for more info.
+		if vmInf == nil {
+			log.Warnf("VM instance was nil, ignoring with nodeUUID %v", nodeUUIDInf)
+			return true
+		}
+
+		nodeUUID := nodeUUIDInf.(string)
+		vm := vmInf.(*vsphere.VirtualMachine)
+		if vm.VirtualCenterHost != vcHost {
+			return true
+		}
 
 		if reconnectedHosts[vm.VirtualCenterHost] {
 			log.Debugf("Renewing VM %v, no new connection needed: nodeUUID %s", vm, nodeUUID)

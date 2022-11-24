@@ -32,12 +32,28 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
+
+// VanillaCreateBlockVolParamsForMultiVC stores the parameters
+// required to call CreateBlockVolumeUtilForMultiVC function.
+type VanillaCreateBlockVolParamsForMultiVC struct {
+	Vcenter                   *vsphere.VirtualCenter
+	VolumeManager             cnsvolume.Manager
+	CNSConfig                 *config.Config
+	StoragePolicyID           string
+	Spec                      *CreateVolumeSpec
+	SharedDatastores          []*vsphere.DatastoreInfo
+	SnapshotDatastoreURL      string
+	ClusterFlavor             cnstypes.CnsClusterFlavor
+	FilterSuspendedDatastores bool
+}
 
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
 func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager,
@@ -278,6 +294,134 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 	volumeInfo, faultType, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
 		log.Errorf("failed to create disk %s with error %+v faultType %q", spec.Name, err, faultType)
+		return nil, faultType, err
+	}
+	return volumeInfo, "", nil
+}
+
+// CreateBlockVolumeUtilForMultiVC is the helper function to create CNS block volume when multi-VC FSS is enabled.
+func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{}) (
+	*cnsvolume.CnsVolumeInfo, string, error) {
+	log := logger.GetLogger(ctx)
+	params, ok := reqParams.(VanillaCreateBlockVolParamsForMultiVC)
+	if !ok {
+		return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+			"expected params of type VanillaCreateBlockVolParamsForMultiVC, got %+v", reqParams)
+	}
+	var (
+		err              error
+		datastoreInfoObj *vsphere.DatastoreInfo
+		datastores       []vim25types.ManagedObjectReference
+	)
+	params.SharedDatastores, err = vsphere.FilterSuspendedDatastores(ctx, params.SharedDatastores)
+	if err != nil {
+		return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+			"received error while filtering suspended datastores. Error: %+v", err)
+	}
+	if params.Spec.ScParams.DatastoreURL != "" {
+		// Check if DatastoreURL specified in the StorageClass is present in shared
+		// datastore across all nodes.
+		isSharedDatastoreURL := false
+		for _, sharedDatastore := range params.SharedDatastores {
+			if strings.TrimSpace(sharedDatastore.Info.Url) == strings.TrimSpace(params.Spec.ScParams.DatastoreURL) {
+				isSharedDatastoreURL = true
+				break
+			}
+		}
+		if !isSharedDatastoreURL {
+			// TODO: Need to figure out which fault need to return when datastore is not accessible to all nodes.
+			// Currently, just return csi.fault.Internal.
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+				"Datastore: %s specified in the storage class is not accessible to all nodes in VC %q.",
+				params.Spec.ScParams.DatastoreURL, params.Vcenter.Config.Host)
+		}
+		// Check if DatastoreURL specified in the StorageClass is present in any one of the datacenters.
+		datastoreInfoObj, err = getDatastoreInfoObj(ctx, params.Vcenter, params.Spec.ScParams.DatastoreURL)
+		if err != nil {
+			// TODO: Need to figure out which fault need to return when datastore cannot be found in given vCenter.
+			// Currently, just return csi.fault.Internal.
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log, "failed to get datastore "+
+				"object in vCenter %q for datastoreURL: %s specified in the storage class.",
+				params.Vcenter.Config.Host, params.Spec.ScParams.DatastoreURL)
+		}
+		params.SharedDatastores = []*vsphere.DatastoreInfo{datastoreInfoObj}
+	}
+	// Fetch datastore morefs for Create Spec.
+	for _, ds := range params.SharedDatastores {
+		datastores = append(datastores, ds.Reference())
+	}
+
+	var containerClusterArray []cnstypes.CnsContainerCluster
+	clusterID := params.CNSConfig.Global.ClusterID
+	containerCluster := vsphere.GetContainerCluster(clusterID,
+		params.CNSConfig.VirtualCenter[params.Vcenter.Config.Host].User, params.ClusterFlavor,
+		params.CNSConfig.Global.ClusterDistribution)
+	containerClusterArray = append(containerClusterArray, containerCluster)
+	createSpec := &cnstypes.CnsVolumeCreateSpec{
+		Name:       params.Spec.Name,
+		VolumeType: params.Spec.VolumeType,
+		Datastores: datastores,
+		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
+				CapacityInMb: params.Spec.CapacityMB,
+			},
+		},
+		Metadata: cnstypes.CnsVolumeMetadata{
+			ContainerCluster:      containerCluster,
+			ContainerClusterArray: containerClusterArray,
+		},
+	}
+	// Handle the case of CreateVolumeFromSnapshot by checking if
+	// the ContentSourceSnapshotID is available in CreateVolumeSpec.
+	if params.Spec.ContentSourceSnapshotID != "" {
+		// Parse spec.ContentSourceSnapshotID into CNS VolumeID and CNS SnapshotID using "+" as the delimiter
+		cnsVolumeID, cnsSnapshotID, err := ParseCSISnapshotID(params.Spec.ContentSourceSnapshotID)
+		if err != nil {
+			return nil, csifault.CSIInvalidArgumentFault, err
+		}
+
+		createSpec.VolumeSource = &cnstypes.CnsSnapshotVolumeSource{
+			VolumeId: cnstypes.CnsVolumeId{
+				Id: cnsVolumeID,
+			},
+			SnapshotId: cnstypes.CnsSnapshotId{
+				Id: cnsSnapshotID,
+			},
+		}
+		// Validate if the snapshot datastore is present in the datastore candidates in create spec.
+		isSharedDatastoreURL := false
+		for _, sharedDs := range params.SharedDatastores {
+			if strings.TrimSpace(sharedDs.Info.Url) == strings.TrimSpace(params.SnapshotDatastoreURL) {
+				isSharedDatastoreURL = true
+				break
+			}
+		}
+		if !isSharedDatastoreURL {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+				"failed to get the compatible shared datastore for create volume from snapshot %q in vCenter %q",
+				params.Spec.ContentSourceSnapshotID, params.Vcenter.Config.Host)
+		}
+		// Check if DatastoreURL specified in the StorageClass is present in any one of the datacenters.
+		datastoreInfoObj, err = getDatastoreInfoObj(ctx, params.Vcenter, params.SnapshotDatastoreURL)
+		if err != nil {
+			// TODO: Need to figure out which fault need to return when datastore cannot be found in given vCenter.
+			// Currently, just return csi.fault.Internal.
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log, "failed to get datastore "+
+				"object in vCenter %q for datastore URL %q associated with snapshot %q",
+				params.Vcenter.Config.Host, params.SnapshotDatastoreURL, params.Spec.ContentSourceSnapshotID)
+		}
+		// overwrite the datastores field in create spec with the compatible datastore
+		log.Infof("Overwrite the datastores field in create spec %+v with the snapshot datastore %v "+
+			"when create volume from snapshot %s", createSpec.Datastores, datastoreInfoObj.Reference(),
+			params.Spec.ContentSourceSnapshotID)
+		createSpec.Datastores = []vim25types.ManagedObjectReference{datastoreInfoObj.Reference()}
+	}
+
+	log.Debugf("vSphere CSI driver creating volume %s with create spec %+v", params.Spec.Name, spew.Sdump(createSpec))
+	volumeInfo, faultType, err := params.VolumeManager.CreateVolume(ctx, createSpec)
+	if err != nil {
+		log.Errorf("failed to create disk %s on vCenter %q with error %+v faultType %q",
+			params.Spec.Name, params.Vcenter.Config.Host, err, faultType)
 		return nil, faultType, err
 	}
 	return volumeInfo, "", nil
@@ -955,10 +1099,9 @@ func GetNodeVMsWithAccessToDatastore(ctx context.Context, vc *vsphere.VirtualCen
 		return nil, logger.LogNewErrorf(log, "failed to retrieve datastore object using datastore "+
 			"URL %q. Error: %+v", dsURL, err)
 	}
-	dsObj := dsInfoObj.Datastore
 	// Get datastore host mounts.
 	var ds mo.Datastore
-	err = dsObj.Properties(ctx, dsObj.Reference(), []string{"host"}, &ds)
+	err = dsInfoObj.Properties(ctx, dsInfoObj.Reference(), []string{"host"}, &ds)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log, "failed to get host mounts from datastore %q. Error: %+v",
 			dsURL, err)

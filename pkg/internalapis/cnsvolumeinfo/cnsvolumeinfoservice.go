@@ -112,6 +112,7 @@ func (volumeInfo *volumeInfo) GetvCenterForVolumeID(ctx context.Context, volumeI
 	if err != nil {
 		return "", logger.LogNewErrorf(log, "failed to parse cnsvolumeinfo object: %v, err: %v", info, err)
 	}
+	log.Infof("Volume ID %q is associated with VC %q", volumeID, cnsvolumeinfo.Spec.VCenterServer)
 	return cnsvolumeinfo.Spec.VCenterServer, nil
 }
 
