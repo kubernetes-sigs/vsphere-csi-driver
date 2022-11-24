@@ -2868,6 +2868,8 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 		case "csi-fetch-preferred-datastores-intervalinmin":
 			config.Global.CSIFetchPreferredDatastoresIntervalInMin, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
+		case "targetvSANFileShareDatastoreURLs":
+			config.Global.TargetvSANFileShareDatastoreURLs = value
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
 		}
@@ -2880,13 +2882,14 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
 	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
 		"csi-fetch-preferred-datastores-intervalinmin = %d\n\n"+
-		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n\n"+
+		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n"+
+		"targetvSANFileShareDatastoreURLs = \"%s\"\n\n"+
 		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n"+
 		"[Labels]\ntopology-categories = \"%s\"",
 		cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
 		cfg.Global.CSIFetchPreferredDatastoresIntervalInMin,
 		cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
-		cfg.Global.Datacenters, cfg.Global.VCenterPort,
+		cfg.Global.Datacenters, cfg.Global.VCenterPort, cfg.Global.TargetvSANFileShareDatastoreURLs,
 		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume,
 		cfg.Labels.TopologyCategories)
 	return result, nil

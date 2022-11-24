@@ -253,6 +253,7 @@ var (
 // Config secret testuser credentials
 var (
 	configSecretTestUser1Password = "VMware!23"
+	configSecretTestUser2Password = "VMware!234"
 	configSecretTestUser1         = "testuser1"
 	configSecretTestUser2         = "testuser2"
 )
