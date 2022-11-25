@@ -155,8 +155,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Verify volume is deleted in Supervisor Cluster")
-		volumeExists := verifyVolumeExistInSupervisorCluster(svcPVCName)
-		gomega.Expect(volumeExists).To(gomega.BeFalse())
+		err = waitTillVolumeIsDeletedInSvc(svcPVCName, poll, pollTimeoutShort)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		svcClient, svNamespace := getSvcClientAndNamespace()
@@ -891,11 +891,13 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 
 		defer func() {
 			ginkgo.By("Deleting the gc PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvcNew.Name, namespaceNewGC)
+			err = fpv.DeletePersistentVolumeClaim(client, pvcNew.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Deleting the gc PV")
 			err = fpv.DeletePersistentVolume(client, pvNew.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = fpv.WaitForPersistentVolumeDeleted(client, pvNew.Name, poll, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		}()

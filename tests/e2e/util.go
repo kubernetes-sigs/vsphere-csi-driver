@@ -2406,6 +2406,28 @@ func verifyVolumeExistInSupervisorCluster(pvcName string) bool {
 	return true
 }
 
+func waitTillVolumeIsDeletedInSvc(pvcName string, poll, timeout time.Duration) error {
+	framework.Logf("Waiting up to %v to check whether volume  %s is deleted", timeout, pvcName)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(poll) {
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		svPvc, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, pvcName, metav1.GetOptions{})
+		if err == nil {
+			framework.Logf("Volume %s is not removed yet", pvcName)
+			continue
+		}
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				framework.Logf("volume %s was removed", pvcName)
+				return nil
+			}
+			framework.Logf("PVC in supervisor namespace: %s", svPvc.Name)
+		}
+	}
+	return fmt.Errorf("volume %s still exists within %v", pvcName, timeout)
+}
+
 // returns crd if found by name.
 func getCnsNodeVMAttachmentByName(ctx context.Context, f *framework.Framework, expectedInstanceName string,
 	crdVersion string, crdGroup string) *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment {

@@ -311,18 +311,17 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler * 2)
+
 		pod, err = client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
 
 		ginkgo.By("Verify CnsNodeVmAttachment CRD is created")
 		verifyCRDInSupervisorWithWait(ctx, f, pod.Spec.NodeName+"-"+svcPVCName,
 			crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify Pod is still in ContainerCreating phase")
-		gomega.Expect(podContainerCreatingState == pod.Status.ContainerStatuses[0].State.Waiting.Reason).
-			To(gomega.BeTrue())
+		gomega.Expect(podContainerCreatingState == pod.Status.ContainerStatuses[0].State.Waiting.Reason).To(gomega.BeTrue())
 
 		ginkgo.By("Bring up csi-controller pod in SV")
 		bringUpCsiController(svcClient, csiReplicaCount)
