@@ -588,7 +588,7 @@ func GetVirtualCenterInstanceForVCenterConfig(ctx context.Context,
 	defer vCenterInstancesLock.Unlock()
 
 	_, found := vCenterInstances[vcconfig.Host]
-	if reinitialize {
+	if !found || reinitialize {
 		log.Infof("Initializing new vCenterInstance for vCenter %q", vcconfig.Host)
 		// Initialize the virtual center manager.
 		virtualcentermanager := GetVirtualCenterManager(ctx)
