@@ -33,7 +33,7 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 				segments, err)
 		}
 		if len(matchingNodeVMs) == 0 {
-			log.Warnf("No nodes in the cluster matched the topology requirement provided: %+v",
+			log.Warnf("No nodes in the cluster matched the topology requirement: %+v",
 				segments)
 			continue
 		}
@@ -43,7 +43,7 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 		sharedDatastoresInTopology, err := cnsvsphere.GetSharedDatastoresForVMs(ctx, matchingNodeVMs)
 		if err != nil {
 			if err == cnsvsphere.ErrNoSharedDatastoresFound {
-				log.Errorf("no shared datastores found for topology segment: %+v", segments)
+				log.Warnf("no shared datastores found for topology segment: %+v", segments)
 				continue
 			}
 			return nil, logger.LogNewErrorf(log, "failed to get shared datastores for nodes: %+v "+

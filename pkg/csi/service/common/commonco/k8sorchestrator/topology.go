@@ -1016,7 +1016,7 @@ func (volTopology *controllerVolumeTopology) getSharedDatastoresInTopology(ctx c
 		log.Infof("Obtained list of nodeVMs %+v", matchingNodeVMs)
 		sharedDatastoresInTopology, err := cnsvsphere.GetSharedDatastoresForVMs(ctx, matchingNodeVMs)
 		if err != nil {
-			log.Errorf("Failed to get shared datastores for nodes: %+v in topology segment %+v. Error: %+v",
+			log.Errorf("failed to get shared datastores for nodes: %+v in topology segment %+v. Error: %+v",
 				matchingNodeVMs, segments, err)
 			return nil, err
 		}

@@ -316,7 +316,8 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 	params.SharedDatastores, err = vsphere.FilterSuspendedDatastores(ctx, params.SharedDatastores)
 	if err != nil {
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
-			"received error while filtering suspended datastores. Error: %+v", err)
+			"received error while filtering suspended datastores in vCenter %q. Error: %+v",
+			params.Vcenter.Config.Host, err)
 	}
 	if params.Spec.ScParams.DatastoreURL != "" {
 		// Check if DatastoreURL specified in the StorageClass is present in shared
@@ -332,7 +333,7 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 			// TODO: Need to figure out which fault need to return when datastore is not accessible to all nodes.
 			// Currently, just return csi.fault.Internal.
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
-				"Datastore: %s specified in the storage class is not accessible to all nodes in VC %q.",
+				"Datastore: %s specified in the storage class is not accessible to all nodes in vCenter %q.",
 				params.Spec.ScParams.DatastoreURL, params.Vcenter.Config.Host)
 		}
 		// Check if DatastoreURL specified in the StorageClass is present in any one of the datacenters.
