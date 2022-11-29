@@ -748,8 +748,10 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	}
 
 	if len(filteredDatastores) == 0 {
-		return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-			"no datastores found to create file volume")
+		// when len(filteredDatastore)==0, it means vsan file service is not enabled on any vsan cluster specfified
+		// by VcenterConfig.TargetvSANFileShareClusters
+		return nil, csifault.CSIVSanFileServiceDisabledFault, logger.LogNewErrorCode(log, codes.FailedPrecondition,
+			"no datastores found to create file volume, vsan file service may be disabled")
 	}
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
@@ -817,6 +819,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
 					"file volume feature is disabled on the cluster")
 			}
+
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 				if len(clusterComputeResourceMoIds) > 1 {
 					return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,

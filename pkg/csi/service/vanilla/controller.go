@@ -1632,8 +1632,9 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		}
 
 		if len(filteredDatastores) == 0 {
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-				"no datastores found to create file volume")
+			// when len(filteredDatastore)==0, it means vsan file service is not enabled on any vsan cluster
+			return nil, csifault.CSIVSanFileServiceDisabledFault, logger.LogNewErrorCode(log, codes.FailedPrecondition,
+				"no datastores found to create file volume, vsan file service may be disabled")
 		}
 
 		volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
@@ -1643,7 +1644,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create volume. Error: %+v", err)
 		}
-
 	}
 
 	attributes := make(map[string]string)
