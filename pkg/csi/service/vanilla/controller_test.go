@@ -47,6 +47,7 @@ import (
 	testclient "k8s.io/client-go/kubernetes/fake"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
@@ -329,10 +330,15 @@ func getControllerTest(t *testing.T) *controllerTest {
 			t.Fatal(err)
 		}
 
+		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, fakeOpStore, true, false, false, false)
+		if err != nil {
+			t.Fatalf("failed to create an instance of volume manager. err=%v", err)
+		}
+
 		manager := &common.Manager{
 			VcenterConfig:  vcenterconfig,
 			CnsConfig:      config,
-			VolumeManager:  cnsvolume.GetManager(ctx, vcenter, fakeOpStore, true, false, false),
+			VolumeManager:  volumeManager,
 			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 		}
 
@@ -2135,7 +2141,7 @@ func TestDeleteBlockVolumeSnapshotWithManagedObjectNotFound(t *testing.T) {
 		taskID, "", "", cnsvolumeoperationrequest.TaskInvocationStatusInProgress, "")
 	_ = ct.operationStore.StoreRequestDetails(ctx, operationInstance)
 
-	//logger.SetLoggerLevel(logger.DevelopmentLogLevel) // enable debug level log
+	// logger.SetLoggerLevel(logger.DevelopmentLogLevel) // enable debug level log
 
 	// Delete the snapshot
 	reqDeleteSnapshot := &csi.DeleteSnapshotRequest{

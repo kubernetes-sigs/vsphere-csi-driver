@@ -76,7 +76,11 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		if err != nil {
 			return err
 		}
-		volumeManager = volumes.GetManager(ctx, vCenter, nil, false, false, false)
+		volumeManager, err = volumes.GetManager(ctx, vCenter, nil,
+			false, false, false, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListViewPerf))
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
+		}
 	}
 
 	// Get a config to talk to the apiserver

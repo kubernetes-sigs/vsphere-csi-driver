@@ -145,10 +145,15 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 	}
+	volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled,
+		false, false, false)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
+	}
 	c.manager = &common.Manager{
 		VcenterConfig:  vcenterconfig,
 		CnsConfig:      config,
-		VolumeManager:  cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled, false, false),
+		VolumeManager:  volumeManager,
 		VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 	}
 
@@ -349,10 +354,18 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 				return err
 			}
 		}
-		c.manager.VolumeManager.ResetManager(ctx, vcenter)
+		err := c.manager.VolumeManager.ResetManager(ctx, vcenter)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
+		}
 		c.manager.VcenterConfig = newVCConfig
-		c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore,
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIVolumeManagerIdempotency), false, false)
+
+		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
+			idempotencyHandlingEnabled, false, false, false)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
+		}
+		c.manager.VolumeManager = volumeManager
 		if c.authMgr != nil {
 			c.authMgr.ResetvCenterInstance(ctx, vcenter)
 			log.Debugf("Updated vCenter in auth manager")
@@ -790,7 +803,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	createVolumeInternal := func() (
 		*csi.CreateVolumeResponse, string, error) {
 		log.Infof("CreateVolume: called with args %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
@@ -857,7 +870,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	deleteVolumeInternal := func() (
 		*csi.DeleteVolumeResponse, string, error) {
 		log.Infof("DeleteVolume: called with args: %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
 		// Later we may need to define different csi faults.
@@ -948,7 +961,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	controllerPublishVolumeInternal := func() (
 		*csi.ControllerPublishVolumeResponse, string, error) {
 		log.Infof("ControllerPublishVolume: called with args %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
@@ -1092,7 +1105,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	controllerUnpublishVolumeInternal := func() (
 		*csi.ControllerUnpublishVolumeResponse, string, error) {
 		log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
@@ -1639,7 +1652,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 				"expandVolume feature is disabled on the cluster")
 		}
 		log.Infof("ControllerExpandVolume: called with args %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.

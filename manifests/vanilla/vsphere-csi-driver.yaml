@@ -163,6 +163,7 @@ data:
   "max-pvscsi-targets-per-vm": "true"
   "multi-vcenter-csi-topology": "false"
   "csi-internal-generated-cluster-id": "false"
+  "listview-tasks": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

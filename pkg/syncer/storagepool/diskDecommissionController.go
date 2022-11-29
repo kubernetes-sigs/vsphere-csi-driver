@@ -100,7 +100,10 @@ func (w *DiskDecommController) detachVolumes(ctx context.Context, storagePoolNam
 		VirtualCenterHost: vc.Config.Host,
 	}
 
-	volManager := volume.GetManager(ctx, &vc, nil, false, false, false)
+	volManager, err := volume.GetManager(ctx, &vc, nil, false, false, false, false)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
+	}
 
 	volumes, _, err := k8scloudoperator.GetVolumesOnStoragePool(ctx, k8sClient, storagePoolName)
 	if err != nil {
