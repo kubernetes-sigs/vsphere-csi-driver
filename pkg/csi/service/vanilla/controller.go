@@ -1160,7 +1160,11 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 				volumeOperationDetails.OperationDetails.OpID)
 
 			// Get vCenter instance.
-			vcHost = volumeOperationDetails.OperationDetails.VCenterServer
+			if volumeOperationDetails.OperationDetails.VCenterServer != "" {
+				vcHost = volumeOperationDetails.OperationDetails.VCenterServer
+			} else {
+				vcHost = c.managers.CnsConfig.Global.VCenterIP
+			}
 			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1183,7 +1187,11 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 				volumeOperationDetails.OperationDetails.VCenterServer)
 
 			// Get vCenter instance.
-			vcHost = volumeOperationDetails.OperationDetails.VCenterServer
+			if volumeOperationDetails.OperationDetails.VCenterServer != "" {
+				vcHost = volumeOperationDetails.OperationDetails.VCenterServer
+			} else {
+				vcHost = c.managers.CnsConfig.Global.VCenterIP
+			}
 			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1236,12 +1244,26 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 		return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"accessibility requirements cannot be nil for a multi-VC environment")
 	}
-	// Get the accessibility requirements according to the VC they belong to.
-	vcTopologySegmentsMap, err := common.GetAccessibilityRequirementsByVC(ctx, topologyRequirement)
-	if err != nil {
-		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to get accessibility requirements by VC. Error: %+v", err)
+	var multivCenterTopologyDeployment bool
+	if len(c.managers.VcenterConfigs) > 1 {
+		multivCenterTopologyDeployment = true
 	}
+	vcTopologySegmentsMap := make(map[string][]map[string]string)
+	if multivCenterTopologyDeployment {
+		// Get the accessibility requirements according to the VC they belong to.
+		vcTopologySegmentsMap, err = common.GetAccessibilityRequirementsByVC(ctx, topologyRequirement)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get accessibility requirements by VC. Error: %+v", err)
+		}
+	} else {
+		for _, topology := range topologyRequirement.Preferred {
+			vcTopologySegmentsMap[c.managers.CnsConfig.Global.VCenterIP] = append(
+				vcTopologySegmentsMap[c.managers.CnsConfig.Global.VCenterIP],
+				topology.GetSegments())
+		}
+	}
+
 	log.Debugf("Topology accessibility requirements per VC are %+v", vcTopologySegmentsMap)
 
 	if !volTaskAlreadyRegistered {
@@ -1445,12 +1467,14 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 			},
 		}
 	}
-	// Create CNSVolumeInfo CR for the volume ID.
-	err = volumeInfoService.CreateVolumeInfo(ctx, volumeInfo.VolumeID.Id, vcHost)
-	if err != nil {
-		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to store volumeID %q for vCenter %q in CNSVolumeInfo CR. Error: %+v",
-			volumeInfo.VolumeID.Id, vcHost, err)
+	if len(c.managers.VcenterConfigs) > 1 {
+		// Create CNSVolumeInfo CR for the volume ID.
+		err = volumeInfoService.CreateVolumeInfo(ctx, volumeInfo.VolumeID.Id, vcHost)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to store volumeID %q for vCenter %q in CNSVolumeInfo CR. Error: %+v",
+				volumeInfo.VolumeID.Id, vcHost, err)
+		}
 	}
 	return resp, "", nil
 }
@@ -1701,12 +1725,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
 		if multivCenterCSITopologyEnabled {
-			if len(c.managers.VcenterConfigs) > 1 {
-				return c.createBlockVolumeWithPlacementEngineForMultiVC(ctx, req)
-			} else {
-				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
-					"CreateVolume in a single VC environment when multi-VC FSS enabled is not yet implemented")
-			}
+			return c.createBlockVolumeWithPlacementEngineForMultiVC(ctx, req)
 		} else {
 			return c.createBlockVolume(ctx, req)
 		}
