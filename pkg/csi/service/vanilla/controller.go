@@ -1046,6 +1046,57 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 			"parsing storage class parameters failed with error: %+v", err)
 	}
 
+	if scParams.CSIMigration == "true" {
+		if len(c.managers.VcenterConfigs) > 1 {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
+				"vSphere CSI Migration is not supported on multi vCenter deployment")
+		} else {
+			if len(scParams.Datastore) != 0 {
+				log.Infof("Converting datastore name: %q to Datastore URL", scParams.Datastore)
+				// Get vCenter.
+				// Need to extract fault from err returned by GetVirtualCenter.
+				// Currently, just return "csi.fault.Internal".
+				vCenter, err := common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, c.managers.CnsConfig.Global.VCenterIP)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get vCenter. err: %+v", err)
+				}
+				dcList, err := vCenter.GetDatacenters(ctx)
+				// Need to extract fault from err returned by GetDatacenters.
+				// Currently, just return "csi.fault.Internal".
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get datacenter list. err: %+v", err)
+				}
+				foundDatastoreURL := false
+				for _, dc := range dcList {
+					dsURLTodsInfoMap, err := dc.GetAllDatastores(ctx)
+					// Need to extract fault from err returned by GetAllDatastores.
+					// Currently, just return "csi.fault.Internal".
+					if err != nil {
+						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+							"failed to get dsURLTodsInfoMap. err: %+v", err)
+					}
+					for dsURL, dsInfo := range dsURLTodsInfoMap {
+						if dsInfo.Info.Name == scParams.Datastore {
+							scParams.DatastoreURL = dsURL
+							log.Infof("Found datastoreURL: %q for datastore name: %q", scParams.DatastoreURL, scParams.Datastore)
+							foundDatastoreURL = true
+							break
+						}
+					}
+					if foundDatastoreURL {
+						break
+					}
+				}
+				if !foundDatastoreURL {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to find datastoreURL for datastore name: %q", scParams.Datastore)
+				}
+			}
+		}
+	}
+
 	// Check if requested volume size and source snapshot size matches.
 	volumeSource := req.GetVolumeContentSource()
 	var contentSourceSnapshotID, snapshotDatastoreURL string
@@ -1383,6 +1434,16 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 
 	attributes := make(map[string]string)
 	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
+
+	if scParams.CSIMigration == "true" {
+		volumePath, err := volumeMigrationService.GetVolumePath(ctx, volumeInfo.VolumeID.Id)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get volume path for volume id: %q. Error: %+v", volumeInfo.VolumeID.Id, err)
+		}
+		attributes[common.AttributeInitialVolumeFilepath] = volumePath
+	}
+
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      volumeInfo.VolumeID.Id,
