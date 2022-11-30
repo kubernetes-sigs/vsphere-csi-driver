@@ -20,10 +20,10 @@ set -o pipefail
 
 # Fetching ginkgo for running the test
 export GO111MODULE=on
-export ACK_GINKGO_DEPRECATIONS=2.1.6
-if ! (go mod vendor && go install github.com/onsi/ginkgo/v2/ginkgo@v2.1.6)
+export ACK_GINKGO_DEPRECATIONS=1.16.4
+if ! (go mod vendor && go get -u github.com/onsi/ginkgo/ginkgo@v1.16.4)
 then
-    echo "go mod vendor or go install ginkgo error"
+    echo "go mod vendor or go get ginkgo error"
     exit 1
 fi
 
@@ -51,30 +51,10 @@ else
     read -ra OPTS <<< "-v $GINKGO_OPTS"
 fi
 
-OPTS+=("-timeout=24h")
-if [ "$FOCUS" == "csi-block-vanilla" ]
-then
-    ginkgo -mod=mod "${OPTS[@]}" --focus="csi-block-vanilla-destructive" tests/e2e
-    # Checking for destructive test status
-    TEST_PASS=$?
-    if [[ $TEST_PASS -ne 0 ]]; then
-        exit 1
-    fi
-    ginkgo -mod=mod "${OPTS[@]}" --focus="csi-block-vanilla-serialized" tests/e2e
-    # Checking for serialized test status
-    TEST_PASS=$?
-    if [[ $TEST_PASS -ne 0 ]]; then
-        exit 1
-    fi
-    OPTS+=(-p)
-    ginkgo -mod=mod "${OPTS[@]}" --focus="csi-block-vanilla-parallelized" tests/e2e
-else
-    ginkgo -mod=mod "${OPTS[@]}" --focus="$FOCUS" tests/e2e
-fi
+ginkgo -mod=mod "${OPTS[@]}" --focus="$FOCUS" tests/e2e
 
 # Checking for test status
 TEST_PASS=$?
 if [[ $TEST_PASS -ne 0 ]]; then
     exit 1
 fi
-
