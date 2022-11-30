@@ -1081,6 +1081,57 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 			"parsing storage class parameters failed with error: %+v", err)
 	}
 
+	if scParams.CSIMigration == "true" {
+		if len(c.managers.VcenterConfigs) > 1 {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
+				"vSphere CSI Migration is not supported on multi vCenter deployment")
+		} else {
+			if len(scParams.Datastore) != 0 {
+				log.Infof("Converting datastore name: %q to Datastore URL", scParams.Datastore)
+				// Get vCenter.
+				// Need to extract fault from err returned by GetVirtualCenter.
+				// Currently, just return "csi.fault.Internal".
+				vCenter, err := common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, c.managers.CnsConfig.Global.VCenterIP)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get vCenter. err: %+v", err)
+				}
+				dcList, err := vCenter.GetDatacenters(ctx)
+				// Need to extract fault from err returned by GetDatacenters.
+				// Currently, just return "csi.fault.Internal".
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get datacenter list. err: %+v", err)
+				}
+				foundDatastoreURL := false
+				for _, dc := range dcList {
+					dsURLTodsInfoMap, err := dc.GetAllDatastores(ctx)
+					// Need to extract fault from err returned by GetAllDatastores.
+					// Currently, just return "csi.fault.Internal".
+					if err != nil {
+						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+							"failed to get dsURLTodsInfoMap. err: %+v", err)
+					}
+					for dsURL, dsInfo := range dsURLTodsInfoMap {
+						if dsInfo.Info.Name == scParams.Datastore {
+							scParams.DatastoreURL = dsURL
+							log.Infof("Found datastoreURL: %q for datastore name: %q", scParams.DatastoreURL, scParams.Datastore)
+							foundDatastoreURL = true
+							break
+						}
+					}
+					if foundDatastoreURL {
+						break
+					}
+				}
+				if !foundDatastoreURL {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to find datastoreURL for datastore name: %q", scParams.Datastore)
+				}
+			}
+		}
+	}
+
 	// Check if requested volume size and source snapshot size matches.
 	volumeSource := req.GetVolumeContentSource()
 	var contentSourceSnapshotID, snapshotDatastoreURL string
@@ -1195,7 +1246,11 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 				volumeOperationDetails.OperationDetails.OpID)
 
 			// Get vCenter instance.
-			vcHost = volumeOperationDetails.OperationDetails.VCenterServer
+			if volumeOperationDetails.OperationDetails.VCenterServer != "" {
+				vcHost = volumeOperationDetails.OperationDetails.VCenterServer
+			} else {
+				vcHost = c.managers.CnsConfig.Global.VCenterIP
+			}
 			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1218,7 +1273,11 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 				volumeOperationDetails.OperationDetails.VCenterServer)
 
 			// Get vCenter instance.
-			vcHost = volumeOperationDetails.OperationDetails.VCenterServer
+			if volumeOperationDetails.OperationDetails.VCenterServer != "" {
+				vcHost = volumeOperationDetails.OperationDetails.VCenterServer
+			} else {
+				vcHost = c.managers.CnsConfig.Global.VCenterIP
+			}
 			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1271,12 +1330,26 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 		return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"accessibility requirements cannot be nil for a multi-VC environment")
 	}
-	// Get the accessibility requirements according to the VC they belong to.
-	vcTopologySegmentsMap, err := common.GetAccessibilityRequirementsByVC(ctx, topologyRequirement)
-	if err != nil {
-		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to get accessibility requirements by VC. Error: %+v", err)
+	var multivCenterTopologyDeployment bool
+	if len(c.managers.VcenterConfigs) > 1 {
+		multivCenterTopologyDeployment = true
 	}
+	vcTopologySegmentsMap := make(map[string][]map[string]string)
+	if multivCenterTopologyDeployment {
+		// Get the accessibility requirements according to the VC they belong to.
+		vcTopologySegmentsMap, err = common.GetAccessibilityRequirementsByVC(ctx, topologyRequirement)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get accessibility requirements by VC. Error: %+v", err)
+		}
+	} else {
+		for _, topology := range topologyRequirement.Preferred {
+			vcTopologySegmentsMap[c.managers.CnsConfig.Global.VCenterIP] = append(
+				vcTopologySegmentsMap[c.managers.CnsConfig.Global.VCenterIP],
+				topology.GetSegments())
+		}
+	}
+
 	log.Debugf("Topology accessibility requirements per VC are %+v", vcTopologySegmentsMap)
 
 	if !volTaskAlreadyRegistered {
@@ -1396,6 +1469,16 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 
 	attributes := make(map[string]string)
 	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
+
+	if scParams.CSIMigration == "true" {
+		volumePath, err := volumeMigrationService.GetVolumePath(ctx, volumeInfo.VolumeID.Id)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get volume path for volume id: %q. Error: %+v", volumeInfo.VolumeID.Id, err)
+		}
+		attributes[common.AttributeInitialVolumeFilepath] = volumePath
+	}
+
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      volumeInfo.VolumeID.Id,
@@ -1480,12 +1563,14 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 			},
 		}
 	}
-	// Create CNSVolumeInfo CR for the volume ID.
-	err = volumeInfoService.CreateVolumeInfo(ctx, volumeInfo.VolumeID.Id, vcHost)
-	if err != nil {
-		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to store volumeID %q for vCenter %q in CNSVolumeInfo CR. Error: %+v",
-			volumeInfo.VolumeID.Id, vcHost, err)
+	if len(c.managers.VcenterConfigs) > 1 {
+		// Create CNSVolumeInfo CR for the volume ID.
+		err = volumeInfoService.CreateVolumeInfo(ctx, volumeInfo.VolumeID.Id, vcHost)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to store volumeID %q for vCenter %q in CNSVolumeInfo CR. Error: %+v",
+				volumeInfo.VolumeID.Id, vcHost, err)
+		}
 	}
 	return resp, "", nil
 }
@@ -1736,12 +1821,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
 		if multivCenterCSITopologyEnabled {
-			if len(c.managers.VcenterConfigs) > 1 {
-				return c.createBlockVolumeWithPlacementEngineForMultiVC(ctx, req)
-			} else {
-				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
-					"CreateVolume in a single VC environment when multi-VC FSS enabled is not yet implemented")
-			}
+			return c.createBlockVolumeWithPlacementEngineForMultiVC(ctx, req)
 		} else {
 			return c.createBlockVolume(ctx, req)
 		}
