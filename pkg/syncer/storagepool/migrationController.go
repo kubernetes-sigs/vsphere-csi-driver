@@ -80,7 +80,11 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 			datastoreURL)
 	}
 
-	volManager := volume.GetManager(ctx, m.vc, nil, false, false, false)
+	volManager, err := volume.GetManager(ctx, m.vc, nil, false, false, false, false)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
+	}
+
 	relocateSpec := cnstypes.NewCnsBlockVolumeRelocateSpec(volumeID, dsInfo.Reference())
 
 	task, err := volManager.RelocateVolume(ctx, relocateSpec)

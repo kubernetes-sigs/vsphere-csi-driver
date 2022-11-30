@@ -46,6 +46,13 @@ const (
 	// expired create volume tasks.
 	// TODO: This timeout will be configurable in future releases.
 	defaultTaskCleanupIntervalInMinutes = 1
+	// defaultListViewCleanupInvalidTasksInMinutes is the interval for removing tasks from the listview
+	// and internal map that couldn't be removed due to any vc issues
+	defaultListViewCleanupInvalidTasksInMinutes = 15
+
+	// timeout duration for a http request
+	// used only for listView
+	noTimeout = 0 * time.Minute
 
 	// defaultOpsExpirationTimeInHours is expiration time for create volume operations.
 	// TODO: This timeout will be configurable in future releases
@@ -103,7 +110,7 @@ type Manager interface {
 	// should not be nil.
 	ExpandVolume(ctx context.Context, volumeID string, size int64) (string, error)
 	// ResetManager helps set new manager instance and VC configuration.
-	ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter)
+	ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter) error
 	// ConfigureVolumeACLs configures net permissions for a given CnsVolumeACLConfigureSpec.
 	ConfigureVolumeACLs(ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec) error
 	// RegisterDisk registers virtual disks as FCDs using Vslm endpoint.
@@ -174,26 +181,28 @@ type createVolumeTaskDetails struct {
 // GetManager returns the Manager instance.
 func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 	operationStore cnsvolumeoperationrequest.VolumeOperationRequest,
-	idempotencyHandlingEnabled bool, multivCenterEnabled bool, multivCenterTopologyDeployment bool) Manager {
+	idempotencyHandlingEnabled bool, multivCenterEnabled bool,
+	multivCenterTopologyDeployment bool, tasksListViewEnabled bool) (Manager, error) {
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
 	if !multivCenterEnabled {
 		if managerInstance != nil {
 			log.Infof("Retrieving existing defaultManager...")
-			return managerInstance
+			return managerInstance, nil
 		}
 		log.Infof("Initializing new defaultManager...")
 		managerInstance = &defaultManager{
 			virtualCenter:              vc,
 			operationStore:             operationStore,
 			idempotencyHandlingEnabled: idempotencyHandlingEnabled,
+			tasksListViewEnabled:       tasksListViewEnabled,
 		}
 	} else {
 		managerInstance = managerInstanceMap[vc.Config.Host]
 		if managerInstance != nil {
 			log.Infof("Retrieving existing defaultManager for vCenter: %q", vc.Config.Host)
-			return managerInstance
+			return managerInstance, nil
 		}
 		log.Infof("Initializing new defaultManager for vCenter: %q", vc.Config.Host)
 		managerInstance = &defaultManager{
@@ -201,10 +210,17 @@ func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 			operationStore:                 operationStore,
 			idempotencyHandlingEnabled:     idempotencyHandlingEnabled,
 			multivCenterTopologyDeployment: multivCenterTopologyDeployment,
+			tasksListViewEnabled:           tasksListViewEnabled,
 		}
 		managerInstanceMap[vc.Config.Host] = managerInstance
 	}
-	return managerInstance
+	if tasksListViewEnabled {
+		err := managerInstance.initListView()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return managerInstance, nil
 }
 
 // DefaultManager provides functionality to manage volumes.
@@ -213,6 +229,8 @@ type defaultManager struct {
 	operationStore                 cnsvolumeoperationrequest.VolumeOperationRequest
 	idempotencyHandlingEnabled     bool
 	multivCenterTopologyDeployment bool
+	tasksListViewEnabled           bool
+	listViewIf                     ListViewIf
 }
 
 // ClearTaskInfoObjects is a go routine which runs in the background to clean
@@ -263,18 +281,42 @@ func ClearTaskInfoObjects() {
 	}
 }
 
+func ClearInvalidTasksFromListView(multivCenterCSITopologyEnabled bool) {
+	ticker := time.NewTicker(time.Duration(defaultListViewCleanupInvalidTasksInMinutes) * time.Minute)
+	for range ticker.C {
+		if multivCenterCSITopologyEnabled {
+			for _, mgr := range managerInstanceMap {
+				if mgr.listViewIf != nil {
+					RemoveTasksMarkedForDeletion(mgr.listViewIf.(*ListViewImpl))
+				}
+			}
+		} else {
+			if managerInstance.listViewIf != nil {
+				RemoveTasksMarkedForDeletion(managerInstance.listViewIf.(*ListViewImpl))
+			}
+		}
+	}
+}
+
 // ResetManager helps set manager instance with new VC configuration.
-func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter) {
+func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter) error {
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
 	log.Infof("Re-initializing defaultManager.virtualCenter")
 	managerInstance.virtualCenter = vcenter
+	if m.tasksListViewEnabled {
+		err := m.listViewIf.SetVirtualCenter(ctx, managerInstance.virtualCenter)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to set virtual center to listView instance. err: %v", err)
+		}
+	}
 	if m.virtualCenter.Client != nil {
 		m.virtualCenter.Client.Timeout = time.Duration(vcenter.Config.VCClientTimeout) * time.Minute
 		log.Infof("VC client timeout is set to %v", m.virtualCenter.Client.Timeout)
 	}
 	log.Infof("Done resetting volume.defaultManager")
+	return nil
 }
 
 // GetOperationStore returns the VolumeOperationRequest interface
@@ -293,7 +335,14 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 	if m.multivCenterTopologyDeployment {
 		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host
 	}
-	taskInfo, err := task.WaitForResult(ctx, nil)
+
+	var taskInfo *vim25types.TaskInfo
+	var err error
+	if m.tasksListViewEnabled {
+		taskInfo, err = m.waitOnTask(ctx, task.Reference())
+	} else {
+		taskInfo, err = task.WaitForResult(ctx, nil)
+	}
 	if err != nil {
 		if cnsvsphere.IsManagedObjectNotFound(err, task.Reference()) {
 			log.Debugf("CreateVolume task %s not found in vCenter %s. Querying CNS "+
@@ -515,6 +564,80 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 	return resp, faultType, err
 }
 
+func (m *defaultManager) waitOnTask(csiOpContext context.Context,
+	taskMoRef vim25types.ManagedObjectReference) (*vim25types.TaskInfo, error) {
+	log := logger.GetLogger(csiOpContext)
+	if m.listViewIf == nil {
+		err := m.initListView()
+		if err != nil {
+			return nil, err
+		}
+	}
+	ch := make(chan TaskResult)
+	err := m.listViewIf.AddTask(csiOpContext, taskMoRef, ch)
+	if err != nil {
+		return nil, logger.LogNewErrorf(log, "failed to add task to list view. err: %v", err)
+	}
+
+	// deferring removal of task after response from CNS
+	// called only after successful addition to listView, so we don't need any check for the removal
+	defer func() {
+		err := m.listViewIf.RemoveTask(csiOpContext, taskMoRef)
+		if err != nil {
+			log.Errorf("failed to remove task from list view. err: %v", err)
+			err = m.listViewIf.MarkTaskForDeletion(csiOpContext, taskMoRef)
+			if err != nil {
+				log.Errorf("failed to mark task for deletion. err: %v", err)
+			}
+		}
+	}()
+
+	return waitForResultOrTimeout(csiOpContext, taskMoRef, ch)
+}
+
+// waitForResultOrTimeout uses the context provided by the sidecars when CSI driver operations are called.
+// This context has a timeout associated with it (see manifests for more details).
+// Once this caller timeout is over, we want to return an error back to the caller
+func waitForResultOrTimeout(csiOpContext context.Context, taskMoRef vim25types.ManagedObjectReference,
+	ch chan TaskResult) (*vim25types.TaskInfo, error) {
+	var taskInfo *vim25types.TaskInfo
+	var err error
+	select {
+	case <-csiOpContext.Done():
+		err = fmt.Errorf("time out for task %v before response from CNS", taskMoRef)
+		taskInfo = nil
+	case result := <-ch:
+		err = result.Err
+		taskInfo = result.TaskInfo
+	}
+	return taskInfo, err
+}
+
+func (m *defaultManager) initListView() error {
+	ctx := logger.NewContextWithLogger(context.Background())
+	log := logger.GetLogger(ctx)
+	log.Debugf("Initializing new listView object for vc: %+v", m.virtualCenter)
+	if m.virtualCenter.Client == nil {
+		log.Debugf("vimClient is nil. calling vc.connect()")
+		err := m.virtualCenter.Connect(ctx)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to connect to vCenter. err: %v", err)
+		}
+	}
+
+	govmomiClient, err := m.virtualCenter.NewClient(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to create a separate govmomi client for listView. error: %+v", err)
+	}
+	govmomiClient.Timeout = noTimeout
+	log.Infof("created new govmomi client for listView")
+	m.listViewIf, err = NewListViewImpl(ctx, m.virtualCenter, govmomiClient)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to initialize listView object. err: %v", err)
+	}
+	return nil
+}
+
 // createVolume invokes CNS CreateVolume. It stores task information in an
 // in-memory map to handle idempotency of CreateVolume calls for the same
 // volume.
@@ -555,8 +678,13 @@ func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVol
 		task = object.NewTask(m.virtualCenter.Client.Client, task.Reference())
 	}
 
-	// Get the taskInfo.
-	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	var taskInfo *vim25types.TaskInfo
+	if m.tasksListViewEnabled {
+		taskInfo, err = m.waitOnTask(ctx, task.Reference())
+	} else {
+		taskInfo, err = cns.GetTaskInfo(ctx, task)
+	}
+
 	if err != nil || taskInfo == nil {
 		log.Errorf("failed to get taskInfo for CreateVolume task with err: %v", err)
 		if err != nil {
@@ -684,7 +812,14 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 			return "", faultType, err
 		}
 		// Get the taskInfo.
-		taskInfo, err := cns.GetTaskInfo(ctx, task)
+
+		var taskInfo *vim25types.TaskInfo
+		if m.tasksListViewEnabled {
+			taskInfo, err = m.waitOnTask(ctx, task.Reference())
+		} else {
+			taskInfo, err = cns.GetTaskInfo(ctx, task)
+		}
+
 		if err != nil || taskInfo == nil {
 			log.Errorf("failed to get taskInfo for AttachVolume task from vCenter %q with err: %v",
 				m.virtualCenter.Config.Host, err)
@@ -805,7 +940,12 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 				volumeID, vm, err)
 		}
 		// Get the taskInfo.
-		taskInfo, err := cns.GetTaskInfo(ctx, task)
+		var taskInfo *vim25types.TaskInfo
+		if m.tasksListViewEnabled {
+			taskInfo, err = m.waitOnTask(ctx, task.Reference())
+		} else {
+			taskInfo, err = cns.GetTaskInfo(ctx, task)
+		}
 		if err != nil || taskInfo == nil {
 			log.Errorf("failed to get taskInfo for DetachVolume task from vCenter %q with err: %v",
 				m.virtualCenter.Config.Host, err)
@@ -929,7 +1069,12 @@ func (m *defaultManager) deleteVolume(ctx context.Context, volumeID string, dele
 		return faultType, err
 	}
 	// Get the taskInfo.
-	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	var taskInfo *vim25types.TaskInfo
+	if m.tasksListViewEnabled {
+		taskInfo, err = m.waitOnTask(ctx, task.Reference())
+	} else {
+		taskInfo, err = cns.GetTaskInfo(ctx, task)
+	}
 	if err != nil || taskInfo == nil {
 		log.Errorf("failed to get DeleteVolume taskInfo from vCenter %q with err: %v",
 			m.virtualCenter.Config.Host, err)
@@ -1065,7 +1210,12 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 	}
 
 	// Get the taskInfo.
-	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	var taskInfo *vim25types.TaskInfo
+	if m.tasksListViewEnabled {
+		taskInfo, err = m.waitOnTask(ctx, task.Reference())
+	} else {
+		taskInfo, err = cns.GetTaskInfo(ctx, task)
+	}
 	if err != nil || taskInfo == nil {
 		log.Errorf("failed to get taskInfo for DeleteVolume task from vCenter %q with err: %v",
 			m.virtualCenter.Config.Host, err)
@@ -1164,7 +1314,12 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 			return err
 		}
 		// Get the taskInfo.
-		taskInfo, err := cns.GetTaskInfo(ctx, task)
+		var taskInfo *vim25types.TaskInfo
+		if m.tasksListViewEnabled {
+			taskInfo, err = m.waitOnTask(ctx, task.Reference())
+		} else {
+			taskInfo, err = cns.GetTaskInfo(ctx, task)
+		}
 		if err != nil || taskInfo == nil {
 			log.Errorf("failed to get UpdateVolume taskInfo from vCenter %q with err: %v",
 				m.virtualCenter.Config.Host, err)
@@ -1267,7 +1422,12 @@ func (m *defaultManager) expandVolume(ctx context.Context, volumeID string, size
 		return faultType, err
 	}
 	// Get the taskInfo.
-	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	var taskInfo *vim25types.TaskInfo
+	if m.tasksListViewEnabled {
+		taskInfo, err = m.waitOnTask(ctx, task.Reference())
+	} else {
+		taskInfo, err = cns.GetTaskInfo(ctx, task)
+	}
 	if err != nil || taskInfo == nil {
 		log.Errorf("failed to get taskInfo for ExtendVolume task from vCenter %q with err: %v",
 			m.virtualCenter.Config.Host, err)
@@ -1397,7 +1557,12 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		}
 	}
 
-	taskInfo, err := task.WaitForResult(ctx, nil)
+	var taskInfo *vim25types.TaskInfo
+	if m.tasksListViewEnabled {
+		taskInfo, err = m.waitOnTask(ctx, task.Reference())
+	} else {
+		taskInfo, err = cns.GetTaskInfo(ctx, task)
+	}
 	if err != nil {
 		if cnsvsphere.IsManagedObjectNotFound(err, task.Reference()) {
 			log.Debugf("ExtendVolume task %s not found in vCenter. Querying CNS "+
@@ -1577,7 +1742,12 @@ func (m *defaultManager) QueryVolumeInfo(ctx context.Context,
 		}
 
 		// Get the taskInfo.
-		taskInfo, err := cns.GetTaskInfo(ctx, queryVolumeInfoTask)
+		var taskInfo *vim25types.TaskInfo
+		if m.tasksListViewEnabled {
+			taskInfo, err = m.waitOnTask(ctx, queryVolumeInfoTask.Reference())
+		} else {
+			taskInfo, err = cns.GetTaskInfo(ctx, queryVolumeInfoTask)
+		}
 		if err != nil || taskInfo == nil {
 			log.Errorf("failed to get QueryVolumeInfo taskInfo from vCenter %q with err: %v",
 				m.virtualCenter.Config.Host, err)
@@ -1677,7 +1847,11 @@ func (m *defaultManager) ConfigureVolumeACLs(ctx context.Context, spec cnstypes.
 		}
 
 		// Get the taskInfo.
-		taskInfo, err = cns.GetTaskInfo(ctx, task)
+		if m.tasksListViewEnabled {
+			taskInfo, err = m.waitOnTask(ctx, task.Reference())
+		} else {
+			taskInfo, err = cns.GetTaskInfo(ctx, task)
+		}
 		if err != nil {
 			log.Errorf("failed to get ConfigureVolumeACLs taskInfo from vCenter %q with err: %v",
 				m.virtualCenter.Config.Host, err)
@@ -1817,7 +1991,12 @@ func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnsty
 		log.Errorf("CNS QueryVolumeAsync failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return nil, err
 	}
-	queryVolumeAsyncTaskInfo, err := cns.GetTaskInfo(ctx, queryVolumeAsyncTask)
+	var queryVolumeAsyncTaskInfo *vim25types.TaskInfo
+	if m.tasksListViewEnabled {
+		queryVolumeAsyncTaskInfo, err = m.waitOnTask(ctx, queryVolumeAsyncTask.Reference())
+	} else {
+		queryVolumeAsyncTaskInfo, err = cns.GetTaskInfo(ctx, queryVolumeAsyncTask)
+	}
 	if err != nil {
 		log.Errorf("CNS QueryVolumeAsync failed to get TaskInfo with err: %v", err)
 		return nil, err
@@ -1863,7 +2042,12 @@ func (m *defaultManager) QuerySnapshots(ctx context.Context, snapshotQueryFilter
 			log.Errorf("Failed to get the task of CNS QuerySnapshots with err: %v", err)
 			return nil, err
 		}
-		querySnapshotsTaskInfo, err := cns.GetTaskInfo(ctx, querySnapshotsTask)
+		var querySnapshotsTaskInfo *vim25types.TaskInfo
+		if m.tasksListViewEnabled {
+			querySnapshotsTaskInfo, err = m.waitOnTask(ctx, querySnapshotsTask.Reference())
+		} else {
+			querySnapshotsTaskInfo, err = cns.GetTaskInfo(ctx, querySnapshotsTask)
+		}
 		if err != nil {
 			log.Errorf("failed to get taskInfo for QuerySnapshots task from vCenter %q with err: %v",
 				m.virtualCenter.Config.Host, err)
@@ -2002,7 +2186,12 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 	}
 
 	// Get the taskInfo and more!
-	createSnapshotsTaskInfo, err := createSnapshotsTask.WaitForResult(ctx, nil)
+	var createSnapshotsTaskInfo *vim25types.TaskInfo
+	if m.tasksListViewEnabled {
+		createSnapshotsTaskInfo, err = m.waitOnTask(ctx, createSnapshotsTask.Reference())
+	} else {
+		createSnapshotsTaskInfo, err = cns.GetTaskInfo(ctx, createSnapshotsTask)
+	}
 	if err != nil {
 		if cnsvsphere.IsManagedObjectNotFound(err, createSnapshotsTask.Reference()) {
 			log.Infof("CreateSnapshot task %s not found in vCenter. Querying CNS "+
@@ -2230,7 +2419,13 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 	}
 
 	// Get the taskInfo
-	deleteSnapshotsTaskInfo, err := deleteSnapshotTask.WaitForResult(ctx, nil)
+	var deleteSnapshotsTaskInfo *vim25types.TaskInfo
+	if m.tasksListViewEnabled {
+		deleteSnapshotsTaskInfo, err = m.waitOnTask(ctx, deleteSnapshotTask.Reference())
+	} else {
+		deleteSnapshotsTaskInfo, err = cns.GetTaskInfo(ctx, deleteSnapshotTask)
+	}
+
 	if err != nil {
 		if cnsvsphere.IsManagedObjectNotFound(err, deleteSnapshotTask.Reference()) {
 			log.Infof("Snapshot %q on volume %q might have already been deleted "+

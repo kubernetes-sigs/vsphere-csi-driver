@@ -126,6 +126,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		common.MultiVCenterCSITopology)
 	csiMigrationEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
 	isAuthCheckFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck)
+	tasksListViewEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListViewPerf)
 
 	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
 	if !multivCenterCSITopologyEnabled {
@@ -140,10 +141,16 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			log.Errorf("failed to register VC %q with virtualCenterManager. err=%v", vcenterconfig.Host, err)
 			return err
 		}
+
+		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore, true, false, false, tasksListViewEnabled)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
+		}
+
 		c.manager = &common.Manager{
 			VcenterConfig:  vcenterconfig,
 			CnsConfig:      config,
-			VolumeManager:  cnsvolume.GetManager(ctx, vcenter, operationStore, true, false, false),
+			VolumeManager:  volumeManager,
 			VcenterManager: vcManager,
 		}
 		vc, err := common.GetVCenter(ctx, c.manager)
@@ -227,8 +234,12 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 					"err=%v", vcenterconfig.Host, err)
 			}
 			c.managers.VcenterConfigs[vcenterconfig.Host] = vcenterconfig
-			c.managers.VolumeManagers[vcenterconfig.Host] = cnsvolume.GetManager(ctx, vcenter, operationStore,
-				true, true, multivCenterTopologyDeployment)
+			volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
+				true, true, multivCenterTopologyDeployment, tasksListViewEnabled)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
+			}
+			c.managers.VolumeManagers[vcenterconfig.Host] = volumeManager
 		}
 		vCenters, err := common.GetVCenters(ctx, c.managers)
 		if err != nil {
@@ -291,6 +302,9 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		return err
 	}
 
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListViewPerf) {
+		go cnsvolume.ClearInvalidTasksFromListView(multivCenterCSITopologyEnabled)
+	}
 	cfgPath := common.GetConfigPath(ctx)
 
 	watcher, err := fsnotify.NewWatcher()
@@ -390,6 +404,8 @@ func (c *controller) ReloadConfiguration() error {
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
 	}
+	tasksListViewEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.ListViewPerf)
 	if multivCenterCSITopologyEnabled {
 		var multivCenterTopologyDeployment bool
 		if len(c.managers.VcenterConfigs) > 1 {
@@ -440,10 +456,17 @@ func (c *controller) ReloadConfiguration() error {
 				}
 				c.managers.VcenterConfigs[newVCConfig.Host] = newVCConfig
 				if c.managers.VolumeManagers[newVCConfig.Host] != nil {
-					c.managers.VolumeManagers[newVCConfig.Host].ResetManager(ctx, vcenter)
+					err = c.managers.VolumeManagers[newVCConfig.Host].ResetManager(ctx, vcenter)
+					if err != nil {
+						return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
+					}
 				} else {
-					c.managers.VolumeManagers[newVCConfig.Host] = cnsvolume.GetManager(ctx, vcenter, operationStore,
-						true, true, multivCenterTopologyDeployment)
+					volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
+						true, true, multivCenterTopologyDeployment, tasksListViewEnabled)
+					if err != nil {
+						return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
+					}
+					c.managers.VolumeManagers[newVCConfig.Host] = volumeManager
 				}
 				if c.authMgrs[newVCConfig.Host] != nil {
 					c.authMgrs[newVCConfig.Host].ResetvCenterInstance(ctx, vcenter)
@@ -540,10 +563,18 @@ func (c *controller) ReloadConfiguration() error {
 				return err
 			}
 
-			c.manager.VolumeManager.ResetManager(ctx, vcenter)
+			err = c.manager.VolumeManager.ResetManager(ctx, vcenter)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
+			}
 			c.manager.VcenterConfig = newVCConfig
-			c.manager.VolumeManager = cnsvolume.GetManager(ctx, vcenter, operationStore, true,
-				false, false)
+			volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore, true,
+				false, false, tasksListViewEnabled)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
+			}
+
+			c.manager.VolumeManager = volumeManager
 			// Re-Initialize Node Manager to cache latest vCenter config.
 			useNodeUuid := false
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {

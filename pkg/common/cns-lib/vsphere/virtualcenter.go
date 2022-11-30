@@ -136,8 +136,8 @@ type VirtualCenterConfig struct {
 // clientMutex is used for exclusive connection creation.
 var clientMutex sync.Mutex
 
-// newClient creates a new govmomi Client instance.
-func (vc *VirtualCenter) newClient(ctx context.Context) (*govmomi.Client, error) {
+// NewClient creates a new govmomi Client instance.
+func (vc *VirtualCenter) NewClient(ctx context.Context) (*govmomi.Client, error) {
 	log := logger.GetLogger(ctx)
 	if vc.Config.Scheme == "" {
 		vc.Config.Scheme = DefaultScheme
@@ -273,13 +273,15 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 	// If client was never initialized, initialize one.
 	var err error
 	if vc.Client == nil {
-		if vc.Client, err = vc.newClient(ctx); err != nil {
+		log.Infof("VirtualCenter.connect() creating new client")
+		if vc.Client, err = vc.NewClient(ctx); err != nil {
 			log.Errorf("failed to create govmomi client with err: %v", err)
 			if !vc.Config.Insecure {
 				log.Errorf("failed to connect to vCenter using CA file: %q", vc.Config.CAFile)
 			}
 			return err
 		}
+		log.Infof("VirtualCenter.connect() successfully created new client")
 		return nil
 	}
 	if !requestNewSession {
@@ -297,7 +299,7 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 	}
 	// If session has expired, create a new instance.
 	log.Warnf("Creating a new client session as the existing one isn't valid or not authenticated")
-	if vc.Client, err = vc.newClient(ctx); err != nil {
+	if vc.Client, err = vc.NewClient(ctx); err != nil {
 		log.Errorf("failed to create govmomi client with err: %v", err)
 		if !vc.Config.Insecure {
 			log.Errorf("failed to connect to vCenter using CA file: %q", vc.Config.CAFile)

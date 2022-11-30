@@ -385,4 +385,6 @@ const (
 	// CSIInternalGeneratedClusterID enables support to generate unique cluster
 	// ID internally if user doesn't provide it in vSphere config secret.
 	CSIInternalGeneratedClusterID = "csi-internal-generated-cluster-id"
+	// ListViewPerf uses govmomi ListView to wait for CNS tasks
+	ListViewPerf = "listview-tasks"
 )

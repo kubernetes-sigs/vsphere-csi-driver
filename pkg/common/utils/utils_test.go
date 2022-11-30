@@ -16,6 +16,7 @@ import (
 	"github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/simulator"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+
 	cnsvolumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
@@ -144,7 +145,11 @@ func TestQuerySnapshotsUtil(t *testing.T) {
 	// Create context
 	commonUtilsTestInstance := getCommonUtilsTest(t)
 
-	volumeManager := cnsvolumes.GetManager(ctx, commonUtilsTestInstance.vcenter, nil, false, false, false)
+	volumeManager, err := cnsvolumes.GetManager(ctx, commonUtilsTestInstance.vcenter, nil, false, false, false, false)
+	if err != nil {
+		t.Fatalf("failed to create an instance of volume manager. err=%v", err)
+	}
+
 	queryFilter := types.CnsSnapshotQueryFilter{
 		SnapshotQuerySpecs: nil,
 		Cursor: &types.CnsCursor{

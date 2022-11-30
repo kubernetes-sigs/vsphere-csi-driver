@@ -192,14 +192,20 @@ func TestSyncerWorkflows(t *testing.T) {
 		}
 	}()
 
-	volumeManager = cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false)
+	volumeManager, err = cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false, false)
+	if err != nil {
+		t.Fatalf("failed to create an instance of volume manager. err=%v", err)
+	}
 
 	// Initialize metadata syncer object.
 	metadataSyncer = &metadataSyncInformer{}
 	configInfo := &cnsconfig.ConfigurationInfo{}
 	configInfo.Cfg = csiConfig
 	metadataSyncer.configInfo = configInfo
-	metadataSyncer.volumeManager = cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false)
+	metadataSyncer.volumeManager, err = cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false, false)
+	if err != nil {
+		t.Fatalf("failed to create an instance of volume manager. err=%v", err)
+	}
 	metadataSyncer.host = virtualCenter.Config.Host
 
 	// Create the kubernetes client from config or env.
