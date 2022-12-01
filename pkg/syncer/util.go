@@ -466,8 +466,8 @@ func getTopologySegmentsFromNodeAffinityRules(ctx context.Context,
 // Based on the topology segments, this function locates
 // the right VC for the given volume. If overlapping topology segments are found in nodeAffinity rules,
 // error is returned.
-func getVcHostAndVolumeManagerFromTopologySegments(ctx context.Context, metadataSyncer *metadataSyncInformer,
-	topologySegments []map[string][]string, volumeName string) (string, volumes.Manager, error) {
+func getVcHostFromTopologySegments(ctx context.Context, topologySegments []map[string][]string,
+	volumeName string) (string, error) {
 	log := logger.GetLogger(ctx)
 	var vcHost string
 
@@ -475,30 +475,42 @@ func getVcHostAndVolumeManagerFromTopologySegments(ctx context.Context, metadata
 
 		vc, err := getVCForTopologySegments(ctx, topology)
 		if err != nil {
-			return "", nil, logger.LogNewErrorf(log,
+			return "", logger.LogNewErrorf(log,
 				"failed to get VC host and volume manager. Error %+v.", err)
 		}
 
 		if vcHost != "" && vcHost != vc {
-			return "", nil, logger.LogNewErrorf(log,
+			return "", logger.LogNewErrorf(log,
 				"Found topology segments from 2 different VCs %s and %s."+
 					"Error %+v.", vcHost, vc, err)
 		}
 		vcHost = vc
 	}
 
-	cnsVolumeMgr, volMgrFound := metadataSyncer.volumeManagers[vcHost]
-	if !volMgrFound {
-		return "", nil, logger.LogNewErrorf(log,
-			"could not get volume manager for the vCenter: %q", vcHost)
-	}
-
 	log.Debugf("Identified VC %s from topology segments for volume %s", vcHost, volumeName)
 
-	return vcHost, cnsVolumeMgr, nil
+	return vcHost, nil
 }
 
-// getVcHostAndVolumeManagerFromTopologySegments returns VC host and the corresponding
+// Given a VC, this method returns the volume manager for it to invoke CNS APIs.
+func getVolManagerForVcHost(ctx context.Context, vc string,
+	metadataSyncer *metadataSyncInformer) (volumes.Manager, error) {
+	log := logger.GetLogger(ctx)
+
+	if !isMultiVCenterFssEnabled {
+		return metadataSyncer.volumeManager, nil
+	}
+
+	cnsVolumeMgr, volMgrFound := metadataSyncer.volumeManagers[vc]
+	if !volMgrFound {
+		return nil, logger.LogNewErrorf(log,
+			"could not get volume manager for the vCenter: %q", vc)
+	}
+
+	return cnsVolumeMgr, nil
+}
+
+// getVcHostAndVolumeManagerFromPvNodeAffinity returns VC host and the corresponding
 // volume manager that can access the given volume on VC based on the nodeAffinity rules.
 func getVcHostAndVolumeManagerFromPvNodeAffinity(ctx context.Context, pv *v1.PersistentVolume,
 	metadataSyncer *metadataSyncInformer) (string, volumes.Manager, error) {
@@ -507,6 +519,106 @@ func getVcHostAndVolumeManagerFromPvNodeAffinity(ctx context.Context, pv *v1.Per
 	log.Debugf("Getting VC from topology segments for volume %s", pv.Name)
 
 	topologySegments := getTopologySegmentsFromNodeAffinityRules(ctx, pv)
+	vcHost, err := getVcHostFromTopologySegments(ctx, topologySegments, pv.Name)
+	if err != nil {
+		return "", nil, err
+	}
 
-	return getVcHostAndVolumeManagerFromTopologySegments(ctx, metadataSyncer, topologySegments, pv.Name)
+	volManager, err := getVolManagerForVcHost(ctx, vcHost, metadataSyncer)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return vcHost, volManager, nil
+}
+
+// getPVsInBoundAvailableOrReleasedForVc sends back all K8s volumes in "Bound", "Available"
+// or "Released" states, associated with the given VC.
+// In case of a multi VC setup, it will also filter out all the
+// in-tree PVs as well as file share volumes.
+// For all K8s volumes, the corresponding VC is looked up from the in-memory map.
+// In case this info is not available, it is obtained from PV's nodeAffinity rules.
+func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *metadataSyncInformer,
+	vc string) ([]*v1.PersistentVolume, error) {
+
+	log := logger.GetLogger(ctx)
+	k8svolumes := make([]*v1.PersistentVolume, 0)
+
+	// get all K8s volumes in "Bound", "Available" or "Released" states.
+	allPvs, err := getPVsInBoundAvailableOrReleased(ctx, metadataSyncer)
+	if err != nil {
+		return nil, err
+	}
+
+	// For a single VC setup, send back all volumes.
+	if !isMultiVCenterFssEnabled || len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
+		return allPvs, nil
+	}
+
+	// PVs for which VC could not be found from in-memory map.
+	leftOutPvs := make([]*v1.PersistentVolume, 0)
+
+	for _, pv := range allPvs {
+		// Check if the PV is an in-tree volume.
+		if pv.Spec.CSI == nil {
+			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) &&
+				pv.Spec.VsphereVolume != nil {
+				return nil, logger.LogNewErrorf(log,
+					"In-tree volumes are not supported on a multi VC set up."+
+						"Found in-tree volume %s.", pv.Name)
+			}
+			return nil, logger.LogNewErrorf(log,
+				"Invalid PV %s with empty volume handle.", pv.Name)
+		}
+
+		// Check if the PV is a file share volume.
+		if IsMultiAttachAllowed(pv) {
+			return nil, logger.LogNewErrorf(log,
+				"File share volumes are not supported on a multi VC set up."+
+					"Found file share volume %s.", pv.Name)
+		}
+
+		if volumeInfoService == nil {
+			return nil, logger.LogNewErrorf(log, "VolumeInfoService is not initialized.")
+		}
+
+		volumeID := pv.Spec.CSI.VolumeHandle
+		// Look up VC from in-memory map.
+		vCenter, err := volumeInfoService.GetvCenterForVolumeID(ctx, volumeID)
+		if err != nil {
+			log.Errorf("failed to get vCenter for the volumeID: %q with err=%+v", volumeID, err)
+			leftOutPvs = append(leftOutPvs, pv)
+			continue
+		}
+
+		if vCenter == vc {
+			k8svolumes = append(k8svolumes, pv)
+		}
+	}
+
+	// Try to locate the VC for all the left out PVs from their nodeAffinity rules.
+	if len(leftOutPvs) != 0 {
+		for _, volume := range leftOutPvs {
+			topologySegments := getTopologySegmentsFromNodeAffinityRules(ctx, volume)
+			vCenter, err := getVcHostFromTopologySegments(ctx, topologySegments, volume.Name)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log,
+					"Failed to find which VC volume %+v belongs to from ndeAffinityrules",
+					volume.Spec.CSI.VolumeHandle)
+			}
+
+			if vCenter == vc {
+				k8svolumes = append(k8svolumes, volume)
+			}
+
+		}
+	}
+
+	k8svolumeIDs := make([]string, 0)
+	for _, volume := range k8svolumes {
+		k8svolumeIDs = append(k8svolumeIDs, volume.Spec.CSI.VolumeHandle)
+	}
+	log.Debugf("List of K8s volumes for VC %s: %+v", vc, k8svolumeIDs)
+
+	return k8svolumes, nil
 }

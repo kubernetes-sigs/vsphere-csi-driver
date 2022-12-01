@@ -682,11 +682,11 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	// PV does not exist in K8S, but volume exist in CNS cache.
 	// FullSync should delete this volume from CNS cache after two cycles.
 	waitForListerSync()
-	err = CsiFullSync(ctx, metadataSyncer)
+	err = CsiFullSync(ctx, metadataSyncer, csiConfig.Global.VCenterIP)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = CsiFullSync(ctx, metadataSyncer)
+	err = CsiFullSync(ctx, metadataSyncer, csiConfig.Global.VCenterIP)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -732,11 +732,11 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForListerSync()
-	err = CsiFullSync(ctx, metadataSyncer)
+	err = CsiFullSync(ctx, metadataSyncer, csiConfig.Global.VCenterIP)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = CsiFullSync(ctx, metadataSyncer)
+	err = CsiFullSync(ctx, metadataSyncer, csiConfig.Global.VCenterIP)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -765,7 +765,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForListerSync()
-	err = CsiFullSync(ctx, metadataSyncer)
+	err = CsiFullSync(ctx, metadataSyncer, csiConfig.Global.VCenterIP)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -787,7 +787,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForListerSync()
-	err = CsiFullSync(ctx, metadataSyncer)
+	err = CsiFullSync(ctx, metadataSyncer, csiConfig.Global.VCenterIP)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -810,7 +810,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForListerSync()
-	err = CsiFullSync(ctx, metadataSyncer)
+	err = CsiFullSync(ctx, metadataSyncer, csiConfig.Global.VCenterIP)
 	if err != nil {
 		t.Fatal(err)
 	}

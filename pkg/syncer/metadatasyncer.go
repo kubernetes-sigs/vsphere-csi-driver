@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -506,17 +507,38 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 						log.Infof("pvCSI full sync failed with error: %+v", err)
 					}
 				} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-					err := CsiFullSync(ctx, metadataSyncer)
+					err := CsiFullSync(ctx, metadataSyncer, metadataSyncer.configInfo.Cfg.Global.VCenterIP)
 					if err != nil {
 						log.Infof("CSI full sync failed with error: %+v", err)
 					}
 				} else {
-					//  TODO: Multi-VC : Temporary disabled full sync for development
-					if !isMultiVCenterFssEnabled {
-						err := CsiFullSync(ctx, metadataSyncer)
+					if !isMultiVCenterFssEnabled || len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
+						err := CsiFullSync(ctx, metadataSyncer, metadataSyncer.configInfo.Cfg.Global.VCenterIP)
 						if err != nil {
 							log.Infof("CSI full sync failed with error: %+v", err)
 						}
+					} else {
+						vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, configInfo.Cfg)
+						if err != nil {
+							log.Errorf("Failed to get all virtual configs for CSI full sync. Error: %+v", err)
+						}
+
+						log.Debugf("Starting full sync for Multi VC setup with %d VCs", len(vcconfigs))
+
+						var csiFulSyncWg sync.WaitGroup
+						for _, vc := range vcconfigs {
+							csiFulSyncWg.Add(1)
+							vCenter := vc
+							go func() {
+								defer csiFulSyncWg.Done()
+								// TODO: Create/delete volumeInfo CRs if it was missed by metadatasyncer.
+								err := CsiFullSync(ctx, metadataSyncer, vCenter.Host)
+								if err != nil {
+									log.Infof("CSI full sync failed with error: %+v for VC %s", err, vCenter.Host)
+								}
+							}()
+						}
+						csiFulSyncWg.Wait()
 					}
 				}
 			}
