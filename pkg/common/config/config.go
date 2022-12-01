@@ -143,6 +143,11 @@ var (
 	// Multi vCenter deployment
 	ErrMissingTopologyCategoriesForMultiVCenterSetup = errors.New("vsphere CSI config requires " +
 		"topology-categories to be specified for multi vCenter deployment")
+
+	// ErrMaxVCenterSupportedForMultiVCenterSetup is returned when vSphere config secret has more than 5 vCenter
+	// servers
+	ErrMaxVCenterSupportedForMultiVCenterSetup = errors.New("max 5 vCenters are supported for multi " +
+		"vCenter deployment")
 )
 
 // GeneratedVanillaClusterID is used to save unique cluster ID generated
@@ -328,6 +333,10 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 	if len(cfg.VirtualCenter) == 0 {
 		log.Error(ErrMissingVCenter)
 		return ErrMissingVCenter
+	}
+	if len(cfg.VirtualCenter) > 5 {
+		log.Error(ErrMaxVCenterSupportedForMultiVCenterSetup)
+		return ErrMaxVCenterSupportedForMultiVCenterSetup
 	}
 	// Cluster ID should not exceed 64 characters.
 	if len(cfg.Global.ClusterID) > 64 {
