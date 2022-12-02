@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/onsi/gomega"
@@ -533,7 +534,8 @@ func setSearchlevelPermission(masterIp string, testUserAlias string, testUser st
 
 // createCsiVsphereSecret method is used to create csi vsphere secret file
 func createCsiVsphereSecret(client clientset.Interface, ctx context.Context, testUser string,
-	password string, csiNamespace string) {
+	password string, csiNamespace string, vCenterIP string,
+	vCenterPort string, targetvSANFileShareDatastoreURLs string) {
 	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	originalConf := string(currentSecret.Data[vSphereCSIConf])
@@ -541,6 +543,7 @@ func createCsiVsphereSecret(client clientset.Interface, ctx context.Context, tes
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	vsphereCfg.Global.User = testUser
 	vsphereCfg.Global.Password = password
+	vsphereCfg.Global.TargetvSANFileShareDatastoreURLs = targetvSANFileShareDatastoreURLs
 	modifiedConf, err := writeConfigToSecretString(vsphereCfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Updating the secret to reflect new conf credentials")
@@ -556,23 +559,44 @@ roles and privileges to test user
 func createTestUserAndAssignRolesPrivileges(masterIp string, configSecretTestUser string,
 	configSecretTestUserPassword string, configSecretTestUserAlias string, propagateVal string,
 	dataCenters []*object.Datacenter, clusters []string, hosts []string,
-	vms []string, datastores []string) {
+	vms []string, datastores []string, testUserOpToPerform string, testUserRolesOpToPerform string) {
 	roleMap := userRoleMap()
+	switch testUserOpToPerform {
+	case "createUser":
+		err := createTestUser(masterIp, configSecretTestUser, configSecretTestUserPassword)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
+			masterIp, err)
+	case "reuseUser":
+		framework.Logf("Test user already exist")
+	case "recreate":
+		err := deleteTestUser(masterIp, configSecretTestUser)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
+			masterIp, err)
+		err = createTestUser(masterIp, configSecretTestUser, configSecretTestUserPassword)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
+			masterIp, err)
+	}
 
-	framework.Logf("Create TestUser")
-	err := createTestUser(masterIp, configSecretTestUser, configSecretTestUserPassword)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
-		masterIp, err)
-
-	framework.Logf("Create roles for TestUser")
-	err = createRolesForTestUser(masterIp, configSecretTestUser)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
-		masterIp, err)
+	switch testUserRolesOpToPerform {
+	case "createRoles":
+		err := createRolesForTestUser(masterIp, configSecretTestUser)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
+			masterIp, err)
+	case "reuseRoles":
+		framework.Logf("Roles for testuser already exist")
+	case "recreate":
+		err := deleteUserRoles(masterIp, configSecretTestUser)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
+			masterIp, err)
+		err = createRolesForTestUser(masterIp, configSecretTestUser)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
+			masterIp, err)
+	}
 
 	for key := range roleMap {
 		if strings.Contains(key, "VM") {
 			framework.Logf("Assign vm level permissions")
-			err = setVMLevelPermission(masterIp, configSecretTestUserAlias, configSecretTestUser, vms,
+			err := setVMLevelPermission(masterIp, configSecretTestUserAlias, configSecretTestUser, vms,
 				propagateVal, key)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 				masterIp, err)
@@ -580,7 +604,7 @@ func createTestUserAndAssignRolesPrivileges(masterIp string, configSecretTestUse
 		if strings.Contains(key, "HOST") {
 			framework.Logf("Assign cluster level permissions")
 			for i := 0; i < len(clusters); i++ {
-				err = setClusterLevelPermission(masterIp, configSecretTestUserAlias, configSecretTestUser,
+				err := setClusterLevelPermission(masterIp, configSecretTestUserAlias, configSecretTestUser,
 					clusters[i], propagateVal, key)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 					masterIp, err)
@@ -589,7 +613,7 @@ func createTestUserAndAssignRolesPrivileges(masterIp string, configSecretTestUse
 		if strings.Contains(key, "DATASTORE") {
 			framework.Logf("Assign datastores level permissions")
 			for i := 0; i < len(dataCenters); i++ {
-				err = setDataStoreLevelPermission(masterIp, configSecretTestUserAlias, configSecretTestUser,
+				err := setDataStoreLevelPermission(masterIp, configSecretTestUserAlias, configSecretTestUser,
 					dataCenters[i].InventoryPath, datastores, propagateVal, key)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 					masterIp, err)
@@ -597,7 +621,7 @@ func createTestUserAndAssignRolesPrivileges(masterIp string, configSecretTestUse
 		}
 		if strings.Contains(key, "SEARCH") {
 			framework.Logf("Assign search level permissions")
-			err = setSearchlevelPermission(masterIp, configSecretTestUserAlias, configSecretTestUser,
+			err := setSearchlevelPermission(masterIp, configSecretTestUserAlias, configSecretTestUser,
 				propagateVal, key)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 				masterIp, err)
@@ -605,14 +629,14 @@ func createTestUserAndAssignRolesPrivileges(masterIp string, configSecretTestUse
 		if strings.Contains(key, "ReadOnly") {
 			framework.Logf("Assign datacenter level read-only permissions")
 			for i := 0; i < len(dataCenters); i++ {
-				err = setDataCenterLevelPermission(masterIp, dataCenters[i].InventoryPath, configSecretTestUserAlias,
+				err := setDataCenterLevelPermission(masterIp, dataCenters[i].InventoryPath, configSecretTestUserAlias,
 					propagateVal, key)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 					masterIp, err)
 			}
 
 			framework.Logf("Assign host level read-only permissions")
-			err = setHostLevelPermission(masterIp, configSecretTestUserAlias, hosts, propagateVal, key)
+			err := setHostLevelPermission(masterIp, configSecretTestUserAlias, hosts, propagateVal, key)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 				masterIp, err)
 		}
@@ -653,4 +677,25 @@ func userRoleMap() map[string]string {
 	roleMap["ReadOnly"] = "ReadOnly"
 
 	return roleMap
+}
+
+// changeTestUserPassword util method is use for changing testuser vcenter login password
+func changeTestUserPassword(masterIp string, testUser string, testUserPassword string) error {
+	changeUserPassword := govcLoginCmd() + "govc sso.user.update -p " + testUserPassword + " " + testUser
+	result, err := sshExec(sshClientConfig, masterIp, changeUserPassword)
+	if err != nil && result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			changeUserPassword, masterIp, err)
+	}
+	return nil
+}
+
+// getVcenterHostName util method is use to fetch the vcenter hostname
+func getVcenterHostName(vcenterIp string) string {
+	getVcenterHostNameCmd := "nslookup " + vcenterIp + "| grep 'name = ' | awk '{print $4}' | tr -d '\n'"
+	result, err := exec.Command("/bin/bash", "-c", getVcenterHostNameCmd).Output()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	vcenterHostName := string(result[:])
+	return vcenterHostName
 }
