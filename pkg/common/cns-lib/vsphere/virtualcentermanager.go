@@ -112,7 +112,7 @@ func (m *defaultVirtualCenterManager) RegisterVirtualCenter(ctx context.Context,
 	config *VirtualCenterConfig) (*VirtualCenter, error) {
 	log := logger.GetLogger(ctx)
 	if _, exists := m.virtualCenters.Load(config.Host); exists {
-		log.Errorf("VC was already found in registry, failed to register with config %v", config)
+		log.Errorf("vCenter was already found in registry, failed to register vCenter: %q", config.Host)
 		return nil, ErrVCAlreadyRegistered
 	}
 
