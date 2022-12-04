@@ -183,6 +183,7 @@ const (
 	vpxdServiceName                           = "vpxd"
 	vpxdReducedTaskTimeoutSecsInt             = 90
 	vSphereCSIControllerPodNamePrefix         = "vsphere-csi-controller"
+	vSphereCSINodePrefix                      = "vsphere-csi-node"
 	vmUUIDLabel                               = "vmware-system-vm-uuid"
 	vsanDefaultStorageClassInSVC              = "vsan-default-storage-policy"
 	vsanDefaultStoragePolicyName              = "vSAN Default Storage Policy"

@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -36,6 +37,7 @@ import (
 	"k8s.io/kubectl/pkg/util/podutils"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/manifest"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
@@ -43,8 +45,8 @@ import (
 // 256 disk statefulset poll timeouts
 const (
 	StatefulSetPollFor256DiskSupport    = 10 * time.Second
-	StatefulSetTimeoutFor256DiskSupport = 80 * time.Minute
-	StatefulPodTimeoutFor256DiskSupport = 80 * time.Minute
+	StatefulSetTimeoutFor256DiskSupport = 120 * time.Minute
+	StatefulPodTimeoutFor256DiskSupport = 180 * time.Minute
 )
 
 var statefulPodRegex = regexp.MustCompile("(.*)-([0-9]+)$")
@@ -58,8 +60,8 @@ func GetStatefulSetFromManifestFor265Disks(ns string) *appsv1.StatefulSet {
 	return ss
 }
 
-// CreateMultipleStatefulSetsInSameNsFor256DiskSupport creates multiple statefulsets in given namespace
-func CreateMultipleStatefulSetsInSameNsFor256DiskSupport(ns string, ss *appsv1.StatefulSet,
+// CreateMultipleStatefulSetPodsInGivenNamespace creates multiple statefulsets pods in a given namespace
+func CreateMultipleStatefulSetPodsInGivenNamespace(ns string, ss *appsv1.StatefulSet,
 	c clientset.Interface, replicas int32) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -214,55 +216,76 @@ func WaitForStsPodsReadyReplicaStatus(c clientset.Interface, ss *appsv1.Stateful
 	}
 }
 
-func setMaxVolPerNodeInCsiYaml(ctx context.Context, client clientset.Interface, masterIp string,
-	csiSystemNamespace string) error {
+func setMaxVolPerNodeToEnable256disk(ctx context.Context, client clientset.Interface, masterIp string,
+	csiSystemNamespace string) {
+	ignoreLabels := make(map[string]string)
+	var fetchDaemonSetMaxNodeVal string
 
-	deleteCsiYaml := "kubectl delete -f vsphere-csi-driver.yaml"
-	deleteCsi, err := sshExec(sshClientConfig, masterIp, deleteCsiYaml)
-	if err != nil && deleteCsi.Code != 0 {
-		fssh.LogResult(deleteCsi)
-		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			deleteCsiYaml, masterIp, err)
-	}
+	// fetch MAX_VOl_PER_NODE
+	csiDaemonSet, err := client.AppsV1().DaemonSets(csiSystemNamespace).Get(
+		ctx, vSphereCSINodePrefix, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	fetchDaemonSetMaxNodeVal = csiDaemonSet.Spec.Template.Spec.Containers[1].Env[2].Value
 
-	findAndSetVal := "sed -i 's/59/255/g' vsphere-csi-driver.yaml"
-	framework.Logf("Set max volume per node value for 255 disks: %s ", findAndSetVal)
-	setVal, err := sshExec(sshClientConfig, masterIp, findAndSetVal)
-	if err != nil && setVal.Code != 0 {
-		fssh.LogResult(setVal)
-		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			findAndSetVal, masterIp, err)
-	}
+	if fetchDaemonSetMaxNodeVal == "59" {
+		csiDaemonSet.Spec.Template.Spec.Containers[1].Env[2].Value = "255"
+		_, err = client.AppsV1().DaemonSets(csiSystemNamespace).Update(ctx, csiDaemonSet, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	applyCsiYaml := "kubectl apply -f vsphere-csi-driver.yaml"
-	applyCsi, err := sshExec(sshClientConfig, masterIp, applyCsiYaml)
-	if err != nil && applyCsi.Code != 0 {
-		fssh.LogResult(applyCsi)
-		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			applyCsiYaml, masterIp, err)
+		// Fetch the number of CSI pods running before restart
+		list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		num_csi_pods := len(list_of_pods)
+
+		//Collecting csi pod logs before restrating CSI daemonset
+		collectPodLogs(ctx, client, csiSystemNamespace)
+
+		// Restart CSI daemonset
+		ginkgo.By("Restart Daemonset")
+		cmd := []string{"rollout", "restart", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
+		framework.RunKubectlOrDie(csiSystemNamespace, cmd...)
+
+		ginkgo.By("Waiting for daemon set rollout status to finish")
+		statusCheck := []string{"rollout", "status", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
+		framework.RunKubectlOrDie(csiSystemNamespace, statusCheck...)
+
+		// wait for csi Pods to be in running ready state
+		err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		framework.Logf("Max vol per node is set to 255 for node daemon sets")
 	}
-	return nil
 }
 
-func setvCenterFlagFor255Disks() error {
+func enablePvScsiCtrlFor256DiskSupport() error {
 	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-	oldVal := "<pvscsiCtrlr256DiskSupportEnabled>false<\\/pvscsiCtrlr256DiskSupportEnabled>"
-	newVal := "<pvscsiCtrlr256DiskSupportEnabled>true<\\/pvscsiCtrlr256DiskSupportEnabled>"
-	grepCmd := "sed -i 's/" + oldVal + "/" + newVal + "/g' " +
-		"/usr/lib/vmware-vsan/VsanVcMgmtConfig.xml"
-
-	framework.Logf("Invoking command '%v' on vCenter host %v", grepCmd, vcAddress)
-	result, err := fssh.SSH(grepCmd, vcAddress, framework.TestContext.Provider)
+	grepFetchCmd := "cat /usr/lib/vmware-vsan/VsanVcMgmtConfig.xml | grep pvscsiCtrlr256DiskSupportEnabled"
+	res, err := fssh.SSH(grepFetchCmd, vcAddress, framework.TestContext.Provider)
 	if err != nil {
-		fssh.LogResult(result)
-		err = fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", grepCmd, vcAddress, err)
+		fssh.LogResult(res)
+		err = fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", grepFetchCmd, vcAddress, err)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
+	if strings.Contains(res.Stdout, "false") {
+		oldVal := "<pvscsiCtrlr256DiskSupportEnabled>false<\\/pvscsiCtrlr256DiskSupportEnabled>"
+		newVal := "<pvscsiCtrlr256DiskSupportEnabled>true<\\/pvscsiCtrlr256DiskSupportEnabled>"
+		grepCmd := "sed -i 's/" + oldVal + "/" + newVal + "/g' " +
+			"/usr/lib/vmware-vsan/VsanVcMgmtConfig.xml"
 
-	err = invokeVCenterServiceControl(restartOperation, vsanhealthServiceName, vcAddress)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Invoking command '%v' on vCenter host %v", grepCmd, vcAddress)
+		result, err := fssh.SSH(grepCmd, vcAddress, framework.TestContext.Provider)
+		if err != nil {
+			fssh.LogResult(result)
+			err = fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", grepCmd, vcAddress, err)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
+		err = invokeVCenterServiceControl(restartOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcRunningMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		framework.Logf("pvscsiCtrlr256DiskSupportEnabled is already set and enabled")
+	}
 	return nil
 }

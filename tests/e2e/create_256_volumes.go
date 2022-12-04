@@ -54,6 +54,8 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		csiReplicas             int32
 		csiNamespace            string
 		bindingMode             storagev1.VolumeBindingMode
+		allMasterIps            []string
+		masterIp                string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -81,7 +83,12 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		csiReplicas = *csiDeployment.Spec.Replicas
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
 
-		//setvCenterFlagFor255Disks()
+		allMasterIps = getK8sMasterIPs(ctx, client)
+		masterIp = allMasterIps[0]
+		fmt.Println(masterIp)
+
+		enablePvScsiCtrlFor256DiskSupport()
+		setMaxVolPerNodeToEnable256disk(ctx, client, masterIp, csiNamespace)
 
 	})
 
@@ -146,7 +153,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset1 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset1.Spec.Replicas = &statefulSetReplicaCount
 		statefulset1.Name = "sts1"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset1, client,
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset1, client,
 			statefulSetReplicaCount)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
@@ -166,7 +173,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset2 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset2.Spec.Replicas = &statefulSetReplicaCount
 		statefulset2.Name = "sts2"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset2, client, statefulSetReplicaCount)
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset2, client, statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
 		fss.WaitForStatusReadyReplicas(client, statefulset2, statefulSetReplicaCount)
@@ -181,7 +188,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset3 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset3.Spec.Replicas = &statefulSetReplicaCount
 		statefulset3.Name = "sts3"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset3, client, statefulSetReplicaCount)
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset3, client, statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
 		fss.WaitForStatusReadyReplicas(client, statefulset3, statefulSetReplicaCount)
@@ -304,7 +311,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset1 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset1.Spec.Replicas = &statefulSetReplicaCount
 		statefulset1.Name = "sts1"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset1, client, statefulSetReplicaCount)
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset1, client, statefulSetReplicaCount)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
 			deleteAllStsAndTheirPVCInNSWithLargeTimeout(client, namespace)
@@ -324,7 +331,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset2 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset2.Spec.Replicas = &statefulSetReplicaCount
 		statefulset2.Name = "sts2"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset2, client,
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset2, client,
 			statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
@@ -341,7 +348,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset3 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset3.Spec.Replicas = &statefulSetReplicaCount
 		statefulset3.Name = "sts3"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset3, client,
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset3, client,
 			statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
@@ -503,7 +510,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset1.Spec.Replicas = &statefulSetReplicaCount
 		statefulset1.Name = "sts1"
 		statefulset1.Spec.PodManagementPolicy = apps.ParallelPodManagement
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset1, client, statefulSetReplicaCount)
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset1, client, statefulSetReplicaCount)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
 			deleteAllStsAndTheirPVCInNSWithLargeTimeout(client, namespace)
@@ -523,7 +530,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset2 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset2.Spec.Replicas = &statefulSetReplicaCount
 		statefulset2.Name = "sts2"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset2, client,
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset2, client,
 			statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
@@ -541,7 +548,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset3.Spec.Replicas = &statefulSetReplicaCount
 		statefulset3.Name = "sts3"
 		statefulset3.Spec.PodManagementPolicy = apps.ParallelPodManagement
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset3, client,
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset3, client,
 			statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
@@ -733,7 +740,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset1.Spec.Replicas = &statefulSetReplicaCount
 		statefulset1.Name = "sts1"
 		statefulset1.Spec.PodManagementPolicy = apps.ParallelPodManagement
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset1, client, statefulSetReplicaCount)
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset1, client, statefulSetReplicaCount)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
 			deleteAllStsAndTheirPVCInNSWithLargeTimeout(client, namespace)
@@ -754,7 +761,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset2.Spec.Replicas = &statefulSetReplicaCount
 		statefulset2.Name = "sts2"
 		statefulset2.Spec.PodManagementPolicy = apps.ParallelPodManagement
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset2, client,
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset2, client,
 			statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
@@ -772,7 +779,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset3.Spec.Replicas = &statefulSetReplicaCount
 		statefulset3.Name = "sts3"
 		statefulset3.Spec.PodManagementPolicy = apps.ParallelPodManagement
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset3, client,
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset3, client,
 			statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
@@ -973,7 +980,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset1 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset1.Spec.Replicas = &statefulSetReplicaCount
 		statefulset1.Name = "sts1"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset1, client,
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset1, client,
 			statefulSetReplicaCount)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
@@ -993,7 +1000,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset2 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset2.Spec.Replicas = &statefulSetReplicaCount
 		statefulset2.Name = "sts2"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset2, client, statefulSetReplicaCount)
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset2, client, statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
 		fss.WaitForStatusReadyReplicas(client, statefulset2, statefulSetReplicaCount)
@@ -1089,7 +1096,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulSetReplicaCount = 40
 		statefulset4.Spec.Replicas = &statefulSetReplicaCount
 		statefulset4.Name = "sts4"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset4, client, statefulSetReplicaCount)
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset4, client, statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
 		fss.WaitForStatusReadyReplicas(client, statefulset4, statefulSetReplicaCount)
@@ -1211,7 +1218,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset1.Spec.Replicas = &statefulSetReplicaCount
 		statefulset1.Name = "sts1"
 		statefulset1.Spec.PodManagementPolicy = apps.ParallelPodManagement
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset1, client, statefulSetReplicaCount)
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset1, client, statefulSetReplicaCount)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
 			deleteAllStsAndTheirPVCInNSWithLargeTimeout(client, namespace)
@@ -1236,7 +1243,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset2.Spec.Replicas = &statefulSetReplicaCount
 		statefulset2.Name = "sts2"
 		statefulset1.Spec.PodManagementPolicy = apps.ParallelPodManagement
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset2, client,
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset2, client,
 			statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
@@ -1262,7 +1269,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset3.Spec.Replicas = &statefulSetReplicaCount
 		statefulset3.Name = "sts3"
 		statefulset1.Spec.PodManagementPolicy = apps.ParallelPodManagement
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset3, client,
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset3, client,
 			statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
@@ -1338,7 +1345,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset1 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset1.Spec.Replicas = &statefulSetReplicaCount
 		statefulset1.Name = "sts1"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset1, client,
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset1, client,
 			statefulSetReplicaCount)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
@@ -1358,7 +1365,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset2 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset2.Spec.Replicas = &statefulSetReplicaCount
 		statefulset2.Name = "sts2"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset2, client, statefulSetReplicaCount)
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset2, client, statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
 		fss.WaitForStatusReadyReplicas(client, statefulset2, statefulSetReplicaCount)
@@ -1373,7 +1380,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset3 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset3.Spec.Replicas = &statefulSetReplicaCount
 		statefulset3.Name = "sts3"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset3, client, statefulSetReplicaCount)
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset3, client, statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
 		fss.WaitForStatusReadyReplicas(client, statefulset3, statefulSetReplicaCount)
@@ -1555,7 +1562,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset1 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset1.Spec.Replicas = &statefulSetReplicaCount
 		statefulset1.Name = "sts1"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset1, client,
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset1, client,
 			statefulSetReplicaCount)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
@@ -1575,7 +1582,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset2 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset2.Spec.Replicas = &statefulSetReplicaCount
 		statefulset2.Name = "sts2"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset2, client, statefulSetReplicaCount)
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset2, client, statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
 		fss.WaitForStatusReadyReplicas(client, statefulset2, statefulSetReplicaCount)
@@ -1667,7 +1674,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 			statefulSetReplicaCount = 40
 			statefulset4.Spec.Replicas = &statefulSetReplicaCount
 			statefulset4.Name = "sts4"
-			CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset4, client, statefulSetReplicaCount)
+			CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset4, client, statefulSetReplicaCount)
 
 			// verify that the StatefulSets pods are in ready state
 			fss.WaitForStatusReadyReplicas(client, statefulset4, statefulSetReplicaCount)
@@ -1750,7 +1757,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset1 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset1.Spec.Replicas = &statefulSetReplicaCount
 		statefulset1.Name = "sts1"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset1, client,
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset1, client,
 			statefulSetReplicaCount)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
@@ -1770,7 +1777,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset2 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset2.Spec.Replicas = &statefulSetReplicaCount
 		statefulset2.Name = "sts2"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset2, client, statefulSetReplicaCount)
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset2, client, statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
 		fss.WaitForStatusReadyReplicas(client, statefulset2, statefulSetReplicaCount)
@@ -1785,7 +1792,7 @@ var _ = ginkgo.Describe("[csi-vanilla-256-disk-support] Volume-Provisioning-With
 		statefulset3 := GetStatefulSetFromManifestFor265Disks(namespace)
 		statefulset3.Spec.Replicas = &statefulSetReplicaCount
 		statefulset3.Name = "sts3"
-		CreateMultipleStatefulSetsInSameNsFor256DiskSupport(namespace, statefulset3, client, statefulSetReplicaCount)
+		CreateMultipleStatefulSetPodsInGivenNamespace(namespace, statefulset3, client, statefulSetReplicaCount)
 
 		// verify that the StatefulSets pods are in ready state
 		fss.WaitForStatusReadyReplicas(client, statefulset3, statefulSetReplicaCount)
