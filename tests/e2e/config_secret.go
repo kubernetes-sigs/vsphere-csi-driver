@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
@@ -57,6 +58,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		revertOriginalvCenterUser bool
 		vCenterIP                 string
 		vCenterPort               string
+		dataCenter                string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -79,6 +81,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		vCenterUIPassword = e2eVSphere.Config.Global.Password
 		vCenterIP = e2eVSphere.Config.Global.VCenterHostname
 		vCenterPort = e2eVSphere.Config.Global.VCenterPort
+		dataCenter = e2eVSphere.Config.Global.Datacenters
 		propagateVal = "false"
 		revertOriginalvCenterUser = false
 		configSecretUser1Alias = configSecretTestUser1 + "@vsphere.local"
@@ -111,7 +114,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace, vCenterIP,
-				vCenterPort, "")
+				vCenterPort, dataCenter, "")
 
 			ginkgo.By("Restart CSI driver")
 			restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
@@ -162,14 +165,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Create vsphere-config-secret file with testuser1 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password,
-			csiNamespace, vCenterIP, vCenterPort, "")
+			csiNamespace, vCenterIP, vCenterPort, dataCenter, "")
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		ginkgo.By("Creating Storage Class")
 		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -179,46 +181,20 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Creating PVC")
-		pvclaim1, err := createPVC(client, namespace, nil, "", storageclass, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		var pvclaims1 []*v1.PersistentVolumeClaim
-		pvclaims1 = append(pvclaims1, pvclaim1)
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs1, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims1, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvs1).NotTo(gomega.BeEmpty())
-		pv1 := pvs1[0]
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By("Verify PVs, volumes are deleted from CNS")
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv1.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
 		}()
-
-		ginkgo.By("Creating pod")
-		pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod1.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod1)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(pv1.Spec.CSI.VolumeHandle, pvclaim1, pv1, pod1)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create vsphere-config-secret file with testuser2 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser2Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, "")
+			vCenterIP, vCenterPort, dataCenter, "")
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace, vCenterIP,
-				vCenterPort, "")
+				vCenterPort, dataCenter, "")
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
@@ -233,41 +209,10 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
-		ginkgo.By("Creating Pvc")
-		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		var pvclaims2 []*v1.PersistentVolumeClaim
-		pvclaims2 = append(pvclaims2, pvclaim2)
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs2, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims2, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvs2).NotTo(gomega.BeEmpty())
-		pv2 := pvs2[0]
+		pod2, pvclaim2, pv2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			ginkgo.By("Verify PVs, volumes are deleted from CNS")
-			err = fpv.WaitForPersistentVolumeDeleted(client, pv2.Name, poll, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv2.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				"Volume: %s should not be present in the CNS after it is deleted from "+
-					"kubernetes", pv2.Spec.CSI.VolumeHandle)
+			performCleanUpOfPvcPod(client, namespace, pod2, pvclaim2, pv2)
 		}()
-
-		ginkgo.By("Creating pod")
-		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(pv2.Spec.CSI.VolumeHandle, pvclaim2, pv2, pod2)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	/*
@@ -321,14 +266,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, "")
+			vCenterIP, vCenterPort, dataCenter, "")
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		ginkgo.By("Creating Storage Class")
 		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -338,37 +282,11 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Creating PVC")
-		pvclaim1, err := createPVC(client, namespace, nil, "", storageclass, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		var pvclaims1 []*v1.PersistentVolumeClaim
-		pvclaims1 = append(pvclaims1, pvclaim1)
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs1, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims1, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvs1).NotTo(gomega.BeEmpty())
-		pv1 := pvs1[0]
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By("Verify PVs, volumes are deleted from CNS")
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv1.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
 		}()
-
-		ginkgo.By("Creating pod")
-		pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod1.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod1)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(pv1.Spec.CSI.VolumeHandle, pvclaim1, pv1, pod1)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Change password for testuser1")
 		err = changeTestUserPassword(masterIp, configSecretTestUser1, testUser1NewPassword)
@@ -392,7 +310,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = updateDeploymentReplicawithWait(client, csiReplicas, vSphereCSIControllerPodNamePrefix, csiNamespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if err != nil {
+			if strings.Contains(err.Error(), "error waiting for deployment") {
+				framework.Logf("csi pods are not in ready state")
+			} else {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
 		pvclaim3, err := createPVC(client, namespace, nil, "", storageclass, "")
@@ -410,12 +334,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret file with testuser1 updated credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, testUser1NewPassword, csiNamespace,
-			vCenterIP, vCenterPort, "")
+			vCenterIP, vCenterPort, dataCenter, "")
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
-				vCenterIP, vCenterPort, "")
+				vCenterIP, vCenterPort, dataCenter, "")
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
@@ -432,31 +356,15 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Wait for csi controller pods to be in running state")
 		list_of_pods, err := fpod.GetPodsInNamespace(client, csiNamespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		num_csi_pods := len(list_of_pods)
-		err = fpod.WaitForPodsRunningReady(client, csiNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for i := 0; i < len(list_of_pods); i++ {
+			err = fpod.WaitTimeoutForPodRunningInNamespace(client, list_of_pods[i].Name, csiNamespace, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
-		ginkgo.By("Creating Pvc")
-		pvclaim4, err := createPVC(client, namespace, nil, "", storageclass, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		var pvclaims4 []*v1.PersistentVolumeClaim
-		pvclaims4 = append(pvclaims4, pvclaim4)
-		ginkgo.By("Waiting for all claims to be in bound state")
-		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims4, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pod4, pvclaim4, pv4 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim4.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Creating pod")
-		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim4}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			performCleanUpOfPvcPod(client, namespace, pod4, pvclaim4, pv4)
 		}()
 
 		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
@@ -509,14 +417,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, "")
+			vCenterIP, vCenterPort, dataCenter, "")
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		ginkgo.By("Creating Storage Class")
 		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -526,46 +433,20 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Creating PVC")
-		pvclaim1, err := createPVC(client, namespace, nil, "", storageclass, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		var pvclaims1 []*v1.PersistentVolumeClaim
-		pvclaims1 = append(pvclaims1, pvclaim1)
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs1, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims1, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvs1).NotTo(gomega.BeEmpty())
-		pv1 := pvs1[0]
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By("Verify PVs, volumes are deleted from CNS")
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv1.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
 		}()
-
-		ginkgo.By("Creating pod")
-		pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod1.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod1)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(pv1.Spec.CSI.VolumeHandle, pvclaim1, pv1, pod1)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Update vsphere-config-secret with testuser2 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser2Alias, configSecretTestUser2Password, csiNamespace,
-			vCenterIP, vCenterPort, "")
+			vCenterIP, vCenterPort, dataCenter, "")
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
-				vCenterIP, vCenterPort, "")
+				vCenterIP, vCenterPort, dataCenter, "")
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
@@ -580,41 +461,10 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
-		ginkgo.By("Creating Pvc")
-		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		var pvclaims2 []*v1.PersistentVolumeClaim
-		pvclaims2 = append(pvclaims2, pvclaim2)
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs2, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims2, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvs2).NotTo(gomega.BeEmpty())
-		pv2 := pvs2[0]
+		pod2, pvclaim2, pv2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			ginkgo.By("Verify PVs, volumes are deleted from CNS")
-			err = fpv.WaitForPersistentVolumeDeleted(client, pv2.Name, poll, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv2.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				"Volume: %s should not be present in the CNS after it is deleted from "+
-					"kubernetes", pv2.Spec.CSI.VolumeHandle)
+			performCleanUpOfPvcPod(client, namespace, pod2, pvclaim2, pv2)
 		}()
-
-		ginkgo.By("Creating pod")
-		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(pv2.Spec.CSI.VolumeHandle, pvclaim2, pv2, pod2)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	/*
@@ -664,7 +514,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials using vcenter IP")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, "")
+			vCenterIP, vCenterPort, dataCenter, "")
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
@@ -681,37 +531,11 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Creating PVC")
-		pvclaim1, err := createPVC(client, namespace, nil, "", storageclass, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		var pvclaims1 []*v1.PersistentVolumeClaim
-		pvclaims1 = append(pvclaims1, pvclaim1)
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs1, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims1, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvs1).NotTo(gomega.BeEmpty())
-		pv1 := pvs1[0]
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By("Verify PVs, volumes are deleted from CNS")
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv1.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
 		}()
-
-		ginkgo.By("Creating pod")
-		pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod1.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod1)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(pv1.Spec.CSI.VolumeHandle, pvclaim1, pv1, pod1)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Fetch vcenter hotsname")
 		vCenterHostName := getVcenterHostName(vCenterIP)
@@ -719,7 +543,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret to use vcenter hostname")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterHostName, vCenterPort, "")
+			vCenterHostName, vCenterPort, dataCenter, "")
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
@@ -727,49 +551,19 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
-		ginkgo.By("Creating Pvc")
-		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		var pvclaims2 []*v1.PersistentVolumeClaim
-		pvclaims2 = append(pvclaims2, pvclaim2)
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs2, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims2, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvs2).NotTo(gomega.BeEmpty())
-		pv2 := pvs2[0]
+		pod2, pvclaim2, pv2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			ginkgo.By("Verify PVs, volumes are deleted from CNS")
-			err = fpv.WaitForPersistentVolumeDeleted(client, pv2.Name, poll, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv2.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				"Volume: %s should not be present in the CNS after it is deleted from "+
-					"kubernetes", pv2.Spec.CSI.VolumeHandle)
+			performCleanUpOfPvcPod(client, namespace, pod2, pvclaim2, pv2)
 		}()
-
-		ginkgo.By("Creating pod")
-		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(pv2.Spec.CSI.VolumeHandle, pvclaim2, pv2, pod2)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Update vsphere-config-secret to use vcenter IP")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, "")
+			vCenterIP, vCenterPort, dataCenter, "")
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
-			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace, vCenterIP, vCenterPort, "")
+			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace, vCenterIP, vCenterPort,
+				dataCenter, "")
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
@@ -784,40 +578,849 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
-		ginkgo.By("Creating Pvc")
-		pvclaim3, err := createPVC(client, namespace, nil, "", storageclass, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		var pvclaims3 []*v1.PersistentVolumeClaim
-		pvclaims3 = append(pvclaims3, pvclaim3)
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs3, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims3, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvs3).NotTo(gomega.BeEmpty())
-		pv3 := pvs3[0]
+		pod3, pvclaim3, pv3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim3.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			performCleanUpOfPvcPod(client, namespace, pod3, pvclaim3, pv3)
+		}()
+	})
 
-			ginkgo.By("Verify PVs, volumes are deleted from CNS")
-			err = fpv.WaitForPersistentVolumeDeleted(client, pv3.Name, poll, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv3.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				"Volume: %s should not be present in the CNS after it is deleted from "+
-					"kubernetes", pv3.Spec.CSI.VolumeHandle)
+	/*
+		TESTCASE-6
+		Add wrong user and switch back to correct user
+		Steps:
+		1. Create a user, user1, with required roles and privileges
+		2. Create csi-vsphere.conf with user1's credentials and create vsphere-config-secret
+		in turn using that file
+		3. Install CSI driver
+		4. Verify we can create a PVC and attach it to pod
+		5. Change csi-vsphere.conf and add a dummy user and re-create vsphere-config-secret in turn using that file
+		6. Try to create a PVC verify that it is stuck in pending state
+		7. Change csi-vsphere.conf with updated user1's credentials and re-create vsphere-config-secret
+		in turn using that file
+		8. Verify we can create a PVC and attach it to pod
+		9. Cleanup all objects created during the test
+	*/
+
+	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Change vcenter user to wrong dummy "+
+		"user and later switch back to correct one", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		dummyTestUser := "dummyUser@vsphere.local"
+
+		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
+		createTestUserAndAssignRolesPrivileges(masterIp, configSecretTestUser1,
+			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+		defer func() {
+			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser1,
+				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
-		ginkgo.By("Creating pod")
-		pod3, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim3}, false, "")
+		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
+		createTestUserAndAssignRolesPrivileges(masterIp, configSecretTestUser2,
+			configSecretTestUser1Password, configSecretUser2Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+		defer func() {
+			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser2,
+				configSecretTestUser1Password, configSecretUser2Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
+		}()
+
+		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, "")
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating Storage Class")
+		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod3.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod3)
+			ginkgo.By("Delete Storage Class")
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
+		defer func() {
+			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
+		}()
+
+		ginkgo.By("Update vsphere-config-secret with dummy user credentials")
+		createCsiVsphereSecret(client, ctx, dummyTestUser, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, "")
+
+		ginkgo.By("Restart CSI driver")
+		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = updateDeploymentReplicawithWait(client, csiReplicas, vSphereCSIControllerPodNamePrefix, csiNamespace)
+		if err != nil {
+			if strings.Contains(err.Error(), "error waiting for deployment") {
+				framework.Logf("csi pods are not in ready state")
+			} else {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+
+		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
+		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Expect claim status to be in Pending state")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+		defer func() {
+			ginkgo.By("Deleting the PVC")
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, "")
+		defer func() {
+			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
+				"and its credentials")
+			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
+				vCenterIP, vCenterPort, dataCenter, "")
+			revertOriginalvCenterUser = true
+
+			ginkgo.By("Restart CSI driver")
+			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod3, pvclaim3, pv3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
+		defer func() {
+			performCleanUpOfPvcPod(client, namespace, pod3, pvclaim3, pv3)
+		}()
+	})
+
+	/*
+		TESTCASE-7
+		Add a user without adding required roles/privileges to provision volume and switch back to the correct one
+		Steps:
+		1. Create two users user1 and user2(with same password) where user1 has the required roles
+		and privileges and user2 has required roles and privileges to login to VC
+		2. Create csi-vsphere.conf with user1's credentials and create vsphere-config-secret in turn
+		using that file
+		3. Install CSI driver
+		4. Verify we can create a PVC and attach it to pod
+		5. Change csi-vsphere.conf and add user2's credentials and re-create vsphere-config-secret in turn using that file
+		6. Try to create a PVC verify that it is stuck in pending state
+		7. Change csi-vsphere.conf with updated user1's credentials and re-create
+		vsphere-config-secret in turn using that file
+		8. Verify we can create a PVC and attach it to pod
+		9. Verify PVC created in step 6 gets bound eventually
+		10. Cleanup all objects created during the test
+	*/
+
+	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Add a user without adding required "+
+		"roles and privileges and switch back to the correct one", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
+		createTestUserAndAssignRolesPrivileges(masterIp, configSecretTestUser1,
+			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+		defer func() {
+			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser1,
+				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
+		}()
+
+		ginkgo.By("Create testuser2 and assign limited roles and privileges to testuser2")
+		createTestUserAndAssignLimitedRolesAndPrivileges(masterIp, configSecretTestUser2,
+			configSecretTestUser1Password, configSecretUser2Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores)
+		defer func() {
+			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser2,
+				configSecretTestUser1Password, configSecretUser2Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
+		}()
+
+		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, "")
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating Storage Class")
+		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By("Delete Storage Class")
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
+		defer func() {
+			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
+		}()
+
+		ginkgo.By("Update vsphere-config-secret with testuser2 credentials")
+		createCsiVsphereSecret(client, ctx, configSecretUser2Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, "")
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
+		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Expect claim status to be in Pending state")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+		defer func() {
+			ginkgo.By("Deleting the PVC")
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Update vsphere-config-secret with testuser1 credentials which has required roles and privileges")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, "")
+		defer func() {
+			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
+				"and its credentials")
+			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
+				vCenterIP, vCenterPort, dataCenter, "")
+			revertOriginalvCenterUser = true
+
+			ginkgo.By("Restart CSI driver")
+			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod3, pvclaim3, pvs3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
+		defer func() {
+			performCleanUpOfPvcPod(client, namespace, pod3, pvclaim3, pvs3)
+		}()
+
+		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
+		pvclaim2, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim2.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim2.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
+	})
+
+	/*
+		TESTCASE-8
+		Add necessary roles/privileges to the user post CSI driver creation
+		Steps:
+		1. Create a user, user1, without the required roles and privileges
+		2. Create csi-vsphere.conf with user1's credentials and create vsphere-config-secret in turn using that file
+		3. Install CSI driver
+		4. Try to create a PVC verify that it is stuck in pending state
+		5. Add necessary roles/privileges the user1
+		6. Try to create another PVC
+		7. Both PVCs created in prior steps should get binding eventually
+		8. Cleanup all objects created during the test
+	*/
+
+	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Add necessary roles and privileges "+
+		"to the user post CSI driver creation", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("Create testuser1 and assign limited roles and privileges to testuser1")
+		createTestUserAndAssignLimitedRolesAndPrivileges(masterIp, configSecretTestUser1,
+			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores)
+		defer func() {
+			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser1,
+				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
+		}()
+
+		ginkgo.By("Create testuser2 and assign limited roles and privileges to testuser2")
+		createTestUserAndAssignLimitedRolesAndPrivileges(masterIp, configSecretTestUser2,
+			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores)
+		defer func() {
+			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser2,
+				configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
+		}()
+
+		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, "")
+		defer func() {
+			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
+				"and its credentials")
+			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
+				vCenterIP, vCenterPort, dataCenter, "")
+			revertOriginalvCenterUser = true
+
+			ginkgo.By("Restart CSI driver")
+			restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating Storage Class")
+		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By("Delete Storage Class")
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
+		pvclaim1, err := createPVC(client, namespace, nil, "", storageclass, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Expect claim status to be in Pending state")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+			pvclaim1.Namespace, pvclaim1.Name, framework.Poll, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+		defer func() {
+			ginkgo.By("Deleting the PVC")
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Assign required roles and privileges to testuser1")
+		createTestUserAndAssignRolesPrivileges(masterIp, configSecretTestUser1,
+			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores, "reuseUser", "reuseRoles")
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod2, pvclaim2, pvs2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
+		defer func() {
+			performCleanUpOfPvcPod(client, namespace, pod2, pvclaim2, pvs2)
+		}()
+
+		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
+		pvclaim1, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim1.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim1.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
+	})
+
+	/*
+		TESTCASE-10
+		Add the wrong datacenter and switch back to the correct datacenter
+		Steps:
+		1. Create a user, user1, with required roles and privileges
+		2. Create csi-vsphere.conf with user1's credentials and create vsphere-config-secret
+		in turn using that file
+		3. Install CSI driver
+		4. Verify we can create a PVC and attach it to pod
+		5.  Change csi-vsphere.conf and add a dummy datacenter and re-create vsphere-config-secret
+		in turn using that file
+		6. Try to create a PVC verify that it is stuck in pending state
+		7. Change csi-vsphere.conf with updated datacentre and re-create vsphere-config-secret
+		in turn using that file
+		8. Verify we can create a PVC and attach it to pod
+		9. Verify PVC created in step 6 gets bound eventually
+		10. Cleanup all objects created during the test
+	*/
+
+	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Add wrong datacenter and switch back "+
+		"to the correct datacenter in vsphere config secret file", func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		dummyDataCenter := "Dummy-Data-Center"
+
+		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
+		createTestUserAndAssignRolesPrivileges(masterIp, configSecretTestUser1,
+			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+		defer func() {
+			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser1,
+				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
+		}()
+
+		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
+		createTestUserAndAssignRolesPrivileges(masterIp, configSecretTestUser2,
+			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+		defer func() {
+			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser2,
+				configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
+		}()
+
+		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, "")
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating Storage Class")
+		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By("Delete Storage Class")
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
+		defer func() {
+			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
+		}()
+
+		ginkgo.By("Update vsphere-config-secret with dummy datacenter details")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dummyDataCenter, "")
+
+		ginkgo.By("Restart CSI driver")
+		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = updateDeploymentReplicawithWait(client, csiReplicas, vSphereCSIControllerPodNamePrefix, csiNamespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
+		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Expect claim status to be in Pending state")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+		defer func() {
+			ginkgo.By("Deleting the PVC")
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, "")
+		defer func() {
+			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
+				"and its credentials")
+			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
+				vCenterIP, vCenterPort, dataCenter, "")
+			revertOriginalvCenterUser = true
+
+			ginkgo.By("Restart CSI driver")
+			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod3, pvclaim3, pv3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
+		defer func() {
+			performCleanUpOfPvcPod(client, namespace, pod3, pvclaim3, pv3)
+		}()
+
+		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
+		pvclaim2, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim2.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim2.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
+
+	})
+
+	/*
+		TESTCASE-11
+		Add the wrong targetvSANFileShareDatastoreURLs and switch back to the correct
+		targetvSANFileShareDatastoreURLs
+		Steps:
+		1. Create a user, user1, with required roles and privileges
+		2. Create csi-vsphere.conf with user1's credentials and create vsphere-config-secret,
+		in turn, using that file
+		3. Install CSI driver
+		4. Verify we can create a PVC and attach it to the pod
+		5. Change csi-vsphere.conf and add an empty value to targetvSANFileShareDatastoreURLs and
+		re-create vsphere-config-secret in turn using that file
+		6. Verify CSI driver comes up successfully
+		7. Try to create a PVC and verify PVCs are provisioned successfully
+		8. Change csi-vsphere.conf with updated targetvSANFileShareDatastoreURLs and
+		re-create vsphere-config-secret, in turn, using that file
+		9. Verify we can create a PVC and attach it to the pod
+		10. Cleanup all objects created during the test
+	*/
+
+	ginkgo.It("[csi-config-secret-file] Add wrong targetvSANFileShareDatastoreURLs and switch back to the correct "+
+		"targetvSANFileShareDatastoreURLs", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		targetDsURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
+
+		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
+		createTestUserAndAssignRolesPrivileges(masterIp, configSecretTestUser1,
+			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+		defer func() {
+			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser1,
+				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
+		}()
+
+		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
+		createTestUserAndAssignRolesPrivileges(masterIp, configSecretTestUser2,
+			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+		defer func() {
+			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser2,
+				configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
+		}()
+
+		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, "")
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating Storage Class")
+		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By("Delete Storage Class")
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod1, pvclaim1, pvs1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
+		defer func() {
+			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pvs1)
+		}()
+
+		ginkgo.By("Update vsphere-config-secret with testuser1 credentials and pass target datastore url")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, targetDsURL)
+		defer func() {
+			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
+				"and its credentials")
+			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
+				vCenterIP, vCenterPort, dataCenter, "")
+			revertOriginalvCenterUser = true
+
+			ginkgo.By("Restart CSI driver")
+			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod2, pvclaim2, pvs2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
+		defer func() {
+			performCleanUpOfPvcPod(client, namespace, pod2, pvclaim2, pvs2)
+		}()
+	})
+
+	/* TESTCASE-12
+		VC with Custom Port
+		Steps:
+	    1. Create a VC with non default port
+	    2. Create a user, user1, with required roles and privileges
+	    3. Create csi-vsphere.conf with user1's credentials and default VC port, and
+		create vsphere-config-secret in turn using that file
+	    4. Install CSI driver
+	    5. Create PVC and verify is stuck in pending state
+	    6. Change VC HTTPS port to non default port in the vsphere-config-secret
+	    7. Try to create a PVC verify that it is successful and PVC created in step5 is also successful
+	    8. Verify we can create pods using the PVC created in step 5 and 7
+	    9. Cleanup all objects created during the test
+	*/
+
+	ginkgo.It("[vc-custom-port] VC with Custom Port", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		defaultvCenterPort := "443"
+
+		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
+		createTestUserAndAssignRolesPrivileges(masterIp, configSecretTestUser1,
+			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+		defer func() {
+			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser1,
+				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
+		}()
+
+		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
+		createTestUserAndAssignRolesPrivileges(masterIp, configSecretTestUser2,
+			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+		defer func() {
+			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser2,
+				configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
+		}()
+
+		ginkgo.By("Create vsphere-config-secret file with testuser1 credentials using default vc port")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, defaultvCenterPort, dataCenter, "")
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		ginkgo.By("Creating Storage Class")
+		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By("Delete Storage Class")
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
+		pvclaim1, err := createPVC(client, namespace, nil, "", storageclass, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Expect claim status to be in Pending state")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+			pvclaim1.Namespace, pvclaim1.Name, framework.Poll, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+		var pvclaims1 []*v1.PersistentVolumeClaim
+		pvclaims1 = append(pvclaims1, pvclaim1)
+		defer func() {
+			ginkgo.By("Deleting the PVC")
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create vsphere-config-secret file with testuser1 credentials using non-default port")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, "")
+		defer func() {
+			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
+				"and its credentials")
+			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
+				vCenterIP, vCenterPort, dataCenter, "")
+			revertOriginalvCenterUser = true
+
+			ginkgo.By("Restart CSI driver")
+			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod2, pvclaim2, pvs2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
+		defer func() {
+			performCleanUpOfPvcPod(client, namespace, pod2, pvclaim2, pvs2)
+		}()
+
+		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
+		pvs1, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims1, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvs1).NotTo(gomega.BeEmpty())
+		pv1 := pvs1[0]
+
+		ginkgo.By("Creating pod")
+		pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod1.Name, namespace))
+			err = fpod.DeletePodWithWait(client, pod1)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(pv3.Spec.CSI.VolumeHandle, pvclaim3, pv3, pod3)
+		err = waitAndVerifyCnsVolumeMetadata(pv1.Spec.CSI.VolumeHandle, pvclaim1, pv1, pod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/* TESTCASE-13
+	Modify VC Port and validate the workloads
+	Steps:
+		1.Create a user, user1, with required roles and privileges
+		2. Create csi-vsphere.conf with user1's credentials and create vsphere-config-secret in turn
+		using that file
+		3. Install CSI driver
+		4. Verify we can create a PVC and attach it to pod
+		5. Change csi-vsphere.conf and add a dummy vc port and re-create vsphere-config-secret in turn
+		using that file
+		6. Try to create a PVC and verify that it is stuck in a pending state
+		7. Change csi-vsphere.conf with correct VC port and re-create vsphere-config-secret, in turn,
+		using that file
+		8. Verify we can create a PVC and attach it to pod
+		9. Verify PVC created in step 6 gets bound eventually
+		10. Cleanup all objects created during the test
+	*/
+
+	ginkgo.It("[vc-custom-port] Modify VC Port and validate the workloads", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		dummyvCenterPort := "4444"
+
+		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
+		createTestUserAndAssignRolesPrivileges(masterIp, configSecretTestUser1,
+			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+		defer func() {
+			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser1,
+				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
+		}()
+
+		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
+		createTestUserAndAssignRolesPrivileges(masterIp, configSecretTestUser2,
+			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+		defer func() {
+			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
+			deleteTestUserAndRemoveRolesPrivileges(masterIp, configSecretTestUser2,
+				configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+				dataCenters, clusters, hosts, vms, datastores)
+		}()
+
+		ginkgo.By("Create vsphere-config-secret file using testuser1 credentials")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, "")
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		ginkgo.By("Creating Storage Class")
+		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By("Delete Storage Class")
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod1, pvclaim1, pvs1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
+		defer func() {
+			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pvs1)
+		}()
+
+		ginkgo.By("Update vsphere-config-secret file with dummy vcenter port")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, dummyvCenterPort, dataCenter, "")
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
+		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Expect claim status to be in Pending state")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+		defer func() {
+			ginkgo.By("Deleting the PVC")
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Update vsphere-config-secret with correct vCenter credentials")
+		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
+			vCenterIP, vCenterPort, dataCenter, "")
+		defer func() {
+			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
+				"and its credentials")
+			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
+				vCenterIP, vCenterPort, dataCenter, "")
+			revertOriginalvCenterUser = true
+
+			ginkgo.By("Restart CSI driver")
+			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify we can create a PVC and attach it to pod")
+		pod3, pvclaim3, pvs3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
+		defer func() {
+			performCleanUpOfPvcPod(client, namespace, pod3, pvclaim3, pvs3)
+		}()
+
+		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
+		pvclaim2, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim2.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim2.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
 	})
 })

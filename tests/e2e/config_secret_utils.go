@@ -22,11 +22,16 @@ import (
 	"os/exec"
 	"strings"
 
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/object"
+	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 )
 
@@ -535,7 +540,7 @@ func setSearchlevelPermission(masterIp string, testUserAlias string, testUser st
 // createCsiVsphereSecret method is used to create csi vsphere secret file
 func createCsiVsphereSecret(client clientset.Interface, ctx context.Context, testUser string,
 	password string, csiNamespace string, vCenterIP string,
-	vCenterPort string, targetvSANFileShareDatastoreURLs string) {
+	vCenterPort string, dataCenter string, targetvSANFileShareDatastoreURLs string) {
 	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	originalConf := string(currentSecret.Data[vSphereCSIConf])
@@ -543,6 +548,7 @@ func createCsiVsphereSecret(client clientset.Interface, ctx context.Context, tes
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	vsphereCfg.Global.User = testUser
 	vsphereCfg.Global.Password = password
+	vsphereCfg.Global.Datacenters = dataCenter
 	vsphereCfg.Global.TargetvSANFileShareDatastoreURLs = targetvSANFileShareDatastoreURLs
 	modifiedConf, err := writeConfigToSecretString(vsphereCfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -698,4 +704,86 @@ func getVcenterHostName(vcenterIp string) string {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	vcenterHostName := string(result[:])
 	return vcenterHostName
+}
+
+/*
+verifyPvcPodCreationAfterConfigSecretChange util method verifies pvc creation and pod creation
+after updating vsphere config secret with different testusers
+*/
+func verifyPvcPodCreationAfterConfigSecretChange(client clientset.Interface, namespace string,
+	storageclass *storagev1.StorageClass) (*v1.Pod, *v1.PersistentVolumeClaim,
+	*v1.PersistentVolume) {
+	ginkgo.By("Creating PVC")
+	pvclaim, err := createPVC(client, namespace, nil, "", storageclass, "")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var pvclaims []*v1.PersistentVolumeClaim
+	pvclaims = append(pvclaims, pvclaim)
+	ginkgo.By("Waiting for all claims to be in bound state")
+	pvs, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(pvs).NotTo(gomega.BeEmpty())
+	pv := pvs[0]
+
+	ginkgo.By("Creating pod")
+	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Verify volume metadata for POD, PVC and PV")
+	err = waitAndVerifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaim, pv, pod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return pod, pvclaim, pv
+}
+
+/*performCleanUpOfPvcPod util method is used to perform cleanup of pods, pvc after testcase execution*/
+func performCleanUpOfPvcPod(client clientset.Interface, namespace string, pod *v1.Pod,
+	pvclaim *v1.PersistentVolumeClaim, pv *v1.PersistentVolume) {
+	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+	err := fpod.DeletePodWithWait(client, pod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By("Verify PVs, volumes are deleted from CNS")
+	err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+/*
+createTestUserAndAssignLimitedRolesAndPrivileges util method is use to assign limited roles
+and privilege access to the test user.
+*/
+func createTestUserAndAssignLimitedRolesAndPrivileges(masterIp string, configSecretTestUser string,
+	configSecretTestUserPassword string, configSecretTestUserAlias string, propagateVal string,
+	dataCenters []*object.Datacenter, clusters []string, hosts []string,
+	vms []string, datastores []string) {
+	roleMap := userRoleMap()
+
+	framework.Logf("Create TestUser")
+	err := createTestUser(masterIp, configSecretTestUser, configSecretTestUserPassword)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
+		masterIp, err)
+
+	framework.Logf("Create roles for TestUser")
+	err = createRolesForTestUser(masterIp, configSecretTestUser)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
+		masterIp, err)
+
+	for key := range roleMap {
+		if strings.Contains(key, "HOST") {
+			framework.Logf("Assign cluster level permissions")
+			for i := 0; i < len(clusters); i++ {
+				err = setClusterLevelPermission(masterIp, configSecretTestUserAlias, configSecretTestUser,
+					clusters[i], propagateVal, key)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
+					masterIp, err)
+			}
+		}
+		if strings.Contains(key, "ReadOnly") {
+			framework.Logf("Assign host level read-only permissions")
+			err = setHostLevelPermission(masterIp, configSecretTestUserAlias, hosts, propagateVal, key)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
+				masterIp, err)
+		}
+	}
 }
