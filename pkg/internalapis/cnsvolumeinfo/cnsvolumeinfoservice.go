@@ -51,6 +51,13 @@ type VolumeInfoService interface {
 
 	// DeleteVolumeInfo deletes VolumeInfo CR for the given VolumeID
 	DeleteVolumeInfo(ctx context.Context, volumeID string) error
+
+	// ListAllVolumeInfos lists all the VolumeInfo CRs present in the cluster
+	ListAllVolumeInfos() []interface{}
+
+	// VolumeInfoCrExistsForVolume returns true if VolumeInfo CR for
+	// a given volume exists
+	VolumeInfoCrExistsForVolume(ctx context.Context, volumeID string) (bool, error)
 }
 
 // InitVolumeInfoService returns the singleton VolumeInfoService.
@@ -95,6 +102,29 @@ func InitVolumeInfoService(ctx context.Context) (VolumeInfoService, error) {
 		log.Info("volumeInfo service initialized")
 	}
 	return volumeInfoServiceInstance, nil
+}
+
+// ListAllVolumeInfos lists all the VolumeInfo CRs present in the cluster
+func (volumeInfo *volumeInfo) ListAllVolumeInfos() []interface{} {
+	volumeInfoCrs := volumeInfo.volumeInfoInformer.GetStore().List()
+	return volumeInfoCrs
+}
+
+// VolumeInfoCrExistsForVolume returns true if VolumeInfo CR for
+// a given volume exists
+func (volumeInfo *volumeInfo) VolumeInfoCrExistsForVolume(ctx context.Context, volumeID string) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	key := csiNamespace + "/" + volumeID
+	_, found, err := volumeInfo.volumeInfoInformer.GetStore().GetByKey(key)
+	if err != nil {
+		return false, logger.LogNewErrorf(log, "failed to find vCenter for VolumeID: %q", volumeID)
+	}
+	if !found {
+		log.Debugf("VolumeInfo CR for volume %s not found", volumeID)
+		return false, nil
+	}
+	return true, nil
 }
 
 // GetvCenterForVolumeID return vCenter for the given VolumeID
