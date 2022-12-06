@@ -72,10 +72,28 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 
 	var volumeManager volumes.Manager
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, cnsOperator.configInfo, false)
-		if err != nil {
-			return err
+		var (
+			vCenter  *cnsvsphere.VirtualCenter
+			err      error
+			vcconfig *cnsvsphere.VirtualCenterConfig
+		)
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultiVCenterCSITopology) {
+			vcconfig, err = cnsvsphere.GetVirtualCenterConfig(ctx, cnsOperator.configInfo.Cfg)
+			if err != nil {
+				log.Errorf("failed to get VirtualCenterConfig. Err: %+v", err)
+				return err
+			}
+			vCenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+			if err != nil {
+				return err
+			}
+		} else {
+			vCenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, cnsOperator.configInfo, false)
+			if err != nil {
+				return err
+			}
 		}
+
 		volumeManager, err = volumes.GetManager(ctx, vCenter, nil,
 			false, false, false, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListViewPerf))
 		if err != nil {

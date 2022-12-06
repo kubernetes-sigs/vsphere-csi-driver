@@ -82,6 +82,12 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Infof("Not initializing the TriggerCsiFullSync Controller as this feature is disabled on the cluster")
 		return nil
 	}
+
+	if coCommonInterface.IsFSSEnabled(ctx, common.MultiVCenterCSITopology) && len(configInfo.Cfg.VirtualCenter) > 1 {
+		log.Infof("Not initializing the TriggerCsiFullSync Controller as it is a multi VC deployment.")
+		return nil
+	}
+
 	// Initializes kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
