@@ -362,21 +362,28 @@ func ExtractFaultTypeFromErr(ctx context.Context, err error) string {
 func ExtractFaultTypeFromVolumeResponseResult(ctx context.Context,
 	resp *cnstypes.CnsVolumeOperationResult) string {
 	log := logger.GetLogger(ctx)
+	log.Debugf("Extracting fault type from response: %+v", resp)
 	var faultType string
 	fault := resp.Fault
 	if fault != nil {
 		// faultType has the format like "*type.XXX", XXX is the specific VimFault type.
 		// For example, when CnsVolumeOperationrResult failed with ResourceInUse, faultType will be "*type.ResourceInUse".
-		faultType = reflect.TypeOf(fault.Fault).String()
-		log.Infof("Extract vimfault type: +%v  vimFault: +%v Fault: %+v from resp: +%v",
-			faultType, fault.Fault, fault, resp)
-		slice := strings.Split(faultType, ".")
-		vimFaultType := vimFaultPrefix + slice[1]
-		return vimFaultType
+		if fault.Fault != nil {
+			faultType = reflect.TypeOf(fault.Fault).String()
+			log.Infof("Extract vimfault type: %+v  vimFault: %+v Fault: %+v from resp: %+v",
+				faultType, fault.Fault, fault, resp)
+			slice := strings.Split(faultType, ".")
+			vimFaultType := vimFaultPrefix + slice[1]
+			return vimFaultType
+		} else {
+			faultType = reflect.TypeOf(fault).String()
+			log.Infof("Extract fault: %q from resp: %+v",
+				faultType, resp)
+			return faultType
+		}
 	}
-	log.Info("No fault in resp +%v", resp)
+	log.Info("No fault in resp %+v", resp)
 	return ""
-
 }
 
 // invokeCNSCreateSnapshot invokes CreateSnapshot operation for that volume on CNS.
