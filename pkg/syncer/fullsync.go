@@ -26,7 +26,9 @@ import (
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
@@ -34,6 +36,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 )
 
 // CsiFullSync reconciles volume metadata on a vanilla k8s cluster with volume
@@ -272,11 +275,67 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	go fullSyncDeleteVolumes(ctx, volToBeDeleted, metadataSyncer, &wg, migrationFeatureStateForFullSync, volManager, vc)
 	wg.Wait()
 
+	// Sync VolumeInfo CRs
+	if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+		volumeInfoCRFullSync(ctx, k8sPVMap, vc)
+	}
+
 	cleanupCnsMaps(k8sPVMap)
 	log.Debugf("FullSync: cnsDeletionMap at end of cycle: %v", cnsDeletionMap)
 	log.Debugf("FullSync: cnsCreationMap at end of cycle: %v", cnsCreationMap)
 	log.Infof("FullSync: end")
 	return nil
+}
+
+// volumeInfoCRFullSync creates VolumeInfo CR if it does not already exist for a volume.
+// It also deletes VolumeInfo CR if its corresponding PV does not exist.
+func volumeInfoCRFullSync(ctx context.Context, k8sPvs map[string]string, vc string) {
+	log := logger.GetLogger(ctx)
+
+	log.Debugf("Starting volumeInfo CR full sync.")
+
+	for volumeID := range k8sPvs {
+		crExists, err := volumeInfoService.VolumeInfoCrExistsForVolume(ctx, volumeID)
+		if err != nil {
+			log.Errorf("FullSync: failed to find VolumeInfo CR for volume %s."+
+				"Error: %+v", volumeID, err)
+			continue
+		}
+
+		// Create VolumeInfo CR if not found.
+		if !crExists {
+			err := volumeInfoService.CreateVolumeInfo(ctx, volumeID, vc)
+			if err != nil {
+				log.Errorf("FullSync: failed to create VolumeInfo CR for volume %s."+
+					"Error: %+v", volumeID, err)
+				continue
+			}
+		}
+	}
+
+	volumeInfoCRList := volumeInfoService.ListAllVolumeInfos()
+	for _, volumeInfo := range volumeInfoCRList {
+		cnsvolumeinfo := &cnsvolumeinfov1alpha1.CNSVolumeInfo{}
+		err := runtime.DefaultUnstructuredConverter.FromUnstructured(volumeInfo.(*unstructured.Unstructured).Object,
+			&cnsvolumeinfo)
+		if err != nil {
+			log.Errorf("FullSync: failed to parse cnsvolumeinfo object: %v, err: %v", cnsvolumeinfo, err)
+			continue
+		}
+
+		if cnsvolumeinfo.Spec.VCenterServer == vc {
+			// Delete this CR if corresponding PV is not found
+			if _, exists := k8sPvs[cnsvolumeinfo.Spec.VolumeID]; !exists {
+				err := volumeInfoService.DeleteVolumeInfo(ctx, cnsvolumeinfo.Spec.VolumeID)
+				if err != nil {
+					log.Errorf("FullSync: failed to delete VolumeInfo CR for volume %s."+
+						"Error: %+v", cnsvolumeinfo.Spec.VolumeID, err)
+					continue
+				}
+			}
+		}
+	}
+
 }
 
 // fullSyncCreateVolumes creates volumes with given array of createSpec.
@@ -338,6 +397,16 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 				log.Warnf("FullSync: Failed to create volume with the spec: %+v. Err: %+v", spew.Sdump(createSpec), err)
 				continue
 			}
+
+			if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+				// Create CNSVolumeInfo CR for the volume ID.
+				err = volumeInfoService.CreateVolumeInfo(ctx, volumeID, vc)
+				if err != nil {
+					log.Errorf("FullSync: failed to store volumeID %q for vCenter %q in CNSVolumeInfo CR. Error: %+v",
+						volumeID, vc, err)
+				}
+			}
+
 		} else {
 			log.Debugf("FullSync: volumeID %s does not exist in Kubernetes, no need to create volume in CNS", volumeID)
 		}
@@ -423,6 +492,16 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 						volume.VolumeId.Id, err)
 					continue
 				}
+
+				if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+					// Delete CNSVolumeInfo CR for the volume ID.
+					err = volumeInfoService.DeleteVolumeInfo(ctx, volume.VolumeId.Id)
+					if err != nil {
+						log.Errorf("failed to remove volumeID %q for vCenter %q from CNSVolumeInfo CR. Error: %+v",
+							volume.VolumeId.Id, vc, err)
+					}
+				}
+
 				if migrationFeatureStateForFullSync {
 					err = volumeMigrationService.DeleteVolumeInfo(ctx, volume.VolumeId.Id)
 					// For non-migrated volumes DeleteVolumeInfo will not return

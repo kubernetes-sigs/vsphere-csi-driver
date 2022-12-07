@@ -1799,6 +1799,15 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 			} else {
 				log.Infof("PVUpdated: vSphere CSI Driver has successfully marked volume: %q as the container volume.",
 					oldPv.Spec.CSI.VolumeHandle)
+
+				if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+					// Create CNSVolumeInfo CR for the volume ID.
+					err = volumeInfoService.CreateVolumeInfo(ctx, oldPv.Spec.CSI.VolumeHandle, vcHost)
+					if err != nil {
+						log.Errorf("failed to store volumeID %q for vCenter %q in CNSVolumeInfo CR. Error: %+v",
+							oldPv.Spec.CSI.VolumeHandle, vcHost, err)
+					}
+				}
 			}
 			// Volume is successfully created so returning from here.
 			return
@@ -1989,6 +1998,14 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			if err != nil {
 				log.Errorf("PVDeleted: failed to delete volumeInfo CR for volume: %q. Error: %+v", volumeHandle, err)
 				return
+			}
+		}
+		if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+			// Delete CNSVolumeInfo CR for the volume ID.
+			err = volumeInfoService.DeleteVolumeInfo(ctx, volumeHandle)
+			if err != nil {
+				log.Errorf("failed to remove CNSVolumeInfo CR for volumeID %q. Error: %+v",
+					volumeHandle, err)
 			}
 		}
 	}
