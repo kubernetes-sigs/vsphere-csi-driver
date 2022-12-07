@@ -428,6 +428,7 @@ data:
   "tkgs-ha": "true"
   "list-volumes": "true"
   "cnsmgr-suspend-create-volume": "true"
+  "listview-tasks": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

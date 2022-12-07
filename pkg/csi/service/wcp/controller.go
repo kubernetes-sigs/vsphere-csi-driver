@@ -145,8 +145,11 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 	}
+
+	tasksListViewEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.ListViewPerf)
 	volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled,
-		false, false, false)
+		false, false, tasksListViewEnabled)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}
@@ -171,6 +174,9 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		return err
 	}
 	go cnsvolume.ClearTaskInfoObjects()
+	if tasksListViewEnabled {
+		go cnsvolume.ClearInvalidTasksFromListView(false)
+	}
 	cfgPath := common.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -360,8 +366,10 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 		}
 		c.manager.VcenterConfig = newVCConfig
 
+		tasksListViewEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.ListViewPerf)
 		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
-			idempotencyHandlingEnabled, false, false, false)
+			idempotencyHandlingEnabled, false, false, tasksListViewEnabled)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
