@@ -1229,14 +1229,15 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		//       enabled VSAN policy took some time, hence PVC would still be in
 		//       'Resizing' state, allowing us to perfrom subsequent steps.
 		//       This may fail if the environment on which this test is run is a
-		//       lot faster than our minimal test infra.
-		ginkgo.By("Checking GC pvc is having 'Resizing' status condition")
-		pvc, err = checkPvcHasGivenStatusCondition(client, namespace, pvc.Name, true, v1.PersistentVolumeClaimResizing)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		//       lot faster than our minimal test infra. So the below code is commented out
 
-		ginkgo.By("Checking for 'Resizing' status condition on SVC PVC")
-		_, err = checkSvcPvcHasGivenStatusCondition(svcPvcName, true, v1.PersistentVolumeClaimResizing)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		//ginkgo.By("Checking GC pvc is having 'Resizing' status condition")
+		//pvc, err = checkPvcHasGivenStatusCondition(client, namespace, pvc.Name, true, v1.PersistentVolumeClaimResizing)
+		//gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		//ginkgo.By("Checking for 'Resizing' status condition on SVC PVC")
+		//_, err = checkSvcPvcHasGivenStatusCondition(svcPvcName, true, v1.PersistentVolumeClaimResizing)
+		//gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bringing GC CSI controller down...")
 		isGCCSIDeploymentPODdown = true
@@ -1260,10 +1261,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 		time.Sleep(2 * time.Second)
 
-		ginkgo.By("Checking for conditions on pvc")
-		pvc, err = checkPvcHasGivenStatusCondition(client,
-			namespace, pvc.Name, true, v1.PersistentVolumeClaimFileSystemResizePending)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		//       This may fail if the environment on which this test is run is a
+		//       lot faster than our minimal test infra. So the below code is commented out
+		//ginkgo.By("Checking for conditions on pvc")
+		//pvc, err = checkPvcHasGivenStatusCondition(client,
+		//	namespace, pvc.Name, true, v1.PersistentVolumeClaimFileSystemResizePending)
+		//gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandleSvc))
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandleSvc)
@@ -1390,13 +1393,16 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(b).To(gomega.BeTrue())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Checking GC pvc is have 'Resizing' status condition")
-		pvc, err = checkPvcHasGivenStatusCondition(client, namespace, pvc.Name, true, v1.PersistentVolumeClaimResizing)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		//Commenting out the below code as there is the below conditions assumes the system is slow
+		//Incase the environment is fast , Resizing is completed within a second
 
-		ginkgo.By("Checking for 'Resizing' status condition on SVC PVC")
-		_, err = checkSvcPvcHasGivenStatusCondition(svcPvcName, true, v1.PersistentVolumeClaimResizing)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		//ginkgo.By("Checking GC pvc is have 'Resizing' status condition")
+		//pvc, err = checkPvcHasGivenStatusCondition(client, namespace, pvc.Name, true, v1.PersistentVolumeClaimResizing)
+		//gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		//ginkgo.By("Checking for 'Resizing' status condition on SVC PVC")
+		//_, err = checkSvcPvcHasGivenStatusCondition(svcPvcName, true, v1.PersistentVolumeClaimResizing)
+		//gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// PVC deletion happens in the defer block.
 	})
