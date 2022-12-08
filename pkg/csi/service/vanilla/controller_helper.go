@@ -151,7 +151,6 @@ func getBlockVolumeIDToNodeUUIDMap(ctx context.Context, c *controller,
 	var err error
 
 	log := logger.GetLogger(ctx)
-	vmRefToUUID := make(map[string]string)
 	volumeIDNodeUUIDMap := make(map[string]string)
 	// Get VirtualCenter object(s)
 	// For multi-VC configuration, create map for volumes in all vCenters
@@ -172,12 +171,10 @@ func getBlockVolumeIDToNodeUUIDMap(ctx context.Context, c *controller,
 
 	var vmRefs []types.ManagedObjectReference
 	var vmMoList []mo.VirtualMachine
-	properties := []string{"runtime.host", "config.hardware"}
+	properties := []string{"runtime.host", "config.hardware", "config.uuid"}
 
 	for _, nodeVM := range allnodeVMs {
-		vmRef := nodeVM.Reference().Value
 		vmRefs = append(vmRefs, nodeVM.Reference())
-		vmRefToUUID[vmRef] = nodeVM.UUID
 	}
 
 	for _, vc := range vCenters {
@@ -192,15 +189,13 @@ func getBlockVolumeIDToNodeUUIDMap(ctx context.Context, c *controller,
 	// Iterate through all the VMs and build the vmMoIDToHostUUID map
 	// and the volumeID to VMMoiD map
 	for _, info := range vmMoList {
-		vmMoID := info.Reference().Value
-
 		devices := info.Config.Hardware.Device
 		vmDevices := object.VirtualDeviceList(devices)
 		for _, device := range vmDevices {
 			if vmDevices.TypeName(device) == "VirtualDisk" {
 				if virtualDisk, ok := device.(*types.VirtualDisk); ok {
 					if virtualDisk.VDiskId != nil {
-						volumeIDNodeUUIDMap[virtualDisk.VDiskId.Id] = vmRefToUUID[vmMoID]
+						volumeIDNodeUUIDMap[virtualDisk.VDiskId.Id] = info.Config.Uuid
 					}
 				}
 			}
