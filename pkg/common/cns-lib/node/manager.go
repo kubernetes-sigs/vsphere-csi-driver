@@ -125,7 +125,7 @@ func (m *defaultManager) SetUseNodeUuid(useNodeUuid bool) {
 // RegisterNode registers a node with node manager using its UUID, name.
 func (m *defaultManager) RegisterNode(ctx context.Context, nodeUUID string, nodeName string) error {
 	log := logger.GetLogger(ctx)
-	log.Infof("Discovering node vm using uuid: %q", nodeUUID)
+	log.Infof("Discovering the node vm using uuid: %q", nodeUUID)
 	err := m.DiscoverNode(ctx, nodeUUID)
 	if err != nil {
 		log.Errorf("failed to discover VM with uuid: %q for node: %q", nodeUUID, nodeName)

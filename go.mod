@@ -5,13 +5,13 @@ go 1.19
 require (
 	github.com/agiledragon/gomonkey/v2 v2.3.1
 	github.com/akutz/gofsutil v0.1.2
-	github.com/container-storage-interface/spec v1.6.0
+	github.com/container-storage-interface/spec v1.7.0
 	github.com/davecgh/go-spew v1.1.1
 	github.com/fsnotify/fsnotify v1.5.4
 	github.com/golang/protobuf v1.5.2
 	github.com/google/uuid v1.3.0
-	github.com/kubernetes-csi/csi-lib-utils v0.11.0
 	github.com/hashicorp/go-version v1.6.0
+	github.com/kubernetes-csi/csi-lib-utils v0.11.0
 	github.com/kubernetes-csi/csi-proxy/client v1.0.1
 	github.com/kubernetes-csi/external-snapshotter/client/v4 v4.1.0
 	github.com/onsi/ginkgo/v2 v2.1.6
