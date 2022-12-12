@@ -32,7 +32,7 @@ trap on_exit EXIT
 # Run goformat on all the sources.
 flags="-e -s -w -l"
 [ -z "${PROW_JOB_ID-}" ] || flags="-d ${flags}"
-eval "gofmt ${flags} ./cmd/ ./pkg/ ./tests/ ./cnsctl/ " | tee "${out}"
+eval "gofmt ${flags} ./cmd/ ./pkg/ ./tests/ " | tee "${out}"
 
 # Check to see if there any suggestions.
 goformat_exit_code=0; test -z "$(head -n 1 "${out}")" || goformat_exit_code=1
