@@ -973,19 +973,34 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 		if volumeOperationRes.Fault != nil {
 			faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
-			_, isNotFoundFault := volumeOperationRes.Fault.Fault.(*vim25types.NotFound)
-			if isNotFoundFault {
-				// check if volume is already detached from the VM
-				diskUUID, err := IsDiskAttached(ctx, vm, volumeID, false)
-				if err != nil {
-					log.Errorf("DetachVolume fault: %+v. Unable to check if volume: %q is already detached from vm: %+v",
-						spew.Sdump(volumeOperationRes.Fault), volumeID, vm)
-					return faultType, err
-				}
-				if diskUUID == "" {
-					log.Infof("DetachVolume: volumeID: %q not found on vm: %+v. Assuming it is already detached",
-						volumeID, vm)
+
+			if volumeOperationRes.Fault.Fault != nil {
+				fault, isManagedObjectNotFoundFault := volumeOperationRes.Fault.Fault.(*vim25types.ManagedObjectNotFound)
+				if isManagedObjectNotFoundFault && fault.Obj.Type == cnsDetachSpec.Vm.Type &&
+					fault.Obj.Value == cnsDetachSpec.Vm.Value {
+					// Detach failed with managed object not found, marking detach as
+					// successful, as Node VM is deleted and not present in the vCenter
+					// inventory.
+					log.Infof("DetachVolume: Node VM: %v not found on vCenter. Marking Detach for volume:%q successful.",
+						vm, volumeID)
 					return "", nil
+				}
+				_, isNotFoundFault := volumeOperationRes.Fault.Fault.(*vim25types.NotFound)
+				if isNotFoundFault {
+					// Check if volume is already detached from the VM
+					log.Infof("DetachVolume: VolumeID: %q not found. Checking whether the volume is already detached",
+						volumeID)
+					diskUUID, err := IsDiskAttached(ctx, vm, volumeID, false)
+					if err != nil {
+						log.Errorf("DetachVolume fault: %+v. Unable to check if volume: %q is already detached from vm: %+v",
+							spew.Sdump(volumeOperationRes.Fault), volumeID, vm)
+						return faultType, err
+					}
+					if diskUUID == "" {
+						log.Infof("DetachVolume: volumeID: %q not found on vm: %+v. Assuming it is already detached",
+							volumeID, vm)
+						return "", nil
+					}
 				}
 			}
 			return faultType, logger.LogNewErrorf(log, "failed to detach cns volume: %q from node vm: %+v. fault: %+v, opId: %q",
