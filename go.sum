@@ -602,8 +602,8 @@ github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae h1:4hwBBUfQCFe3C
 github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae/go.mod h1:DD4vA1DwXk04H54A1oHXtwZmA0grkVMdPxx/VGLCah0=
 github.com/vmware-tanzu/vm-operator-api v0.1.4-0.20211202183846-992b48c128ae h1:R7ukgIC/uN4vULAvwWJxuq2XLcUEJkR4psxdRNssqSI=
 github.com/vmware-tanzu/vm-operator-api v0.1.4-0.20211202183846-992b48c128ae/go.mod h1:mubK0QMyaA2TbeAmGsu2GVfiqDFppNUAUqoMPoKFgzM=
-github.com/vmware/govmomi v0.28.1-0.20220920211742-04d8df4b5f90 h1:cd23VdCWHoMOGfub7xo3gglxL63OMeFellIz5mrdaP8=
-github.com/vmware/govmomi v0.28.1-0.20220920211742-04d8df4b5f90/go.mod h1:F7adsVewLNHsW/IIm7ziFURaXDaHEwcc+ym4r3INMdY=
+github.com/vmware/govmomi v0.30.0 h1:Fm8ugPnnlMSTSceDKY9goGvjmqc6eQLPUSUeNXdpeXA=
+github.com/vmware/govmomi v0.30.0/go.mod h1:F7adsVewLNHsW/IIm7ziFURaXDaHEwcc+ym4r3INMdY=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
 github.com/xlab/treeprint v1.1.0 h1:G/1DjNkPpfZCFt9CSh6b5/nY4VimlbHF3Rh4obvtzDk=
 github.com/xlab/treeprint v1.1.0/go.mod h1:gj5Gd3gPdKtR1ikdDK6fnFLdmIS0X30kTTuNd/WEJu0=
