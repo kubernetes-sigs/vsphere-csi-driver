@@ -61,14 +61,14 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 			compat, err := params.Vcenter.PbmCheckCompatibility(ctx, sharedDSMoRef, params.StoragePolicyID)
 			if err != nil {
 				return nil, logger.LogNewErrorf(log, "failed to find datastore compatibility "+
-					"with storage policy ID %q. Error: %+v", params.StoragePolicyID, err)
+					"with storage policy ID %q. vCenter: %q  Error: %+v", params.StoragePolicyID, params.Vcenter.Config.Host, err)
 			}
 			compatibleDsMoids := make(map[string]struct{})
 			for _, ds := range compat.CompatibleDatastores() {
 				compatibleDsMoids[ds.HubId] = struct{}{}
 			}
-			log.Infof("Datastores compatible with storage policy %q are %+v", params.StoragePolicyID,
-				compatibleDsMoids)
+			log.Infof("Datastores compatible with storage policy %q are %+v for vCenter: %q", params.StoragePolicyID,
+				compatibleDsMoids, params.Vcenter.Config.Host)
 
 			// Filter compatible datastores from shared datastores list.
 			var compatibleDatastores []*cnsvsphere.DatastoreInfo
@@ -78,8 +78,8 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 				}
 			}
 			if len(compatibleDatastores) == 0 {
-				log.Errorf("No compatible shared datastores found for storage policy %q",
-					params.StoragePolicyID)
+				log.Errorf("No compatible shared datastores found for storage policy %q on vCenter: %q",
+					params.StoragePolicyID, params.Vcenter.Config.Host)
 				continue
 			}
 			sharedDatastoresInTopology = compatibleDatastores
@@ -128,8 +128,8 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 		}
 	}
 	if len(sharedDatastores) != 0 {
-		log.Infof("Shared compatible datastores being considered for volume provisioning are: %+v",
-			sharedDatastores)
+		log.Infof("Shared compatible datastores being considered for volume provisioning on vCenter: %q are: %+v",
+			sharedDatastores, params.Vcenter.Config.Host)
 	}
 	return sharedDatastores, nil
 }
