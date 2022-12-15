@@ -159,10 +159,13 @@ spec:
     spec:
       serviceAccountName: vsphere-csi-controller
       nodeSelector:
-        node-role.kubernetes.io/master: ""
+        node-role.kubernetes.io/control-plane: ""
       tolerations:
         - operator: "Exists"
           key: "node-role.kubernetes.io/control-plane"
+          effect: "NoSchedule"
+        - operator: "Exists"
+          key: "node-role.kubernetes.io/master"
           effect: "NoSchedule"
       priorityClassName: system-node-critical # Guarantees scheduling for critical system pods
       containers:
