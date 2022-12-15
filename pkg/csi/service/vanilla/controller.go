@@ -2236,7 +2236,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			nodevm, err = c.nodeMgr.GetNodeByName(ctx, req.NodeId)
 		}
 		if err != nil {
-			if err == cnsvsphere.ErrVMNotFound {
+			if err == node.ErrNodeNotFound {
 				log.Infof("Virtual Machine for Node ID: %v is not present in the VC Inventory. "+
 					"Marking ControllerUnpublishVolume for Volume: %q as successful.", req.NodeId, req.VolumeId)
 				return &csi.ControllerUnpublishVolumeResponse{}, "", nil
