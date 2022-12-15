@@ -7,5 +7,3 @@ run-unit-tests:
   image: $CNS_IMAGE_GOLANG_1_19
   script:
   - make test
-  rules:
-    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
