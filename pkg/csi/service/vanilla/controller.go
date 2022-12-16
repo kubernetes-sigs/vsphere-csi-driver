@@ -1320,39 +1320,44 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 	}
 
 	var (
-		sharedDatastores    []*cnsvsphere.DatastoreInfo
-		topologyRequirement *csi.TopologyRequirement
-		combinedErrMssgs    []string
+		sharedDatastores               []*cnsvsphere.DatastoreInfo
+		topologyRequirement            *csi.TopologyRequirement
+		combinedErrMssgs               []string
+		multivCenterTopologyDeployment bool
 	)
-	// Get accessibility requirements.
-	topologyRequirement = req.GetAccessibilityRequirements()
-	if topologyRequirement == nil {
-		return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
-			"accessibility requirements cannot be nil for a multi-VC environment")
-	}
-	var multivCenterTopologyDeployment bool
+
 	if len(c.managers.VcenterConfigs) > 1 {
 		multivCenterTopologyDeployment = true
 	}
+	// Get accessibility requirements.
+	topologyRequirement = req.GetAccessibilityRequirements()
+
 	vcTopologySegmentsMap := make(map[string][]map[string]string)
 	if multivCenterTopologyDeployment {
+		if topologyRequirement == nil {
+			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
+				"accessibility requirements cannot be nil for a multi-VC environment")
+		}
 		// Get the accessibility requirements according to the VC they belong to.
 		vcTopologySegmentsMap, err = common.GetAccessibilityRequirementsByVC(ctx, topologyRequirement)
 		if err != nil {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to get accessibility requirements by VC. Error: %+v", err)
 		}
+		log.Debugf("Topology accessibility requirements per VC are %+v", vcTopologySegmentsMap)
 	} else {
-		for _, topology := range topologyRequirement.Preferred {
-			vcTopologySegmentsMap[c.managers.CnsConfig.Global.VCenterIP] = append(
-				vcTopologySegmentsMap[c.managers.CnsConfig.Global.VCenterIP],
-				topology.GetSegments())
+		if topologyRequirement != nil {
+			// Get accessibility requirements.
+			for _, topology := range topologyRequirement.Preferred {
+				vcTopologySegmentsMap[c.managers.CnsConfig.Global.VCenterIP] = append(
+					vcTopologySegmentsMap[c.managers.CnsConfig.Global.VCenterIP],
+					topology.GetSegments())
+			}
+			log.Debugf("Topology accessibility requirements per VC are %+v", vcTopologySegmentsMap)
 		}
 	}
 
-	log.Debugf("Topology accessibility requirements per VC are %+v", vcTopologySegmentsMap)
-
-	if !volTaskAlreadyRegistered {
+	if topologyRequirement != nil {
 		// Check if topology domains have been provided in the vSphere CSI config secret.
 		// NOTE: We do not support kubernetes.io/hostname as a topology label.
 		if c.managers.CnsConfig.Labels.TopologyCategories == "" && c.managers.CnsConfig.Labels.Zone == "" &&
@@ -1360,84 +1365,151 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
 				"topology category names not specified in the vsphere config secret")
 		}
+	}
 
+	if !volTaskAlreadyRegistered {
 		// Iterate through each VC and its accessibility requirements to try and create a volume.
 		// If it fails for any reason, move unto the next VC in list.
-		var topologySegmentsList []map[string]string
-		for vcHost, topologySegmentsList = range vcTopologySegmentsMap {
+		if topologyRequirement != nil {
+			var topologySegmentsList []map[string]string
+			for vcHost, topologySegmentsList = range vcTopologySegmentsMap {
+				// Get VC instance.
+				vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get vCenter instance for host %q. Error: %+v", vcHost, err)
+				}
+
+				// If Storage policy is given, check if it exists in the VC. If not found, continue to next VC.
+				var storagePolicyID string
+				if scParams.StoragePolicyName != "" {
+					storagePolicyID, err = vcenter.GetStoragePolicyIDByName(ctx, scParams.StoragePolicyName)
+					if err != nil {
+						// TODO: As govmomi doesn't support locale and all error messages are
+						// in English, we are temporarily resorting to a error message check.
+						// In future, we need to change govmomi to throw a NotFound error and catch that instead.
+						errMssgFromPBM := fmt.Sprintf("no pbm profile found with name: %q",
+							scParams.StoragePolicyName)
+						if err.Error() == errMssgFromPBM {
+							errMsg := fmt.Sprintf("Storage policy name %q not found in VC %q",
+								scParams.StoragePolicyName, vcHost)
+							log.Warn(errMsg)
+							combinedErrMssgs = append(combinedErrMssgs, errMsg)
+							continue
+						}
+						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+							"failed to get policy ID for storage policy name %q. Error: %+v",
+							scParams.StoragePolicyName, err)
+					}
+					log.Infof("Found ID %q for storage policy name %q in vCenter %q", storagePolicyID,
+						scParams.StoragePolicyName, vcHost)
+				}
+
+				// Get shared accessible datastores for topology segments associated with the vcHost.
+				sharedDatastores, err = placementengine.GetSharedDatastores(ctx,
+					placementengine.VanillaSharedDatastoresParams{
+						Vcenter:              vcenter,
+						TopologySegmentsList: topologySegmentsList,
+						StoragePolicyID:      storagePolicyID,
+					})
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get shared datastores for topology segments %+v in vCenter %q. Error: %+v",
+						topologySegmentsList, vcHost, err)
+				}
+				if len(sharedDatastores) == 0 {
+					errMsg := fmt.Sprintf("No compatible datastores found for accessibility requirements %+v "+
+						"pertaining to vCenter %q", topologySegmentsList, vcHost)
+					log.Warn(errMsg)
+					combinedErrMssgs = append(combinedErrMssgs, errMsg)
+					continue
+				}
+				// Filter datastores based on user access.
+				sharedDatastores, err = c.filterDatastores(ctx, sharedDatastores, vcHost)
+				if err != nil {
+					if err == errAllDSFilteredOut {
+						errMsg := fmt.Sprintf("authorization service filtered out all the compatible "+
+							"datastores found for accessibility requirements %+v associated with vCenter %q",
+							topologySegmentsList, vcHost)
+						log.Warn(errMsg)
+						combinedErrMssgs = append(combinedErrMssgs, errMsg)
+						continue
+					}
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to filter datastores based on authorisation check in vCenter %q. Error: %+v",
+						vcHost, err)
+				}
+				volumeMgr, err = common.GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
+				}
+				// Call CreateVolume.
+				// TODO: Few errors encountered  in CreateBlockVolumeUtilForMultiVC can be
+				// retried instead of moving unto next VC. Need to throw a custom error for such scenarios.
+				volumeInfo, faultType, err = common.CreateBlockVolumeUtilForMultiVC(ctx,
+					common.VanillaCreateBlockVolParamsForMultiVC{
+						Vcenter:              vcenter,
+						VolumeManager:        volumeMgr,
+						CNSConfig:            c.managers.CnsConfig,
+						StoragePolicyID:      storagePolicyID,
+						Spec:                 &createVolumeSpec,
+						SharedDatastores:     sharedDatastores,
+						SnapshotDatastoreURL: snapshotDatastoreURL,
+						ClusterFlavor:        cnstypes.CnsClusterFlavorVanilla,
+					})
+				if err != nil {
+					log.Error(err)
+					combinedErrMssgs = append(combinedErrMssgs, err.Error())
+					continue
+				}
+				log.Infof("volume %q created in vCenter %q. Proceeding to calculate "+
+					"accessible topology for the volume", volumeInfo.VolumeID.Id, vcHost)
+				break
+			}
+		} else {
 			// Get VC instance.
+			vcHost = c.managers.CnsConfig.Global.VCenterIP
 			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get vCenter instance for host %q. Error: %+v", vcHost, err)
 			}
 
-			// If Storage policy is given, check if it exists in the VC. If not found, continue to next VC.
-			var storagePolicyID string
-			if scParams.StoragePolicyName != "" {
-				storagePolicyID, err = vcenter.GetStoragePolicyIDByName(ctx, scParams.StoragePolicyName)
-				if err != nil {
-					// TODO: As govmomi doesn't support locale and all error messages are
-					// in English, we are temporarily resorting to a error message check.
-					// In future, we need to change govmomi to throw a NotFound error and catch that instead.
-					errMssgFromPBM := fmt.Sprintf("no pbm profile found with name: %q",
-						scParams.StoragePolicyName)
-					if err.Error() == errMssgFromPBM {
-						errMsg := fmt.Sprintf("Storage policy name %q not found in VC %q",
-							scParams.StoragePolicyName, vcHost)
-						log.Warn(errMsg)
-						combinedErrMssgs = append(combinedErrMssgs, errMsg)
-						continue
-					}
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"failed to get policy ID for storage policy name %q. Error: %+v",
-						scParams.StoragePolicyName, err)
-				}
-				log.Infof("Found ID %q for storage policy name %q in vCenter %q", storagePolicyID,
-					scParams.StoragePolicyName, vcHost)
-			}
-
-			// Get shared accessible datastores for topology segments associated with the vcHost.
-			sharedDatastores, err = placementengine.GetSharedDatastores(ctx,
-				placementengine.VanillaSharedDatastoresParams{
-					Vcenter:              vcenter,
-					TopologySegmentsList: topologySegmentsList,
-					StoragePolicyID:      storagePolicyID,
-				})
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to get shared datastores for topology segments %+v in vCenter %q. Error: %+v",
-					topologySegmentsList, vcHost, err)
-			}
-			if len(sharedDatastores) == 0 {
-				errMsg := fmt.Sprintf("No compatible datastores found for accessibility requirements %+v "+
-					"pertaining to vCenter %q", topologySegmentsList, vcHost)
-				log.Warn(errMsg)
-				combinedErrMssgs = append(combinedErrMssgs, errMsg)
-				continue
-			}
-			// Filter datastores based on user access.
-			sharedDatastores, err = c.filterDatastores(ctx, sharedDatastores, vcHost)
-			if err != nil {
-				if err == errAllDSFilteredOut {
-					errMsg := fmt.Sprintf("authorization service filtered out all the compatible "+
-						"datastores found for accessibility requirements %+v associated with vCenter %q",
-						topologySegmentsList, vcHost)
-					log.Warn(errMsg)
-					combinedErrMssgs = append(combinedErrMssgs, errMsg)
-					continue
-				}
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to filter datastores based on authorisation check in vCenter %q. Error: %+v",
-					vcHost, err)
-			}
 			volumeMgr, err = common.GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
 			}
-			// Call CreateVolume.
-			// TODO: Few errors encountered  in CreateBlockVolumeUtilForMultiVC can be
-			// retried instead of moving unto next VC. Need to throw a custom error for such scenarios.
+
+			// If Storage policy is given, check if it exists in the VC.
+			// If not found, fail Volume Creation
+			var storagePolicyID string
+			if scParams.StoragePolicyName != "" {
+				storagePolicyID, err = vcenter.GetStoragePolicyIDByName(ctx, scParams.StoragePolicyName)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get policy ID for storage policy name %q. Error: %+v",
+						scParams.StoragePolicyName, err.Error())
+				}
+				log.Infof("Found ID %q for storage policy name %q in vCenter %q", storagePolicyID,
+					scParams.StoragePolicyName, vcHost)
+			}
+			sharedDatastores, err = c.nodeMgr.GetSharedDatastoresInK8SCluster(ctx)
+			if err != nil || len(sharedDatastores) == 0 {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get shared datastores in kubernetes cluster. Error: %+v", err)
+			}
+			if len(sharedDatastores) == 0 {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+					"No datastore found for volume provisioning.")
+			}
+
+			// Filter datastores which in datastoreMap from sharedDatastores.
+			sharedDatastores, err = c.filterDatastores(ctx, sharedDatastores, vcHost)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to create volume. Error: %+v", err)
+			}
+
 			volumeInfo, faultType, err = common.CreateBlockVolumeUtilForMultiVC(ctx,
 				common.VanillaCreateBlockVolParamsForMultiVC{
 					Vcenter:              vcenter,
@@ -1450,13 +1522,10 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 					ClusterFlavor:        cnstypes.CnsClusterFlavorVanilla,
 				})
 			if err != nil {
-				log.Error(err)
-				combinedErrMssgs = append(combinedErrMssgs, err.Error())
-				continue
+				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to create volume. Error: %+v", err)
 			}
-			log.Infof("volume %q created in vCenter %q. Proceeding to calculate "+
-				"accessible topology for the volume", volumeInfo.VolumeID.Id, vcHost)
-			break
+			log.Infof("volume %q created in vCenter %q", volumeInfo.VolumeID.Id, vcHost)
 		}
 	}
 	if volumeInfo == nil {
@@ -1489,68 +1558,70 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 
 	// For topology aware provisioning, populate the topology segments parameter
 	// in the CreateVolumeResponse struct.
-	var (
-		datastoreAccessibleTopology []map[string]string
-		allNodeVMs                  []*cnsvsphere.VirtualMachine
-	)
-	// Retrieve the datastoreURL of the Provisioned Volume. If CNS CreateVolume
-	// API does not return datastoreURL, retrieve this by calling QueryVolume.
-	// Otherwise, retrieve this from PlacementResults in the response of
-	// CreateVolume API.
-	datastoreURL := volumeInfo.DatastoreURL
-	if datastoreURL == "" {
-		if volumeMgr == nil {
-			volumeMgr, err = common.GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
+	if topologyRequirement != nil {
+		var (
+			datastoreAccessibleTopology []map[string]string
+			allNodeVMs                  []*cnsvsphere.VirtualMachine
+		)
+		// Retrieve the datastoreURL of the Provisioned Volume. If CNS CreateVolume
+		// API does not return datastoreURL, retrieve this by calling QueryVolume.
+		// Otherwise, retrieve this from PlacementResults in the response of
+		// CreateVolume API.
+		datastoreURL := volumeInfo.DatastoreURL
+		if datastoreURL == "" {
+			if volumeMgr == nil {
+				volumeMgr, err = common.GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
+				}
 			}
+
+			volumeIds := []cnstypes.CnsVolumeId{{Id: volumeInfo.VolumeID.Id}}
+			queryFilter := cnstypes.CnsQueryFilter{
+				VolumeIds: volumeIds,
+			}
+
+			querySelection := cnstypes.CnsQuerySelection{
+				Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
+			}
+			queryResult, err := utils.QueryVolumeUtil(ctx, volumeMgr, queryFilter, &querySelection, true)
+			if err != nil {
+				// TODO: QueryVolume need to return faultType.
+				// Need to return faultType which is returned from QueryVolume.
+				// Currently, just return "csi.fault.Internal".
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"queryVolumeUtil failed for volumeID: %s in vCenter %q. Error: %+v",
+					volumeInfo.VolumeID.Id, vcHost, err)
+			}
+			if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].DatastoreUrl == "" {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"queryVolumeUtil could not retrieve volume information for volume ID: %q in vCenter %q",
+					volumeInfo.VolumeID.Id, vcHost)
+			}
+			datastoreURL = queryResult.Volumes[0].DatastoreUrl
 		}
 
-		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeInfo.VolumeID.Id}}
-		queryFilter := cnstypes.CnsQueryFilter{
-			VolumeIds: volumeIds,
-		}
-
-		querySelection := cnstypes.CnsQuerySelection{
-			Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
-		}
-		queryResult, err := utils.QueryVolumeUtil(ctx, volumeMgr, queryFilter, &querySelection, true)
+		// Retrieve datastore topology information from CSINodeTopology CRs.
+		allNodeVMs, err = c.nodeMgr.GetAllNodesByVC(ctx, vcHost)
 		if err != nil {
-			// TODO: QueryVolume need to return faultType.
-			// Need to return faultType which is returned from QueryVolume.
-			// Currently, just return "csi.fault.Internal".
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"queryVolumeUtil failed for volumeID: %s in vCenter %q. Error: %+v",
-				volumeInfo.VolumeID.Id, vcHost, err)
+				"failed to fetch VirtualMachines for the registered nodes in VC %q. Error: %v", vcHost, err)
 		}
-		if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].DatastoreUrl == "" {
+		// Find datastore topology from the retrieved datastoreURL.
+		datastoreAccessibleTopology, err = c.calculateAccessibleTopologiesForDatastore(ctx, vcenter,
+			vcTopologySegmentsMap[vcHost], allNodeVMs, datastoreURL)
+		if err != nil {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"queryVolumeUtil could not retrieve volume information for volume ID: %q in vCenter %q",
-				volumeInfo.VolumeID.Id, vcHost)
+				"failed to calculate accessible topologies for the datastore %q", datastoreURL)
 		}
-		datastoreURL = queryResult.Volumes[0].DatastoreUrl
-	}
 
-	// Retrieve datastore topology information from CSINodeTopology CRs.
-	allNodeVMs, err = c.nodeMgr.GetAllNodesByVC(ctx, vcHost)
-	if err != nil {
-		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to fetch VirtualMachines for the registered nodes in VC %q. Error: %v", vcHost, err)
-	}
-	// Find datastore topology from the retrieved datastoreURL.
-	datastoreAccessibleTopology, err = c.calculateAccessibleTopologiesForDatastore(ctx, vcenter,
-		vcTopologySegmentsMap[vcHost], allNodeVMs, datastoreURL)
-	if err != nil {
-		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to calculate accessible topologies for the datastore %q", datastoreURL)
-	}
-
-	// Add topology segments to the CreateVolumeResponse.
-	for _, topoSegments := range datastoreAccessibleTopology {
-		volumeTopology := &csi.Topology{
-			Segments: topoSegments,
+		// Add topology segments to the CreateVolumeResponse.
+		for _, topoSegments := range datastoreAccessibleTopology {
+			volumeTopology := &csi.Topology{
+				Segments: topoSegments,
+			}
+			resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 		}
-		resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 	}
 
 	// Set the Snapshot VolumeContentSource in the CreateVolumeResponse
