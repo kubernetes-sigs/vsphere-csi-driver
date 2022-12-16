@@ -1,9 +1,40 @@
 stages:
   - unit-test
+  - build
 
 run-unit-tests:
   stage: unit-test
   # A copy of golang image in dockerhub.
-  image: $CNS_IMAGE_GOLANG_1_19
+  image: $CNS_IMAGE_GOLANG
   script:
   - make test
+
+build-images:
+  stage: build
+  # A copy of docker image in dockerhub.
+  image: $CNS_IMAGE_DOCKER
+  services:
+    # A copy of docker-dind image in dockerhub.
+    - $CNS_IMAGE_DOCKER_DIND
+  variables:
+    DOCKER_HOST: tcp://localhost:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: 1
+    DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
+  before_script:
+    # Sleep is needed to make sure that the docker engine is up.
+    - sleep 60
+    - docker info
+    - docker login $CNS_DOCKER_REGISTRY -u $REGISTRY_USER -p $REGISTRY_PWD
+  script:
+    - sed -i "s#ARG GOLANG_IMAGE=.*#ARG GOLANG_IMAGE=$CNS_IMAGE_GOLANG#g" images/driver/Dockerfile
+    - sed -i "s#ARG GOLANG_IMAGE=.*#ARG GOLANG_IMAGE=$CNS_IMAGE_GOLANG#g" images/syncer/Dockerfile
+    - docker build -f images/driver/Dockerfile -t $CNS_CSI_DRIVER_REPO:$CI_COMMIT_SHORT_SHA --build-arg "VERSION=$CI_COMMIT_SHORT_SHA" --build-arg "GOPROXY=https://proxy.golang.org" .
+    - docker build -f images/syncer/Dockerfile -t $CNS_CSI_SYNCER_REPO:$CI_COMMIT_SHORT_SHA --build-arg "VERSION=$CI_COMMIT_SHORT_SHA" --build-arg "GOPROXY=https://proxy.golang.org" .
+    - docker push $CNS_CSI_DRIVER_REPO:$CI_COMMIT_SHORT_SHA
+    - docker push $CNS_CSI_SYNCER_REPO:$CI_COMMIT_SHORT_SHA
+    - echo "VSPHERE_CSI_CONTROLLER_IMAGE=$CNS_CSI_DRIVER_REPO:$CI_COMMIT_SHORT_SHA" >> build.env
+    - echo "VSPHERE_SYNCER_IMAGE=$CNS_CSI_SYNCER_REPO:$CI_COMMIT_SHORT_SHA" >> build.env
+  artifacts:
+    reports:
+      dotenv: build.env
