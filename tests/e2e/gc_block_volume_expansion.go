@@ -1231,9 +1231,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		//       This may fail if the environment on which this test is run is a
 		//       lot faster than our minimal test infra. So the below code is commented out
 
-		//ginkgo.By("Checking GC pvc is having 'Resizing' status condition")
-		//pvc, err = checkPvcHasGivenStatusCondition(client, namespace, pvc.Name, true, v1.PersistentVolumeClaimResizing)
-		//gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Checking GC pvc is having 'Resizing' status condition")
+		pvc, err = checkPvcHasGivenStatusCondition(client, namespace, pvc.Name, true, v1.PersistentVolumeClaimResizing)
+		ginkgo.By("Before Error Statemnt")
+		ginkgo.By(fmt.Sprintf("The error message is : %s", err))
+		ginkgo.By("After Error Statemnt")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		//ginkgo.By("Checking for 'Resizing' status condition on SVC PVC")
 		//_, err = checkSvcPvcHasGivenStatusCondition(svcPvcName, true, v1.PersistentVolumeClaimResizing)
@@ -1261,12 +1264,10 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 		time.Sleep(2 * time.Second)
 
-		//       This may fail if the environment on which this test is run is a
-		//       lot faster than our minimal test infra. So the below code is commented out
-		//ginkgo.By("Checking for conditions on pvc")
-		//pvc, err = checkPvcHasGivenStatusCondition(client,
-		//	namespace, pvc.Name, true, v1.PersistentVolumeClaimFileSystemResizePending)
-		//gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Checking for conditions on pvc")
+		pvc, err = checkPvcHasStatusConditions(client,
+			namespace, pvc.Name, true, v1.PersistentVolumeClaimFileSystemResizePending, v1.PersistentVolumeClaimResizing)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandleSvc))
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandleSvc)
@@ -1393,16 +1394,13 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(b).To(gomega.BeTrue())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		//Commenting out the below code as there is the below conditions assumes the system is slow
-		//Incase the environment is fast , Resizing is completed within a second
+		ginkgo.By("Checking GC pvc is have 'Resizing' status condition")
+		pvc, err = checkPvcHasStatusConditions(client, namespace, pvc.Name, true, v1.PersistentVolumeClaimResizing, v1.PersistentVolumeClaimFileSystemResizePending)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		//ginkgo.By("Checking GC pvc is have 'Resizing' status condition")
-		//pvc, err = checkPvcHasGivenStatusCondition(client, namespace, pvc.Name, true, v1.PersistentVolumeClaimResizing)
-		//gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		//ginkgo.By("Checking for 'Resizing' status condition on SVC PVC")
-		//_, err = checkSvcPvcHasGivenStatusCondition(svcPvcName, true, v1.PersistentVolumeClaimResizing)
-		//gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Checking for 'Resizing' status condition on SVC PVC")
+		_, err = checkSvcPvcHasStatusConditions(svcPvcName, true, v1.PersistentVolumeClaimResizing, v1.PersistentVolumeClaimFileSystemResizePending)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// PVC deletion happens in the defer block.
 	})
@@ -2357,6 +2355,14 @@ func checkSvcPvcHasGivenStatusCondition(pvcName string, conditionsPresent bool,
 	return checkPvcHasGivenStatusCondition(svcClient, svcNamespace, pvcName, conditionsPresent, condition)
 }
 
+// checkSvcPvcHastatusConditions checks if the status condition in SVC PVC
+// matches with the Resizing/fielSystemResize Pending.
+func checkSvcPvcHasStatusConditions(pvcName string, conditionsPresent bool,
+	condition1 v1.PersistentVolumeClaimConditionType, condition2 v1.PersistentVolumeClaimConditionType) (*v1.PersistentVolumeClaim, error) {
+	svcClient, svcNamespace := getSvcClientAndNamespace()
+	return checkPvcHasStatusConditions(svcClient, svcNamespace, pvcName, conditionsPresent, condition1, condition2)
+}
+
 // waitForSvcPvcToReachFileSystemResizePendingCondition waits for SVC PVC to
 // reach FileSystemResizePendingCondition status condition.
 func waitForSvcPvcToReachFileSystemResizePendingCondition(svcPvcName string, timeout time.Duration) error {
@@ -2449,6 +2455,33 @@ func checkPvcHasGivenStatusCondition(client clientset.Interface, namespace strin
 		return pvclaim, fmt.Errorf(
 			"status condition found on PVC '%v' is '%v', and is not matching with expected status condition '%v'",
 			pvcName, inProgressConditions[0].Type, condition)
+	}
+	return pvclaim, nil
+}
+
+// checkPvcHasStatusConditions checks if the status condition in PVC
+// matches with the Resizing/FileSytemResize Pending.
+
+func checkPvcHasStatusConditions(client clientset.Interface, namespace string, pvcName string,
+	conditionsPresent bool, condition1 v1.PersistentVolumeClaimConditionType, condition2 v1.PersistentVolumeClaimConditionType) (*v1.PersistentVolumeClaim, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+	inProgressConditions := pvclaim.Status.Conditions
+
+	if len(inProgressConditions) == 0 {
+		if conditionsPresent {
+			return pvclaim, fmt.Errorf("no status conditions found on PVC: %v", pvcName)
+		}
+		return pvclaim, nil
+	}
+	expectEqual(len(inProgressConditions), 1, fmt.Sprintf("PVC '%v' has more than one status condition", pvcName))
+	if inProgressConditions[0].Type != condition1 && inProgressConditions[0].Type != condition2 {
+		return pvclaim, fmt.Errorf(
+			"status condition found on PVC '%v' is '%v', and is not matching with expected status condition '%v' or '%v' ",
+			pvcName, inProgressConditions[0].Type, condition1, condition2)
 	}
 	return pvclaim, nil
 }
