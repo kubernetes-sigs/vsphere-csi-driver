@@ -1,5 +1,6 @@
 all: build
 
+include hack/make/login-to-image-registry.mk
 # Get the absolute path and name of the current directory.
 PWD := $(abspath .)
 BASE_DIR := $(notdir $(PWD))
