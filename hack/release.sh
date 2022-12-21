@@ -145,6 +145,8 @@ function build_driver_images_windows() {
 }
 
 function build_driver_images_linux() {
+  echo "login into ${BASE_IMAGE_REPO}"
+  login
   echo "building ${CSI_IMAGE_NAME}:${VERSION} for linux"
   docker buildx rm vsphere-csi-builder-win || echo "builder instance not found, safe to proceed"
   tag="${CSI_IMAGE_NAME}-linux-${ARCH}:${VERSION}"
@@ -162,6 +164,8 @@ function build_driver_images_linux() {
 }
 
 function build_syncer_image_linux() {
+  echo "login into ${BASE_IMAGE_REPO}"
+  login
   echo "building ${SYNCER_IMAGE_NAME}:${VERSION} for linux"
   docker build \
       -f images/syncer/Dockerfile \
@@ -179,7 +183,6 @@ function build_syncer_image_linux() {
 }
 
 function build_images() {
-  login
   case "${BUILD_RELEASE_TYPE}" in
     ci)
       # A non-PR, non-release build. This is usually a build off of master
