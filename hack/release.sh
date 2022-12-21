@@ -261,9 +261,10 @@ function push_manifest_driver() {
 }
 
 function login() {
+  echo "trying to login in  using ${GCR_KEY_FILE}"
   # If GCR_KEY_FILE is set, use that service account to login
   if [ "${GCR_KEY_FILE}" ]; then
-    echo "login in  using ${GCR_KEY_FILE}"
+    echo "performing login in using ${GCR_KEY_FILE}"
     docker login -u _json_key --password-stdin https://gcr.io <"${GCR_KEY_FILE}" || fatal "unable to login"
   fi
 }
