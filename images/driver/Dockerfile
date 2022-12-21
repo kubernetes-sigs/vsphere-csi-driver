@@ -18,12 +18,18 @@
 # This build arg allows the specification of a custom Golang image.
 ARG GOLANG_IMAGE=golang:1.19
 
-# This build arg allows the specification of a custom base image.
-ARG BASE_IMAGE=gcr.io/cloud-provider-vsphere/extra/csi-driver-base:latest
-
 ################################################################################
 ##                              BUILD STAGE                                   ##
 ################################################################################
+
+# Build photon base image
+FROM photon:4.0 as baseimage 
+ARG GIT_COMMIT
+LABEL git_commit=$GIT_COMMIT
+LABEL "maintainers"="Divyen Patel <divyenp@vmware.com>, Sandeep Pissay Srinivasa Rao <ssrinivas@vmware.com>, Xing Yang <yangxi@vmware.com>"
+
+RUN tdnf -y upgrade && tdnf clean all
+
 # Build the manager as a statically compiled binary so it has no dependencies
 # libc, muscl, etc.
 FROM ${GOLANG_IMAGE} as builder
@@ -45,7 +51,7 @@ RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-dr
 ################################################################################
 ##                               MAIN STAGE                                   ##
 ################################################################################
-FROM ${BASE_IMAGE}
+FROM baseimage 
 
 # This build arg is the git commit to embed in the CSI binary
 ARG GIT_COMMIT
