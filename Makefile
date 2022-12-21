@@ -399,7 +399,7 @@ images: | $(DOCKER_SOCK)
 ##                                  PUSH IMAGES                               ##
 ################################################################################
 .PHONY: push-images upload-images
-push-images: | $(DOCKER_SOCK)
+push-images: login-to-image-registry | $(DOCKER_SOCK)
 ifndef CSI_REGISTRY
 	hack/release.sh -p
 else 
@@ -412,7 +412,7 @@ endif
 build-ci-image:
 	$(MAKE) -C images/ci build
 
-push-ci-image:
+push-ci-image: login-to-image-registry
 	$(MAKE) -C images/ci push
 
 print-ci-image:
