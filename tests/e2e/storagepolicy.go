@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		storagePolicyNameForNonSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForNonSharedDatastores)
 		ginkgo.By(fmt.Sprintf("Invoking test for storage policy: %s", storagePolicyNameForNonSharedDatastores))
 		scParameters := make(map[string]string)
-		var expectedErrorMsg string = "No compatible datastore found for storagePolicy"
+		var expectedErrorMsg string = "failed to provision volume"
 		var createVolumeWaitTime time.Duration = 1 * time.Minute / 2
 		// decide which test setup is available to run
 		if vanillaCluster {
@@ -128,7 +128,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			createResourceQuota(client, namespace, rqLimit, storagePolicyNameForNonSharedDatastores)
 		} else {
 			scParameters[svStorageClassName] = storagePolicyNameForNonSharedDatastores
-			expectedErrorMsg = "failed to provision volume"
 			createVolumeWaitTime = pollTimeout
 		}
 
