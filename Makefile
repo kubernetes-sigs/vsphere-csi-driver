@@ -1,6 +1,5 @@
 all: build
 
-include hack/make/login-to-image-registry.mk
 # Get the absolute path and name of the current directory.
 PWD := $(abspath .)
 BASE_DIR := $(notdir $(PWD))
@@ -399,7 +398,7 @@ images: | $(DOCKER_SOCK)
 ##                                  PUSH IMAGES                               ##
 ################################################################################
 .PHONY: push-images upload-images
-push-images: login-to-image-registry | $(DOCKER_SOCK)
+push-images: | $(DOCKER_SOCK)
 ifndef CSI_REGISTRY
 	hack/release.sh -p
 else 
@@ -412,7 +411,7 @@ endif
 build-ci-image:
 	$(MAKE) -C images/ci build
 
-push-ci-image: login-to-image-registry
+push-ci-image:
 	$(MAKE) -C images/ci push
 
 print-ci-image:
