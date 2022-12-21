@@ -179,6 +179,7 @@ function build_syncer_image_linux() {
 }
 
 function build_images() {
+  login
   case "${BUILD_RELEASE_TYPE}" in
     ci)
       # A non-PR, non-release build. This is usually a build off of master
