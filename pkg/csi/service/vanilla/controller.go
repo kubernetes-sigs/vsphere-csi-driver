@@ -2789,10 +2789,13 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	var (
-		vCenterHost    string
-		vCenterManager cnsvsphere.VirtualCenterManager
-		volumeManager  cnsvolume.Manager
-		err            error
+		vCenterHost                              string
+		vCenterManager                           cnsvsphere.VirtualCenterManager
+		volumeManager                            cnsvolume.Manager
+		err                                      error
+		maxSnapshotsPerBlockVolume               int
+		granularMaxSnapshotsPerBlockVolumeInVSAN int
+		granularMaxSnapshotsPerBlockVolumeInVVOL int
 	)
 	log.Infof("CreateSnapshot: called with args %+v", *req)
 
@@ -2851,22 +2854,32 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 					"Queried VolumeType: %v", volumeType, cnsVolumeDetailsMap[volumeID].VolumeType)
 		}
 		// Check if snapshots number of this volume reaches the granular limit on VSAN/VVOL
-		maxSnapshotsPerBlockVolume := c.manager.CnsConfig.Snapshot.GlobalMaxSnapshotsPerBlockVolume
+		if multivCenterCSITopologyEnabled {
+			maxSnapshotsPerBlockVolume = c.managers.CnsConfig.Snapshot.GlobalMaxSnapshotsPerBlockVolume
+			granularMaxSnapshotsPerBlockVolumeInVSAN =
+				c.managers.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVSAN
+			granularMaxSnapshotsPerBlockVolumeInVVOL =
+				c.managers.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVVOL
+		} else {
+			maxSnapshotsPerBlockVolume = c.manager.CnsConfig.Snapshot.GlobalMaxSnapshotsPerBlockVolume
+			granularMaxSnapshotsPerBlockVolumeInVSAN =
+				c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVSAN
+			granularMaxSnapshotsPerBlockVolumeInVVOL =
+				c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVVOL
+		}
 		log.Infof("The limit of the maximum number of snapshots per block volume is "+
 			"set to the global maximum (%v) by default.", maxSnapshotsPerBlockVolume)
-		if c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVSAN > 0 ||
-			c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVVOL > 0 {
 
+		if granularMaxSnapshotsPerBlockVolumeInVSAN > 0 || granularMaxSnapshotsPerBlockVolumeInVVOL > 0 {
 			var isGranularMaxEnabled bool
 			if strings.Contains(datastoreUrl, strings.ToLower(string(types.HostFileSystemVolumeFileSystemTypeVsan))) {
-				if c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVSAN > 0 {
-					maxSnapshotsPerBlockVolume = c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVSAN
+				if granularMaxSnapshotsPerBlockVolumeInVSAN > 0 {
+					maxSnapshotsPerBlockVolume = granularMaxSnapshotsPerBlockVolumeInVSAN
 					isGranularMaxEnabled = true
-
 				}
 			} else if strings.Contains(datastoreUrl, strings.ToLower(string(types.HostFileSystemVolumeFileSystemTypeVVOL))) {
-				if c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVVOL > 0 {
-					maxSnapshotsPerBlockVolume = c.manager.CnsConfig.Snapshot.GranularMaxSnapshotsPerBlockVolumeInVVOL
+				if granularMaxSnapshotsPerBlockVolumeInVVOL > 0 {
+					maxSnapshotsPerBlockVolume = granularMaxSnapshotsPerBlockVolumeInVVOL
 					isGranularMaxEnabled = true
 				}
 			}
@@ -2888,7 +2901,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		if len(snapshotList) >= maxSnapshotsPerBlockVolume {
 			return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 				"the number of snapshots on the source volume %s reaches the configured maximum (%v)",
-				volumeID, c.manager.CnsConfig.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
+				volumeID, maxSnapshotsPerBlockVolume)
 		}
 
 		// the returned snapshotID below is a combination of CNS VolumeID and CNS SnapshotID concatenated by the "+"
