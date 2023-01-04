@@ -864,11 +864,12 @@ func pvAdded(obj interface{}) {
 	// Add VCP-CSI migrated volumes to the volumeIDToNameMap map.
 	// Since cns query will return all the volumes including the migrated ones, the map would need to be a
 	// union of migrated VCP-CSI volumes and CSI volumes, as well.
-	if pv.Spec.CSI == nil && (k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) &&
-		pv.Spec.VsphereVolume != nil && isValidMigratedvSphereVolume(context.Background(), pv.ObjectMeta)) {
+	if pv.Spec.VsphereVolume != nil &&
+		k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) &&
+		isValidMigratedvSphereVolume(context.Background(), pv.ObjectMeta) {
 		if pv.Status.Phase == v1.VolumeBound {
-			k8sOrchestratorInstance.volumeIDToNameMap.add(pv.Spec.CSI.VolumeHandle, pv.Name)
-			log.Debugf("Migrated pvAdded: Added '%s -> %s' pair to volumeIDToNameMap", pv.Spec.CSI.VolumeHandle, pv.Name)
+			k8sOrchestratorInstance.volumeIDToNameMap.add(pv.Spec.VsphereVolume.VolumePath, pv.Name)
+			log.Debugf("Migrated pvAdded: Added '%s -> %s' pair to volumeIDToNameMap", pv.Spec.VsphereVolume.VolumePath, pv.Name)
 		}
 	}
 }
@@ -911,12 +912,13 @@ func pvUpdated(oldObj, newObj interface{}) {
 	// Update VCP-CSI migrated volumes to the volumeIDToNameMap map.
 	// Since cns query will return all the volumes including the migrated ones, the map would need to be a
 	// union of migrated VCP-CSI volumes and CSI volumes, as well.
-	if newPv.Spec.CSI == nil && (k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) &&
-		newPv.Spec.VsphereVolume != nil && isValidMigratedvSphereVolume(context.Background(), newPv.ObjectMeta)) {
+	if newPv.Spec.VsphereVolume != nil &&
+		k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) &&
+		isValidMigratedvSphereVolume(context.Background(), newPv.ObjectMeta) {
 		if oldPv.Status.Phase != v1.VolumeBound && newPv.Status.Phase == v1.VolumeBound {
-			k8sOrchestratorInstance.volumeIDToNameMap.add(newPv.Spec.CSI.VolumeHandle, newPv.Name)
+			k8sOrchestratorInstance.volumeIDToNameMap.add(newPv.Spec.VsphereVolume.VolumePath, newPv.Name)
 			log.Debugf("Migrated pvUpdated: Added '%s -> %s' pair to volumeIDToNameMap",
-				newPv.Spec.CSI.VolumeHandle, newPv.Name)
+				newPv.Spec.VsphereVolume.VolumePath, newPv.Name)
 		}
 	}
 }
@@ -938,15 +940,16 @@ func pvDeleted(obj interface{}) {
 		log.Debugf("k8sorchestrator: Deleted key %s from volumeIDToNameMap", pv.Spec.CSI.VolumeHandle)
 
 	}
-	if pv.Spec.CSI == nil && k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) {
-		k8sOrchestratorInstance.volumeIDToNameMap.remove(pv.Spec.CSI.VolumeHandle)
+	if pv.Spec.VsphereVolume == nil && k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) {
+		k8sOrchestratorInstance.volumeIDToNameMap.remove(pv.Spec.VsphereVolume.VolumePath)
 		log.Debugf("k8sorchestrator migrated volume: Deleted key %s from volumeIDToNameMap",
-			pv.Spec.CSI.VolumeHandle)
+			pv.Spec.VsphereVolume.VolumePath)
 	}
 
 }
 
 // GetAllK8sVolumes returns list of volumes in a bound state
+// list Includes Migrated vSphere Volumes VMDK Paths for in-tree vSphere PVs and Volume IDs for CSI PVs
 func (c *K8sOrchestrator) GetAllK8sVolumes() []string {
 	volumeIDs := make([]string, 0)
 	for volumeID := range c.volumeIDToNameMap.items {
@@ -1190,10 +1193,15 @@ func volumeAttachmentAdded(obj interface{}) {
 		log.Warnf("volumeAttachmentAdded: unrecognized object %+v", obj)
 		return
 	}
-
+	if volAttach.Spec.Attacher != csitypes.Name {
+		return
+	}
 	log.Debugf("volumeAttachmentAdded: volume=%v", volAttach)
 	if volAttach.Status.Attached {
-
+		if volAttach.Spec.Source.PersistentVolumeName == nil {
+			// return for inline volume
+			return
+		}
 		volumeName := *volAttach.Spec.Source.PersistentVolumeName
 		nodeName := volAttach.Spec.NodeName
 		nodes := k8sOrchestratorInstance.volumeNameToNodesMap.get(volumeName)
@@ -1228,8 +1236,15 @@ func volumeAttachmentUpdated(oldObj, newObj interface{}) {
 		return
 	}
 
-	if !oldVolAttach.Status.Attached && newVolAttach.Status.Attached {
+	if newVolAttach.Spec.Attacher != csitypes.Name {
+		return
+	}
 
+	if !oldVolAttach.Status.Attached && newVolAttach.Status.Attached {
+		if newVolAttach.Spec.Source.PersistentVolumeName == nil {
+			// return for inline volume
+			return
+		}
 		volumeName := *newVolAttach.Spec.Source.PersistentVolumeName
 		nodeName := newVolAttach.Spec.NodeName
 		nodes := k8sOrchestratorInstance.volumeNameToNodesMap.get(volumeName)
@@ -1259,8 +1274,15 @@ func volumeAttachmentDeleted(obj interface{}) {
 		log.Warnf("volumeAttachmentDeleted: unrecognized object %+v", obj)
 		return
 	}
+	if volAttach.Spec.Attacher != csitypes.Name {
+		return
+	}
 	if !volAttach.Status.Attached {
 		log.Debugf("volumeAttachmentDeleted: volume attachment deleted: volume=%v", volAttach)
+		if volAttach.Spec.Source.PersistentVolumeName == nil {
+			// return for inline volume
+			return
+		}
 		volumeName := *volAttach.Spec.Source.PersistentVolumeName
 
 		nodeName := volAttach.Spec.NodeName
