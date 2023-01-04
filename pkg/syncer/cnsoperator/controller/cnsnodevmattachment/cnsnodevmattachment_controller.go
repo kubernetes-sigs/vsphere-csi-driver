@@ -621,8 +621,14 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 	}
 	resp, faulttype, err := reconcileCnsNodeVMAttachmentInternal()
 
-	if (err != nil || resp != reconcile.Result{}) {
-		// When reconciler returns reconcile.Result{RequeueAfter: timeout}, the err will be set to nil,
+	if err != nil || faulttype != "" {
+		// When faultype is set, it indicates the attach/detach failure
+		// Case 1:
+		// both err and faultype are set
+		// Case 2:
+		// err is nil but faultype type is set
+		// This can happen when reconciler returns reconcile.Result{RequeueAfter: timeout}, the err will be set to nil,
+		// and corresponding faulttype will be set
 		// for this case, we need count it as an attach/detach failure
 		log.Errorf("Operation failed, reporting failure status to Prometheus."+
 			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
