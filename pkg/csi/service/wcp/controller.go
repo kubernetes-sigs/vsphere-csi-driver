@@ -1286,6 +1286,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		log.Debugf("ListVolumes called with args %+v, expectedStartingIndex %v", *req, expectedStartingIndex)
 		k8sVolumeIDs := commonco.ContainerOrchestratorUtility.GetAllVolumes()
 
+		log.Debugf("ListVolumes length of k8sVolumeIDs %v", len(k8sVolumeIDs))
 		startingIdx := 0
 		if req.StartingToken != "" {
 			startingIdx, err = strconv.Atoi(req.StartingToken)
@@ -1359,6 +1360,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "Error while generating ListVolume response")
 		}
 
+		log.Debugf("ListVolumes: len of cnsVolumeIDs %v and endingIdx %+v", len(cnsVolumeIDs), endingIdx)
 		// Correctly set response nextToken value for the paginated response
 		if len(cnsVolumeIDs) > endingIdx {
 			expectedStartingIndex = endingIdx

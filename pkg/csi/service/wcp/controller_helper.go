@@ -540,7 +540,7 @@ func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]str
 		log.Errorf("GetVcenter error %v", err)
 		return nil, nil, fmt.Errorf("failed to get vCenter from Manager, err: %v", err)
 	}
-
+	log.Debugf("ListVolumes: GetVCenter returned: %v", vc)
 	// Get all the hosts belonging to the cluster
 	hostSystems, err := vc.GetHostsByCluster(ctx, c.manager.CnsConfig.Global.ClusterID)
 	if err != nil {
@@ -548,6 +548,11 @@ func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]str
 		return nil, nil, fmt.Errorf("failed to get hosts for cluster %v, err:%v", c.manager.CnsConfig.Global.ClusterID, err)
 	}
 
+	if len(hostSystems) == 0 {
+		log.Errorf("failed to get hosts for cluster %v with no error", c.manager.CnsConfig.Global.ClusterID)
+		return nil, nil, fmt.Errorf("failed to get hosts for cluster %v", c.manager.CnsConfig.Global.ClusterID)
+	}
+	log.Debugf("ListVolumes: GetHostsByCluster returned hostSystems %v for clusterID %v", len(hostSystems), c.manager.CnsConfig.Global.ClusterID)
 	// Get all the virtual machines belonging to all the hosts
 	vms, err := vc.GetAllVirtualMachines(ctx, hostSystems)
 	if err != nil {
@@ -555,6 +560,7 @@ func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]str
 		return nil, nil, fmt.Errorf("failed to get VM MoID err: %v", err)
 	}
 
+	log.Debugf("ListVolumes: GetAllVirtualMachines returned vms %v", len(vms))
 	var vmRefs []vimtypes.ManagedObjectReference
 	var vmMoList []mo.VirtualMachine
 
@@ -570,15 +576,17 @@ func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]str
 		return vmMoIDToHostMoID, volumeIDVMMap, err
 	}
 
+	log.Debugf("ListVolumes: Retrieve returned %v", vmMoList)
 	// Iterate through all the VMs and build the vmMoIDToHostMoID map
 	// and the volumeID to VMMoiD map
 	for _, info := range vmMoList {
 		vmMoID := info.Reference().Value
-
+		log.Debugf("ListVolumes: Looking at vmMoID %v", vmMoID)
 		if info.Runtime.Host != nil {
 			vmMoIDToHostMoID[vmMoID] = info.Runtime.Host.Reference().Value
 		}
 		if info.Config == nil {
+			log.Debugf("ListVolumes: vmMoID %v config is empty", vmMoID)
 			continue
 		}
 		devices := info.Config.Hardware.Device
@@ -587,6 +595,7 @@ func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]str
 			if vmDevices.TypeName(device) == "VirtualDisk" {
 				if virtualDisk, ok := device.(*vimtypes.VirtualDisk); ok {
 					if virtualDisk.VDiskId != nil {
+						log.Debugf("ListVolumes: Adding virtualDisk %v", virtualDisk.VDiskId.Id)
 						volumeIDVMMap[virtualDisk.VDiskId.Id] = vmMoID
 					}
 				}
@@ -628,12 +637,14 @@ func getVolumeIDToVMMap(ctx context.Context, c *controller, volumeIDs []string) 
 
 	// Process remaining volumes
 	vmMoidToHostMoid, volumeIDToVMMap, err := c.GetVolumeToHostMapping(ctx)
+	log.Debugf("ListVolumes: GetVolumeToHostMapping returned vmMoidToHostMoid: %v, volumeIDToVMMap: %v", vmMoidToHostMoid, volumeIDToVMMap)
 	if err != nil {
 		log.Errorf("failed to get VM MoID to Host MoID map, err:%v", err)
 		return nil, fmt.Errorf("failed to get VM MoID to Host MoID map, err: %v", err)
 	}
 
 	hostNames := commonco.ContainerOrchestratorUtility.GetNodeIDtoNameMap(ctx)
+	log.Debugf("ListVolumes: GetNodeIDtoNameMap returned hostNames %v", hostNames)
 	for volumeID, VMMoID := range volumeIDToVMMap {
 		isFakeAttached, exists := fakeAttachMarkedVolumes[volumeID]
 		// If we do not find this entry in the input list obtained from CNS
@@ -646,11 +657,13 @@ func getVolumeIDToVMMap(ctx context.Context, c *controller, volumeIDs []string) 
 
 		hostMoID, ok := vmMoidToHostMoid[VMMoID]
 		if !ok {
+			log.Debugf("ListVolumes: vmMoID %v not found", VMMoID)
 			continue
 		}
 
 		hostName, ok := hostNames[hostMoID]
 		if !ok {
+			log.Debugf("ListVolumes: hostName %v not found", hostMoID)
 			continue
 		}
 		publishedNodeIDs := make([]string, 0)
@@ -667,6 +680,6 @@ func getVolumeIDToVMMap(ctx context.Context, c *controller, volumeIDs []string) 
 		}
 		response.Entries = append(response.Entries, entry)
 	}
-
+	log.Debugf("ListVolumes: GetNodeIDtoNameMap returned len response.Entries %v", len(response.Entries))
 	return response, nil
 }

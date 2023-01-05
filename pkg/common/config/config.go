@@ -87,8 +87,8 @@ const (
 	// topology labels applied on the node by vSphere CSI driver.
 	TopologyLabelsDomain = "topology.csi.vmware.com"
 	// DefaultQueryLimit is the default number of volumes to be fetched from CNS QueryAll API
-	// Current default value is set to 10000
-	DefaultQueryLimit = 10000
+	// Current default value is set to 1000
+	DefaultQueryLimit = 1000
 	// DefaultListVolumeThreshold specifies the default maximum number of differences in volumes between CNS
 	// and kubernetes
 	DefaultListVolumeThreshold = 50
