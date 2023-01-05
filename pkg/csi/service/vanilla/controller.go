@@ -690,7 +690,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		snapshotSizeInBytes := snapshotSizeInMB * common.MbInBytes
 		if volSizeBytes != snapshotSizeInBytes {
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-				"size mismatches, requested volume size %d and source snapshot size %d",
+				"size mismatches, requested volume size %d and source snapshot size %d."+
+					"Volume resizing while restoring from snapshot is currently unsupported.",
 				volSizeBytes, snapshotSizeInBytes)
 		}
 	}
