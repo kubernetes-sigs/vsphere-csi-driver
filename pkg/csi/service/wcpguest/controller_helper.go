@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
@@ -282,72 +281,42 @@ func generateVolumeAccessibleTopologyFromPVCAnnotation(claim *v1.PersistentVolum
 // isPVCInSupervisorClusterBound return true if the PVC is bound in the
 // supervisor cluster before timeout, otherwise return false.
 func isPVCInSupervisorClusterBound(ctx context.Context, client clientset.Interface,
-	supervisorPvc *v1.PersistentVolumeClaim, timeout time.Duration) (bool, error) {
+	claim *v1.PersistentVolumeClaim, timeout time.Duration) (bool, error) {
 	log := logger.GetLogger(ctx)
-	supervisorPvcName := supervisorPvc.Name
-	supervisorPvcNamespace := supervisorPvc.Namespace
+	pvcName := claim.Name
+	ns := claim.Namespace
 	timeoutSeconds := int64(timeout.Seconds())
 
 	log.Infof("Waiting up to %d seconds for PersistentVolumeClaim %v in namespace %s to have phase %s",
-		timeoutSeconds, supervisorPvcName, supervisorPvcNamespace, v1.ClaimBound)
-
-	isClaimBound := false
-
-	waitErr := wait.PollImmediate(5*time.Second, timeout, func() (done bool, err error) {
-		pvc, err := client.CoreV1().PersistentVolumeClaims(supervisorPvcNamespace).Get(
-			ctx, supervisorPvcName, metav1.GetOptions{})
-		if err != nil {
-			msg := fmt.Sprintf("unable to fetch pvc %q/%q "+
-				"from supervisor cluster with err: %+v",
-				supervisorPvcNamespace, pvc.Name, err)
-			log.Warnf(msg)
-			return false, logger.LogNewErrorf(log, msg)
-		}
-		if pvc.Status.Phase == v1.ClaimBound {
-			log.Infof("PersistentVolumeClaim %s in namespace %s is in state %s",
-				supervisorPvcName, supervisorPvcNamespace, pvc.Status.Phase)
-			isClaimBound = true
-			return true, nil
-		} else if pvc.Status.Phase == v1.ClaimPending {
-			eventList, listErr := client.CoreV1().Events(supervisorPvcNamespace).List(ctx,
-				metav1.ListOptions{FieldSelector: "involvedObject.name=" + supervisorPvcName})
-			if listErr != nil {
-				msg := fmt.Sprintf("unable to fetch events for pvc %q/%q "+
-					"from supervisor cluster with err: %+v",
-					supervisorPvcNamespace, pvc.Name, listErr)
-				log.Warnf(msg)
-				return false, logger.LogNewErrorf(log, msg)
-			}
-			var failureMessage string
-			// reason I think this will work without sorting events by creation timestamp
-			// pvc creation attempt in supervisor -> pvc pending phase -> provisioning failed message -> return failure to GC
-			// GC retries -> pvc now created in supervisor -> pvc bound phase -> we return true inside ClaimBound
-			for _, svcPvcEvent := range eventList.Items {
-				if strings.Contains(svcPvcEvent.Reason, "ProvisioningFailed") {
-					failureMessage = svcPvcEvent.Message
-					break
-				}
-			}
-
-			if failureMessage != "" {
-				return true, logger.LogNewErrorf(log, failureMessage)
-			}
-		}
-		return false, nil
-	})
-
-	if !isClaimBound {
-		msg := fmt.Sprintf("persistentVolumeClaim %s in namespace %s not in phase %s "+
-			"within %d seconds", supervisorPvcName, supervisorPvcNamespace, v1.ClaimBound, timeoutSeconds)
-
-		if waitErr != nil {
-			msg += fmt.Sprintf(": message: %v", waitErr.Error())
-		}
-
-		return false, fmt.Errorf(msg)
+		timeoutSeconds, pvcName, ns, v1.ClaimBound)
+	watchClaim, err := client.CoreV1().PersistentVolumeClaims(ns).Watch(
+		ctx,
+		metav1.ListOptions{
+			FieldSelector:  fields.OneTermEqualSelector("metadata.name", pvcName).String(),
+			TimeoutSeconds: &timeoutSeconds,
+			Watch:          true,
+		})
+	if err != nil {
+		errMsg := fmt.Errorf("failed to watch PersistentVolumeClaim %s with Error: %v", pvcName, err)
+		log.Error(errMsg)
+		return false, errMsg
 	}
+	defer watchClaim.Stop()
 
-	return true, nil
+	for event := range watchClaim.ResultChan() {
+		pvc, ok := event.Object.(*v1.PersistentVolumeClaim)
+		if !ok {
+			continue
+		}
+		log.Debugf("PersistentVolumeClaim %s in namespace %s is in state %s. Received event %v",
+			pvcName, ns, pvc.Status.Phase, event)
+		if pvc.Status.Phase == v1.ClaimBound && pvc.Name == pvcName {
+			log.Infof("PersistentVolumeClaim %s in namespace %s is in state %s", pvcName, ns, pvc.Status.Phase)
+			return true, nil
+		}
+	}
+	return false, fmt.Errorf("persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds",
+		pvcName, ns, v1.ClaimBound, timeoutSeconds)
 }
 
 // getProvisionTimeoutInMin() return the timeout for volume provision.
