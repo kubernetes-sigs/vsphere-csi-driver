@@ -65,6 +65,7 @@ type COCommonInterface interface {
 	// GetAllVolumes returns list of volumes in a bound state
 	GetAllVolumes() []string
 	// GetAllK8sVolumes returns list of volumes in a bound state, in the K8s cluster
+	// list Includes Migrated vSphere Volumes VMDK Paths and CSI Volume IDs
 	GetAllK8sVolumes() []string
 	// AnnotateVolumeSnapshot annotates the volumesnapshot CR in k8s cluster with the snapshot-id and fcd-id
 	AnnotateVolumeSnapshot(ctx context.Context, volumeSnapshotName string,

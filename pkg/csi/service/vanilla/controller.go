@@ -2552,7 +2552,6 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 				CNSVolumesforListVolume = cnsQueryResult.Volumes
 			}
 		}
-
 		// Step 3: If the difference between number of K8s volumes and CNS volumes is greater than threshold,
 		// fail the operation, as it can result in too many attach calls.
 		if len(volIDsInK8s)-len(CNSVolumesforListVolume) > cfg.Global.ListVolumeThreshold {
