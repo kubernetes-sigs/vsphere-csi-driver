@@ -48,7 +48,7 @@ const (
 
 	// CSIVSanFileServiceDisabledFault is the fault type when trying to create a RWX volume on a cluster which vsan file
 	// service is disabled.
-	CSIVSanFileServiceDisabledFault = "csi.fault.nonstorage.VSanFileServiceDisabled"
+	CSIVSanFileServiceDisabledFault = "csi.fault.invalidconfig.VSanFileServiceDisabled"
 
 	// CSITaskResultEmptyFault is the fault type when taskResult is empty.
 	CSITaskResultEmptyFault = "csi.fault.TaskResultEmpty"
@@ -62,5 +62,5 @@ const (
 	// CSIUnimplementedFault is the fault type returned when the function is unimplemented.
 	CSIUnimplementedFault = "csi.fault.Unimplemented"
 	// CSIInvalidStoragePolicyConfigurationFault is the fault type returned when the user provides invalid storage policy.
-	CSIInvalidStoragePolicyConfigurationFault = "csi.fault.InvalidStoragePolicyConfiguration"
+	CSIInvalidStoragePolicyConfigurationFault = "csi.fault.invalidconfig.InvalidStoragePolicyConfiguration"
 )
