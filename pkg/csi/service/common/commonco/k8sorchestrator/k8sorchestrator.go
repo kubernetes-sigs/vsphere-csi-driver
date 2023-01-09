@@ -940,7 +940,7 @@ func pvDeleted(obj interface{}) {
 		log.Debugf("k8sorchestrator: Deleted key %s from volumeIDToNameMap", pv.Spec.CSI.VolumeHandle)
 
 	}
-	if pv.Spec.VsphereVolume == nil && k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) {
+	if pv.Spec.VsphereVolume != nil && k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) {
 		k8sOrchestratorInstance.volumeIDToNameMap.remove(pv.Spec.VsphereVolume.VolumePath)
 		log.Debugf("k8sorchestrator migrated volume: Deleted key %s from volumeIDToNameMap",
 			pv.Spec.VsphereVolume.VolumePath)
