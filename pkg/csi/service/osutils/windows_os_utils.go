@@ -102,7 +102,7 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 		return nil, err
 	}
 	// Get the windows specific disk number
-	diskNumber, err := mounter.GetDiskNumber(diskID)
+	diskNumber, err := mounter.GetDiskNumber(ctx, diskID)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to get Disk Number, err: %v", err)
@@ -116,7 +116,7 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 	if !mounted {
 		log.Info("calling FormatAndMount")
 		//currently proxy does not support read only mount or filesystems other than ntfs
-		err := mounter.FormatAndMount(diskNumber, stagingTargetPath, params.FsType, params.MntFlags)
+		err := mounter.FormatAndMount(ctx, diskNumber, stagingTargetPath, params.FsType, params.MntFlags)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"error mounting volume. Parameters: %v err: %v", params, err)
@@ -186,7 +186,7 @@ func (osUtils *OsUtils) CleanupPublishPath(ctx context.Context, target string, v
 		return err
 	}
 	// no need to check if target exist first as rmdir do not throw error if path does not exists.
-	err = mounter.Rmdir(target)
+	err = mounter.Rmdir(ctx, target)
 	if err != nil {
 		return fmt.Errorf(
 			"error unmounting publishTarget: %v", err)
@@ -257,7 +257,7 @@ func (osUtils *OsUtils) GetMetrics(ctx context.Context, path string) (*k8svol.Me
 	if err != nil {
 		return nil, err
 	}
-	available, capacity, usage, inodes, inodesFree, inodesUsed, err := mounter.StatFS(path)
+	available, capacity, usage, inodes, inodesFree, inodesUsed, err := mounter.StatFS(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +277,7 @@ func (osUtils *OsUtils) GetBlockSizeBytes(ctx context.Context, devicePath string
 	if err != nil {
 		return -1, err
 	}
-	sizeInBytes, err := mounter.GetVolumeSizeInBytes(devicePath)
+	sizeInBytes, err := mounter.GetVolumeSizeInBytes(ctx, devicePath)
 
 	if err != nil {
 		return -1, err
@@ -293,7 +293,7 @@ func (osUtils *OsUtils) GetDevice(ctx context.Context, path string) (*Device, er
 	if err != nil {
 		return nil, err
 	}
-	d, err := mounter.GetDeviceNameFromMount(path)
+	d, err := mounter.GetDeviceNameFromMount(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +311,7 @@ func (osUtils *OsUtils) RescanDevice(ctx context.Context, dev *Device) error {
 	if err != nil {
 		return err
 	}
-	return mounter.Rescan()
+	return mounter.Rescan(ctx)
 }
 
 // VerifyTargetDir checks if the target path is not empty, exists and is a
@@ -331,7 +331,7 @@ func (osUtils *OsUtils) VerifyTargetDir(ctx context.Context, target string, targ
 		return false, err
 	}
 
-	isExists, err := mounter.ExistsPath(target)
+	isExists, err := mounter.ExistsPath(ctx, target)
 	if err != nil {
 		return false, err
 	}
@@ -390,7 +390,7 @@ func (osUtils *OsUtils) ResizeVolume(ctx context.Context, devicePath, volumePath
 	log.Infof("resizing using csi proxy, devicePath %s", devicePath)
 
 	// Check the block size.
-	currentBlockSizeBytes, err := mounter.GetDiskTotalBytes(devicePath)
+	currentBlockSizeBytes, err := mounter.GetDiskTotalBytes(ctx, devicePath)
 	if err != nil {
 		return logger.LogNewErrorCodef(log, codes.Internal,
 			"error when getting size of block volume at path %s: %v", devicePath, err)
@@ -401,7 +401,7 @@ func (osUtils *OsUtils) ResizeVolume(ctx context.Context, devicePath, volumePath
 			devicePath, currentBlockSizeBytes, reqVolSizeBytes)
 		return nil
 	}
-	err = mounter.ResizeVolume(devicePath, reqVolSizeBytes)
+	err = mounter.ResizeVolume(ctx, devicePath, reqVolSizeBytes)
 	if err != nil {
 		return fmt.Errorf(
 			"error when resizing filesystem on devicePath %s and volumePath %s, err: %v ", devicePath, volumePath, err)
@@ -427,19 +427,19 @@ func (osUtils *OsUtils) PreparePublishPath(ctx context.Context, path string) err
 	if err != nil {
 		return err
 	}
-	isExists, err := mounter.ExistsPath(path)
+	isExists, err := mounter.ExistsPath(ctx, path)
 	if err != nil {
 		return err
 	}
 	if isExists {
 		log.Infof("Removing path: %s", path)
-		if err = mounter.Rmdir(path); err != nil {
+		if err = mounter.Rmdir(ctx, path); err != nil {
 			return err
 		}
 	}
 	// ensure parent dir is created
 	parentDir := filepath.Dir(path)
-	if err := mounter.MakeDir(parentDir); err != nil {
+	if err := mounter.MakeDir(ctx, parentDir); err != nil {
 		return err
 	}
 	return nil
@@ -453,7 +453,7 @@ func (osUtils *OsUtils) GetSystemUUID(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sn, err := mounter.GetBIOSSerialNumber()
+	sn, err := mounter.GetBIOSSerialNumber(ctx)
 	if err != nil {
 		return "", err
 	}
