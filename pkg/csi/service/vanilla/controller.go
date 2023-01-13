@@ -1699,12 +1699,6 @@ func (c *controller) calculateAccessibleTopologiesForDatastore(ctx context.Conte
 func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
-	// Error out if TopologyRequirement is provided during file volume provisioning
-	// as this is not supported yet.
-	if req.GetAccessibilityRequirements() != nil {
-		return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
-			"volume topology feature for file volumes is not supported.")
-	}
 
 	// Volume Size - Default is 10 GiB.
 	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
@@ -1723,7 +1717,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
 			"parsing storage class parameters failed with error: %+v", err)
 	}
-
 	// Check if vCenter task for this volume is already registered as part of
 	// improved idempotency CR
 	log.Debugf("Checking if vCenter task for file volume %s is already registered.", req.Name)
@@ -1733,7 +1726,12 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		volumeID                 string
 	)
 	// Get operation store
-	operationStore := c.manager.VolumeManager.GetOperationStore()
+	var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
+	if multivCenterCSITopologyEnabled {
+		operationStore = c.managers.VolumeManagers[c.managers.CnsConfig.Global.VCenterIP].GetOperationStore()
+	} else {
+		operationStore = c.manager.VolumeManager.GetOperationStore()
+	}
 	if operationStore == nil {
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 			"Operation store cannot be nil")
@@ -1766,7 +1764,11 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				vcenter    *cnsvsphere.VirtualCenter
 			)
 			// Get VirtualCenter instance
-			vcenter, err = c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+			if multivCenterCSITopologyEnabled {
+				vcenter, err = c.managers.VcenterManager.GetVirtualCenter(ctx, c.managers.CnsConfig.Global.VCenterIP)
+			} else {
+				vcenter, err = c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+			}
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get vCenter. Err: %v", err)
@@ -1794,9 +1796,14 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 					}
 				}
 			}()
-
-			volumeInfo, faultType, err = c.manager.VolumeManager.MonitorCreateVolumeTask(ctx,
-				&volumeOperationDetails, task, req.Name, c.manager.CnsConfig.Global.ClusterID)
+			if multivCenterCSITopologyEnabled {
+				volumeManager := c.managers.VolumeManagers[vcenter.Config.Host]
+				volumeInfo, faultType, err = volumeManager.MonitorCreateVolumeTask(ctx,
+					&volumeOperationDetails, task, req.Name, c.managers.CnsConfig.Global.ClusterID)
+			} else {
+				volumeInfo, faultType, err = c.manager.VolumeManager.MonitorCreateVolumeTask(ctx,
+					&volumeOperationDetails, task, req.Name, c.manager.CnsConfig.Global.ClusterID)
+			}
 			if err != nil {
 				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to monitor task for file volume %s. Error: %+v", req.Name, err)
@@ -1816,7 +1823,12 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		}
 
 		filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
-		fsEnabledClusterToDsInfoMap := c.authMgr.GetFsEnabledClusterToDsMap(ctx)
+		var fsEnabledClusterToDsInfoMap map[string][]*cnsvsphere.DatastoreInfo
+		if multivCenterCSITopologyEnabled {
+			fsEnabledClusterToDsInfoMap = c.authMgrs[c.managers.CnsConfig.Global.VCenterIP].GetFsEnabledClusterToDsMap(ctx)
+		} else {
+			fsEnabledClusterToDsInfoMap = c.authMgr.GetFsEnabledClusterToDsMap(ctx)
+		}
 
 		var filteredDatastores []*cnsvsphere.DatastoreInfo
 		for _, datastores := range fsEnabledClusterToDsInfoMap {
@@ -1828,13 +1840,32 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			return nil, csifault.CSIVSanFileServiceDisabledFault, logger.LogNewErrorCode(log, codes.FailedPrecondition,
 				"no datastores found to create file volume, vsan file service may be disabled")
 		}
-
-		volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
-			c.manager, &createVolumeSpec, filteredDatastores, filterSuspendedDatastores,
-			false, checkCompatibleDataStores)
-		if err != nil {
-			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to create volume. Error: %+v", err)
+		if multivCenterCSITopologyEnabled {
+			vc, err := c.managers.VcenterManager.GetVirtualCenter(ctx, c.managers.CnsConfig.Global.VCenterIP)
+			if err != nil {
+				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get vCenter. Error: %+v", err)
+			}
+			volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
+				vc, c.managers.VolumeManagers[vc.Config.Host], c.managers.CnsConfig, &createVolumeSpec,
+				filteredDatastores, filterSuspendedDatastores, false, checkCompatibleDataStores)
+			if err != nil {
+				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to create volume. Error: %+v", err)
+			}
+		} else {
+			vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+			if err != nil {
+				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get vCenter. Error: %+v", err)
+			}
+			volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
+				vc, c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec,
+				filteredDatastores, filterSuspendedDatastores, false, checkCompatibleDataStores)
+			if err != nil {
+				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to create volume. Error: %+v", err)
+			}
 		}
 	}
 
@@ -1878,18 +1909,38 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				"volume capability not supported. Err: %+v", err)
 		}
 		if common.IsFileVolumeRequest(ctx, volumeCapabilities) {
+			// Error out if TopologyRequirement is provided during file volume provisioning
+			// as this is not supported yet.
+			if req.GetAccessibilityRequirements() != nil {
+				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
+					"volume topology feature for file volumes is not supported.")
+			}
 			volumeType = prometheus.PrometheusFileVolumeType
-			isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx,
-				c.manager.VcenterConfig.Host)
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to verify if vSAN file services is supported or not. Error:%+v", err)
+			if multivCenterCSITopologyEnabled {
+				isvSANFileServicesSupported, err := c.managers.VcenterManager.IsvSANFileServicesSupported(ctx,
+					c.managers.CnsConfig.Global.VCenterIP)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to verify if vSAN file services is supported or not. Error:%+v", err)
+				}
+				if !isvSANFileServicesSupported {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.FailedPrecondition,
+						"fileshare volume creation is not supported on vSAN 67u3 release")
+				}
+				return c.createFileVolume(ctx, req)
+			} else {
+				isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx,
+					c.manager.VcenterConfig.Host)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to verify if vSAN file services is supported or not. Error:%+v", err)
+				}
+				if !isvSANFileServicesSupported {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.FailedPrecondition,
+						"fileshare volume creation is not supported on vSAN 67u3 release")
+				}
+				return c.createFileVolume(ctx, req)
 			}
-			if !isvSANFileServicesSupported {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.FailedPrecondition,
-					"fileshare volume creation is not supported on vSAN 67u3 release")
-			}
-			return c.createFileVolume(ctx, req)
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
 		if multivCenterCSITopologyEnabled {
