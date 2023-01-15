@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -49,8 +50,17 @@ const operationModeMetaDataSync = "METADATA_SYNC"
 
 var (
 	enableLeaderElection    = flag.Bool("leader-election", false, "Enable leader election.")
-	leaderElectionNamespace = flag.String("leader-election-namespace", "",
-		"Namespace where the leader election resource lives. Defaults to the pod namespace if not set.")
+	leaderElectionNamespace = flag.String("leader-election-namespace", "", "Namespace where the leader "+
+		"election resource lives. Defaults to the pod namespace if not set.")
+	leaderElectionLeaseDuration = flag.Duration("leader-election-lease-duration", 15*time.Second,
+		"Duration, in seconds, that non-leader candidates will wait to force acquire leadership. "+
+			"Defaults to 15 seconds.")
+	leaderElectionRenewDeadline = flag.Duration("leader-election-renew-deadline", 10*time.Second,
+		"Duration, in seconds, that the acting leader will retry refreshing leadership before giving up. "+
+			"Defaults to 10 seconds.")
+	leaderElectionRetryPeriod = flag.Duration("leader-election-retry-period", 5*time.Second,
+		"Duration in seconds, the LeaderElector clients should wait between tries of actions. "+
+			"Defaults to 5 seconds.")
 	printVersion  = flag.Bool("version", false, "Print syncer version and exit")
 	operationMode = flag.String("operation-mode", operationModeMetaDataSync,
 		"specify operation mode METADATA_SYNC or WEBHOOK_SERVER")
@@ -139,6 +149,10 @@ func main() {
 			if *leaderElectionNamespace != "" {
 				le.WithNamespace(*leaderElectionNamespace)
 			}
+
+			le.WithLeaseDuration(*leaderElectionLeaseDuration)
+			le.WithRenewDeadline(*leaderElectionRenewDeadline)
+			le.WithRetryPeriod(*leaderElectionRetryPeriod)
 
 			if err := le.Run(); err != nil {
 				log.Fatalf("Error initializing leader election: %v", err)
