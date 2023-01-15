@@ -776,8 +776,13 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	}
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
-	volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
-		c.manager, &createVolumeSpec, filteredDatastores,
+	vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+	if err != nil {
+		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get vCenter. Error: %+v", err)
+	}
+	volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, vc,
+		c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec, filteredDatastores,
 		filterSuspendedDatastores, isTKGSHAEnabled, checkCompatibleDataStores)
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,

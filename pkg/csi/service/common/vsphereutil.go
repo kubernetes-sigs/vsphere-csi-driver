@@ -195,7 +195,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 	}
 
 	if checkCompatibleDataStores {
-		fault, err := isDataStoreCompatible(ctx, manager, spec, datastores, datastoreObj)
+		fault, err := isDataStoreCompatible(ctx, vc, spec, datastores, datastoreObj)
 		if err != nil {
 			return nil, fault, err
 		}
@@ -431,17 +431,12 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 // CreateFileVolumeUtil is the helper function to create CNS file volume with
 // datastores.
 func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
-	manager *Manager, spec *CreateVolumeSpec, datastores []*vsphere.DatastoreInfo,
+	vc *vsphere.VirtualCenter, volumeManager cnsvolume.Manager, cnsConfig *config.Config, spec *CreateVolumeSpec,
+	datastores []*vsphere.DatastoreInfo,
 	filterSuspendedDatastores bool, useSupervisorId,
 	checkCompatibleDataStores bool) (string, string, error) {
 	log := logger.GetLogger(ctx)
-	vc, err := GetVCenter(ctx, manager)
-	if err != nil {
-		log.Errorf("failed to get vCenter from Manager, err: %+v", err)
-		// TODO: need to extract fault from err returned by GetVCenter.
-		// Currently, just return csi.fault.Internal.
-		return "", csifault.CSIInternalFault, err
-	}
+	var err error
 	if spec.ScParams.StoragePolicyName != "" {
 		// Get Storage Policy ID from Storage Policy Name.
 		spec.StoragePolicyID, err = vc.GetStoragePolicyIDByName(ctx, spec.ScParams.StoragePolicyName)
@@ -490,7 +485,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	for _, ds := range datastores {
 		dataStoreList = append(dataStoreList, ds.Reference())
 	}
-	fault, err := isDataStoreCompatible(ctx, manager, spec, dataStoreList, nil)
+	fault, err := isDataStoreCompatible(ctx, vc, spec, dataStoreList, nil)
 	if err != nil {
 		return "", fault, err
 	}
@@ -498,7 +493,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	// Retrieve net permissions from CnsConfig of manager and convert to required
 	// format.
 	netPerms := make([]vsanfstypes.VsanFileShareNetPermission, 0)
-	for _, netPerm := range manager.CnsConfig.NetPermissions {
+	for _, netPerm := range cnsConfig.NetPermissions {
 		netPerms = append(netPerms, vsanfstypes.VsanFileShareNetPermission{
 			Ips:         netPerm.Ips,
 			Permissions: netPerm.Permissions,
@@ -506,14 +501,14 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		})
 	}
 
-	clusterID := manager.CnsConfig.Global.ClusterID
+	clusterID := cnsConfig.Global.ClusterID
 	if useSupervisorId {
-		clusterID = manager.CnsConfig.Global.SupervisorID
+		clusterID = cnsConfig.Global.SupervisorID
 	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
 	containerCluster := vsphere.GetContainerCluster(clusterID,
-		manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
-		manager.CnsConfig.Global.ClusterDistribution)
+		cnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
+		cnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       spec.Name,
@@ -543,7 +538,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %q with create spec %+v", spec.Name, spew.Sdump(createSpec))
-	volumeInfo, faultType, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
+	volumeInfo, faultType, err := volumeManager.CreateVolume(ctx, createSpec)
 	if err != nil {
 		log.Errorf("failed to create file volume %q with error %+v faultType %q", spec.Name, err, faultType)
 		return "", faultType, err
@@ -1137,17 +1132,11 @@ func GetNodeVMsWithAccessToDatastore(ctx context.Context, vc *vsphere.VirtualCen
 	return accessibleNodes, nil
 }
 
-// isDataStoreCompatible validates if datastore is accesible from all nodes.
-func isDataStoreCompatible(ctx context.Context, manager *Manager, spec *CreateVolumeSpec,
+// isDataStoreCompatible validates if datastore is accessible from all nodes.
+func isDataStoreCompatible(ctx context.Context, vc *vsphere.VirtualCenter, spec *CreateVolumeSpec,
 	datastores []vim25types.ManagedObjectReference, datastoreObj *vsphere.Datastore) (string, error) {
 	log := logger.GetLogger(ctx)
 	if spec.StoragePolicyID != "" {
-		vc, err := GetVCenter(ctx, manager)
-		if err != nil {
-			log.Errorf("failed to get vCenter from Manager, err: %+v", err)
-			return csifault.CSIInternalFault, err
-		}
-
 		// Check storage policy compatibility.
 		var sharedDSMoRef []vim25types.ManagedObjectReference
 		for _, ds := range datastores {
