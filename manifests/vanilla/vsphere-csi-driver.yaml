@@ -244,7 +244,7 @@ spec:
       dnsPolicy: "Default"
       containers:
         - name: csi-attacher
-          image: k8s.gcr.io/sig-storage/csi-attacher:v4.0.0
+          image: k8s.gcr.io/sig-storage/csi-attacher:v4.1.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -259,7 +259,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-resizer
-          image: k8s.gcr.io/sig-storage/csi-resizer:v1.6.0
+          image: k8s.gcr.io/sig-storage/csi-resizer:v1.7.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -363,7 +363,7 @@ spec:
               name: vsphere-config-volume
               readOnly: true
         - name: csi-provisioner
-          image: k8s.gcr.io/sig-storage/csi-provisioner:v3.3.0
+          image: k8s.gcr.io/sig-storage/csi-provisioner:v3.4.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -382,7 +382,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-snapshotter
-          image: k8s.gcr.io/sig-storage/csi-snapshotter:v6.1.0
+          image: k8s.gcr.io/sig-storage/csi-snapshotter:v6.2.1
           args:
             - "--v=4"
             - "--kube-api-qps=100"
@@ -430,7 +430,7 @@ spec:
       dnsPolicy: "ClusterFirstWithHostNet"
       containers:
         - name: node-driver-registrar
-          image: k8s.gcr.io/sig-storage/csi-node-driver-registrar:v2.5.1
+          image: k8s.gcr.io/sig-storage/csi-node-driver-registrar:v2.7.0
           args:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
@@ -515,7 +515,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
         - name: liveness-probe
-          image: k8s.gcr.io/sig-storage/livenessprobe:v2.8.0
+          image: k8s.gcr.io/sig-storage/livenessprobe:v2.9.0
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"
@@ -577,7 +577,7 @@ spec:
       serviceAccountName: vsphere-csi-node
       containers:
         - name: node-driver-registrar
-          image: k8s.gcr.io/sig-storage/csi-node-driver-registrar:v2.5.1
+          image: k8s.gcr.io/sig-storage/csi-node-driver-registrar:v2.7.0
           args:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
@@ -657,7 +657,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
         - name: liveness-probe
-          image: k8s.gcr.io/sig-storage/livenessprobe:v2.8.0
+          image: k8s.gcr.io/sig-storage/livenessprobe:v2.9.0
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"
