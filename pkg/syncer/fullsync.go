@@ -281,7 +281,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		volumeInfoCRFullSync(ctx, k8sPVMap, vc)
 	}
 
-	cleanupCnsMaps(k8sPVMap)
+	cleanupCnsMaps(k8sPVMap, vc)
 	log.Debugf("FullSync for VC %s: cnsDeletionMap at end of cycle: %v", vc, cnsDeletionMap)
 	log.Debugf("FullSync for VC %s: cnsCreationMap at end of cycle: %v", vc, cnsCreationMap)
 	log.Infof("FullSync for VC %s: end", vc)
@@ -413,7 +413,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 			log.Debugf("FullSync for VC %s: volumeID %s does not exist in Kubernetes, "+
 				"no need to create volume in CNS", vc, volumeID)
 		}
-		delete(cnsCreationMap, volumeID)
+		delete(cnsCreationMap[vc], volumeID)
 	}
 
 }
@@ -466,7 +466,7 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 	// queryFilter.VolumeIds should be one which is not present in the k8s,
 	// but needs to be verified that it is not in use by any other k8s cluster.
 	if len(queryVolumeIds) == 0 {
-		log.Info("FullSync for VC %s: fullSyncDeleteVolumes could not find any volume "+
+		log.Infof("FullSync for VC %s: fullSyncDeleteVolumes could not find any volume "+
 			"which is not present in k8s and needs to be checked for volume deletion.", vc)
 		return
 	}
@@ -519,7 +519,7 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 			}
 			// Delete volume from cnsDeletionMap which is successfully deleted from
 			// CNS.
-			delete(cnsDeletionMap, volume.VolumeId.Id)
+			delete(cnsDeletionMap[vc], volume.VolumeId.Id)
 		}
 	}
 }
@@ -709,14 +709,14 @@ func fullSyncGetVolumeSpecs(ctx context.Context, vCenterVersion string, pvList [
 		}
 		if !presentInCNS {
 			// PV exist in K8S but not in CNS cache, need to create
-			if _, existsInCnsCreationMap := cnsCreationMap[volumeHandle]; existsInCnsCreationMap {
+			if _, existsInCnsCreationMap := cnsCreationMap[vc][volumeHandle]; existsInCnsCreationMap {
 				// Volume was present in cnsCreationMap across two full-sync cycles.
 				log.Infof("FullSync for VC %s: create is required for volume: %q", vc, volumeHandle)
 				operationType = "createVolume"
 			} else {
 				log.Infof("FullSync for VC %s: Volume with id: %q and name: %q is added "+
 					"to cnsCreationMap", vc, volumeHandle, pv.Name)
-				cnsCreationMap[volumeHandle] = true
+				cnsCreationMap[vc][volumeHandle] = true
 			}
 		} else {
 			// volume exist in K8S and CNS, Check if update is required.
@@ -866,7 +866,7 @@ func getVolumesToBeDeleted(ctx context.Context, cnsVolumeList []cnstypes.CnsVolu
 	}
 	for _, vol := range cnsVolumeList {
 		if _, existsInK8s := k8sPVMap[vol.VolumeId.Id]; !existsInK8s {
-			if _, existsInCnsDeletionMap := cnsDeletionMap[vol.VolumeId.Id]; existsInCnsDeletionMap {
+			if _, existsInCnsDeletionMap := cnsDeletionMap[vc][vol.VolumeId.Id]; existsInCnsDeletionMap {
 				// Volume does not exist in K8s across two fullsync cycles, because
 				// it was present in cnsDeletionMap across two full sync cycles.
 				// Add it to delete list.
@@ -878,14 +878,14 @@ func getVolumesToBeDeleted(ctx context.Context, cnsVolumeList []cnstypes.CnsVolu
 					// If migration is ON, verify if the volume is present in inlineVolumeMap.
 					if _, existsInInlineVolumeMap := inlineVolumeMap[vol.VolumeId.Id]; !existsInInlineVolumeMap {
 						log.Infof("FullSync for VC %s: Volume with id %q added to cnsDeletionMap", vc, vol.VolumeId.Id)
-						cnsDeletionMap[vol.VolumeId.Id] = true
+						cnsDeletionMap[vc][vol.VolumeId.Id] = true
 					} else {
 						log.Debugf("FullSync for VC %s: Inline migrated volume with id %s is in use. Skipping for deletion",
 							vc, vol.VolumeId.Id)
 					}
 				} else {
 					log.Debugf("FullSync for VC %s: Volume with id %s added to cnsDeletionMap", vc, vol.VolumeId.Id)
-					cnsDeletionMap[vol.VolumeId.Id] = true
+					cnsDeletionMap[vc][vol.VolumeId.Id] = true
 				}
 			}
 		}
@@ -993,18 +993,20 @@ func isUpdateRequired(ctx context.Context, vCenterVersion string, k8sMetadataLis
 // An entry could have been added to cnsCreationMap (or cnsDeletionMap),
 // because full sync was triggered in between the delete (or create)
 // operation of a volume.
-func cleanupCnsMaps(k8sPVs map[string]string) {
+func cleanupCnsMaps(k8sPVs map[string]string, vc string) {
 	// Cleanup cnsCreationMap.
-	for volID := range cnsCreationMap {
+	cnsCreationMapForVc := cnsCreationMap[vc]
+	for volID := range cnsCreationMapForVc {
 		if _, existsInK8s := k8sPVs[volID]; !existsInK8s {
-			delete(cnsCreationMap, volID)
+			delete(cnsCreationMap[vc], volID)
 		}
 	}
 	// Cleanup cnsDeletionMap.
-	for volID := range cnsDeletionMap {
+	cnsDeletionMapForVc := cnsDeletionMap[vc]
+	for volID := range cnsDeletionMapForVc {
 		if _, existsInK8s := k8sPVs[volID]; existsInK8s {
 			// Delete volume from cnsDeletionMap which is present in kubernetes.
-			delete(cnsDeletionMap, volID)
+			delete(cnsDeletionMap[vc], volID)
 		}
 	}
 }

@@ -215,6 +215,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 	}
 
+	// Initialize cnsDeletionMap used by Full Sync.
+	cnsDeletionMap = make(map[string]map[string]bool)
+	// Initialize cnsCreationMap used by Full Sync.
+	cnsCreationMap = make(map[string]map[string]bool)
+
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Initialize client to supervisor cluster, if metadata syncer is being
 		// initialized for guest clusters.
@@ -240,6 +245,10 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			return err
 		}
 		metadataSyncer.host = vCenter.Config.Host
+
+		cnsDeletionMap[metadataSyncer.host] = make(map[string]bool)
+		cnsCreationMap[metadataSyncer.host] = make(map[string]bool)
+
 		volumeManager, err := volumes.GetManager(ctx, vCenter, nil,
 			false, false, false,
 			metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ListViewPerf))
@@ -272,6 +281,10 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				return err
 			}
 			metadataSyncer.host = vCenter.Config.Host
+
+			cnsDeletionMap[metadataSyncer.host] = make(map[string]bool)
+			cnsCreationMap[metadataSyncer.host] = make(map[string]bool)
+
 			volumeManager, err := volumes.GetManager(ctx, vCenter, nil, false, false, false, tasksListViewEnabled)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
@@ -301,6 +314,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				}
 
 				metadataSyncer.volumeManagers[vcconfig.Host] = volumeManager
+				cnsDeletionMap[vcconfig.Host] = make(map[string]bool)
+				cnsCreationMap[vcconfig.Host] = make(map[string]bool)
 			}
 			// If it is a multi VC deployment, initialize volumeInfoService
 			if len(vcconfigs) > 1 && volumeInfoService == nil {
@@ -323,11 +338,6 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 		}
 	}
-
-	// Initialize cnsDeletionMap used by Full Sync.
-	cnsDeletionMap = make(map[string]bool)
-	// Initialize cnsCreationMap used by Full Sync.
-	cnsCreationMap = make(map[string]bool)
 
 	cfgPath := common.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()

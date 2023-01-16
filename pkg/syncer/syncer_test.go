@@ -651,7 +651,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: gbInMb},
 		},
 	}
-	cnsCreationMap = make(map[string]bool)
+	cnsCreationMap = make(map[string]map[string]bool)
+	cnsCreationMap[csiConfig.Global.VCenterIP] = make(map[string]bool)
 
 	volumeInfo, _, err := volumeManager.CreateVolume(ctx, &createSpec)
 	if err != nil {
@@ -678,7 +679,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volumeInfo.VolumeID.Id {
 		t.Fatalf("failed to find the newly created volume with ID: %s", volumeInfo.VolumeID.Id)
 	}
-	cnsDeletionMap = make(map[string]bool)
+	cnsDeletionMap = make(map[string]map[string]bool)
+	cnsDeletionMap[csiConfig.Global.VCenterIP] = make(map[string]bool)
 	// PV does not exist in K8S, but volume exist in CNS cache.
 	// FullSync should delete this volume from CNS cache after two cycles.
 	waitForListerSync()
