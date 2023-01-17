@@ -159,7 +159,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		}
 		vc, err := common.GetVCenter(ctx, c.manager)
 		if err != nil {
-			log.Errorf("failed to get vcenter. err=%v", err)
+			log.Errorf("failed to get the vcenter. err=%v", err)
 			return err
 		}
 		// Check vCenter API Version
