@@ -21,6 +21,7 @@
 set -o errexit
 set -o nounset
 set -o pipefail
+set -x
 
 DO_WINDOWS_BUILD=${DO_WINDOWS_BUILD_ENV:-true}
 
@@ -60,8 +61,8 @@ GOLANG_IMAGE=${CUSTOM_REPO_FOR_GOLANG:-}golang:1.19
 
 ARCH=amd64
 OSVERSION=1809
-# OS Version for the Windows images: 1809, 1903, 1909 2004, 20H2, ltsc2022
-OSVERSION_WIN=(1809 1903 1909 2004 20H2 ltsc2022)
+# OS Version for the Windows images: 1809, 20H2, ltsc2022
+OSVERSION_WIN=(1809 20H2 ltsc2022)
 # The output type could either be docker (local), or registry.
 # If it is registry, it will also allow us to push the Windows images.
 WINDOWS_IMAGE_OUTPUT="type=tar,dest=.build/windows-driver.tar"
@@ -125,7 +126,7 @@ function fatal() {
 
 
 function build_driver_images_windows() {
-  docker buildx use vsphere-csi-builder-win || docker buildx create --name vsphere-csi-builder-win --platform windows/amd64 --use
+  docker buildx use vsphere-csi-builder-win || docker buildx create --driver-opt image=moby/buildkit:v0.10.6 --name vsphere-csi-builder-win --platform windows/amd64 --use
   echo "building ${CSI_IMAGE_NAME}:${VERSION} for windows"
   # some registry do not allow uppercase tags
   osv=$(lcase ${OSVERSION})
