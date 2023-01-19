@@ -45,8 +45,8 @@ import (
 // 256 disk statefulset poll timeouts
 const (
 	StatefulSetPollFor256DiskSupport    = 10 * time.Second
-	StatefulSetTimeoutFor256DiskSupport = 120 * time.Minute
-	StatefulPodTimeoutFor256DiskSupport = 180 * time.Minute
+	StatefulSetTimeoutFor256DiskSupport = 150 * time.Minute
+	StatefulPodTimeoutFor256DiskSupport = 220 * time.Minute
 )
 
 var statefulPodRegex = regexp.MustCompile("(.*)-([0-9]+)$")
