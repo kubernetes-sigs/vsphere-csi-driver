@@ -72,10 +72,6 @@ type Config struct {
 		// ListVolumeThreshold specifies the maximum number of differences in volume that can exist between CNS
 		// and kubernetes
 		ListVolumeThreshold int `gcfg:"list-volume-threshold"`
-
-		// MigrationDataStore specifies datastore which is set as default datastore in legacy cloud-config
-		// and hence should be used as default datastore.
-		MigrationDataStore string `gcfg:"migration-datastore"`
 	}
 
 	// Multiple sets of Net Permissions applied to all file shares
@@ -152,6 +148,9 @@ type VirtualCenterConfig struct {
 	TargetvSANFileShareDatastoreURLs string `gcfg:"targetvSANFileShareDatastoreURLs"`
 	// TargetvSANFileShareClusters represents file service enabled vSAN clusters on which file volumes can be created.
 	TargetvSANFileShareClusters string `gcfg:"targetvSANFileShareClusters"`
+	// MigrationDataStore specifies datastore which is set as default datastore in legacy cloud-config
+	// and hence should be used as default datastore.
+	MigrationDataStoreURL string `gcfg:"migration-datastore-url"`
 }
 
 // GCConfig contains information used by guest cluster to access a supervisor

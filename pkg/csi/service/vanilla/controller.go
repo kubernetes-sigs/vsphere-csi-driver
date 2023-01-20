@@ -704,6 +704,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
 			"parsing storage class parameters failed with error: %+v", err)
 	}
+
 	if csiMigrationFeatureState && scParams.CSIMigration == "true" {
 		if len(scParams.Datastore) != 0 {
 			log.Infof("Converting datastore name: %q to Datastore URL", scParams.Datastore)
@@ -747,6 +748,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to find datastoreURL for datastore name: %q", scParams.Datastore)
 			}
+		} else if c.manager.VcenterConfig.MigrationDataStoreURL != "" {
+			scParams.DatastoreURL = c.manager.VcenterConfig.MigrationDataStoreURL
 		}
 	}
 
