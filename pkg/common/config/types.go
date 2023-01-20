@@ -72,6 +72,10 @@ type Config struct {
 		// ListVolumeThreshold specifies the maximum number of differences in volume that can exist between CNS
 		// and kubernetes
 		ListVolumeThreshold int `gcfg:"list-volume-threshold"`
+
+		// MigrationDataStore specifies datastore which is set as default datastore in legacy cloud-config
+		// and hence should be used as default datastore.
+		MigrationDataStore string `gcfg:"migration-datastore"`
 	}
 
 	// Multiple sets of Net Permissions applied to all file shares
