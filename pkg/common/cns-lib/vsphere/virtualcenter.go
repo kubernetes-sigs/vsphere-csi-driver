@@ -131,6 +131,9 @@ type VirtualCenterConfig struct {
 	// ListVolumeThreshold specifies the maximum number of differences in volume that
 	// can exist between CNS and kubernetes
 	ListVolumeThreshold int
+	// MigrationDataStore specifies datastore which is set as default datastore in legacy cloud-config
+	// and hence should be used as default datastore.
+	MigrationDataStoreURL string
 }
 
 // clientMutex is used for exclusive connection creation.

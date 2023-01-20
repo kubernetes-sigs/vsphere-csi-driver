@@ -212,6 +212,7 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 		VCClientTimeout:                  vcClientTimeout,
 		QueryLimit:                       cfg.Global.QueryLimit,
 		ListVolumeThreshold:              cfg.Global.ListVolumeThreshold,
+		MigrationDataStoreURL:            cfg.VirtualCenter[host].MigrationDataStoreURL,
 	}
 
 	log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
