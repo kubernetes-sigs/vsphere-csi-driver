@@ -264,7 +264,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
 			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
-		expectedErrMsg := "NFS fstype not supported for ReadWriteOnce volume creation"
+		expectedErrMsg := "fstype nfs4 not supported for ReadWriteOnce volume creation"
 		ginkgo.By(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
 		isFailureFound := checkEventsforError(client, namespace,
 			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)

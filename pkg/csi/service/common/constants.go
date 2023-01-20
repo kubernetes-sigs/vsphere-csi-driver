@@ -79,6 +79,12 @@ const (
 	// Ext4FsType represents the default filesystem type for block volume.
 	Ext4FsType = "ext4"
 
+	// Ext3FsType represents the ext3 filesystem type for block volume.
+	Ext3FsType = "ext3"
+
+	// XFSType represents the xfs filesystem type for block volume.
+	XFSType = "xfs"
+
 	// NfsV4FsType represents nfs4 mount type.
 	NfsV4FsType = "nfs4"
 
