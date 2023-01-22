@@ -73,12 +73,12 @@ var (
 	// cnsDeletionMap tracks volumes that exist in CNS but not in K8s
 	// If a volume exists in this map across two fullsync cycles,
 	// the volume is deleted from CNS
-	cnsDeletionMap map[string]bool
+	cnsDeletionMap map[string]map[string]bool
 
 	// cnsCreationMap tracks volumes that exist in K8s but not in CNS
 	// If a volume exists in this map across two fullsync cycles,
 	// the volume is created in CNS
-	cnsCreationMap map[string]bool
+	cnsCreationMap map[string]map[string]bool
 
 	// Metadata syncer and full sync share a global lock
 	// to mitigate race conditions related to
