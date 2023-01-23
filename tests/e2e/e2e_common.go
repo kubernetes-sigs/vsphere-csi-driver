@@ -29,7 +29,6 @@ import (
 
 const (
 	adminUser                                  = "Administrator@vsphere.local"
-	adminPassword                              = "Admin!23"
 	apiServerIPs                               = "API_SERVER_IPS"
 	attacherContainerName                      = "csi-attacher"
 	busyBoxImageOnGcr                          = "harbor-repo.vmware.com/csi/busybox:1.35"
@@ -94,7 +93,6 @@ const (
 	envVmdkDiskURL                             = "DISK_URL_PATH"
 	envVolumeOperationsScale                   = "VOLUME_OPS_SCALE"
 	envComputeClusterName                      = "COMPUTE_CLUSTER_NAME"
-	esxPassword                                = "ca$hc0w"
 	execCommand                                = "/bin/df -T /mnt/volume1 | " +
 		"/bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
 	execRWXCommandPod1 = "echo 'Hello message from Pod1' > /mnt/volume1/Pod1.html  && " +
@@ -118,7 +116,6 @@ const (
 	invalidFSType                             = "ext10"
 	k8sPodTerminationTimeOut                  = 7 * time.Minute
 	k8sPodTerminationTimeOutLong              = 10 * time.Minute
-	k8sVmPasswd                               = "C$!Fvt#8"
 	kcmManifest                               = "/etc/kubernetes/manifests/kube-controller-manager.yaml"
 	kubeAPIPath                               = "/etc/kubernetes/manifests/"
 	kubeAPIfile                               = "kube-apiserver.yaml"
@@ -261,6 +258,13 @@ var (
 // CSI Internal FSSs
 var (
 	useCsiNodeID = "use-csinode-id"
+)
+
+// Nimbus generated passwords
+var (
+	nimbusK8sVmPwd = "NIMBUS_PWD"
+	nimbusEsxPwd   = "NIMBUS_PWD"
+	nimbusVcPwd    = "NIMBUS_PWD"
 )
 
 // volume allocation types for cns volumes

@@ -3376,8 +3376,9 @@ func queryVsanObj(ctx context.Context, vs *vSphere, vsanObjuuid string) string {
 // hostLogin methods sets the ESX host password.
 func hostLogin(user, instruction string, questions []string, echos []bool) (answers []string, err error) {
 	answers = make([]string, len(questions))
+	nimbusGeneratedEsxPwd := GetAndExpectStringEnvVar(nimbusEsxPwd)
 	for n := range questions {
-		answers[n] = esxPassword
+		answers[n] = nimbusGeneratedEsxPwd
 	}
 	return answers, nil
 }
@@ -3769,13 +3770,14 @@ func getK8sMasterIPs(ctx context.Context, client clientset.Interface) []string {
 // kube-controller-manager.
 func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 	client clientset.Interface, add bool) error {
-
+	nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 	v, err := client.Discovery().ServerVersion()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	v1, err := version.NewVersion(v.GitVersion)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	v2, err := version.NewVersion("v1.25.0")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	if v1.LessThan(v2) {
 		sshCmd := ""
 		if !vanillaCluster {
@@ -3796,7 +3798,7 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 			sshClientConfig := &ssh.ClientConfig{
 				User: "root",
 				Auth: []ssh.AuthMethod{
-					ssh.Password(k8sVmPasswd),
+					ssh.Password(nimbusGeneratedK8sVmPwd),
 				},
 				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 			}
@@ -4278,10 +4280,11 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 	client clientset.Interface, nodeIP string, shouldAdd bool) {
 	grepCmd := "grep CSIMigration " + kubeletConfigYaml
 	framework.Logf("Invoking command '%v' on host %v", grepCmd, nodeIP)
+	nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 	sshClientConfig := &ssh.ClientConfig{
 		User: "root",
 		Auth: []ssh.AuthMethod{
-			ssh.Password(k8sVmPasswd),
+			ssh.Password(nimbusGeneratedK8sVmPwd),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
@@ -5936,8 +5939,9 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 func createVcSession4RestApis() string {
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
 	vcAddress := vcIp + ":" + sshdPort
+	nimbusGeneratedVcPwd := GetAndExpectStringEnvVar(nimbusVcPwd)
 	curlCmd := fmt.Sprintf("curl -k -X POST https://%s/rest/com/vmware/cis/session"+
-		" -u 'Administrator@vsphere.local:%s'", vcIp, adminPassword)
+		" -u 'Administrator@vsphere.local:%s'", vcIp, nimbusGeneratedVcPwd)
 	framework.Logf("Running command: %s", curlCmd)
 	result, err := fssh.SSH(curlCmd, vcAddress, framework.TestContext.Provider)
 	fssh.LogResult(result)

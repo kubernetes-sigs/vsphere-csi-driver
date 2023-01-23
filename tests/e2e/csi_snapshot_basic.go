@@ -50,16 +50,17 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 	f := framework.NewDefaultFramework("volume-snapshot")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client              clientset.Interface
-		c                   clientset.Interface
-		namespace           string
-		scParameters        map[string]string
-		datastoreURL        string
-		pandoraSyncWaitTime int
-		pvclaims            []*v1.PersistentVolumeClaim
-		volumeOpsScale      int
-		restConfig          *restclient.Config
-		snapc               *snapclient.Clientset
+		client                  clientset.Interface
+		c                       clientset.Interface
+		namespace               string
+		scParameters            map[string]string
+		datastoreURL            string
+		pandoraSyncWaitTime     int
+		pvclaims                []*v1.PersistentVolumeClaim
+		volumeOpsScale          int
+		restConfig              *restclient.Config
+		snapc                   *snapclient.Clientset
+		nimbusGeneratedK8sVmPwd string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -104,6 +105,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			c = remoteC
 		}
+		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 	})
 
 	/*
@@ -4257,7 +4259,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		sshClientConfig := &ssh.ClientConfig{
 			User: "root",
 			Auth: []ssh.AuthMethod{
-				ssh.Password(k8sVmPasswd),
+				ssh.Password(nimbusGeneratedK8sVmPwd),
 			},
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
