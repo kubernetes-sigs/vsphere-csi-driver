@@ -229,7 +229,7 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 		// we want to immediately return a fault for all the pending tasks in the map
 		// note: this is not a task error but an error from the vc
 		if err != nil {
-			log.Errorf("WaitForUpdates returned err: %v for vc: %+v", err, l.virtualCenter)
+			log.Errorf("waitForUpdates returned err: %v for vc: %+v", err, l.virtualCenter)
 			recreateView = true
 			l.reportErrorOnAllPendingTasks(err)
 		}
@@ -286,7 +286,7 @@ func RemoveTasksMarkedForDeletion(l *ListViewImpl) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	log := logger.GetLogger(ctx)
 	if l.listView == nil {
-		log.Errorf("ListView is empty. Will attempt to remove invalid tasks in next attempt. ")
+		log.Errorf("tasks ListView is empty. Will attempt to remove invalid tasks in next attempt. ")
 		return
 	}
 	log.Debugf("pending tasks count before purging: %v", l.taskMap.Count())

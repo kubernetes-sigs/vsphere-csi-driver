@@ -144,7 +144,7 @@ func (m *defaultManager) DiscoverNode(ctx context.Context, nodeUUID string) erro
 	log := logger.GetLogger(ctx)
 	vm, err := vsphere.GetVirtualMachineByUUID(ctx, nodeUUID, false)
 	if err != nil {
-		log.Errorf("Couldn't find VM instance with nodeUUID %s, failed to discover with err: %v", nodeUUID, err)
+		log.Errorf("couldn't find VM instance with nodeUUID %s, failed to discover with err: %v", nodeUUID, err)
 		return err
 	}
 	m.nodeVMs.Store(nodeUUID, vm)
@@ -158,7 +158,7 @@ func (m *defaultManager) GetNodeByName(ctx context.Context, nodeName string) (*v
 	log := logger.GetLogger(ctx)
 	nodeUUID, found := m.nodeNameToUUID.Load(nodeName)
 	if !found {
-		log.Errorf("Node not found with nodeName %s", nodeName)
+		log.Errorf("node not found with nodeName %s", nodeName)
 		return nil, ErrNodeNotFound
 	}
 	if nodeUUID != nil && nodeUUID.(string) != "" {
@@ -263,7 +263,7 @@ func (m *defaultManager) GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMac
 				return true
 			}
 			if k8snodeUUID == "" {
-				log.Errorf("Node: %q with empty node UUID found in the cluster. "+
+				log.Errorf("node: %q with empty node UUID found in the cluster. "+
 					"aborting get all nodes", nodeName)
 				return true
 			}
@@ -330,7 +330,7 @@ func (m *defaultManager) GetAllNodesByVC(ctx context.Context, vcHost string) ([]
 				return true
 			}
 			if k8snodeUUID == "" {
-				log.Errorf("Node: %q with empty node UUID found in the cluster. "+
+				log.Errorf("node: %q with empty node UUID found in the cluster. "+
 					"aborting get all nodes", nodeName)
 				return true
 			}
@@ -388,7 +388,7 @@ func (m *defaultManager) UnregisterNode(ctx context.Context, nodeName string) er
 	log := logger.GetLogger(ctx)
 	nodeUUID, found := m.nodeNameToUUID.Load(nodeName)
 	if !found {
-		log.Errorf("Node wasn't found, failed to unregister node: %q  err: %v", nodeName)
+		log.Errorf("node wasn't found, failed to unregister node: %q  err: %v", nodeName)
 		return ErrNodeNotFound
 	}
 	m.nodeNameToUUID.Delete(nodeName)

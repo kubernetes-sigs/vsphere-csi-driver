@@ -43,7 +43,7 @@ func (nodes *Nodes) Initialize(ctx context.Context, useNodeUuid bool) error {
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
 		log := logger.GetLogger(ctx)
-		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
+		log.Errorf("creating Kubernetes client failed. Err: %v", err)
 		return err
 	}
 	nodes.cnsNodeManager.SetKubernetesClient(k8sclient)

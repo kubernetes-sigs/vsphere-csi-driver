@@ -337,7 +337,7 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 		log.Infof("Calling QueryVolumeInfo using: %v", volumeIds)
 		queryVolumeInfoResult, err := (*volumeMigration.volumeManager).QueryVolumeInfo(ctx, volumeIds)
 		if err != nil {
-			log.Errorf("QueryVolumeInfo failed for volumeID: %s, err: %v", volumeID, err)
+			log.Errorf("queryVolumeInfo failed for volumeID: %s, err: %v", volumeID, err)
 			return "", err
 		}
 		log.Debugf("QueryVolumeInfo successfully returned volumeInfo %v for volumeIDList %v:",

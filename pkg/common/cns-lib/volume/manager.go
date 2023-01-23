@@ -791,7 +791,7 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 		// Set up the VC connection.
 		err = m.virtualCenter.ConnectCns(ctx)
 		if err != nil {
-			log.Errorf("ConnectCns failed with err: %+v", err)
+			log.Errorf("observed a failure in ConnectCns method with err: %+v", err)
 			faultType = ExtractFaultTypeFromErr(ctx, err)
 			return "", faultType, err
 		}
@@ -807,7 +807,7 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 		// Call the CNS AttachVolume.
 		task, err := m.virtualCenter.CnsClient.AttachVolume(ctx, cnsAttachSpecList)
 		if err != nil {
-			log.Errorf("CNS AttachVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			log.Errorf("observed CNS AttachVolume failure in vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			faultType = ExtractFaultTypeFromErr(ctx, err)
 			return "", faultType, err
 		}
@@ -897,7 +897,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 		// Set up the VC connection.
 		err = m.virtualCenter.ConnectCns(ctx)
 		if err != nil {
-			log.Errorf("ConnectCns failed with err: %+v", err)
+			log.Errorf("observed a failure in ConnectCns with err: %+v", err)
 			faultType = ExtractFaultTypeFromErr(ctx, err)
 			return faultType, err
 		}
@@ -927,7 +927,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 				log.Infof("VolumeID: %q, not found. Checking whether the volume is already detached", volumeID)
 				diskUUID, err := IsDiskAttached(ctx, vm, volumeID, false)
 				if err != nil {
-					log.Errorf("DetachVolume err: %+v. Unable to check if volume: %q is already detached from vm: %+v",
+					log.Errorf("error in DetachVolume: %+v. Unable to check if volume: %q is already detached from vm: %+v",
 						err, volumeID, vm)
 					return faultType, err
 				}
@@ -992,7 +992,7 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 						volumeID)
 					diskUUID, err := IsDiskAttached(ctx, vm, volumeID, false)
 					if err != nil {
-						log.Errorf("DetachVolume fault: %+v. Unable to check if volume: %q is already detached from vm: %+v",
+						log.Errorf("fault in DetachVolume: %+v. Unable to check if volume: %q is already detached from vm: %+v",
 							spew.Sdump(volumeOperationRes.Fault), volumeID, vm)
 						return faultType, err
 					}
@@ -1039,7 +1039,7 @@ func (m *defaultManager) DeleteVolume(ctx context.Context, volumeID string, dele
 		err = m.virtualCenter.ConnectCns(ctx)
 		if err != nil {
 			faultType = ExtractFaultTypeFromErr(ctx, err)
-			log.Errorf("ConnectCns failed with err: %+v", err)
+			log.Errorf("observed a failure in ConnectCns with err: %+v", err)
 			return faultType, err
 		}
 		if m.idempotencyHandlingEnabled {
@@ -1080,7 +1080,7 @@ func (m *defaultManager) deleteVolume(ctx context.Context, volumeID string, dele
 			log.Infof("VolumeID: %q, not found, thus returning success", volumeID)
 			return "", nil
 		}
-		log.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		log.Errorf("observed CNS DeleteVolume failure in the vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return faultType, err
 	}
 	// Get the taskInfo.

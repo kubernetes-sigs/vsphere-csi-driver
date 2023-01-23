@@ -173,7 +173,7 @@ func (c *defaultCache) Store(ctx context.Context, nodeUUID, nodeName string) err
 	prevNameForUUID, prevNameExistsForUUID := c.uuidsToNames[nodeUUID]
 	prevUUIDForName, prevUUIDExistsForName := c.namesToUUIDs[nodeName]
 	if prevNameExistsForUUID && prevUUIDExistsForName && prevUUIDForName != nodeUUID {
-		log.Errorf("Another node with the same name %s exists with nodeUUID %s and prevUUIDForName %s",
+		log.Errorf("another node with the same name %s exists with nodeUUID %s and prevUUIDForName %s",
 			nodeName, nodeUUID, prevUUIDForName)
 		return ErrNodeAlreadyExists
 	}

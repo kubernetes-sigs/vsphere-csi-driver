@@ -88,7 +88,7 @@ func main() {
 	// Set CO agnostic init params.
 	clusterFlavor, err := config.GetClusterFlavor(ctx)
 	if err != nil {
-		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
+		log.Errorf("failed retrieving cluster flavor. Error: %v", err)
 	}
 	commonco.SetInitParams(ctx, clusterFlavor, &syncer.COInitParams, *supervisorFSSName, *supervisorFSSNamespace,
 		*internalFSSName, *internalFSSNamespace, "")
@@ -174,7 +174,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		log := logger.GetLogger(ctx)
 
 		if err := manager.InitCommonModules(ctx, clusterFlavor, coInitParams); err != nil {
-			log.Errorf("Error initializing common modules for all flavors. Error: %+v", err)
+			log.Errorf("error initializing common modules for all flavors. Error: %+v", err)
 			os.Exit(1)
 		}
 		var configInfo *config.ConfigurationInfo
@@ -198,7 +198,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 			go func() {
 				if err := storagepool.InitStoragePoolService(ctx, configInfo, coInitParams); err != nil {
-					log.Errorf("Error initializing StoragePool Service. Error: %+v", err)
+					log.Errorf("error initializing StoragePool Service. Error: %+v", err)
 					os.Exit(1)
 				}
 			}()
@@ -219,12 +219,12 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		}
 		go func() {
 			if err := manager.InitCnsOperator(ctx, clusterFlavor, configInfo, coInitParams); err != nil {
-				log.Errorf("Error initializing Cns Operator. Error: %+v", err)
+				log.Errorf("error initializing Cns Operator. Error: %+v", err)
 				os.Exit(1)
 			}
 		}()
 		if err := syncer.InitMetadataSyncer(ctx, clusterFlavor, configInfo); err != nil {
-			log.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
+			log.Errorf("error initializing Metadata Syncer. Error: %+v", err)
 			os.Exit(1)
 		}
 	}
