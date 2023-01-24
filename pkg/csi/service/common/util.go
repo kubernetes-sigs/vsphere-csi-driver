@@ -163,25 +163,6 @@ func IsFileVolumeRequest(ctx context.Context, capabilities []*csi.VolumeCapabili
 	return false
 }
 
-// GetVolumeCapabilityFsType retrieves fstype from VolumeCapability.
-// Defaults to nfs4 for file volume and ext4 for block volume when empty string
-// is observed. This function also ignores default ext4 fstype supplied by
-// external-provisioner when none is specified in the StorageClass
-func GetVolumeCapabilityFsType(ctx context.Context, capability *csi.VolumeCapability) string {
-	log := logger.GetLogger(ctx)
-	fsType := strings.ToLower(capability.GetMount().GetFsType())
-	log.Debugf("FsType received from Volume Capability: %q", fsType)
-	isFileVolume := IsFileVolumeRequest(ctx, []*csi.VolumeCapability{capability})
-	if isFileVolume && (fsType == "" || fsType == "ext4") {
-		log.Infof("empty string or ext4 fstype observed for file volume. Defaulting to: %s", NfsV4FsType)
-		fsType = NfsV4FsType
-	} else if !isFileVolume && fsType == "" {
-		log.Infof("empty string fstype observed for block volume. Defaulting to: %s", Ext4FsType)
-		fsType = Ext4FsType
-	}
-	return fsType
-}
-
 // IsVolumeReadOnly checks the access mode in Volume Capability and decides
 // if volume is readonly or not.
 func IsVolumeReadOnly(capability *csi.VolumeCapability) bool {
@@ -211,10 +192,31 @@ func validateVolumeCapabilities(volCaps []*csi.VolumeCapability,
 			return fmt.Errorf("%s access mode is not supported for %q volumes",
 				csi.VolumeCapability_AccessMode_Mode_name[int32(volCap.AccessMode.GetMode())], volumeType)
 		}
+
 		if volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER {
-			if volCap.GetMount() != nil && (volCap.GetMount().FsType == NfsV4FsType ||
-				volCap.GetMount().FsType == NfsFsType) {
-				return fmt.Errorf("NFS fstype not supported for ReadWriteOnce volume creation")
+			// For ReadWriteOnce access mode we only support following filesystems:
+			// ext3, ext4, xfs for Linux and ntfs for Windows.
+			if volCap.GetMount() != nil && !(volCap.GetMount().FsType == Ext4FsType ||
+				volCap.GetMount().FsType == Ext3FsType || volCap.GetMount().FsType == XFSType ||
+				volCap.GetMount().FsType == NTFSFsType || volCap.GetMount().FsType == "") {
+				return fmt.Errorf("fstype %s not supported for ReadWriteOnce volume creation",
+					volCap.GetMount().FsType)
+			}
+		} else if volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY ||
+			volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER ||
+			volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER {
+			// For ReadWriteMany or ReadOnlyMany access modes we only support nfs or nfs4 filesystem.
+			// external-provisioner sets default fstype as ext4 when none is specified in StorageClass,
+			// but we overwrite it to nfs4 while mounting the volume.
+			if volCap.GetMount() != nil && !(volCap.GetMount().FsType == NfsV4FsType ||
+				volCap.GetMount().FsType == NfsFsType || volCap.GetMount().FsType == Ext4FsType ||
+				volCap.GetMount().FsType == "") {
+				return fmt.Errorf("fstype %s not supported for ReadWriteMany or ReadOnlyMany volume creation",
+					volCap.GetMount().FsType)
+			} else if volCap.GetBlock() != nil {
+				// Raw Block volumes are not supported with ReadWriteMany or ReadOnlyMany access modes,
+				return fmt.Errorf("block volume mode is not supported for ReadWriteMany or ReadOnlyMany " +
+					"volume creation")
 			}
 		}
 	}

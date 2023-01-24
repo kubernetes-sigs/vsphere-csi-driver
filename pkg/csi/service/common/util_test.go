@@ -138,6 +138,36 @@ func TestValidVolumeCapabilitiesForBlock(t *testing.T) {
 	if err := IsValidVolumeCapabilities(ctx, volCap); err != nil {
 		t.Errorf("Block VolCap = %+v failed validation!", volCap)
 	}
+	// fstype=xfs and mode=SINGLE_NODE_WRITER
+	volCap = []*csi.VolumeCapability{
+		{
+			AccessType: &csi.VolumeCapability_Mount{
+				Mount: &csi.VolumeCapability_MountVolume{
+					FsType: "xfs",
+				},
+			},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	if err := IsValidVolumeCapabilities(ctx, volCap); err != nil {
+		t.Errorf("Block VolCap = %+v failed validation!", volCap)
+	}
+	// volumeMode=block and accessMode=SINGLE_NODE_WRITER
+	volCap = []*csi.VolumeCapability{
+		{
+			AccessType: &csi.VolumeCapability_Block{
+				Block: &csi.VolumeCapability_BlockVolume{},
+			},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	if err := IsValidVolumeCapabilities(ctx, volCap); err != nil {
+		t.Errorf("Block VolCap = %+v failed validation!", volCap)
+	}
 }
 
 func TestInvalidVolumeCapabilitiesForBlock(t *testing.T) {
@@ -194,7 +224,22 @@ func TestValidVolumeCapabilitiesForFile(t *testing.T) {
 		t.Errorf("File VolCap = %+v failed validation!", volCap)
 	}
 
-	// fstype=nfsv4 and mode=MULTI_NODE_READER_ONLY
+	// fstype=empty and mode=MULTI_NODE_MULTI_WRITER
+	volCap = []*csi.VolumeCapability{
+		{
+			AccessType: &csi.VolumeCapability_Mount{
+				Mount: &csi.VolumeCapability_MountVolume{},
+			},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+			},
+		},
+	}
+	if err := IsValidVolumeCapabilities(ctx, volCap); err != nil {
+		t.Errorf("File VolCap = %+v failed validation!", volCap)
+	}
+
+	// fstype=nfs and mode=MULTI_NODE_READER_ONLY
 	volCap = []*csi.VolumeCapability{
 		{
 			AccessType: &csi.VolumeCapability_Mount{
@@ -230,16 +275,16 @@ func TestValidVolumeCapabilitiesForFile(t *testing.T) {
 }
 
 func TestInvalidVolumeCapabilitiesForFile(t *testing.T) {
-	// Invalid case: fstype=nfs4 and mode=SINGLE_NODE_WRITER
+	// Invalid case: fstype=xfs and mode=MULTI_NODE_MULTI_WRITER
 	volCap := []*csi.VolumeCapability{
 		{
 			AccessType: &csi.VolumeCapability_Mount{
 				Mount: &csi.VolumeCapability_MountVolume{
-					FsType: "nfs4",
+					FsType: "xfs",
 				},
 			},
 			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
 			},
 		},
 	}
@@ -247,16 +292,14 @@ func TestInvalidVolumeCapabilitiesForFile(t *testing.T) {
 		t.Errorf("Invalid file VolCap = %+v passed validation!", volCap)
 	}
 
-	// Invalid case: fstype=nfs and mode=SINGLE_NODE_WRITER
+	// Invalid case: volumeMode=block and accessMode=MULTI_NODE_MULTI_WRITER
 	volCap = []*csi.VolumeCapability{
 		{
-			AccessType: &csi.VolumeCapability_Mount{
-				Mount: &csi.VolumeCapability_MountVolume{
-					FsType: "nfs",
-				},
+			AccessType: &csi.VolumeCapability_Block{
+				Block: &csi.VolumeCapability_BlockVolume{},
 			},
 			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
 			},
 		},
 	}

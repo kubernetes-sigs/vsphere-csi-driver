@@ -87,7 +87,7 @@ func (driver *vsphereCSIDriver) NodeStageVolume(
 		// Mount Volume.
 		// Extract mount volume details.
 		log.Debug("NodeStageVolume: Volume detected as a mount volume")
-		params.FsType, params.MntFlags, err = driver.osUtils.EnsureMountVol(ctx, log, volCap)
+		params.FsType, params.MntFlags, err = driver.osUtils.EnsureMountVol(ctx, volCap)
 		if err != nil {
 			return nil, err
 		}

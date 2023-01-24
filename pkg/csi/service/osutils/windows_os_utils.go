@@ -364,19 +364,30 @@ func (osUtils *OsUtils) IsTargetInMounts(ctx context.Context, path string) (bool
 // Defaults to nfs4 for file volume and ntfs for block volume when empty string
 // is observed. This function also ignores default ext4 fstype supplied by
 // external-provisioner when none is specified in the StorageClass
-func (osUtils *OsUtils) GetVolumeCapabilityFsType(ctx context.Context, capability *csi.VolumeCapability) string {
+func (osUtils *OsUtils) GetVolumeCapabilityFsType(ctx context.Context,
+	capability *csi.VolumeCapability) (string, error) {
 	log := logger.GetLogger(ctx)
 	fsType := strings.ToLower(capability.GetMount().GetFsType())
-	log.Debugf("FsType received from Volume Capability: %q", fsType)
+	log.Infof("FsType received from Volume Capability: %q", fsType)
 	isFileVolume := common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{capability})
-	if isFileVolume && (fsType == "" || fsType == "ext4") {
-		log.Infof("empty string or ext4 fstype observed for file volume. Defaulting to: %s", common.NfsV4FsType)
-		fsType = common.NfsV4FsType
-	} else if !isFileVolume && fsType == "" {
-		log.Infof("empty string fstype observed for block volume. Defaulting to: %s", common.NTFSFsType)
-		fsType = common.NTFSFsType
+	if isFileVolume {
+		// Volumes with RWM or ROM access modes are not supported on Windows
+		return "", logger.LogNewErrorCode(log, codes.FailedPrecondition,
+			"vSAN file service volume can not be mounted on windows node")
 	}
-	return fsType
+
+	// On Windows we only support ntfs filesystem. External-provisioner sets default fstype as ext4
+	// when none is specified in StorageClass, hence overwrite it to ntfs while mounting the volume.
+	if fsType == common.NTFSFsType {
+		return fsType, nil
+	} else if fsType == "" || fsType == "ext4" {
+		log.Infof("replacing fsType: %q received from volume "+
+			"capability with %q", fsType, common.NTFSFsType)
+		return common.NTFSFsType, nil
+	} else {
+		return "", logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+			"unsupported fsType %q observed", fsType)
+	}
 }
 
 // ResizeVolume resizes the volume
