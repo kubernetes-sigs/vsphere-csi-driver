@@ -88,7 +88,12 @@ func (vm *VirtualMachine) GetAllAccessibleDatastores(ctx context.Context) ([]*Da
 		HostSystem: object.NewHostSystem(vm.Client(), host.Reference()),
 	}
 	accessibleDatastores, err := hostObj.GetAllAccessibleDatastores(ctx)
-	log.Debugf("Getting accessible datastores for node %s on host %s: %q with err %v", vm.VirtualMachine, hostObj.Reference(), accessibleDatastores, err)
+	if err != nil {
+		log.Errorf("failed to get all accessible datastores for VM %v on host %s with err: %v", vm.VirtualMachine, hostObj.Reference(), err)
+	} else {
+		log.Debugf("Getting accessible datastores for node %s on host %s: %q",
+			vm.VirtualMachine, hostObj.Reference(), accessibleDatastores)
+	}
 	return accessibleDatastores, err
 }
 
