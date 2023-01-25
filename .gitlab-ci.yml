@@ -1,9 +1,12 @@
 stages:
   - unit-test
   - build
+  - deploy-dev
 
 run-unit-tests:
   stage: unit-test
+  # This resource group is configured with process_mode=oldest_first to make sure the pipelines are run serially.
+  resource_group: production
   # A copy of golang image in dockerhub.
   image: $CNS_IMAGE_GOLANG
   script:
@@ -11,6 +14,8 @@ run-unit-tests:
 
 build-images:
   stage: build
+  # This resource group is configured with process_mode=oldest_first to make sure the pipelines are run serially.
+  resource_group: production
   # A copy of docker image in dockerhub.
   image: $CNS_IMAGE_DOCKER
   services:
@@ -35,6 +40,20 @@ build-images:
     - docker push $CNS_CSI_SYNCER_REPO:$CI_COMMIT_SHORT_SHA
     - echo "VSPHERE_CSI_CONTROLLER_IMAGE=$CNS_CSI_DRIVER_REPO:$CI_COMMIT_SHORT_SHA" >> build.env
     - echo "VSPHERE_SYNCER_IMAGE=$CNS_CSI_SYNCER_REPO:$CI_COMMIT_SHORT_SHA" >> build.env
+  artifacts:
+    reports:
+      dotenv: build.env
+
+deploy-images-dev:
+  stage: deploy-dev
+  # This resource group is configured with process_mode=oldest_first to make sure the pipelines are run serially.
+  resource_group: production
+  # Image built from https://gitlab.eng.vmware.com/calatrava/cd-infra/-/blob/main/images/ci-deploy/Dockerfile
+  image: $CNS_IMAGE_CI_DEPLOY_STAGE
+  script:
+    - ./pipeline/deploy.sh
+  dependencies:
+    - build-images
   artifacts:
     reports:
       dotenv: build.env
