@@ -79,6 +79,8 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			defaultDatastore           *object.Datastore
 			fullSyncWaitTime           int
 			k8sVersion                 string
+			nimbusGeneratedVcPwd       string
+			nimbusGeneratedK8sVmPwd    string
 		)
 		ginkgo.BeforeEach(func() {
 			var cancel context.CancelFunc
@@ -111,10 +113,13 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap, topologyLength)
 			allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
 
+			nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+			nimbusGeneratedVcPwd = GetAndExpectStringEnvVar(nimbusVcPwd)
+
 			sshClientConfig = &ssh.ClientConfig{
 				User: "root",
 				Auth: []ssh.AuthMethod{
-					ssh.Password(k8sVmPasswd),
+					ssh.Password(nimbusGeneratedK8sVmPwd),
 				},
 				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 			}
@@ -1713,7 +1718,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			username := vsphereCfg.Global.User
 			newPassword := e2eTestPassword
-			err = invokeVCenterChangePassword(username, adminPassword, newPassword, vcAddress)
+			err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, newPassword, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Modifying the password in the secret")
@@ -1754,7 +1759,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Reverting the password change")
-			err = invokeVCenterChangePassword(username, newPassword, adminPassword, vcAddress)
+			err = invokeVCenterChangePassword(username, newPassword, nimbusGeneratedVcPwd, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Reverting the secret change back to reflect the original password")

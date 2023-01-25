@@ -39,14 +39,6 @@ import (
 	"k8s.io/utils/strings/slices"
 )
 
-var sshClientConfig *ssh.ClientConfig = &ssh.ClientConfig{
-	User: "root",
-	Auth: []ssh.AuthMethod{
-		ssh.Password(k8sVmPasswd),
-	},
-	HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-}
-
 // govc login cmd
 func govcLoginCmd() string {
 	loginCmd := "export GOVC_INSECURE=1;"
@@ -60,7 +52,7 @@ func govcLoginCmd() string {
 getTopologyLevel5ClusterGroupNames method is used to fetch list of cluster available
 in level-5 testbed
 */
-func getTopologyLevel5ClusterGroupNames(masterIp string,
+func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 	dataCenter []*object.Datacenter) ([]string, error) {
 	var clusterList, clusList, clusFolderTemp, clusterGroupRes []string
 	var clusterFolderName string
@@ -117,7 +109,8 @@ func getTopologyLevel5ClusterGroupNames(masterIp string,
 attachTagToPreferredDatastore method is used to attach the  preferred tag to the
 datastore chosen for volume provisioning
 */
-func attachTagToPreferredDatastore(masterIp string, datastore string, tagName string) error {
+func attachTagToPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
+	datastore string, tagName string) error {
 	attachTagCat := govcLoginCmd() +
 		"govc tags.attach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
 	framework.Logf("cmd to attach tag to preferred datastore: %s ", attachTagCat)
@@ -131,7 +124,8 @@ func attachTagToPreferredDatastore(masterIp string, datastore string, tagName st
 }
 
 /* detachTagCreatedOnPreferredDatastore is used to detach the tag created on preferred datastore */
-func detachTagCreatedOnPreferredDatastore(masterIp string, datastore string, tagName string) error {
+func detachTagCreatedOnPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
+	datastore string, tagName string) error {
 	detachTagCat := govcLoginCmd() +
 		"govc tags.detach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
 	framework.Logf("cmd to detach the tag assigned to preferred datastore: %s ", detachTagCat)
@@ -148,7 +142,7 @@ func detachTagCreatedOnPreferredDatastore(masterIp string, datastore string, tag
 getListOfSharedDatastoresBetweenVMs method is used to fetch the list of datatsores shared between
 node vms or shared across entire k8s cluster
 */
-func getListOfSharedDatastoresBetweenVMs(masterIp string,
+func getListOfSharedDatastoresBetweenVMs(masterIp string, sshClientConfig *ssh.ClientConfig,
 	dataCenter []*object.Datacenter) (map[string]string, error) {
 	var clusFolderTemp []string
 	var clusterFolderName string
@@ -195,7 +189,8 @@ func getListOfSharedDatastoresBetweenVMs(masterIp string,
 getListOfDatastoresByClusterName method is used to fetch the list of datastores accessible to
 specific cluster
 */
-func getListOfDatastoresByClusterName(masterIp string, cluster string) (map[string]string, error) {
+func getListOfDatastoresByClusterName(masterIp string, sshClientConfig *ssh.ClientConfig,
+	cluster string) (map[string]string, error) {
 	ClusterdatastoreListMap := make(map[string]string)
 	datastoreListByCluster := govcLoginCmd() +
 		"govc object.collect -s -d ' ' " + cluster + " host | xargs govc datastore.info -H | " +
@@ -302,12 +297,12 @@ func verifyVolumeProvisioningForStandalonePods(ctx context.Context,
 tagSameDatastoreAsPreferenceToDifferentRacks method is used to assign same preferred datatsore
 to another racks or clusters available in a testbed
 */
-func tagSameDatastoreAsPreferenceToDifferentRacks(masterIp string, zoneValue string,
+func tagSameDatastoreAsPreferenceToDifferentRacks(masterIp string, sshClientConfig *ssh.ClientConfig, zoneValue string,
 	itr int, datastoreNames []string) error {
 	i := 0
 	for j := 0; j < len(datastoreNames); j++ {
 		i = i + 1
-		err := attachTagToPreferredDatastore(masterIp, datastoreNames[j], zoneValue)
+		err := attachTagToPreferredDatastore(masterIp, sshClientConfig, datastoreNames[j], zoneValue)
 		if err != nil {
 			return err
 		}
@@ -321,7 +316,7 @@ func tagSameDatastoreAsPreferenceToDifferentRacks(masterIp string, zoneValue str
 /*
 tagPreferredDatastore method is used to tag the datastore which is chosen for volume provisioning
 */
-func tagPreferredDatastore(masterIp string, zoneValue string, itr int,
+func tagPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, zoneValue string, itr int,
 	datastoreListMap map[string]string, datastoreNames []string) ([]string, error) {
 	var preferredDatastorePaths []string
 	i := 0
@@ -329,7 +324,7 @@ func tagPreferredDatastore(masterIp string, zoneValue string, itr int,
 		for dsName := range datastoreListMap {
 			i = i + 1
 			preferredDatastorePaths = append(preferredDatastorePaths, dsName)
-			err := attachTagToPreferredDatastore(masterIp, dsName, zoneValue)
+			err := attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue)
 			if err != nil {
 				return preferredDatastorePaths, err
 			}
@@ -342,7 +337,7 @@ func tagPreferredDatastore(masterIp string, zoneValue string, itr int,
 		for dsName := range datastoreListMap {
 			if !slices.Contains(datastoreNames, dsName) {
 				preferredDatastorePaths = append(preferredDatastorePaths, dsName)
-				err := attachTagToPreferredDatastore(masterIp, dsName, zoneValue)
+				err := attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue)
 				if err != nil {
 					return preferredDatastorePaths, err
 				}
@@ -414,7 +409,7 @@ func getNonSharedDatastoresInCluster(ClusterdatastoreListMap map[string]string,
 }
 
 // deleteTagCreatedForPreferredDatastore method is used to delete the tag created on preferred datastore
-func deleteTagCreatedForPreferredDatastore(masterIp string, tagName []string) error {
+func deleteTagCreatedForPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, tagName []string) error {
 	for i := 0; i < len(tagName); i++ {
 		deleteTagCat := govcLoginCmd() +
 			"govc tags.rm -f -c " + preferredDSCat + " " + tagName[i]
@@ -430,7 +425,7 @@ func deleteTagCreatedForPreferredDatastore(masterIp string, tagName []string) er
 }
 
 // createTagForPreferredDatastore method is used to create tag required for choosing preferred datastore
-func createTagForPreferredDatastore(masterIp string, tagName []string) error {
+func createTagForPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, tagName []string) error {
 	for i := 0; i < len(tagName); i++ {
 		createTagCat := govcLoginCmd() +
 			"govc tags.create -d '" + preferredTagDesc + "' -c " + preferredDSCat + " " + tagName[i]
@@ -557,7 +552,7 @@ func powerOnPreferredDatastore(datastoreToPowerOn string, opName string) {
 }
 
 /* fetchWorkerNodeVms fetches the list of vms */
-func fetchWorkerNodeVms(masterIp string, dataCenter []*object.Datacenter,
+func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, dataCenter []*object.Datacenter,
 	workerNodeAlias string) ([]string, error) {
 	var clusFolderTemp []string
 	var clusterFolderName string
@@ -611,7 +606,8 @@ func fetchWorkerNodeVms(masterIp string, dataCenter []*object.Datacenter,
 /*
 migrateVmsFromDatastore method is use to migrate the vms to destination preferred datastore
 */
-func migrateVmsFromDatastore(masterIp string, destDatastore string, vMsToMigrate []string) (bool, error) {
+func migrateVmsFromDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
+	destDatastore string, vMsToMigrate []string) (bool, error) {
 	for i := 0; i < len(vMsToMigrate); i++ {
 		migrateVm := govcLoginCmd() + "govc vm.migrate -ds " + destDatastore + " " +
 			vMsToMigrate[i]
@@ -630,8 +626,8 @@ func migrateVmsFromDatastore(masterIp string, destDatastore string, vMsToMigrate
 preferredDatastoreInMaintenanceMode method is use to put preferred datastore in
 maintenance mode
 */
-func preferredDatastoreInMaintenanceMode(masterIp string, dataCenter []*object.Datacenter,
-	datastoreName string) error {
+func preferredDatastoreInMaintenanceMode(masterIp string, sshClientConfig *ssh.ClientConfig,
+	dataCenter []*object.Datacenter, datastoreName string) error {
 	for i := 0; i < len(dataCenter); i++ {
 		enableDrsModeCmd := govcLoginCmd() + "govc datastore.cluster.change -drs-mode automated"
 		framework.Logf("Enable drs mode: %s ", enableDrsModeCmd)
@@ -658,8 +654,8 @@ func preferredDatastoreInMaintenanceMode(masterIp string, dataCenter []*object.D
 exitDatastoreFromMaintenanceMode method is use to exit preferred datastore from
 maintenance mode
 */
-func exitDatastoreFromMaintenanceMode(masterIp string, dataCenter []*object.Datacenter,
-	datastoreName string) error {
+func exitDatastoreFromMaintenanceMode(masterIp string, sshClientConfig *ssh.ClientConfig,
+	dataCenter []*object.Datacenter, datastoreName string) error {
 	exitMmMode := govcLoginCmd() +
 		" govc datastore.maintenance.exit -ds " + datastoreName
 	framework.Logf("Exit maintenance mode: %s ", exitMmMode)

@@ -59,6 +59,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		powerOffHostsList       []string
 		sshClientConfig         *ssh.ClientConfig
 		k8sVersion              string
+		nimbusGeneratedK8sVmPwd string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -89,10 +90,12 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		topologyClusterNames := GetAndExpectStringEnvVar(topologyCluster)
 		topologyClusterList = ListTopologyClusterNames(topologyClusterNames)
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
+		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+
 		sshClientConfig = &ssh.ClientConfig{
 			User: "root",
 			Auth: []ssh.AuthMethod{
-				ssh.Password(k8sVmPasswd),
+				ssh.Password(nimbusGeneratedK8sVmPwd),
 			},
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}

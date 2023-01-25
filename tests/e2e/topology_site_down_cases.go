@@ -58,6 +58,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		powerOffHostsList       []string
 		noOfHostToBringDown     int
 		sshClientConfig         *ssh.ClientConfig
+		nimbusGeneratedK8sVmPwd string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -82,10 +83,12 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		topologyClusterNames := GetAndExpectStringEnvVar(topologyCluster)
 		topologyClusterList = ListTopologyClusterNames(topologyClusterNames)
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
+		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+
 		sshClientConfig = &ssh.ClientConfig{
 			User: "root",
 			Auth: []ssh.AuthMethod{
-				ssh.Password(k8sVmPasswd),
+				ssh.Password(nimbusGeneratedK8sVmPwd),
 			},
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}

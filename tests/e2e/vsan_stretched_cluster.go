@@ -72,6 +72,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		defaultDatacenter          *object.Datacenter
 		defaultDatastore           *object.Datastore
 		isVsanHealthServiceStopped bool
+		nimbusGeneratedK8sVmPwd    string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -83,6 +84,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		defer cancel()
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
+		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 
 		csiNs = GetAndExpectStringEnvVar(envCSINamespace)
 		isVsanHealthServiceStopped = false
@@ -128,7 +130,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		sshClientConfig = &ssh.ClientConfig{
 			User: "root",
 			Auth: []ssh.AuthMethod{
-				ssh.Password(k8sVmPasswd),
+				ssh.Password(nimbusGeneratedK8sVmPwd),
 			},
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}

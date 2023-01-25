@@ -564,10 +564,11 @@ func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) 
 	defer cancel()
 	masterIp := getK8sMasterIPs(ctx, client)
 	vcAddress := e2eVSphere.Config.Global.VCenterHostname
+	nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 	sshClientConfig := &ssh.ClientConfig{
 		User: "root",
 		Auth: []ssh.AuthMethod{
-			ssh.Password(k8sVmPasswd),
+			ssh.Password(nimbusGeneratedK8sVmPwd),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
