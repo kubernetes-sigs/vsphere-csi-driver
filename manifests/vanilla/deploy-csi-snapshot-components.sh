@@ -161,6 +161,7 @@ deploy_snapshot_controller(){
 	kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml 2>/dev/null || true
 	echo -e "✅ Created  RBACs for snapshot-controller"
 	kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml 2>/dev/null || true
+	kubectl -n kube-system set image deployment/snapshot-controller snapshot-controller=registry.k8s.io/sig-storage/snapshot-controller:"${qualified_version}"
 	kubectl patch deployment -n kube-system snapshot-controller --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/control-plane": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","operator":"Exists", "effect":"NoSchedule"}]}}}}'
 	kubectl patch deployment -n kube-system snapshot-controller --type=json \
 	-p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kube-api-qps=100"},{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kube-api-burst=100"}]'
