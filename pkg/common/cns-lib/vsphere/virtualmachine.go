@@ -87,7 +87,15 @@ func (vm *VirtualMachine) GetAllAccessibleDatastores(ctx context.Context) ([]*Da
 	hostObj := &HostSystem{
 		HostSystem: object.NewHostSystem(vm.Client(), host.Reference()),
 	}
-	return hostObj.GetAllAccessibleDatastores(ctx)
+	accessibleDatastores, err := hostObj.GetAllAccessibleDatastores(ctx)
+	if err != nil {
+		log.Errorf("failed to get all accessible datastores for VM %q on host %q with err: %v",
+			vm.VirtualMachine, hostObj.Reference(), err)
+	} else {
+		log.Debugf("Accessible datastores for node %q on host %q: %v",
+			vm.VirtualMachine, hostObj.Reference(), accessibleDatastores)
+	}
+	return accessibleDatastores, err
 }
 
 // Renew renews the virtual machine and datacenter information. If reconnect is
