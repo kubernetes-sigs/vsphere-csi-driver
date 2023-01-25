@@ -49,7 +49,7 @@ deploy-images-dev:
   # This resource group is configured with process_mode=oldest_first to make sure the pipelines are run serially.
   resource_group: production
   # Image built from https://gitlab.eng.vmware.com/calatrava/cd-infra/-/blob/main/images/ci-deploy/Dockerfile
-  image: harbor-repo.vmware.com/calatrava/ci-deploy-stage:v4
+  image: $CNS_IMAGE_CI_DEPLOY_STAGE
   script:
     - ./pipeline/deploy.sh
   dependencies:
