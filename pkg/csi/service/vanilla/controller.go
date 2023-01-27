@@ -1132,6 +1132,8 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to find datastoreURL for datastore name: %q", scParams.Datastore)
 				}
+			} else if c.managers.VcenterConfigs[c.managers.CnsConfig.Global.VCenterIP].MigrationDataStoreURL != "" {
+				scParams.DatastoreURL = c.managers.VcenterConfigs[c.managers.CnsConfig.Global.VCenterIP].MigrationDataStoreURL
 			}
 		}
 	}

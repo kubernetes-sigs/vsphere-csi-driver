@@ -372,6 +372,12 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 			ContainerClusterArray: containerClusterArray,
 		},
 	}
+	if params.StoragePolicyID != "" {
+		profileSpec := &vim25types.VirtualMachineDefinedProfileSpec{
+			ProfileId: params.StoragePolicyID,
+		}
+		createSpec.Profile = append(createSpec.Profile, profileSpec)
+	}
 	// Handle the case of CreateVolumeFromSnapshot by checking if
 	// the ContentSourceSnapshotID is available in CreateVolumeSpec.
 	if params.Spec.ContentSourceSnapshotID != "" {
