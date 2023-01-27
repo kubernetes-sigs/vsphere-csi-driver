@@ -528,6 +528,37 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 		}
 	}
 
+	// Check the volume capability and handle accordingly.
+	// NOTE: VolumeCapability is optional field, if specified, use it for validation.
+	//       Otherwise, use volume_path to determine access_type and handle accordingly.
+	volCap := req.GetVolumeCapability()
+	if volCap != nil {
+		caps := []*csi.VolumeCapability{volCap}
+		if err := common.IsValidVolumeCapabilities(ctx, caps); err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"volume capability not supported. Err: %+v", err)
+		}
+		// No need to expand file system for raw block volumes, hence return.
+		if volCap.GetBlock() != nil {
+			log.Infof("NodeExpandVolume: called for raw block volume %s, ignoring..", volumeID)
+			return &csi.NodeExpandVolumeResponse{
+				CapacityBytes: int64(units.FileSize(reqVolSizeMB * common.MbInBytes)),
+			}, nil
+		}
+	} else {
+		isBlock, err := driver.osUtils.IsBlockDevice(ctx, volumePath)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to determine device path for volpath [%v]: %v", volumePath, err)
+		}
+		if isBlock {
+			log.Infof("NodeExpandVolume: called for raw block volume %s at volumePath %s, ignoring..", volumeID, volumePath)
+			return &csi.NodeExpandVolumeResponse{
+				CapacityBytes: int64(units.FileSize(reqVolSizeMB * common.MbInBytes)),
+			}, nil
+		}
+	}
+
 	// Resize file system.
 	if err = driver.osUtils.ResizeVolume(ctx, dev.RealDev, volumePath, reqVolSizeBytes); err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
