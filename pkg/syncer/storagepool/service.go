@@ -193,13 +193,35 @@ func ResetVC(ctx context.Context, vc *cnsvsphere.VirtualCenter) {
 		log.Errorf("Failed to connect to SPBM service. Err: %+v", err)
 		return
 	}
-	log.Infof("Resetting VC connection in StoragePool service")
+	log.Info("Resetting VC connection in StoragePool service")
 	defaultStoragePoolServiceLock.Lock()
 	defer defaultStoragePoolServiceLock.Unlock()
-
-	defaultStoragePoolService.spController.vc = vc
-	defaultStoragePoolService.scWatchCntlr.vc = vc
-	defaultStoragePoolService.migrationCntlr.vc = vc
-	// PC listener will automatically reestablish its session with VC.
-	log.Debugf("Successfully reset VC connection in StoragePool service")
+	resetspControllerVC := false
+	resetscwatchControllerVC := false
+	resetmigrationControllerVC := false
+	if defaultStoragePoolService.spController != nil {
+		defaultStoragePoolService.spController.vc = vc
+		resetspControllerVC = true
+	} else {
+		log.Info("StoragePool service controller is not yet initialized. " +
+			"Skip resetting new VC connection to spController.")
+	}
+	if defaultStoragePoolService.scWatchCntlr != nil {
+		defaultStoragePoolService.scWatchCntlr.vc = vc
+		resetscwatchControllerVC = true
+	} else {
+		log.Info("StoragePool service watch controller is not yet initialized. " +
+			"Skip resetting new VC connection to scWatchCntlr.")
+	}
+	if defaultStoragePoolService.migrationCntlr != nil {
+		defaultStoragePoolService.migrationCntlr.vc = vc
+		resetmigrationControllerVC = true
+	} else {
+		log.Info("StoragePool service migration controller is not yet initialized. " +
+			"Skip resetting new VC connection to migrationCntlr.")
+	}
+	if resetspControllerVC && resetscwatchControllerVC && resetmigrationControllerVC {
+		// PC listener will automatically reestablish its session with VC.
+		log.Info("Successfully reset VC connection in StoragePool service")
+	}
 }
