@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -207,6 +208,8 @@ func TestSyncerWorkflows(t *testing.T) {
 		t.Fatalf("failed to create an instance of volume manager. err=%v", err)
 	}
 	metadataSyncer.host = virtualCenter.Config.Host
+	volumeOperationsLock = make(map[string]*sync.Mutex)
+	volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
 
 	// Create the kubernetes client from config or env.
 	// Here we should use a faked client to avoid test inteference with running

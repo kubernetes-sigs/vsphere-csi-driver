@@ -348,8 +348,8 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 	log := logger.GetLogger(ctx)
 	defer wg.Done()
 	currentK8sPVMap := make(map[string]bool)
-	volumeOperationsLock.Lock()
-	defer volumeOperationsLock.Unlock()
+	volumeOperationsLock[vc].Lock()
+	defer volumeOperationsLock[vc].Unlock()
 	// Get all K8s PVs in the given VC.
 	currentK8sPV, err := getPVsInBoundAvailableOrReleasedForVc(ctx, metadataSyncer, vc)
 	if err != nil {
@@ -428,8 +428,8 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 	log := logger.GetLogger(ctx)
 	deleteDisk := false
 	currentK8sPVMap := make(map[string]bool)
-	volumeOperationsLock.Lock()
-	defer volumeOperationsLock.Unlock()
+	volumeOperationsLock[vc].Lock()
+	defer volumeOperationsLock[vc].Unlock()
 	// Get all K8s PVs.
 	currentK8sPV, err := getPVsInBoundAvailableOrReleasedForVc(ctx, metadataSyncer, vc)
 	if err != nil {

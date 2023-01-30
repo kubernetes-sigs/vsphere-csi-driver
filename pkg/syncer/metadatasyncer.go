@@ -219,6 +219,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	cnsDeletionMap = make(map[string]map[string]bool)
 	// Initialize cnsCreationMap used by Full Sync.
 	cnsCreationMap = make(map[string]map[string]bool)
+	// Initialize volumeOperationsLock map
+	volumeOperationsLock = make(map[string]*sync.Mutex)
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Initialize client to supervisor cluster, if metadata syncer is being
@@ -248,6 +250,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 		cnsDeletionMap[metadataSyncer.host] = make(map[string]bool)
 		cnsCreationMap[metadataSyncer.host] = make(map[string]bool)
+		volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
 
 		volumeManager, err := volumes.GetManager(ctx, vCenter, nil,
 			false, false, false,
@@ -284,6 +287,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 			cnsDeletionMap[metadataSyncer.host] = make(map[string]bool)
 			cnsCreationMap[metadataSyncer.host] = make(map[string]bool)
+			volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
 
 			volumeManager, err := volumes.GetManager(ctx, vCenter, nil, false, false, false, tasksListViewEnabled)
 			if err != nil {
@@ -316,6 +320,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				metadataSyncer.volumeManagers[vcconfig.Host] = volumeManager
 				cnsDeletionMap[vcconfig.Host] = make(map[string]bool)
 				cnsCreationMap[vcconfig.Host] = make(map[string]bool)
+				volumeOperationsLock[vcconfig.Host] = &sync.Mutex{}
 			}
 			// If it is a multi VC deployment, initialize volumeInfoService
 			if len(vcconfigs) > 1 && volumeInfoService == nil {
@@ -1738,8 +1743,6 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 		queryFilter := cnstypes.CnsQueryFilter{
 			VolumeIds: []cnstypes.CnsVolumeId{{Id: oldPv.Spec.CSI.VolumeHandle}},
 		}
-		volumeOperationsLock.Lock()
-		defer volumeOperationsLock.Unlock()
 
 		// If it is a multi VC deployment, figure out FCD's location based on PV's nodeAffinity rules.
 		if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
@@ -1758,6 +1761,9 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 				return
 			}
 		}
+
+		volumeOperationsLock[vcHost].Lock()
+		defer volumeOperationsLock[vcHost].Unlock()
 
 		vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
 		if !vcHostObjFound {
@@ -1883,8 +1889,6 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 		log.Debugf("PVDeleted: Volume deletion will be handled by Controller")
 		return
 	}
-	volumeOperationsLock.Lock()
-	defer volumeOperationsLock.Unlock()
 
 	if IsMultiAttachAllowed(pv) {
 		// If PV is file share volume.
@@ -1905,6 +1909,9 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 				"Error occoured: %+v", err)
 			return
 		}
+
+		volumeOperationsLock[vcHost].Lock()
+		defer volumeOperationsLock[vcHost].Unlock()
 
 		vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
 		if !vcHostObjFound {
@@ -1965,6 +1972,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 	} else {
 		var (
 			volumeHandle string
+			vcHost       string
 			err          error
 			cnsVolumeMgr volumes.Manager
 		)
@@ -1990,12 +1998,15 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			volumeHandle = pv.Spec.CSI.VolumeHandle
 		}
 
-		_, cnsVolumeMgr, err = getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, volumeHandle)
+		vcHost, cnsVolumeMgr, err = getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, volumeHandle)
 		if err != nil {
 			log.Errorf("PVDeleted: Failed to get VC host and volume manager for single VC setup. "+
 				"Error occoured: %+v", err)
 			return
 		}
+
+		volumeOperationsLock[vcHost].Lock()
+		defer volumeOperationsLock[vcHost].Unlock()
 
 		log.Debugf("PVDeleted: vSphere CSI Driver is deleting volume %v", pv)
 
