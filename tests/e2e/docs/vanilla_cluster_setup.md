@@ -60,6 +60,11 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     # Make sure env var FULL_SYNC_WAIT_TIME should be at least double of the manifest variable FULL_SYNC_INTERVAL_MINUTES in csi-driver-deploy.yaml
     export FULL_SYNC_WAIT_TIME=350    # In seconds
     export USER=root
+    # Set VC,VC UI,ESX and K8S VM password accordingly
+    export NIMBUS_K8S_VM_PWD=<k8s-vm-password>
+    export ESX_PWD=<esx-password>
+    export VC_PWD=<vc-password>
+    export VC_ADMIN_PWD=<vc-ui-password>
     export CLUSTER_FLAVOR="VANILLA"
     export CSI_NAMESPACE="vmware-system-csi"
     # To run e2e test for block volume, need to set the following env variable

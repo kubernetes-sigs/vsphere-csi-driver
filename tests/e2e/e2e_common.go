@@ -262,9 +262,10 @@ var (
 
 // Nimbus generated passwords
 var (
-	nimbusK8sVmPwd = "NIMBUS_PWD"
-	nimbusEsxPwd   = "NIMBUS_PWD"
-	nimbusVcPwd    = "NIMBUS_PWD"
+	nimbusK8sVmPwd = "NIMBUS_K8S_VM_PWD"
+	nimbusEsxPwd   = "ESX_PWD"
+	nimbusVcPwd    = "VC_PWD"
+	vcUIPwd        = "VC_ADMIN_PWD"
 )
 
 // volume allocation types for cns volumes

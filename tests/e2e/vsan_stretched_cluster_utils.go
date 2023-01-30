@@ -448,10 +448,12 @@ func getMasterIpOnSite(ctx context.Context, client clientset.Interface, primaryS
 	framework.Logf("all master ips : %v", allMasterIps)
 	framework.Logf("Site esx map : %v", siteEsxMap)
 	vcAddress := e2eVSphere.Config.Global.VCenterHostname
+	vcAdminPwd := GetAndExpectStringEnvVar(vcUIPwd)
 	// Assuming atleast one master is on that site
 	for _, masterIp := range allMasterIps {
 		govcCmd := "export GOVC_INSECURE=1;"
-		govcCmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:Admin!23@%s';", vcAddress)
+		govcCmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:%s@%s';",
+			vcAdminPwd, vcAddress)
 		govcCmd += fmt.Sprintf("govc vm.info --vm.ip=%s;", masterIp)
 		framework.Logf("Running command: %s", govcCmd)
 		result, err := exec.Command("/bin/bash", "-c", govcCmd).Output()
@@ -565,6 +567,7 @@ func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) 
 	masterIp := getK8sMasterIPs(ctx, client)
 	vcAddress := e2eVSphere.Config.Global.VCenterHostname
 	nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+	vcAdminPwd := GetAndExpectStringEnvVar(vcUIPwd)
 	sshClientConfig := &ssh.ClientConfig{
 		User: "root",
 		Auth: []ssh.AuthMethod{
@@ -573,7 +576,8 @@ func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) 
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 	cmd := "export GOVC_INSECURE=1;"
-	cmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:Admin!23@%s';", vcAddress)
+	cmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:%s@%s';",
+		vcAdminPwd, vcAddress)
 	cmd += fmt.Sprintf("govc storage.policy.info -c -s %s;", storagePolicy)
 	result, err := sshExec(sshClientConfig, masterIp[0], cmd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
