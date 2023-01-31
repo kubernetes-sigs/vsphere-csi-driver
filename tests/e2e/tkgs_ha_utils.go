@@ -690,7 +690,7 @@ func getClusterNameFromZone(ctx context.Context, availabilityZone string) string
 	clusterName := ""
 	clusterComputeResourceList, _, err := getClusterName(ctx, &e2eVSphere)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	nimbusGeneratedVcPwd := GetAndExpectStringEnvVar(nimbusVcPwd)
+	nimbusGeneratedVcPwd := GetAndExpectStringEnvVar(vcUIPwd)
 	cmd := fmt.Sprintf("dcli +username %s +password %s +skip +show com vmware "+
 		"vcenter consumptiondomains zones cluster associations get --zone "+
 		"%s", adminUser, nimbusGeneratedVcPwd, availabilityZone)
