@@ -73,17 +73,20 @@ var (
 	// cnsDeletionMap tracks volumes that exist in CNS but not in K8s
 	// If a volume exists in this map across two fullsync cycles,
 	// the volume is deleted from CNS
+	// A separate map is maintained for each VC.
 	cnsDeletionMap map[string]map[string]bool
 
 	// cnsCreationMap tracks volumes that exist in K8s but not in CNS
 	// If a volume exists in this map across two fullsync cycles,
 	// the volume is created in CNS
+	// A separate map is maintained for each VC.
 	cnsCreationMap map[string]map[string]bool
 
 	// Metadata syncer and full sync share a global lock
 	// to mitigate race conditions related to
 	// static provisioning of volumes
-	volumeOperationsLock sync.Mutex
+	// There is a separate lock for each VC.
+	volumeOperationsLock map[string]*sync.Mutex
 )
 
 type (
