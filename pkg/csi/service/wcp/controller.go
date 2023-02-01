@@ -41,7 +41,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
@@ -78,10 +77,8 @@ var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 // Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
 var clusterComputeResourceMoIds = make([]string, 0)
 
-// list volume global variable
 var expectedStartingIndex = 0
 var cnsVolumeIDs = make([]string, 0)
-var hostSystems []*vsphere.HostSystem
 
 type controller struct {
 	manager     *common.Manager
@@ -1288,7 +1285,17 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	var err error
 	// ListVolumes FSS is disabled so, return nil and an unimplemented error
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
-		return nil, status.Error(codes.Unimplemented, "")
+		return nil, status.Error(codes.Unimplemented, "list volumes FSS disabled")
+	}
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+		clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
+		if err != nil {
+			log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+			return nil, status.Error(codes.Internal, "failed to get clusterComputeResourceMoIds")
+		}
+		if len(clusterComputeResourceMoIds) > 1 {
+			return nil, status.Error(codes.Unimplemented, "list volumes is not supported on Stretched Cluster")
+		}
 	}
 	controllerListVolumeInternal := func() (*csi.ListVolumesResponse, string, error) {
 		log.Debugf("ListVolumes called with args %+v, expectedStartingIndex %v", *req, expectedStartingIndex)

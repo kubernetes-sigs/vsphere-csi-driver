@@ -1381,17 +1381,12 @@ func nodeUpdate(oldObject interface{}, newObject interface{}) {
 		return
 	}
 
-	log.Debugf("nodeUpdate: oldnode=%+v newnode=%+v", oldnode, newnode)
 	_, oldOk := oldnode.ObjectMeta.Annotations[common.HostMoidAnnotationKey]
 	newNodeMoID, newOk := newnode.ObjectMeta.Annotations[common.HostMoidAnnotationKey]
 
-	if !newOk {
-		log.Debugf("nodeUpdate: %s annotation not found on the new node %s", common.HostMoidAnnotationKey, newnode.Name)
-		return
-	}
-
 	if !oldOk && newOk {
 		// If annotation is not found on the old node but found on the new one, add it to the map.
+		log.Debugf("Adding nodeMoid %s and node name %s to the map.", newNodeMoID, newnode.Name)
 		k8sOrchestratorInstance.nodeIDToNameMap.add(newNodeMoID, newnode.Name)
 	}
 }
