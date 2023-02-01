@@ -41,6 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
@@ -77,8 +78,10 @@ var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 // Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
 var clusterComputeResourceMoIds = make([]string, 0)
 
+// list volume global variable
 var expectedStartingIndex = 0
 var cnsVolumeIDs = make([]string, 0)
+var hostSystems []*vsphere.HostSystem
 
 type controller struct {
 	manager     *common.Manager

@@ -542,7 +542,7 @@ func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]str
 	}
 
 	// Get all the hosts belonging to the cluster
-	hostSystems, err := vc.GetHostsByCluster(ctx, c.manager.CnsConfig.Global.ClusterID)
+	hostSystems, err := vc.GetHostsByCluster(ctx, c.manager.CnsConfig.Global.SupervisorID)
 	if err != nil {
 		log.Errorf("failed to get hosts for cluster %v, err:%v", c.manager.CnsConfig.Global.ClusterID, err)
 		return nil, nil, fmt.Errorf("failed to get hosts for cluster %v, err:%v", c.manager.CnsConfig.Global.ClusterID, err)
@@ -602,9 +602,9 @@ func getVolumeIDToVMMap(ctx context.Context, c *controller, volumeIDs []string) 
 	log := logger.GetLogger(ctx)
 	response := &csi.ListVolumesResponse{}
 
-	fakeAttachMarkedVolumes := commonco.ContainerOrchestratorUtility.GetFakeAttachedVolumes(ctx, volumeIDs)
+	allFakeAttachMarkedVolumes := commonco.ContainerOrchestratorUtility.GetFakeAttachedVolumes(ctx, volumeIDs)
 	fakeAttachedVolumes := make([]string, 0)
-	for volumeID, isfakeAttached := range fakeAttachMarkedVolumes {
+	for volumeID, isfakeAttached := range allFakeAttachMarkedVolumes {
 		if isfakeAttached {
 			fakeAttachedVolumes = append(fakeAttachedVolumes, volumeID)
 		}
@@ -634,8 +634,13 @@ func getVolumeIDToVMMap(ctx context.Context, c *controller, volumeIDs []string) 
 	}
 
 	hostNames := commonco.ContainerOrchestratorUtility.GetNodeIDtoNameMap(ctx)
+	if len(hostNames) == 0 {
+		log.Errorf("There are no hostnames in the NodeIDtoName map")
+		return nil, fmt.Errorf("there are no hostnames in the NodeIDtoName map")
+	}
+	// Check len(hostnames) == 0 return err
 	for volumeID, VMMoID := range volumeIDToVMMap {
-		isFakeAttached, exists := fakeAttachMarkedVolumes[volumeID]
+		isFakeAttached, exists := allFakeAttachMarkedVolumes[volumeID]
 		// If we do not find this entry in the input list obtained from CNS
 		//, then we do not bother adding it to the result since, CNS is not aware
 		// of this volume. Also, if it is fake attached volume we have handled it
