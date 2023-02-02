@@ -614,7 +614,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 
 		ginkgo.By("Create PV2 statically via CSI with fcd leftover by PV1 using FCD ID noted earlier and SC2")
 		pv := fpv.MakePersistentVolume(fpv.PersistentVolumeConfig{
-			NamePrefix: "static-pv-",
+			NamePrefix: "pvc-",
 			PVSource: v1.PersistentVolumeSource{
 				CSI: &v1.CSIPersistentVolumeSource{
 					Driver:           e2evSphereCSIDriverName,

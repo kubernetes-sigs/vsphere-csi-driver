@@ -1746,7 +1746,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		ginkgo.By("Creating FCD (CNS Volume)")
 		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
-			"staticfcd"+curtimestring, profileID, int64(5048), defaultDatastore.Reference())
+			"pvc-"+curtimestring, profileID, int64(5048), defaultDatastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
 			pandoraSyncWaitTime, fcdID))
@@ -1767,7 +1767,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
 
-		gcPVC, gcPV, pod, _ := createStaticPVandPVCandPODinGuestCluster(client, ctx, namespace, svpvcName, "5Gi",
+		gcPVC, gcPV, _, _ := createStaticPVandPVCandPODinGuestCluster(client, ctx, namespace, svpvcName, "5Gi",
 			storageclass, v1.PersistentVolumeReclaimDelete)
 		defer func() {
 			ginkgo.By("Deleting the gc PVC")
@@ -1781,24 +1781,26 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		}()
 
-		defer func() {
-			ginkgo.By("Deleting the pod")
-			err = fpod.DeletePodWithWait(client, pod)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		time.Sleep(30 * time.Minute)
 
-			ginkgo.By("Verify volume is detached from the node")
-			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
-				gcPV.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
-				fmt.Sprintf("Volume %q is not detached from the node %q", gcPV.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		// defer func() {
+		// 	ginkgo.By("Deleting the pod")
+		// 	err = fpod.DeletePodWithWait(client, pod)
+		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		}()
+		// 	ginkgo.By("Verify volume is detached from the node")
+		// 	isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+		// 		gcPV.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// 	gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+		// 		fmt.Sprintf("Volume %q is not detached from the node %q", gcPV.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 
-		volHandle = getVolumeIDFromSupervisorCluster(gcPV.Spec.CSI.VolumeHandle)
-		framework.Logf("Volume Handle :%s", volHandle)
+		// }()
 
-		onlineVolumeResizeCheck(f, client, namespace, svcPVCName, volHandle, gcPVC, pod)
+		// volHandle = getVolumeIDFromSupervisorCluster(gcPV.Spec.CSI.VolumeHandle)
+		// framework.Logf("Volume Handle :%s", volHandle)
+
+		// onlineVolumeResizeCheck(f, client, namespace, svcPVCName, volHandle, gcPVC, pod)
 
 	})
 

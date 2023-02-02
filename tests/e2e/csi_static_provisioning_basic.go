@@ -399,7 +399,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		val := strconv.FormatInt(int64(randomValue), 10)
 		val = string(val[1:3])
 		curtimestring := strconv.FormatInt(curtime, 10)
-		pvSpec.Name = "static-pv-" + curtimestring + val
+		pvSpec.Name = "pvc-" + curtimestring + val
 
 		ginkgo.By("Creating the PV-1")
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})
@@ -1499,7 +1499,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvc = nil
 
 		defer func() {
-			pvName := "static-pv-" + fcdID
+			pvName := "pvc-" + fcdID
 			framework.Logf("Deleting PersistentVolume %s", pvName)
 			framework.ExpectNoError(fpv.DeletePersistentVolume(client, pvName))
 			pv, err = client.CoreV1().PersistentVolumes().Get(context.TODO(), pvName, metav1.GetOptions{})
@@ -1865,7 +1865,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			pv := getPvFromClaim(client, namespace, pvcName)
 			pvName := pvc.Spec.VolumeName
 			//pvName will be like static-pv-<volumeID> This volumeID Should be same as in PV volumeHandle
-			volumeID := strings.ReplaceAll(pvName, "static-pv-", "")
+			volumeID := strings.ReplaceAll(pvName, "pvc-", "")
 			verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, volumeID)
 
 			// TODO: need to add code to delete VMDK hard disk and to create POD.

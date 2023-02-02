@@ -2467,7 +2467,7 @@ func createStaticPVC(ctx context.Context, f *framework.Framework,
 	pvName := pv.GetName()
 
 	ginkgo.By("Creating PVC")
-	pvc := getPVCSpecWithPVandStorageClass("static-pvc", namespace, nil, pvName, sc.Name, diskSize)
+	pvc := getPVCSpecWithPVandStorageClass("pvc", namespace, nil, pvName, sc.Name, diskSize)
 	pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
