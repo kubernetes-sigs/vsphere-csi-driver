@@ -83,6 +83,9 @@ var (
 	vCenterInstanceLock = &sync.RWMutex{}
 	// vCenterInstancesLock makes sure only one vCenter being initialized for specific host
 	vCenterInstancesLock = &sync.RWMutex{}
+	// clientMutex is used for exclusive connection creation.
+	// There is a separate lock for each VC.
+	clientMutex = make(map[string]*sync.Mutex)
 )
 
 func (vc *VirtualCenter) String() string {
@@ -135,9 +138,6 @@ type VirtualCenterConfig struct {
 	// and hence should be used as default datastore.
 	MigrationDataStoreURL string
 }
-
-// clientMutex is used for exclusive connection creation.
-var clientMutex sync.Mutex
 
 // NewClient creates a new govmomi Client instance.
 func (vc *VirtualCenter) NewClient(ctx context.Context) (*govmomi.Client, error) {
@@ -271,8 +271,13 @@ func (vc *VirtualCenter) Connect(ctx context.Context) error {
 // connect creates a connection to the virtual center host.
 func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) error {
 	log := logger.GetLogger(ctx)
-	clientMutex.Lock()
-	defer clientMutex.Unlock()
+
+	if _, ok := clientMutex[vc.Config.Host]; !ok {
+		clientMutex[vc.Config.Host] = &sync.Mutex{}
+	}
+	clientMutex[vc.Config.Host].Lock()
+	defer clientMutex[vc.Config.Host].Unlock()
+
 	// If client was never initialized, initialize one.
 	var err error
 	if vc.Client == nil {
