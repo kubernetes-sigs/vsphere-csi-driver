@@ -306,6 +306,7 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 	log := logger.GetLogger(ctx)
 	var datastoreURL string
 	volumeCreateResult := interface{}(taskResult).(*cnstypes.CnsVolumeCreateResult)
+	log.Debugf("volumeCreateResult.PlacementResults :%v", volumeCreateResult.PlacementResults)
 	if volumeCreateResult.PlacementResults != nil {
 		var datastoreMoRef types.ManagedObjectReference
 		for _, placementResult := range volumeCreateResult.PlacementResults {
