@@ -18,6 +18,7 @@ spec:
     name: static-vanilla-rwo-filesystem-pvc
   csi:
     driver: csi.vsphere.vmware.com
+    fsType: ext4  # Change fstype to xfs or ntfs based on the requirement.
     volumeAttributes:
       type: "vSphere CNS Block Volume"
     volumeHandle: 0c75d40e-7576-4fe7-8aaa-a92946e2805d  # First Class Disk (Improved Virtual Disk) ID
