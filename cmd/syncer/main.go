@@ -88,7 +88,7 @@ func main() {
 	// Set CO agnostic init params.
 	clusterFlavor, err := config.GetClusterFlavor(ctx)
 	if err != nil {
-		log.Errorf("Failed retrieving cluster flavor. Error: %v", err)
+		log.Errorf("failed retrieving cluster flavor. Error: %v", err)
 	}
 	commonco.SetInitParams(ctx, clusterFlavor, &syncer.COInitParams, *supervisorFSSName, *supervisorFSSNamespace,
 		*internalFSSName, *internalFSSNamespace, "")
