@@ -2402,8 +2402,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 		// csifault.CSIInternalFault csifault.CSIUnimplementedFault csifault.CSIInvalidArgumentFault
 		if strings.Contains(req.VolumeId, ".vmdk") {
-			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-				"cannot expand migrated vSphere volume. :%q", req.VolumeId)
+			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: req.VolumeId}, false)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get VolumeID from volumeMigrationService for volumePath: %q", req.VolumeId)
+			}
 		}
 
 		// Fetch vCenterHost, vCenterManager & volumeManager for given volume, based on VC configuration
