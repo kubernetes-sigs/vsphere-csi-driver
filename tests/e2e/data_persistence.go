@@ -113,6 +113,17 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		}
 	})
 
+	ginkgo.It("static fcd test", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("Creating FCD Disk")
+		fcdID, err := e2eVSphere.createFCD(ctx, "pvc-fcd", diskSizeInMb, defaultDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("FCD Disk ID %s", fcdID))
+
+	})
+
 	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-parallelized] "+
 		"Should create and delete pod with the same volume source", func() {
 		ctx, cancel := context.WithCancel(context.Background())
