@@ -72,6 +72,8 @@ func (dc *Datacenter) GetDatastoreInfoByURL(ctx context.Context, datastoreURL st
 	}
 	for _, dsMo := range dsMoList {
 		if dsMo.Info.GetDatastoreInfo().Url == datastoreURL {
+			log.Debugf("Found datastore MoRef %v for datastoreURL: %q in datacenter: %q on vCenter: %q",
+				dsMo.Reference(), datastoreURL, dc.InventoryPath, dc.VirtualCenterHost)
 			return &DatastoreInfo{
 				&Datastore{object.NewDatastore(dc.Client(), dsMo.Reference()),
 					dc},

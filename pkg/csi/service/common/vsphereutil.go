@@ -309,9 +309,9 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 			"expected params of type VanillaCreateBlockVolParamsForMultiVC, got %+v", reqParams)
 	}
 	var (
-		err              error
-		datastoreInfoObj *vsphere.DatastoreInfo
-		datastores       []vim25types.ManagedObjectReference
+		err                  error
+		datastoreInfoObjList []*vsphere.DatastoreInfo
+		datastores           []vim25types.ManagedObjectReference
 	)
 	params.SharedDatastores, err = vsphere.FilterSuspendedDatastores(ctx, params.SharedDatastores)
 	if err != nil {
@@ -337,7 +337,7 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 				params.Spec.ScParams.DatastoreURL, params.Vcenter.Config.Host)
 		}
 		// Check if DatastoreURL specified in the StorageClass is present in any one of the datacenters.
-		datastoreInfoObj, err = getDatastoreInfoObj(ctx, params.Vcenter, params.Spec.ScParams.DatastoreURL)
+		datastoreInfoObjList, err = getDatastoreInfoObjList(ctx, params.Vcenter, params.Spec.ScParams.DatastoreURL)
 		if err != nil {
 			// TODO: Need to figure out which fault need to return when datastore cannot be found in given vCenter.
 			// Currently, just return csi.fault.Internal.
@@ -345,7 +345,7 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 				"object in vCenter %q for datastoreURL: %s specified in the storage class.",
 				params.Vcenter.Config.Host, params.Spec.ScParams.DatastoreURL)
 		}
-		params.SharedDatastores = []*vsphere.DatastoreInfo{datastoreInfoObj}
+		params.SharedDatastores = datastoreInfoObjList
 	}
 	// Fetch datastore morefs for Create Spec.
 	for _, ds := range params.SharedDatastores {
@@ -409,7 +409,7 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 				params.Spec.ContentSourceSnapshotID, params.Vcenter.Config.Host)
 		}
 		// Check if DatastoreURL specified in the StorageClass is present in any one of the datacenters.
-		datastoreInfoObj, err = getDatastoreInfoObj(ctx, params.Vcenter, params.SnapshotDatastoreURL)
+		datastoreInfoObjList, err = getDatastoreInfoObjList(ctx, params.Vcenter, params.SnapshotDatastoreURL)
 		if err != nil {
 			// TODO: Need to figure out which fault need to return when datastore cannot be found in given vCenter.
 			// Currently, just return csi.fault.Internal.
@@ -417,11 +417,15 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 				"object in vCenter %q for datastore URL %q associated with snapshot %q",
 				params.Vcenter.Config.Host, params.SnapshotDatastoreURL, params.Spec.ContentSourceSnapshotID)
 		}
-		// overwrite the datastores field in create spec with the compatible datastore
-		log.Infof("Overwrite the datastores field in create spec %+v with the snapshot datastore %v "+
-			"when create volume from snapshot %s", createSpec.Datastores, datastoreInfoObj.Reference(),
-			params.Spec.ContentSourceSnapshotID)
-		createSpec.Datastores = []vim25types.ManagedObjectReference{datastoreInfoObj.Reference()}
+
+		log.Infof("Overwrite the datastores field in create spec %+v", createSpec.Datastores)
+		createSpec.Datastores = nil
+		for _, datastoreInfoObj := range datastoreInfoObjList {
+			createSpec.Datastores = append(createSpec.Datastores, datastoreInfoObj.Reference())
+			// overwrite the datastores field in create spec with the compatible datastores
+			log.Infof("add snapshot datastore %v when create volume from snapshot %s", datastoreInfoObj.Reference(),
+				params.Spec.ContentSourceSnapshotID)
+		}
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %s with create spec %+v", params.Spec.Name, spew.Sdump(createSpec))
@@ -948,9 +952,10 @@ func getDatastoreMoRefs(datastores []*vsphere.DatastoreInfo) []vim25types.Manage
 
 // Helper function to get DatastoreInfo object for given datastoreURL in the given
 // virtual center.
-func getDatastoreInfoObj(ctx context.Context, vc *vsphere.VirtualCenter,
-	datastoreURL string) (*vsphere.DatastoreInfo, error) {
+func getDatastoreInfoObjList(ctx context.Context, vc *vsphere.VirtualCenter,
+	datastoreURL string) ([]*vsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
+	var datastoreInfos []*vsphere.DatastoreInfo
 	datacenters, err := vc.GetDatacenters(ctx)
 	if err != nil {
 		return nil, err
@@ -962,12 +967,15 @@ func getDatastoreInfoObj(ctx context.Context, vc *vsphere.VirtualCenter,
 			log.Warnf("failed to find datastore with URL %q in datacenter %q from VC %q. Error: %+v",
 				datastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
 		} else {
-			return datastoreInfoObj, nil
+			datastoreInfos = append(datastoreInfos, datastoreInfoObj)
 		}
 	}
-
-	return nil, logger.LogNewErrorf(log,
-		"Unable to find datastore for datastore URL %s in VC %+v", datastoreURL, vc)
+	if len(datastoreInfos) > 0 {
+		return datastoreInfos, nil
+	} else {
+		return nil, logger.LogNewErrorf(log,
+			"Unable to find datastore for datastore URL %s in VC %+v", datastoreURL, vc)
+	}
 }
 
 // isExpansionRequired verifies if the requested size to expand a volume is
@@ -1096,43 +1104,43 @@ func GetNodeVMsWithAccessToDatastore(ctx context.Context, vc *vsphere.VirtualCen
 	}
 
 	// Get datastore object.
-	dsInfoObj, err := getDatastoreInfoObj(ctx, vc, dsURL)
+	dsInfoObjList, err := getDatastoreInfoObjList(ctx, vc, dsURL)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log, "failed to retrieve datastore object using datastore "+
 			"URL %q. Error: %+v", dsURL, err)
 	}
-	// Get datastore host mounts.
-	var ds mo.Datastore
-	err = dsInfoObj.Properties(ctx, dsInfoObj.Reference(), []string{"host"}, &ds)
-	if err != nil {
-		return nil, logger.LogNewErrorf(log, "failed to get host mounts from datastore %q. Error: %+v",
-			dsURL, err)
-	}
-
-	// For each host mount, get the list of VMs.
-	for _, host := range ds.Host {
-		hostObj := &vsphere.HostSystem{
-			HostSystem: object.NewHostSystem(vc.Client.Client, host.Key),
-		}
-		var hs mo.HostSystem
-		err = hostObj.Properties(ctx, hostObj.Reference(), []string{"vm"}, &hs)
+	for _, dsInfoObj := range dsInfoObjList {
+		// Get datastore host mounts.
+		var ds mo.Datastore
+		err = dsInfoObj.Properties(ctx, dsInfoObj.Reference(), []string{"host"}, &ds)
 		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to retrieve virtual machines from host %q. Error: %+v",
-				hostObj.String(), err)
+			return nil, logger.LogNewErrorf(log, "failed to get host mounts from datastore %q. Error: %+v",
+				dsURL, err)
 		}
-		// For each VM on the host, check if the VM is a NodeVM participating in the k8s cluster.
-		for _, vm := range hs.Vm {
-			if _, exists := nodeMap[vm]; exists {
-				accessibleNodes = append(accessibleNodes, object.NewVirtualMachine(vc.Client.Client, vm))
+		// For each host mount, get the list of VMs.
+		for _, host := range ds.Host {
+			hostObj := &vsphere.HostSystem{
+				HostSystem: object.NewHostSystem(vc.Client.Client, host.Key),
 			}
-			// Check if the length of accessible nodes is equal to total count of
-			// NodeVMs in this cluster. If yes, we can stop searching for more VMs.
-			if len(accessibleNodes) == totalNodes {
-				log.Infof("Nodes that have access to datastore %q are %+v", dsURL, accessibleNodes)
-				return accessibleNodes, nil
+			var hs mo.HostSystem
+			err = hostObj.Properties(ctx, hostObj.Reference(), []string{"vm"}, &hs)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log, "failed to retrieve virtual machines from host %q. Error: %+v",
+					hostObj.String(), err)
+			}
+			// For each VM on the host, check if the VM is a NodeVM participating in the k8s cluster.
+			for _, vm := range hs.Vm {
+				if _, exists := nodeMap[vm]; exists {
+					accessibleNodes = append(accessibleNodes, object.NewVirtualMachine(vc.Client.Client, vm))
+				}
+				// Check if the length of accessible nodes is equal to total count of
+				// NodeVMs in this cluster. If yes, we can stop searching for more VMs.
+				if len(accessibleNodes) == totalNodes {
+					log.Infof("Nodes that have access to datastore %q are %+v", dsURL, accessibleNodes)
+					return accessibleNodes, nil
+				}
 			}
 		}
-
 	}
 	log.Infof("Nodes that have access to datastore %q are %+v", dsURL, accessibleNodes)
 	return accessibleNodes, nil
