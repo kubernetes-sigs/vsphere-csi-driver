@@ -116,7 +116,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			ginkgo.Skip(fmt.Sprintf("Env %v is missing", envSharedVMFSDatastoreURL))
 		}
 
-		rand.Seed(time.Now().UnixNano())
+		rand.New(rand.NewSource(time.Now().UnixNano()))
 		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
 		categoryName := "category" + suffix
 		tagName := "tag" + suffix
@@ -280,7 +280,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		var policyName string
 		var policyID *pbmtypes.PbmProfileId
 
-		rand.Seed(time.Now().UnixNano())
+		rand.New(rand.NewSource(time.Now().UnixNano()))
 		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
 		categoryName := "category" + suffix
 		tagName := "tag" + suffix
@@ -430,7 +430,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		scParameters := make(map[string]string)
 
-		rand.Seed(time.Now().UnixNano())
+		rand.New(rand.NewSource(time.Now().UnixNano()))
 		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
 		categoryName := "category" + suffix
 		tagName := "tag" + suffix
@@ -568,7 +568,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		scParameters := make(map[string]string)
 
-		rand.Seed(time.Now().UnixNano())
+		rand.New(rand.NewSource(time.Now().UnixNano()))
 		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
 		categoryName := "category" + suffix
 		tagName := "tag" + suffix
@@ -772,7 +772,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		var policyName string
 		var policyID *pbmtypes.PbmProfileId
 
-		rand.Seed(time.Now().UnixNano())
+		rand.New(rand.NewSource(time.Now().UnixNano()))
 		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
 		categoryName := "category" + suffix
 		tagName := "tag" + suffix
@@ -886,7 +886,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
 		}()
 
-		rand.Seed(time.Now().Unix())
+		rand.New(rand.NewSource(time.Now().Unix()))
 		testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
 		ginkgo.By(fmt.Sprintf("Creating a 100mb test data file %v", testdataFile))
 		op, err := exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
@@ -1000,7 +1000,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		pvcs := []*v1.PersistentVolumeClaim{}
 		pvclaims2d := [][]*v1.PersistentVolumeClaim{}
 
-		rand.Seed(time.Now().UnixNano())
+		rand.New(rand.NewSource(time.Now().UnixNano()))
 		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
 		categoryName := "category" + suffix
 		tagName := "tag" + suffix
@@ -1170,7 +1170,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		scParameters := make(map[string]string)
-		rand.Seed(time.Now().UnixNano())
+		rand.New(rand.NewSource(time.Now().UnixNano()))
 		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
 		categoryName := "category" + suffix
 		tagName := "tag" + suffix

@@ -2971,7 +2971,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		}()
 
 		ginkgo.By("Bring down a host in secondary site")
-		rand.Seed(time.Now().UnixNano())
+		rand.New(rand.NewSource(time.Now().UnixNano()))
 		max, min := 3, 0
 		randomValue := rand.Intn(max-min) + min
 		host := fds.secondarySiteHosts[randomValue]

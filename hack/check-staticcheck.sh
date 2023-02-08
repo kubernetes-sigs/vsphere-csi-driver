@@ -19,14 +19,16 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
+go version
+
 # Change directories to the parent directory of the one in which this
 # script is located.
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-go install honnef.co/go/tools/cmd/staticcheck@2022.1.2
+go install honnef.co/go/tools/cmd/staticcheck@2023.1
+
+GOOS=linux "$(go env GOPATH)"/bin/staticcheck --version
 
 # shellcheck disable=SC2046
 # shellcheck disable=SC1083
-GOOS=linux $(go env GOPATH)/bin/staticcheck $(go list ./... | grep -v /vendor/)
-
-
+GOOS=linux "$(go env GOPATH)"/bin/staticcheck $(go list ./... | grep -v /vendor/)
