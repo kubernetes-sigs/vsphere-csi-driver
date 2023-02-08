@@ -243,7 +243,7 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 // verifyOnlineVolumeExpansionOnGc is a util method which helps in verifying online volume expansion on gc
 func verifyOnlineVolumeExpansionOnGc(client clientset.Interface, namespace string, svcPVCName string,
 	volHandle string, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod, f *framework.Framework) {
-	rand.Seed(time.Now().Unix())
+	rand.New(rand.NewSource(time.Now().Unix()))
 	testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
 	ginkgo.By(fmt.Sprintf("Creating a 512mb test data file %v", testdataFile))
 	op, err := exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
@@ -292,7 +292,7 @@ func verifyOfflineVolumeExpansionOnGc(client clientset.Interface, pvclaim *v1.Pe
 	originalFsSize, err := getFSSizeMb(f, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	rand.Seed(time.Now().Unix())
+	rand.New(rand.NewSource(time.Now().Unix()))
 	testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
 	ginkgo.By(fmt.Sprintf("Creating a 512mb test data file %v", testdataFile))
 	op, err := exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
