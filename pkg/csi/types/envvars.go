@@ -17,9 +17,6 @@ limitations under the License.
 package types
 
 const (
-	// EnvClusterFlavor is the k8s cluster type on which CSI Driver is being deployed
-	EnvClusterFlavor = "CLUSTER_FLAVOR"
-
 	// EnvSupervisorClientQPS  is the QPS for all clients to the supervisor cluster API server
 	EnvSupervisorClientQPS = "SUPERVISOR_CLIENT_QPS"
 

@@ -177,7 +177,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	if tasksListViewEnabled {
 		go cnsvolume.ClearInvalidTasksFromListView(false)
 	}
-	cfgPath := common.GetConfigPath(ctx)
+	cfgPath := cnsconfig.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
@@ -300,7 +300,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
-	cfg, err := common.GetConfig(ctx)
+	cfg, err := cnsconfig.GetConfig(ctx)
 	if err != nil {
 		log.Errorf("failed to read config. Error: %+v", err)
 		return err

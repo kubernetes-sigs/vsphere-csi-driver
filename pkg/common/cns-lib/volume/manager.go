@@ -60,7 +60,6 @@ const (
 
 	// maxLengthOfVolumeNameInCNS is the maximum length of CNS volume name.
 	maxLengthOfVolumeNameInCNS = 80
-
 	// Alias for TaskInvocationStatus constants.
 	taskInvocationStatusInProgress = cnsvolumeoperationrequest.TaskInvocationStatusInProgress
 	taskInvocationStatusSuccess    = cnsvolumeoperationrequest.TaskInvocationStatusSuccess
@@ -1503,7 +1502,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		if volumeOperationDetails.OperationDetails != nil {
 			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusSuccess &&
 				volumeOperationDetails.Capacity >= size {
-				log.Infof("Volume with ID %s already expanded to size %s", volumeID, size)
+				log.Infof("Volume with ID %s already expanded to size %v", volumeID, size)
 				return "", nil
 			}
 			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&

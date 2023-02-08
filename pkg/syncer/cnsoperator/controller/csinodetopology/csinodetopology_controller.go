@@ -477,7 +477,7 @@ func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
 	)
 	// Get VC instance.
 	if isMultiVCFSSEnabled {
-		vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterHost(ctx, nodeVM.VirtualCenterHost)
+		vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterHost(ctx, nodeVM.VirtualCenterHost, true)
 		if err != nil {
 			return nil, logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, err: %v",
 				nodeVM.VirtualCenterHost, err)

@@ -50,6 +50,10 @@ type AuthorizationService interface {
 
 	// ResetvCenterInstance sets new vCenter instance for AuthorizationService
 	ResetvCenterInstance(ctx context.Context, vCenter *cnsvsphere.VirtualCenter)
+
+	// Stop signals  ComputeDatastoreMapForBlockVolumes and ComputeFSEnabledClustersToDsMap to stop the loop
+	// so unassigned authmanager instance can be garbage collected.
+	Stop()
 }
 
 // AuthManager maintains an internal map to track the datastores that need to be
@@ -66,6 +70,8 @@ type AuthManager struct {
 	rwMutex sync.RWMutex
 	// VCenter Instance.
 	vcenter *cnsvsphere.VirtualCenter
+	// set to true will end calling ComputeDatastoreMapForBlockVolumes and ComputeFSEnabledClustersToDsMap
+	stop bool
 }
 
 // onceForAuthorizationService is used for initializing the AuthorizationService
@@ -127,6 +133,12 @@ func GetNewAuthorizationService(ctx context.Context, vc *cnsvsphere.VirtualCente
 	}
 	log.Info("authorization service initialized for vCenter: %q", vc.Config.Host)
 	return authManagerInstance, nil
+}
+
+// Stop signals  ComputeDatastoreMapForBlockVolumes and ComputeFSEnabledClustersToDsMap to stop the loop
+// so unassigned authmanager instance can be garbage collected.
+func (authManager *AuthManager) Stop() {
+	authManager.stop = true
 }
 
 // GetDatastoreMapForBlockVolumes returns a DatastoreMapForBlockVolumes. This
@@ -210,8 +222,14 @@ func ComputeDatastoreMapForBlockVolumes(authManager *AuthManager, authCheckInter
 		authManager.vcenter.Config.Host)
 	ticker := time.NewTicker(time.Duration(authCheckInterval) * time.Minute)
 	for ; true; <-ticker.C {
+		if authManager.stop {
+			break
+		}
 		authManager.refreshDatastoreMapForBlockVolumes()
 	}
+	log.Infof("auth manager: ComputeDatastoreMapForBlockVolumes exited for vCenter %q",
+		authManager.vcenter.Config.Host)
+
 }
 
 // ComputeFSEnabledClustersToDsMap refreshes fsEnabledClusterToDsMap
@@ -222,8 +240,13 @@ func ComputeFSEnabledClustersToDsMap(authManager *AuthManager, authCheckInterval
 		authManager.vcenter.Config.Host)
 	ticker := time.NewTicker(time.Duration(authCheckInterval) * time.Minute)
 	for ; true; <-ticker.C {
+		if authManager.stop {
+			break
+		}
 		authManager.refreshFSEnabledClustersToDsMap()
 	}
+	log.Infof("auth manager: ComputeFSEnabledClustersToDsMap exited for vCenter %q",
+		authManager.vcenter.Config.Host)
 }
 
 // GenerateDatastoreMapForBlockVolumes scans all datastores in Vcenter and do

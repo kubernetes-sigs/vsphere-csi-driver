@@ -280,3 +280,15 @@ func getVCenterManagerForVCenter(ctx context.Context, controller *controller) vs
 	}
 	return vCenterManager
 }
+
+// GetVolumeManagerFromVCHost retreives the volume manager associated with
+// vCenterHost under managers. Error out if the vCenterHost does not exist.
+func GetVolumeManagerFromVCHost(ctx context.Context, managers *common.Managers, vCenterHost string) (
+	cnsvolume.Manager, error) {
+	log := logger.GetLogger(ctx)
+	volumeMgr, exists := managers.VolumeManagers[vCenterHost]
+	if !exists {
+		return nil, logger.LogNewErrorf(log, "failed to find vCenter %q under volume managers.", vCenterHost)
+	}
+	return volumeMgr, nil
+}

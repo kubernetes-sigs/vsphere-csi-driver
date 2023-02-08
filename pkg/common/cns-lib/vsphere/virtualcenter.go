@@ -32,7 +32,6 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vsan"
 	"github.com/vmware/govmomi/vslm"
-
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 
@@ -137,6 +136,9 @@ type VirtualCenterConfig struct {
 	// MigrationDataStore specifies datastore which is set as default datastore in legacy cloud-config
 	// and hence should be used as default datastore.
 	MigrationDataStoreURL string
+	// when ReloadVCConfigForNewClient is set to true it forces re-read config secret when
+	// new vc client needs to be created
+	ReloadVCConfigForNewClient bool
 }
 
 // NewClient creates a new govmomi Client instance.
@@ -306,7 +308,31 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 		}
 	}
 	// If session has expired, create a new instance.
-	log.Warnf("Creating a new client session as the existing one isn't valid or not authenticated")
+	log.Infof("Creating a new client session as the existing one isn't valid or not authenticated")
+	if vc.Config.ReloadVCConfigForNewClient {
+		log.Info("Reloading latest VC config from vSphere Config Secret")
+		cfg, err := config.GetConfig(ctx)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
+		}
+		var foundVCConfig bool
+		newVcenterConfigs, err := GetVirtualCenterConfigs(ctx, cfg)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err=%v", err)
+		}
+		for _, newvcconfig := range newVcenterConfigs {
+			if newvcconfig.Host == vc.Config.Host {
+				newvcconfig.ReloadVCConfigForNewClient = true
+				vc.Config = newvcconfig
+				log.Infof("Successfully set latest VC config for vcenter: %q", vc.Config.Host)
+				foundVCConfig = true
+				break
+			}
+		}
+		if !foundVCConfig {
+			return logger.LogNewErrorf(log, "failed to get vCenter config for Host: %q", vc.Config.Host)
+		}
+	}
 	if vc.Client, err = vc.NewClient(ctx); err != nil {
 		log.Errorf("failed to create govmomi client with err: %v", err)
 		if !vc.Config.Insecure {
@@ -612,6 +638,9 @@ func GetVirtualCenterInstanceForVCenterConfig(ctx context.Context,
 		// Register with virtual center manager.
 		vcInstance, err := virtualcentermanager.RegisterVirtualCenter(ctx, vcconfig)
 		if err != nil {
+			if err == ErrVCAlreadyRegistered {
+				return nil, ErrVCAlreadyRegistered
+			}
 			return nil, logger.LogNewErrorf(log, "failed to register VirtualCenter %q Err: %+v",
 				vcconfig.Host, err)
 		}
@@ -628,8 +657,26 @@ func GetVirtualCenterInstanceForVCenterConfig(ctx context.Context,
 	return vCenterInstances[vcconfig.Host], nil
 }
 
+// UnregisterVirtualCenter helps delete vCenterServer instance for specified host
+func UnregisterVirtualCenter(ctx context.Context, vcHost string) error {
+	log := logger.GetLogger(ctx)
+	vCenterInstancesLock.Lock()
+	defer vCenterInstancesLock.Unlock()
+
+	// Initialize the virtual center manager.
+	virtualcentermanager := GetVirtualCenterManager(ctx)
+	// Unregister the VC from virtual center manager.
+	if err := virtualcentermanager.UnregisterVirtualCenter(ctx, vcHost); err != nil {
+		return logger.LogNewErrorf(log, "failed to unregister VirtualCenter %q with "+
+			"virtualCenterManager. Err: %+v", vcHost, err)
+	}
+	delete(vCenterInstances, vcHost)
+	return nil
+}
+
 // GetVirtualCenterInstanceForVCenterHost returns the vcenter object for given vCenter host.
-func GetVirtualCenterInstanceForVCenterHost(ctx context.Context, vcHost string) (*VirtualCenter, error) {
+func GetVirtualCenterInstanceForVCenterHost(ctx context.Context, vcHost string,
+	reconnect bool) (*VirtualCenter, error) {
 	log := logger.GetLogger(ctx)
 	vCenterInstancesLock.RLock()
 	defer vCenterInstancesLock.RUnlock()
@@ -638,10 +685,12 @@ func GetVirtualCenterInstanceForVCenterHost(ctx context.Context, vcHost string) 
 	if !found || vc == nil {
 		return nil, logger.LogNewErrorf(log, "failed to get VirtualCenter instance for host %q.", vcHost)
 	}
-	err := vc.Connect(ctx)
-	if err != nil {
-		return nil, logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q. Error: %v",
-			vcHost, err)
+	if reconnect {
+		err := vc.Connect(ctx)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q. Error: %v",
+				vcHost, err)
+		}
 	}
 	return vc, nil
 }

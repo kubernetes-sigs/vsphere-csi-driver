@@ -47,7 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
@@ -83,12 +83,12 @@ func New() csitypes.CnsController {
 }
 
 // Init is initializing controller struct
-func (c *controller) Init(config *cnsconfig.Config, version string) error {
+func (c *controller) Init(config *commonconfig.Config, version string) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Initializing WCPGC CSI controller")
 	var err error
 	// connect to the CSI controller in supervisor cluster
-	c.supervisorNamespace, err = cnsconfig.GetSupervisorNamespace(ctx)
+	c.supervisorNamespace, err = commonconfig.GetSupervisorNamespace(ctx)
 	if err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		return err
 	}
 
-	pvcsiConfigPath := common.GetConfigPath(ctx)
+	pvcsiConfigPath := commonconfig.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
@@ -166,10 +166,10 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
 	}
-	log.Infof("Adding watch on path: %q", cnsconfig.DefaultpvCSIProviderPath)
-	err = watcher.Add(cnsconfig.DefaultpvCSIProviderPath)
+	log.Infof("Adding watch on path: %q", commonconfig.DefaultpvCSIProviderPath)
+	err = watcher.Add(commonconfig.DefaultpvCSIProviderPath)
 	if err != nil {
-		log.Errorf("failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
+		log.Errorf("failed to watch on path: %q. err=%v", commonconfig.DefaultpvCSIProviderPath, err)
 		return err
 	}
 	// Go module to keep the metrics http server running all the time.
@@ -193,7 +193,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 func (c *controller) ReloadConfiguration() error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
-	cfg, err := common.GetConfig(ctx)
+	cfg, err := commonconfig.GetConfig(ctx)
 	if err != nil {
 		log.Errorf("failed to read config. Error: %+v", err)
 		return err

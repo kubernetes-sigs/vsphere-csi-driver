@@ -345,7 +345,7 @@ func InitCommonModules(ctx context.Context, clusterFlavor cnstypes.CnsClusterFla
 // container.
 func watcher(ctx context.Context, cnsOperator *cnsOperator) error {
 	log := logger.GetLogger(ctx)
-	cfgPath := common.GetConfigPath(ctx)
+	cfgPath := commonconfig.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("Failed to create fsnotify watcher. Err: %+v", err)
@@ -391,7 +391,7 @@ func watcher(ctx context.Context, cnsOperator *cnsOperator) error {
 // with the latest configInfo.
 func reloadConfiguration(ctx context.Context, cnsOperator *cnsOperator) error {
 	log := logger.GetLogger(ctx)
-	cfg, err := common.GetConfig(ctx)
+	cfg, err := commonconfig.GetConfig(ctx)
 	if err != nil {
 		log.Errorf("Failed to read config. Error: %+v", err)
 		return err

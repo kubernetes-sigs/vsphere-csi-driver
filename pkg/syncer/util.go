@@ -343,7 +343,7 @@ func getConfig(ctx context.Context) (*cnsconfig.Config, error) {
 	var clusterID string
 	log := logger.GetLogger(ctx)
 
-	cfg, err := common.GetConfig(ctx)
+	cfg, err := cnsconfig.GetConfig(ctx)
 	if err != nil {
 		log.Errorf("failed to read config. Error: %+v", err)
 		return nil, err
