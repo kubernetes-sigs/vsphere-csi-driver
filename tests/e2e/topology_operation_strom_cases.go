@@ -281,6 +281,11 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 			}
 		}()
 
+		ginkgo.By("Wait for k8s cluster to be healthy")
+		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		// Scale down statefulSets replicas count
 		statefulSetReplicaCount = 10
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
@@ -340,11 +345,6 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 				}
 			}
 		}
-
-		ginkgo.By("Verify k8s cluster is healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Scale down statefulSets replica count
 		statefulSetReplicaCount = 0
@@ -544,6 +544,11 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 			}
 		}
 
+		ginkgo.By("Wait for k8s cluster to be healthy")
+		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		/* Get newly elected leader Csi-Controller-Pod where CSI Provisioner is running" +
 		find new master node IP where this Csi-Controller-Pod is running */
 		ginkgo.By("Get newly Leader Csi-Controller-Pod where CSI Provisioner is running and " +
@@ -578,11 +583,6 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 			client, sshClientConfig, containerName)
 		framework.Logf("csi-attacher is running on Leader Pod %s "+
 			"which is running on master node %s", controller_name, k8sMasterIP)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify all the workload Pods are in up and running state

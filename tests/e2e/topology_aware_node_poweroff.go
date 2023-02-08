@@ -91,6 +91,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
 		ginkgo.By("Creating statefulset with single replica")
 		statefulset, service := createStatefulSetWithOneReplica(client, manifestPath, namespace)
 		defer func() {
@@ -221,6 +227,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
 		}()
 
 		ginkgo.By("Creating statefulset with single replica")

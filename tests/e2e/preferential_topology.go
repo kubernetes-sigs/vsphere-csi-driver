@@ -2380,7 +2380,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Expect claim to fail provisioning volume")
 		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
 			client, pvclaim.Namespace, pvclaim.Name, pollTimeoutShort, framework.PollShortTimeout))
-		expectedErrMsg := "failed to get shared datastores for topology requirement"
+		expectedErrMsg := "failed to create volume"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
 	})
