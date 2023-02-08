@@ -203,7 +203,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 
 		ginkgo.By("Creating tag and category to tag datastore")
 
-		rand.Seed(time.Now().UnixNano())
+		rand.New(rand.NewSource(time.Now().UnixNano()))
 		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
 		categoryName := "category" + suffix
 		tagName := "tag" + suffix
@@ -357,7 +357,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 		scParameters := make(map[string]string)
 		pvcs := []*v1.PersistentVolumeClaim{}
 
-		rand.Seed(time.Now().UnixNano())
+		rand.New(rand.NewSource(time.Now().UnixNano()))
 		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
 		categoryName := "category" + suffix
 		tagName := "tag" + suffix
