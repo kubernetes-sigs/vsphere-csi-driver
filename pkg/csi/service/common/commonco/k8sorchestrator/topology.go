@@ -236,7 +236,7 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 							ctx, log := logger.GetNewContextWithLogger()
 							log.Infof("Refreshing preferred datastores information...")
 							if isMultiVCSupportEnabled {
-								err = common.RefreshPreferentialDatastores(ctx)
+								err = common.RefreshPreferentialDatastoresForMultiVCenter(ctx)
 							} else {
 								err = refreshPreferentialDatastores(ctx)
 							}

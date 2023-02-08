@@ -35,8 +35,4 @@ type VanillaSharedDatastoresParams struct {
 	// StoragePolicyID represents the unique ID of the storage policy
 	// name given in the Storage Class on the attempted VC.
 	StoragePolicyID string
-	// IsCSINodeIdFeatureEnabled is the FSS state for use-csinode-id.
-	IsCSINodeIdFeatureEnabled bool
-	// IsTopologyPreferentialDatastoresFSSEnabled is the FSS state for topology-preferential-datastores.
-	IsTopologyPreferentialDatastoresFSSEnabled bool
 }
