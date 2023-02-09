@@ -1097,3 +1097,14 @@ func unescape(ctx context.Context, in string) string {
 	}
 	return string(out)
 }
+
+// Check if device at given path is block device or not
+func (osUtils *OsUtils) IsBlockDevice(ctx context.Context, volumePath string) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	deviceInfo, err := os.Stat(volumePath)
+	if err != nil {
+		return false, logger.LogNewErrorf(log, "IsBlockDevice: could not get device info for path %s", volumePath)
+	}
+	return deviceInfo.Mode()&os.ModeDevice == os.ModeDevice, nil
+}

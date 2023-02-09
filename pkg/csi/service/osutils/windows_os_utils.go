@@ -511,3 +511,8 @@ func (osUtils *OsUtils) ShouldContinue(ctx context.Context) {
 	}
 	return
 }
+
+// Check if device at given path is block device or not
+func (osUtils *OsUtils) IsBlockDevice(ctx context.Context, volumePath string) (bool, error) {
+	return false, nil
+}

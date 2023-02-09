@@ -2497,6 +2497,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
 			nodeExpansionRequired = false
 		}
+		log.Debugf("ControllerExpandVolumeInternal: returns %v as capacity and %v as NodeExpansionRequired",
+			int64(units.FileSize(volSizeMB*common.MbInBytes)), nodeExpansionRequired)
 		resp := &csi.ControllerExpandVolumeResponse{
 			CapacityBytes:         int64(units.FileSize(volSizeMB * common.MbInBytes)),
 			NodeExpansionRequired: nodeExpansionRequired,
