@@ -101,6 +101,7 @@ const (
 		"chmod o+rX /mnt /mnt/volume1/Pod2.html && while true ; do sleep 2 ; done"
 	ext3FSType                                = "ext3"
 	ext4FSType                                = "ext4"
+	xfsFSType                                 = "xfs"
 	evacMModeType                             = "evacuateAllData"
 	fcdName                                   = "BasicStaticFCD"
 	fileSizeInMb                              = int64(2048)

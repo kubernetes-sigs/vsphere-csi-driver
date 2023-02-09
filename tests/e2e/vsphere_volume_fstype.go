@@ -90,6 +90,10 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func(
 		invokeTestForFstype(f, client, namespace, "", ext4FSType, storagePolicyName, profileID)
 	})
 
+	ginkgo.It("[csi-block-vanilla-parallelized] CSI - verify fstype - xfs formatted volume", func() {
+		invokeTestForFstype(f, client, namespace, xfsFSType, xfsFSType, storagePolicyName, profileID)
+	})
+
 	ginkgo.It("[csi-block-vanilla-parallelized] CSI - verify invalid fstype", func() {
 		invokeTestForInvalidFstype(f, client, namespace, invalidFSType, storagePolicyName, profileID)
 	})
@@ -183,41 +187,8 @@ func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interfa
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 
-	// Waiting for PVC to be bound
-	var pvclaims []*v1.PersistentVolumeClaim
-	pvclaims = append(pvclaims, pvclaim)
-	ginkgo.By("Waiting for all claims to be in bound state")
-	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	// Create a Pod to use this PVC, and verify volume has been attached
-	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
-	gomega.Expect(err).To(gomega.HaveOccurred())
-
-	pv := persistentvolumes[0]
-	expectedErrorMsg := `MountVolume.MountDevice failed for volume "` + pv.Name
-	isFailureFound := checkEventsforError(client, namespace,
-		metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pod.Name)}, expectedErrorMsg)
-	gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Unable to verify MountVolume.MountDevice failure")
-
-	// pod.Spec.NodeName may not be set yet when pod just created
-	// refetch pod to get pod.Spec.NodeName
-	podNodeName := pod.Spec.NodeName
-	ginkgo.By(fmt.Sprintf("podNodeName: %v podName: %v", podNodeName, pod.Name))
-	pod, err = client.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	podNodeName = pod.Spec.NodeName
-	ginkgo.By(fmt.Sprintf("Refetch the POD: podNodeName: %v podName: %v", podNodeName, pod.Name))
-
-	// Delete POD
-	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-	err = fpod.DeletePodWithWait(client, pod)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	ginkgo.By("Verify volume is detached from the node")
-	isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, podNodeName)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
-		fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, podNodeName))
+	ginkgo.By(fmt.Sprintf("Expect claim to fail as filesystem %q is invalid.", fstype))
+	expectedErrMsg := "fstype " + fstype + " not supported for ReadWriteOnce volume creation"
+	err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Expected error : %q", expectedErrMsg)
 }
