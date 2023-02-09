@@ -22,7 +22,8 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 	params := reqParams.(VanillaSharedDatastoresParams)
 	var sharedDatastores []*cnsvsphere.DatastoreInfo
 	nodeMgr := node.GetManager(ctx)
-
+	log.Infof("GetSharedDatastores called with policyID: %q , Topology Segment List: %v",
+		params.StoragePolicyID, params.TopologySegmentsList)
 	// Iterate through each set of topology segments and find shared datastores for that segment.
 	for _, segments := range params.TopologySegmentsList {
 		// Fetch nodes compatible with the requested topology segments.
@@ -38,7 +39,7 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 			continue
 		}
 		log.Infof("Obtained list of nodeVMs %+v", matchingNodeVMs)
-
+		log.Debugf("completeTopologySegments map: %+v", completeTopologySegments)
 		// Fetch shared datastores for the matching nodeVMs.
 		sharedDatastoresInTopology, err := cnsvsphere.GetSharedDatastoresForVMs(ctx, matchingNodeVMs)
 		if err != nil {
@@ -91,6 +92,8 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 			allPreferredDSURLs := make(map[string]struct{})
 			for _, topoSegs := range completeTopologySegments {
 				prefDS := common.GetPreferredDatastoresInSegments(ctx, topoSegs, params.Vcenter.Config.Host)
+				log.Infof("Preferential datastores: %v for topology segment: %v on vCenter: %q", prefDS,
+					topoSegs, params.Vcenter.Config.Host)
 				for key, val := range prefDS {
 					allPreferredDSURLs[key] = val
 				}
@@ -99,6 +102,7 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 				// If there are preferred datastores among the compatible
 				// datastores, choose the preferred datastores, otherwise
 				// choose the compatible datastores.
+				log.Debugf("Filtering preferential datastores from compatible datastores")
 				var preferredDS []*cnsvsphere.DatastoreInfo
 				for _, dsInfo := range sharedDatastoresInTopology {
 					if _, ok := allPreferredDSURLs[dsInfo.Info.Url]; ok {
@@ -108,6 +112,8 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 				if len(preferredDS) != 0 {
 					sharedDatastoresInTopology = preferredDS
 					log.Infof("Using preferred datastores: %+v", preferredDS)
+				} else {
+					log.Infof("No preferential datastore selected for volume provisoning")
 				}
 			}
 		}

@@ -116,9 +116,9 @@ func getVCForTopologySegments(ctx context.Context, topologySegments map[string]s
 		topologySegments)
 }
 
-// RefreshPreferentialDatastores refreshes the preferredDatastoresMap variable
-// with latest information on the preferential datastores for each topology domain.
-func RefreshPreferentialDatastores(ctx context.Context) error {
+// RefreshPreferentialDatastoresForMultiVCenter refreshes the preferredDatastoresMap variable
+// with the latest information on the preferential datastores for each topology domain across all vCenter Servers
+func RefreshPreferentialDatastoresForMultiVCenter(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	cnsCfg, err := GetConfig(ctx)
 	if err != nil {
@@ -155,20 +155,21 @@ func RefreshPreferentialDatastores(ctx context.Context) error {
 		// Get tags for category reserved for preferred datastore tagging.
 		tagIds, err := tagMgr.ListTagsForCategory(ctx, PreferredDatastoresCategory)
 		if err != nil {
-			log.Infof("failed to retrieve tags for category %q in vCenter %q. Reason: %+v",
+			log.Warnf("failed to retrieve tags for category %q in vCenter %q. Reason: %+v",
 				PreferredDatastoresCategory, vcConfig.Host, err)
-			return nil
+			continue
 		}
 		if len(tagIds) == 0 {
 			log.Infof("No preferred datastores found in vCenter %q.", vcConfig.Host)
-			return nil
+			continue
 		}
 		// Fetch vSphere entities on which the tags have been applied.
 		prefDatastoresMap[vcConfig.Host] = make(map[string][]string)
 		attachedObjs, err := tagMgr.GetAttachedObjectsOnTags(ctx, tagIds)
 		if err != nil {
-			return logger.LogNewErrorf(log, "failed to retrieve objects with tags %v in vCenter %q. Error: %+v",
+			log.Warnf("failed to retrieve objects with tags %v in vCenter %q. Error: %+v",
 				tagIds, vcConfig.Host, err)
+			continue
 		}
 		for _, attachedObj := range attachedObjs {
 			for _, obj := range attachedObj.ObjectIDs {
@@ -183,8 +184,9 @@ func RefreshPreferentialDatastores(ctx context.Context) error {
 				dsObj := object.NewDatastore(vc.Client.Client, obj.Reference())
 				err = dsObj.Properties(ctx, obj.Reference(), []string{"summary"}, &dsMo)
 				if err != nil {
-					return logger.LogNewErrorf(log, "failed to retrieve summary from datastore: %+v in vCenter %q."+
+					log.Errorf("failed to retrieve summary from datastore: %+v in vCenter %q."+
 						" Error: %v", obj.Reference(), vcConfig.Host, err)
+					continue
 				}
 
 				log.Infof("Datastore %q with URL %q is preferred in %q domain in vCenter %q", dsMo.Summary.Name,
@@ -201,6 +203,8 @@ func RefreshPreferentialDatastores(ctx context.Context) error {
 		defer preferredDatastoresMapInstanceLock.Unlock()
 		preferredDatastoresMap = prefDatastoresMap
 		PreferredDatastoresExist = true
+		log.Debugf("preferredDatastoresMap :%v", preferredDatastoresMap)
+		log.Debugf("PreferredDatastoresExist: %v", PreferredDatastoresExist)
 	}
 	return nil
 }
