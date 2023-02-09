@@ -850,9 +850,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		sharedDatastores    []*cnsvsphere.DatastoreInfo
 		topologyRequirement *csi.TopologyRequirement
 	)
+	// Get accessibility.
+	topologyRequirement = req.GetAccessibilityRequirements()
 	if !volTaskAlreadyRegistered {
-		// Get accessibility.
-		topologyRequirement = req.GetAccessibilityRequirements()
 		if topologyRequirement != nil {
 			// Check if topology domains have been provided in the vSphere CSI config secret.
 			// NOTE: We do not support kubernetes.io/hostname as a topology label.
