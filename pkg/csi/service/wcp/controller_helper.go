@@ -602,9 +602,9 @@ func getVolumeIDToVMMap(ctx context.Context, c *controller, volumeIDs []string) 
 	log := logger.GetLogger(ctx)
 	response := &csi.ListVolumesResponse{}
 
-	fakeAttachMarkedVolumes := commonco.ContainerOrchestratorUtility.GetFakeAttachedVolumes(ctx, volumeIDs)
+	allFakeAttachMarkedVolumes := commonco.ContainerOrchestratorUtility.GetFakeAttachedVolumes(ctx, volumeIDs)
 	fakeAttachedVolumes := make([]string, 0)
-	for volumeID, isfakeAttached := range fakeAttachMarkedVolumes {
+	for volumeID, isfakeAttached := range allFakeAttachMarkedVolumes {
 		if isfakeAttached {
 			fakeAttachedVolumes = append(fakeAttachedVolumes, volumeID)
 		}
@@ -634,8 +634,13 @@ func getVolumeIDToVMMap(ctx context.Context, c *controller, volumeIDs []string) 
 	}
 
 	hostNames := commonco.ContainerOrchestratorUtility.GetNodeIDtoNameMap(ctx)
+	if len(hostNames) == 0 {
+		log.Errorf("no hostnames found in the NodeIDtoName map")
+		return nil, fmt.Errorf("no hostnames found in the NodeIDtoName map")
+	}
+
 	for volumeID, VMMoID := range volumeIDToVMMap {
-		isFakeAttached, exists := fakeAttachMarkedVolumes[volumeID]
+		isFakeAttached, exists := allFakeAttachMarkedVolumes[volumeID]
 		// If we do not find this entry in the input list obtained from CNS
 		//, then we do not bother adding it to the result since, CNS is not aware
 		// of this volume. Also, if it is fake attached volume we have handled it

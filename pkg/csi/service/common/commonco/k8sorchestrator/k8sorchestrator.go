@@ -1338,7 +1338,9 @@ func initNodeIDToNameMap(ctx context.Context) {
 		func(obj interface{}) { // Add.
 			nodeAdd(obj)
 		},
-		nil,
+		func(oldObj interface{}, newObj interface{}) { // Update.
+			nodeUpdate(oldObj, newObj)
+		},
 		func(obj interface{}) { // Delete.
 			nodeRemove(obj)
 		})
@@ -1361,6 +1363,32 @@ func nodeAdd(obj interface{}) {
 		return
 	}
 	k8sOrchestratorInstance.nodeIDToNameMap.add(nodeMoID, node.Name)
+}
+
+// nodeUpdate updates an entry into nodeIDToNameMap. The node MoID is retrieved from the
+// node annotation vmware-system-esxi-node-moid
+func nodeUpdate(oldObject interface{}, newObject interface{}) {
+	log := logger.GetLogger(context.Background())
+	oldnode, ok := oldObject.(*v1.Node)
+	if oldnode == nil || !ok {
+		log.Warnf("nodeUpdate: unrecognized object %+v", oldObject)
+		return
+	}
+
+	newnode, ok := newObject.(*v1.Node)
+	if newnode == nil || !ok {
+		log.Warnf("nodeUpdate: unrecognized object %+v", newObject)
+		return
+	}
+
+	_, oldOk := oldnode.ObjectMeta.Annotations[common.HostMoidAnnotationKey]
+	newNodeMoID, newOk := newnode.ObjectMeta.Annotations[common.HostMoidAnnotationKey]
+
+	if !oldOk && newOk {
+		// If annotation is not found on the old node but found on the new one, add it to the map.
+		log.Debugf("Adding nodeMoid %s and node name %s to the map.", newNodeMoID, newnode.Name)
+		k8sOrchestratorInstance.nodeIDToNameMap.add(newNodeMoID, newnode.Name)
+	}
 }
 
 // nodeRemove removes an entry from nodeIDToNameMap. The node MoID is retrieved from the
