@@ -1150,3 +1150,32 @@ func (vs *vSphere) verifyPreferredDatastoreMatch(volumeID string, dsUrls []strin
 	}
 	return flag
 }
+
+// Delete CNS volume
+func (vs *vSphere) deleteCNSvolume(volumeID string, isDeleteDisk bool) (*cnstypes.CnsDeleteVolumeResponse, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Connect to VC
+	connect(ctx, vs)
+
+	var volumeIds []cnstypes.CnsVolumeId
+	volumeIds = append(volumeIds, cnstypes.CnsVolumeId{
+		Id: volumeID,
+	})
+
+	req := cnstypes.CnsDeleteVolume{
+		This:       cnsVolumeManagerInstance,
+		VolumeIds:  volumeIds,
+		DeleteDisk: isDeleteDisk,
+	}
+
+	err := connectCns(ctx, vs)
+	if err != nil {
+		return nil, err
+	}
+	res, err := cnsmethods.CnsDeleteVolume(ctx, vs.CnsClient.Client, &req)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}

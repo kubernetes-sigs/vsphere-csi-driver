@@ -19,9 +19,11 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"golang.org/x/crypto/ssh"
 	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -30,6 +32,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
 )
@@ -61,12 +64,15 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		namespace         string
-		client            clientset.Interface
-		storagePolicyName string
-		scParameters      map[string]string
-		storageClassName  string
+		namespace               string
+		client                  clientset.Interface
+		storagePolicyName       string
+		scParameters            map[string]string
+		storageClassName        string
+		sshClientConfig         *ssh.ClientConfig
+		nimbusGeneratedK8sVmPwd string
 	)
+
 	ginkgo.BeforeEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -78,6 +84,16 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name,
 				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 		}
+		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+
+		sshClientConfig = &ssh.ClientConfig{
+			User: "root",
+			Auth: []ssh.AuthMethod{
+				ssh.Password(nimbusGeneratedK8sVmPwd),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		}
+
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 	})
@@ -637,6 +653,165 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
+	})
+
+	/*
+	  Verify List volume Response on vsphere-ccsi-controller logs
+	  Note: ist volume Threshold is set to 1 , and query limit set to 3
+	  1. Create SC
+	  2. Create statefull set with 3 replica
+	  3. Bring down the CSI driver replica to 1 , so that it is easy to validate the List volume Response.
+	  4. Wait for all the PVC to reach bound and PODs to reach running state.
+	  5. Note down the PV volume handle
+	  6. Verify the Listvolume response in logs. It should contain all the 3 volumeID's noted in step 5
+	  7. Scale up the Statefullset replica to 5 and validate the Pagination.
+	    The 1st List volume Response will have the "token for next set:"
+	  8. Delete 2 volumes from the CNS , verify the error message in the controller logs
+	  9. Delete All the volumes
+	  10. Verify list volume response for 0 volume.
+	  11. Clean up the statefull set
+	  12. Inncrease the CSI driver  replica to 3
+
+	*/
+	ginkgo.It("[csi-block-vanilla] ListVolumeResponse Validation", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var volumesBeforeScaleUp []string
+		containerName := "vsphere-csi-controller"
+		ginkgo.By("Creating StorageClass for Statefulset")
+		// decide which test setup is available to run
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters = nil
+			storageClassName = "nginx-sc-default"
+		} else {
+			ginkgo.By("CNS_TEST: Running for WCP setup")
+			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			scParameters[scParamStoragePolicyID] = profileID
+			storageClassName = defaultNginxStorageClassName
+			// create resource quota
+			createResourceQuota(client, namespace, rqLimit, defaultNginxStorageClassName)
+		}
+
+		ginkgo.By("scale down CSI driver POD to 1 , so that it will" +
+			"be easy to validate all Listvolume response on one driver POD")
+		collectPodLogs(ctx, client, csiSystemNamespace)
+		scaledownCSIDriver, err := scaleCSIDriver(ctx, client, namespace, 1)
+		gomega.Expect(scaledownCSIDriver).To(gomega.BeTrue(), "csi driver scaledown is not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By("Scale up the csi-driver replica to 3")
+			success, err := scaleCSIDriver(ctx, client, namespace, 3)
+			gomega.Expect(success).To(gomega.BeTrue(), "csi driver scale up to 3 replica not successful")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+		statefulset := GetStatefulSetFromManifest(namespace)
+		ginkgo.By("Creating statefulset")
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
+		CreateStatefulSet(namespace, statefulset, client)
+		replicas := *(statefulset.Spec.Replicas)
+		// Waiting for pods status to be Ready
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+
+		// Get the list of Volumes attached to Pods before scale up
+		for _, sspod := range ssPodsBeforeScaleDown.Items {
+			_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, volumespec := range sspod.Spec.Volumes {
+				if volumespec.PersistentVolumeClaim != nil {
+					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					volumesBeforeScaleUp = append(volumesBeforeScaleUp, pv.Spec.CSI.VolumeHandle)
+					// Verify the attached volume match the one in CNS cache
+					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}
+		}
+
+		//List volume responses will show up in the interval of every 1 minute.
+		time.Sleep(pollTimeoutShort)
+
+		ginkgo.By("Validate ListVolume Response for all the volumes")
+		logMessage := "List volume response: entries:"
+		_, _, err = getCSIPodWhereListVolumeResponseIsPresent(ctx, client, sshClientConfig,
+			containerName, logMessage, volumesBeforeScaleUp)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		replicas = replicas + 2
+		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
+		_, scaleupErr := fss.Scale(client, statefulset, replicas)
+		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+
+		ssPodsAfterScaleUp := fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+
+		ginkgo.By("Validate pagination")
+		logMessage = "token for next set: 3"
+		_, _, err = getCSIPodWhereListVolumeResponseIsPresent(ctx, client, sshClientConfig, containerName, logMessage, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Delete volume from CNS and verify the error message")
+		logMessage = "difference between number of K8s volumes and CNS volumes is greater than threshold"
+		_, err = e2eVSphere.deleteCNSvolume(volumesBeforeScaleUp[0], false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		_, err = e2eVSphere.deleteCNSvolume(volumesBeforeScaleUp[1], false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		//List volume responses will show up in the interval of every 1 minute.
+		//To see the error, It is required to wait for 1 min after deleteting few Volumes
+		time.Sleep(pollTimeoutShort)
+		_, _, err = getCSIPodWhereListVolumeResponseIsPresent(ctx, client, sshClientConfig, containerName, logMessage, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		replicas = 0
+		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
+		_, scaledownErr := fss.Scale(client, statefulset, replicas)
+		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReplicas(client, statefulset, replicas)
+		ssPodsAfterScaleDown := fss.GetPodList(client, statefulset)
+		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset should match with number of replicas")
+
+		pvcList := getAllPVCFromNamespace(client, namespace)
+		for _, pvc := range pvcList.Items {
+			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace),
+				"Failed to delete PVC", pvc.Name)
+		}
+		//List volume responses will show up in the interval of every 1 minute.
+		//To see the empty response, It is required to wait for 1 min after deleteting all the PVC's
+		time.Sleep(pollTimeoutShort)
+
+		ginkgo.By("Validate ListVolume Response when no volumes are present")
+		logMessage = "ListVolumes served 0 results"
+
+		_, _, err = getCSIPodWhereListVolumeResponseIsPresent(ctx, client, sshClientConfig, containerName, logMessage, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 })

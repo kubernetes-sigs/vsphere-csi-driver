@@ -5996,3 +5996,82 @@ func getHostIpWhereVmIsPresent(vmIp string) string {
 	host := strings.TrimSpace(hostIp[1])
 	return host
 }
+
+// restartCSIDriver method restarts the csi driver
+func scaleCSIDriver(ctx context.Context, client clientset.Interface, namespace string,
+	csiReplicas int32) (bool, error) {
+	err := updateDeploymentReplicawithWait(client, csiReplicas, vSphereCSIControllerPodNamePrefix,
+		csiSystemNamespace)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return true, nil
+}
+
+// getK8sMasterNodeIPWhereControllerLeaderIsRunning fetches the master node IP
+// where controller is running
+func getCSIPodWhereListVolumeResponseIsPresent(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
+	containerName string, logMessage string, volumeids []string) (string, string, error) {
+	ignoreLabels := make(map[string]string)
+	csiControllerPodName, grepCmdForFindingCurrentLeader := "", ""
+	csiPods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var k8sMasterIP string
+	k8sMasterIPs := getK8sMasterIPs(ctx, client)
+	k8sMasterIP = k8sMasterIPs[0]
+	for _, csiPod := range csiPods {
+		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) {
+			// Putting the grepped logs for leader of container of different CSI pods
+			// to same temporary file
+			// NOTE: This is not valid for vsphere-csi-controller container as for
+			// vsphere-csi-controller all the replicas will behave as leaders
+			grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
+				csiSystemNamespace + " " + containerName + " | grep " + "'" + logMessage + "'| " +
+				"tail -2` | tee -a listVolumeResponse.log"
+
+			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
+				k8sMasterIP)
+			result, err := sshExec(sshClientConfig, k8sMasterIP,
+				grepCmdForFindingCurrentLeader)
+			if err != nil || result.Code != 0 {
+				fssh.LogResult(result)
+				return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+					grepCmdForFindingCurrentLeader, k8sMasterIP, err)
+			} else {
+				if len(volumeids) > 0 {
+					fssh.LogResult(result)
+					for i := 0; i < len(volumeids); i++ {
+						framework.Logf("validating volumeID %s in response", volumeids[i])
+						if !strings.Contains(result.Stdout, volumeids[i]) {
+							return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+								grepCmdForFindingCurrentLeader, k8sMasterIP, err)
+						}
+					}
+				}
+			}
+
+		}
+	}
+
+	// delete the temporary log file
+	cmd := "rm listVolumeResponse.log"
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		k8sMasterIP)
+	result, err := sshExec(sshClientConfig, k8sMasterIP, cmd)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, k8sMasterIP, err)
+	}
+
+	return csiControllerPodName, k8sMasterIP, nil
+}
+
+// Get all PVC list in the given namespace
+func getAllPVCFromNamespace(client clientset.Interface, namespace string) *v1.PersistentVolumeClaimList {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pvcList, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(pvcList).NotTo(gomega.BeNil())
+	return pvcList
+}
