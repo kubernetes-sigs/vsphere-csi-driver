@@ -178,6 +178,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 	isMultiVCenterFssEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
 
+	//a := cnsvsphere.ClientMutex
+
 	// Create the kubernetes client from config.
 	k8sClient, err := k8s.NewClient(ctx)
 	if err != nil {
@@ -221,6 +223,15 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	cnsCreationMap = make(map[string]map[string]bool)
 	// Initialize volumeOperationsLock map
 	volumeOperationsLock = make(map[string]*sync.Mutex)
+
+	// Initilize ClientMutex for each VC.
+	vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, configInfo.Cfg)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err: %v", err)
+	}
+	for _, vcServer := range vcconfigs {
+		cnsvsphere.ClientMutex[vcServer.Host] = &sync.Mutex{}
+	}
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Initialize client to supervisor cluster, if metadata syncer is being

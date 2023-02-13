@@ -20,12 +20,15 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/google/uuid"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
@@ -134,10 +137,15 @@ func (driver *vsphereCSIDriver) BeforeServe(ctx context.Context) error {
 
 	if !strings.EqualFold(driver.mode, "node") {
 		// Controller service is needed.
+
+		// Initilize ClientMutex for each VC.
 		cfg, err = common.GetConfig(ctx)
 		if err != nil {
 			log.Errorf("failed to read config. Error: %+v", err)
 			return err
+		}
+		for vcServer := range cfg.VirtualCenter {
+			cnsvsphere.ClientMutex[vcServer] = &sync.Mutex{}
 		}
 
 		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
