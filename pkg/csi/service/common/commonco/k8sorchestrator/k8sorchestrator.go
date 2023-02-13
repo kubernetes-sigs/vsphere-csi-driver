@@ -987,25 +987,23 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 				featureName, c.internalFSS.configMapName)
 			return false
 		}
-		if serviceMode != "node" {
-			// Check SV FSS map.
-			if flag, ok := c.supervisorFSS.featureStates[featureName]; ok {
-				supervisorFeatureState, err := strconv.ParseBool(flag)
-				if err != nil {
-					log.Errorf("Error while converting %v feature state value: %v to boolean. "+
-						"Setting the feature state to false", featureName, supervisorFeatureState)
-					return false
-				}
-				if !supervisorFeatureState {
-					// If FSS set to false, return.
-					log.Infof("%s feature state set to false in %s ConfigMap", featureName, c.supervisorFSS.configMapName)
-					return supervisorFeatureState
-				}
-			} else {
-				log.Debugf("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false",
-					featureName, c.supervisorFSS.configMapName)
+		// Check SV FSS map.
+		if flag, ok := c.supervisorFSS.featureStates[featureName]; ok {
+			supervisorFeatureState, err := strconv.ParseBool(flag)
+			if err != nil {
+				log.Errorf("Error while converting %v feature state value: %v to boolean. "+
+					"Setting the feature state to false", featureName, supervisorFeatureState)
 				return false
 			}
+			if !supervisorFeatureState {
+				// If FSS set to false, return.
+				log.Infof("%s feature state set to false in %s ConfigMap", featureName, c.supervisorFSS.configMapName)
+				return supervisorFeatureState
+			}
+		} else {
+			log.Debugf("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false",
+				featureName, c.supervisorFSS.configMapName)
+			return false
 		}
 		return true
 	}
