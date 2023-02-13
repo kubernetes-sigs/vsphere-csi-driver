@@ -2,6 +2,7 @@ package volume
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -124,8 +125,9 @@ func getVirtualCenterForTest(ctx context.Context, s *simulator.Server) (*vsphere
 	}
 
 	virtualCenter := &vsphere.VirtualCenter{
-		Client:    newClient,
-		CnsClient: cnsClient,
+		Client:      newClient,
+		CnsClient:   cnsClient,
+		ClientMutex: &sync.Mutex{},
 	}
 	return virtualCenter, nil
 }

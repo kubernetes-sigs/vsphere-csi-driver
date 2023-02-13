@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vmware/govmomi/vim25/types"
@@ -324,7 +325,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 
 			// Verify if new configuration has valid credentials by connecting to
 			// vCenter. Proceed only if the connection succeeds, else return error.
-			newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
+			newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig, ClientMutex: &sync.Mutex{}}
 			if err = newVC.Connect(ctx); err != nil {
 				return logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q, Err: %+v",
 					newVCConfig.Host, err)

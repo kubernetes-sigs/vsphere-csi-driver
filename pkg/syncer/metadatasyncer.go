@@ -546,7 +546,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 							log.Infof("CSI full sync failed with error: %+v", err)
 						}
 					} else {
-						vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, configInfo.Cfg)
+						vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, metadataSyncer.configInfo.Cfg)
 						if err != nil {
 							log.Errorf("Failed to get all virtual configs for CSI full sync. Error: %+v", err)
 						}
@@ -1032,7 +1032,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 				// Verify if new configuration has valid credentials by connecting
 				// to vCenter. Proceed only if the connection succeeds, else return
 				// error.
-				newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
+				newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig, ClientMutex: &sync.Mutex{}}
 				if err = newVC.Connect(ctx); err != nil {
 					return logger.LogNewErrorf(log,
 						"failed to connect to VirtualCenter host: %s using new credentials, Err: %+v",
