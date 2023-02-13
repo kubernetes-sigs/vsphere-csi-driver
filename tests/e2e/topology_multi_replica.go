@@ -2008,7 +2008,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			labels := []types.KeyValue{{Key: "fcd-id", Value: fcdID}}
 			ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
 			err = verifyVolumeMetadataInCNS(&e2eVSphere, staticPv.Spec.CSI.VolumeHandle,
-				staticPvc.Name, staticPv.ObjectMeta.Name, StaticPod.Name, labels...)
+				staticPvc.Name, staticPv.ObjectMeta.Name, StaticPod.Name, "", labels...)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// create dynamic PVC
@@ -2152,12 +2152,14 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Verify volume metadata for static POD, PVC and PV
 			ginkgo.By("Verify volume metadata for static POD, PVC and PV")
-			err = waitAndVerifyCnsVolumeMetadata(staticPv.Spec.CSI.VolumeHandle, newStaticPvclaim, staticPv, newstaticPod)
+			err = waitAndVerifyCnsVolumeMetadata(staticPv.Spec.CSI.VolumeHandle, newStaticPvclaim, staticPv,
+				newstaticPod, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// Verify volume metadata for dynamic POD, PVC and PV
 			ginkgo.By("Verify volume metadata for dynamic POD, PVC and PV")
-			err = waitAndVerifyCnsVolumeMetadata(dynamicPv.Spec.CSI.VolumeHandle, dynamicPvc, dynamicPv, newDynamicPod)
+			err = waitAndVerifyCnsVolumeMetadata(dynamicPv.Spec.CSI.VolumeHandle, dynamicPvc, dynamicPv,
+				newDynamicPod, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 

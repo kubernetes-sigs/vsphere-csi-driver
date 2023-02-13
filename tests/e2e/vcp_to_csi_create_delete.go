@@ -259,7 +259,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 			framework.Logf("Processing PVC: " + pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
+			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
@@ -347,7 +347,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 			framework.Logf("Processing PVC: " + pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
+			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
@@ -440,7 +440,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		var found bool
 		found, crd = getCnsVSphereVolumeMigrationCrd(ctx, vpath)
 		gomega.Expect(found).To(gomega.BeTrue())
-		err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc2, pv2, nil)
+		err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc2, pv2, nil, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
@@ -532,7 +532,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 			var found bool
 			found, crd = getCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(found).To(gomega.BeTrue())
-			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
+			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
@@ -659,7 +659,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		}()
 
 		ginkgo.By("Verify CNS entries for PVC2 and PV2")
-		err = waitAndVerifyCnsVolumeMetadata(fcdID, pvc2, pv, nil)
+		err = waitAndVerifyCnsVolumeMetadata(fcdID, pvc2, pv, nil, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -881,7 +881,7 @@ func waitForCnsVSphereVolumeMigrationCrdToBeDeleted(ctx context.Context,
 
 // verifyCnsVolumeMetadata verify the pv, pvc, pod information on given cns volume
 func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
-	pv *v1.PersistentVolume, pod *v1.Pod) bool {
+	pv *v1.PersistentVolume, pod *v1.Pod, clusterID string) bool {
 	refferedEntityCheck := true
 	if e2eVSphere.Client.Version == cns.ReleaseVSAN67u3 {
 		refferedEntityCheck = false
@@ -891,6 +891,9 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 	if cnsQueryResult.Volumes == nil || len(cnsQueryResult.Volumes) == 0 {
 		framework.Logf("CNS volume query yielded no results for volume id: " + volumeID)
 		return false
+	}
+	if clusterID == "" {
+		clusterID = e2eVSphere.Config.Global.ClusterID
 	}
 	cnsVolume := cnsQueryResult.Volumes[0]
 	pvcEntryFound := false
@@ -961,6 +964,11 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 					pvcEntryFound = false
 					break
 				}
+				if entityMetadata.ClusterID != clusterID {
+					framework.Logf("clusterID %s not found for PV %s", clusterID, pvc.Name)
+					pvcEntryFound = false
+					break
+				}
 			}
 			continue
 		}
@@ -989,6 +997,11 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 						pvEntryFound = false
 						break
 					}
+				}
+				if entityMetadata.ClusterID != clusterID {
+					framework.Logf("clusterID with name %s not found for PV %s", clusterID, pv.Name)
+					pvcEntryFound = false
+					break
 				}
 			}
 			continue
@@ -1032,6 +1045,11 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 					podEntryFound = false
 					break
 				}
+				if entityMetadata.ClusterID != clusterID {
+					framework.Logf("clusterID with name %s not found for PV %s", clusterID, pod.Name)
+					pvcEntryFound = false
+					break
+				}
 			}
 		}
 	}
@@ -1043,9 +1061,9 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 
 // waitAndVerifyCnsVolumeMetadata verify the pv, pvc, pod information on given cns volume
 func waitAndVerifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
-	pv *v1.PersistentVolume, pod *v1.Pod) error {
+	pv *v1.PersistentVolume, pod *v1.Pod, clusterID string) error {
 	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
-		matches := verifyCnsVolumeMetadata(volumeID, pvc, pv, pod)
+		matches := verifyCnsVolumeMetadata(volumeID, pvc, pv, pod, clusterID)
 		return matches, nil
 	})
 	return waitErr

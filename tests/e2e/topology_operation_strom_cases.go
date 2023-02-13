@@ -335,7 +335,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}

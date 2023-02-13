@@ -890,7 +890,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache.
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name,
+						e2eVSphere.Config.Global.ClusterID)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					ginkgo.By("Expect health status of the pvc to be accessible")
 					pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
@@ -2260,7 +2261,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						// Verify the attached volume match the one in CNS cache.
 						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name,
+							e2eVSphere.Config.Global.ClusterID)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 						ginkgo.By("Expect health status of the pvc to be accessible")
 						pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
@@ -2345,7 +2347,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						// Verify the attached volume match the one in CNS cache.
 						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name,
+							e2eVSphere.Config.Global.ClusterID)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
 					pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
@@ -2390,7 +2393,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						// Verify the attached volume match the one in CNS cache.
 						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name,
+							e2eVSphere.Config.Global.ClusterID)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 						ginkgo.By("Expect health status of the pvc to be accessible")
 						pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
@@ -2895,7 +2899,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						// Verify the attached volume match the one in CNS cache.
 						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name,
+							e2eVSphere.Config.Global.ClusterID)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 						ginkgo.By("Expect health status of the pvc to be accessible")
 						pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
@@ -2979,7 +2984,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						// Verify the attached volume match the one in CNS cache.
 						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name,
+							e2eVSphere.Config.Global.ClusterID)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
 					pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
@@ -3037,7 +3043,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						// Verify the attached volume match the one in CNS cache.
 						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name,
+							e2eVSphere.Config.Global.ClusterID)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 						ginkgo.By("Expect health status of the pvc to be accessible")
 						pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,

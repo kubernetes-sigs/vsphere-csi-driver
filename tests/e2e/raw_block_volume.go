@@ -630,7 +630,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		labels := []types.KeyValue{{Key: "fcd-id", Value: fcdID}}
 		ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
 		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-			pvc.Name, pv.ObjectMeta.Name, pod.Name, labels...)
+			pvc.Name, pv.ObjectMeta.Name, pod.Name, "", labels...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the Pod")

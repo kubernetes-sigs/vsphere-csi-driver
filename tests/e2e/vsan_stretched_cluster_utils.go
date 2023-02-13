@@ -588,12 +588,19 @@ func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) 
 // statefulset, deployment and volumes of statfulset created
 func createStsDeployment(ctx context.Context, client clientset.Interface, namespace string,
 	sc *storagev1.StorageClass, isDeploymentRequired bool, modifyStsSpec bool,
-	replicaCount int32, stsName string) (*appsv1.StatefulSet, *appsv1.Deployment, []string) {
+	replicaCount int32, stsName string, clusterID string,
+	accessMode v1.PersistentVolumeAccessMode) (*appsv1.StatefulSet, *appsv1.Deployment, []string) {
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		accessMode = v1.ReadWriteOnce
+	}
 	var pvclaims []*v1.PersistentVolumeClaim
 	statefulset := GetStatefulSetFromManifest(namespace)
 	framework.Logf("Creating statefulset")
 	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 		Annotations["volume.beta.kubernetes.io/storage-class"] = sc.Name
+	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
+		accessMode
 	if modifyStsSpec {
 		statefulset.Name = stsName
 		statefulset.Spec.Template.Labels["app"] = statefulset.Name
@@ -623,14 +630,15 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 				volumesBeforeScaleDown = append(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)
 				// Verify the attached volume match the one in CNS cache
 				err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name,
+					clusterID)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
 	}
 	if isDeploymentRequired {
 		framework.Logf("Creating PVC")
-		pvclaim, err := createPVC(client, namespace, nil, diskSize, sc, "")
+		pvclaim, err := createPVC(client, namespace, nil, diskSize, sc, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaims = append(pvclaims, pvclaim)
 		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
@@ -760,7 +768,8 @@ func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Inte
 				if volumespec.PersistentVolumeClaim != nil {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name,
+						e2eVSphere.Config.Global.ClusterID)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -771,7 +780,7 @@ func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Inte
 // scaleUpStsAndVerifyPodMetadata scales up replica of a statefulset if required
 // and verifies count of sts replica and if its vSphere volumes are attached to node VMs
 func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interface,
-	namespace string, statefulset *appsv1.StatefulSet,
+	namespace string, statefulset *appsv1.StatefulSet, clusterID string,
 	replicas int32, isScaleUpRequired bool, verifyCnsVolumes bool) {
 	if isScaleUpRequired {
 		framework.Logf(fmt.Sprintf("Scaling up statefulset: %v to number of Replica: %v",
@@ -817,12 +826,15 @@ func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interf
 						_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
-					isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
-					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
+					if !rwxAccessMode {
+						isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
+						gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
+					}
 					framework.Logf("After scale up, verify the attached volumes match those in CNS Cache")
 					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name,
+						clusterID)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}

@@ -1,0 +1,187 @@
+/*
+	Copyright 2023 The Kubernetes Authors.
+
+	Licensed under the Apache License, Version 2.0 (the "License");
+	you may not use this file except in compliance with the License.
+	You may obtain a copy of the License at
+
+		http://www.apache.org/licenses/LICENSE-2.0
+
+	Unless required by applicable law or agreed to in writing, software
+	distributed under the License is distributed on an "AS IS" BASIS,
+	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+	See the License for the specific language governing permissions and
+	limitations under the License.
+*/
+
+package e2e
+
+import (
+	"context"
+	"fmt"
+
+	ginkgo "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
+)
+
+var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
+	f := framework.NewDefaultFramework("cluster-id-test")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	var (
+		client                        clientset.Interface
+		namespace                     string
+		csiNamespace                  string
+		csiReplicas                   int32
+		vCenterUIUser                 string
+		vCenterUIPassword             string
+		clusterId                     string
+		revertToOriginalVsphereSecret bool
+		vCenterIP                     string
+		vCenterPort                   string
+		dataCenter                    string
+		scParameters                  map[string]string
+		accessMode                    v1.PersistentVolumeAccessMode
+	)
+
+	ginkgo.BeforeEach(func() {
+		var cancel context.CancelFunc
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		client = f.ClientSet
+		namespace = f.Namespace.Name
+		bootstrap()
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+		if !(len(nodeList.Items) > 0) {
+			framework.Failf("Unable to find ready and schedulable Node")
+		}
+		scParameters = make(map[string]string)
+		accessMode = v1.ReadWriteOnce
+		// fetching required parameters
+		vCenterUIUser = e2eVSphere.Config.Global.User
+		vCenterUIPassword = e2eVSphere.Config.Global.Password
+		vCenterIP = e2eVSphere.Config.Global.VCenterHostname
+		vCenterPort = e2eVSphere.Config.Global.VCenterPort
+		dataCenter = e2eVSphere.Config.Global.Datacenters
+		clusterId = e2eVSphere.Config.Global.ClusterID
+		framework.Logf("clusterId: %v", clusterId)
+		revertToOriginalVsphereSecret = false
+
+		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
+			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicas = *csiDeployment.Spec.Replicas
+	})
+
+	ginkgo.AfterEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		if !revertToOriginalVsphereSecret {
+			ginkgo.By("Delete vsphere-csi-cluster-id configmap if it exists")
+			_, err := client.CoreV1().ConfigMaps(csiNamespace).Get(ctx,
+				vsphereClusterIdConfigMapName, metav1.GetOptions{})
+			if !apierrors.IsNotFound(err) {
+				err = client.CoreV1().ConfigMaps(csiNamespace).Delete(ctx,
+					vsphereClusterIdConfigMapName, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			ginkgo.By("Reverting back to original vsphere secret")
+			framework.Logf("clusterId: %v", clusterId)
+			recreateVsphereConfigSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace, vCenterIP,
+				clusterId, vCenterPort, dataCenter, csiReplicas)
+		}
+	})
+
+	/*
+		Generate unique cluster id through configmap and create workloads
+		1. Create vsphere config secret with no cluster id field.
+		2. Validate that "vsphere-csi-cluster-id" configmap is generated with a unique cluster id.
+		3. Create statefulset with replica 3 and a deployment.
+		4. Verify all PVCs are in bound state and pods are in running state.
+		5. Scale sts replica to 5.
+		6. Verify cns metadata and check if cluster id is populated in cns metadata.
+		7. Clean up the sts, deployment, pods and PVCs.
+
+	*/
+	ginkgo.It("[csi-block-vanilla][csi-file-vanilla] Generate unique cluster id through configmap"+
+		" and create workloads", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		framework.Logf("CNS_TEST: Running for vanilla k8s setup")
+
+		ginkgo.By("Creating csi config secret with no cluster id field set")
+		recreateVsphereConfigSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace, vCenterIP,
+			"", vCenterPort, dataCenter, csiReplicas)
+
+		ginkgo.By("Verify cluster id configmap is auto generated by csi driver")
+		verifyClusterIdConfigMapGeneration(client, ctx, csiNamespace, true)
+		clusterID := fetchClusterIdFromConfigmap(client, ctx, csiNamespace)
+		framework.Logf("clusterID: %v", clusterID)
+
+		ginkgo.By("Creating Storage Class")
+		if rwxAccessMode {
+			scParameters[scParamFsType] = nfs4FSType
+		}
+		sc, err := createStorageClass(client, scParameters, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By("Delete Storage Class")
+			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+		// Check if it is file volumes setups
+		if rwxAccessMode {
+			accessMode = v1.ReadWriteMany
+		}
+		ginkgo.By("Creating statefulset with replica 3 and a deployment")
+		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
+			false, 0, "", clusterID, accessMode)
+		replicas := *(statefulset.Spec.Replicas)
+
+		defer func() {
+			scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, claim := range pvcs.Items {
+				pv := getPvFromClaim(client, namespace, claim.Name)
+				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+					pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volumeHandle := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeHandle))
+			}
+		}()
+
+		// Scale up replicas of statefulset and verify CNS entries for volumes
+		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+			clusterID, replicas+2, true, true)
+		verifyVolumeMetadataOnDeployments(ctx, client, deployment, namespace, nil, nil,
+			nil, "", clusterID)
+
+		scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+
+	})
+
+})
