@@ -90,6 +90,18 @@ rules:
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshotcontents/status" ]
     verbs: [ "update", "patch" ]
+  - apiGroups: [ "datamover.cnsdp.vmware.com" ]
+    resources: [ "downloads" ]
+    verbs: [ "create", "get", "list", "watch", "update", "delete" ]
+  - apiGroups: [ "datamover.cnsdp.vmware.com" ]
+    resources: [ "downloads/status" ]
+    verbs: [ "create", "get", "patch", "update" ]
+  - apiGroups: [ "datamover.cnsdp.vmware.com" ]
+    resources: [ "uploads" ]
+    verbs: [ "create", "get", "list", "watch", "update", "delete" ]
+  - apiGroups: [ "datamover.cnsdp.vmware.com" ]
+    resources: [ "uploads/status" ]
+    verbs: [ "create", "get", "patch", "update" ]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -436,6 +448,7 @@ data:
   "list-volumes": "false"
   "cnsmgr-suspend-create-volume": "true"
   "listview-tasks": "false"
+  "durable-snapshot": "true"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

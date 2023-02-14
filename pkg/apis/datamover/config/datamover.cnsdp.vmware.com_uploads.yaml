@@ -1,0 +1,116 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.4.0
+  creationTimestamp: null
+  name: uploads.datamover.cnsdp.vmware.com
+spec:
+  group: datamover.cnsdp.vmware.com
+  names:
+    kind: Upload
+    listKind: UploadList
+    plural: uploads
+    singular: upload
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Upload describe a velero-plugin backup
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the custom resource spec
+            properties:
+              backupRepository:
+                description: BackupRepository provides backup repository info for upload. Used for multiple backup repository.
+                type: string
+              backupTimestamp:
+                description: BackupTimestamp records the time the backup was called. The server's time is used for SnapshotTimestamp
+                format: date-time
+                type: string
+              snapshotID:
+                description: SnapshotID is the identifier for the snapshot of the volume.
+                type: string
+              snapshotReference:
+                description: SnapshotReference is the namespace and snapshot name for this upload request. The format is SnapshotNamespace/SnapshotCRName It is used to update the upload status in the snapshot.
+                type: string
+              uploadCancel:
+                description: UploadCancel indicates request to cancel ongoing upload.
+                type: boolean
+            type: object
+          status:
+            description: UploadStatus is the current status of a Upload.
+            properties:
+              completionTimestamp:
+                description: CompletionTimestamp records the time an upload was completed. Completion time is recorded even on failed uploads. The server's time is used for CompletionTimestamps
+                format: date-time
+                nullable: true
+                type: string
+              currentBackOff:
+                description: CurrentBackOff records the backoff on retry for failed upload. Retry on upload should obey exponential backoff mechanism.
+                format: int32
+                type: integer
+              message:
+                description: Message is a message about the upload's status.
+                type: string
+              nextRetryTimestamp:
+                description: NextRetryTimestamp should be the timestamp that indicate the next retry for failed upload CR. Used to filter out the upload request which comes in before next retry time.
+                format: date-time
+                nullable: true
+                type: string
+              phase:
+                description: Phase is the current state of the Upload.
+                enum:
+                - New
+                - InProgress
+                - Completed
+                - UploadError
+                - CleanupFailed
+                - Canceled
+                - Canceling
+                type: string
+              processingNode:
+                description: The DataManager node that has picked up the Upload for processing. This will be updated as soon as the Upload is picked up for processing. If the DataManager couldn't process Upload for some reason it will be picked up by another node.
+                type: string
+              progress:
+                description: Progress holds the total number of bytes of the volume and the current number of backed up bytes. This can be used to display progress information about the backup operation.
+                properties:
+                  bytesDone:
+                    format: int64
+                    type: integer
+                  totalBytes:
+                    format: int64
+                    type: integer
+                type: object
+              retryCount:
+                description: RetryCount records the number of retry times for adding a failed Upload which failed due to network issue back to queue. Used for user tracking and debugging.
+                format: int32
+                type: integer
+              startTimestamp:
+                description: StartTimestamp records the time an upload was started. The server's time is used for StartTimestamps
+                format: date-time
+                nullable: true
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

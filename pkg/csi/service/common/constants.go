@@ -393,4 +393,14 @@ const (
 	CSIInternalGeneratedClusterID = "csi-internal-generated-cluster-id"
 	// ListViewPerf uses govmomi ListView to wait for CNS tasks
 	ListViewPerf = "listview-tasks"
+	// AttributeDurableSnapshotVolumeSnapshotClass represents if the VolumeSnapshotClass specifies durable snapshot
+	AttributeDurableSnapshotVolumeSnapshotClass = "durablesnapshot"
+	// AttributeDurableSnapshotLocation represents the location for the durable snapshot
+	AttributeDurableSnapshotLocation = "snapshotlocation"
+	// AttributePvcKeyName holds the PVC name in the request params
+	AttributePvcKeyName = "csi.storage.k8s.io/pvc/name"
+	// AttributePvcKeyNamespace holds the namespace of PVC
+	AttributePvcKeyNamespace = "csi.storage.k8s.io/pvc/namespace"
+	// DurableSnapshot is feature flag for Durable Snapshot feature
+	DurableSnapshot = "durable-snapshot"
 )
