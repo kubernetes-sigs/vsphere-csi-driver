@@ -135,7 +135,7 @@ func RefreshPreferentialDatastoresForMultiVCenter(ctx context.Context) error {
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to get vCenter manager instance. Error: %+v", err)
 		}
-		vc, err := GetVCenterFromVCHost(ctx, vcMgr, vcConfig.Host)
+		vc, err := vcMgr.GetVirtualCenter(ctx, vcConfig.Host)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to get vCenter instance for host %q. Error: %+v",
 				vcConfig.Host, err)
