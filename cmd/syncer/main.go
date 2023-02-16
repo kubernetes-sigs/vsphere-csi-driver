@@ -187,7 +187,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 				os.Exit(1)
 			}
 		} else {
-			configInfo, err = common.InitConfigInfo(ctx)
+			configInfo, err = config.InitConfigInfo(ctx)
 			if err != nil {
 				log.Errorf("failed to initialize the configInfo. Err: %+v", err)
 				os.Exit(1)

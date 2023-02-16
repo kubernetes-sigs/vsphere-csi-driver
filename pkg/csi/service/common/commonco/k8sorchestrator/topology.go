@@ -202,7 +202,7 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 				// Set isMultivCenterCluster if the K8s cluster is a multi-VC cluster.
 				isMultiVCSupportEnabled = c.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
 				if isMultiVCSupportEnabled {
-					cfg, err := common.GetConfig(ctx)
+					cfg, err := cnsconfig.GetConfig(ctx)
 					if err != nil {
 						return nil, logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
 					}
@@ -223,7 +223,7 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 
 				if controllerVolumeTopologyInstance.isTopologyPreferentialDatastoresFSSEnabled {
 					// Get CNS config.
-					cnsCfg, err := common.GetConfig(ctx)
+					cnsCfg, err := cnsconfig.GetConfig(ctx)
 					if err != nil {
 						return nil, logger.LogNewErrorf(log, "failed to fetch CNS config. Error: %+v", err)
 					}
@@ -297,7 +297,7 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 func refreshPreferentialDatastores(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	// Get VC instance.
-	cnsCfg, err := common.GetConfig(ctx)
+	cnsCfg, err := cnsconfig.GetConfig(ctx)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to fetch CNS config. Error: %+v", err)
 	}

@@ -25,11 +25,10 @@ import (
 	"strconv"
 	"strings"
 
-	"gopkg.in/gcfg.v1"
-	corev1 "k8s.io/api/core/v1"
-
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
+	"gopkg.in/gcfg.v1"
+	corev1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
 )
@@ -675,4 +674,64 @@ func GetClusterFlavor(ctx context.Context) (cnstypes.CnsClusterFlavor, error) {
 	errMsg := "unrecognized value set for CLUSTER_FLAVOR"
 	log.Error(errMsg)
 	return "", fmt.Errorf(errMsg)
+}
+
+// GetConfig loads configuration from secret and returns config object.
+func GetConfig(ctx context.Context) (*Config, error) {
+	var cfg *Config
+	log := logger.GetLogger(ctx)
+	var err error
+	cfgPath := GetConfigPath(ctx)
+	if cfgPath == DefaultGCConfigPath {
+		cfg, err = GetGCconfig(ctx, cfgPath)
+		if err != nil {
+			log.Errorf("GetGCconfig failed with err: %v", err)
+			return cfg, err
+		}
+	} else {
+		cfg, err = GetCnsconfig(ctx, cfgPath)
+		if err != nil {
+			log.Errorf("GetCnsconfig failed with err: %v", err)
+			return cfg, err
+		}
+	}
+	return cfg, err
+}
+
+// InitConfigInfo initializes the ConfigurationInfo struct.
+func InitConfigInfo(ctx context.Context) (*ConfigurationInfo, error) {
+	log := logger.GetLogger(ctx)
+	cfg, err := GetConfig(ctx)
+	if err != nil {
+		log.Errorf("failed to read config. Error: %+v", err)
+		return nil, err
+	}
+	configInfo := &ConfigurationInfo{
+		Cfg: cfg,
+	}
+	return configInfo, nil
+}
+
+// GetConfigPath returns ConfigPath depending on the environment variable
+// specified and the cluster flavor set.
+func GetConfigPath(ctx context.Context) string {
+	var cfgPath string
+	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(EnvClusterFlavor))
+	if strings.TrimSpace(string(clusterFlavor)) == "" {
+		clusterFlavor = cnstypes.CnsClusterFlavorVanilla
+	}
+	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		// Config path for Guest Cluster.
+		cfgPath = os.Getenv(EnvGCConfig)
+		if cfgPath == "" {
+			cfgPath = DefaultGCConfigPath
+		}
+	} else {
+		// Config path for SuperVisor and Vanilla Cluster.
+		cfgPath = os.Getenv(EnvVSphereCSIConfig)
+		if cfgPath == "" {
+			cfgPath = DefaultCloudConfigPath
+		}
+	}
+	return cfgPath
 }

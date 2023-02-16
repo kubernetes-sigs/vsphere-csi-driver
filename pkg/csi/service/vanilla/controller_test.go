@@ -302,6 +302,9 @@ func (f *FakeAuthManager) ResetvCenterInstance(ctx context.Context, vCenter *cns
 	f.vcenter = vCenter
 }
 
+func (f *FakeAuthManager) Stop() {
+}
+
 func getControllerTest(t *testing.T) *controllerTest {
 	onceForControllerTest.Do(func() {
 		// Create context.

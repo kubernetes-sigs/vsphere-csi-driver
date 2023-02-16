@@ -24,7 +24,6 @@ import (
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	cnstypes "github.com/vmware/govmomi/cns/types"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/net/context"
@@ -35,7 +34,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
@@ -104,18 +102,6 @@ func GetVCenterFromVCHost(ctx context.Context, vCenterManager cnsvsphere.Virtual
 			"failed to connect to VirtualCenter host: %q. Error: %v", vCenterHost, err)
 	}
 	return vcenter, nil
-}
-
-// GetVolumeManagerFromVCHost retreives the volume manager associated with
-// vCenterHost under managers. Error out if the vCenterHost does not exist.
-func GetVolumeManagerFromVCHost(ctx context.Context, managers *Managers, vCenterHost string) (
-	cnsvolume.Manager, error) {
-	log := logger.GetLogger(ctx)
-	volumeMgr, exists := managers.VolumeManagers[vCenterHost]
-	if !exists {
-		return nil, logger.LogNewErrorf(log, "failed to find vCenter %q under volume managers.", vCenterHost)
-	}
-	return volumeMgr, nil
 }
 
 // GetUUIDFromProviderID Returns VM UUID from Node's providerID.
@@ -295,63 +281,6 @@ func ParseStorageClassParams(ctx context.Context, params map[string]string,
 		}
 	}
 	return scParams, nil
-}
-
-// GetConfigPath returns ConfigPath depending on the environment variable
-// specified and the cluster flavor set.
-func GetConfigPath(ctx context.Context) string {
-	var cfgPath string
-	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
-	if strings.TrimSpace(string(clusterFlavor)) == "" {
-		clusterFlavor = cnstypes.CnsClusterFlavorVanilla
-	}
-	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		// Config path for Guest Cluster.
-		cfgPath = os.Getenv(cnsconfig.EnvGCConfig)
-		if cfgPath == "" {
-			cfgPath = cnsconfig.DefaultGCConfigPath
-		}
-	} else {
-		// Config path for SuperVisor and Vanilla Cluster.
-		cfgPath = os.Getenv(cnsconfig.EnvVSphereCSIConfig)
-		if cfgPath == "" {
-			cfgPath = cnsconfig.DefaultCloudConfigPath
-		}
-	}
-	return cfgPath
-}
-
-// GetConfig loads configuration from secret and returns config object.
-func GetConfig(ctx context.Context) (*cnsconfig.Config, error) {
-	var cfg *cnsconfig.Config
-	var err error
-	cfgPath := GetConfigPath(ctx)
-	if cfgPath == cnsconfig.DefaultGCConfigPath {
-		cfg, err = cnsconfig.GetGCconfig(ctx, cfgPath)
-		if err != nil {
-			return cfg, err
-		}
-	} else {
-		cfg, err = cnsconfig.GetCnsconfig(ctx, cfgPath)
-		if err != nil {
-			return cfg, err
-		}
-	}
-	return cfg, err
-}
-
-// InitConfigInfo initializes the ConfigurationInfo struct.
-func InitConfigInfo(ctx context.Context) (*cnsconfig.ConfigurationInfo, error) {
-	log := logger.GetLogger(ctx)
-	cfg, err := GetConfig(ctx)
-	if err != nil {
-		log.Errorf("failed to read config. Error: %+v", err)
-		return nil, err
-	}
-	configInfo := &cnsconfig.ConfigurationInfo{
-		Cfg: cfg,
-	}
-	return configInfo, nil
 }
 
 // GetK8sCloudOperatorServicePort return the port to connect the

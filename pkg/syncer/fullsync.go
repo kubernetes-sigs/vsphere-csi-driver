@@ -242,7 +242,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	var vcenter *cnsvsphere.VirtualCenter
 	// Get VC instance.
 	if isMultiVCenterFssEnabled {
-		vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterHost(ctx, vc)
+		vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterHost(ctx, vc, true)
 		if err != nil {
 			log.Errorf("failed to get virtual center instance for VC: %s. Error: %v", vc, err)
 			return err

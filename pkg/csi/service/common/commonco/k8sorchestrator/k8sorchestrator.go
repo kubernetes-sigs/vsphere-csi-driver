@@ -405,7 +405,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 				log.Errorf("failed to retrieve supervisor cluster namespace from config. Error: %+v", err)
 				return err
 			}
-			cfg, err := common.GetConfig(ctx)
+			cfg, err := cnsconfig.GetConfig(ctx)
 			if err != nil {
 				log.Errorf("failed to read config. Error: %+v", err)
 				return err
