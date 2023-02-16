@@ -282,6 +282,133 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		}
 	})
 
+	// Data Persistence in case of Dynamic Volume Provisioning with XFS filesystem.
+	// Steps
+	//
+	// 1. Create SC with fstype set to "xfs".
+	// 2. Create a PVC which uses SC created in step1.
+	// 3. Create pod and wait for pod to become ready.
+	// 4. Verify volume is attached and volume is mouned inside pod with xfs filesystem.
+	// 5. Create file at the mountpath and verify that creation is successful.
+	// 6. Delete pod.
+	// 7. Create a new pod using the previously created volume and wait for pod to
+	//    become ready.
+	// 8. Verify that data written by old pod can be read successfully.
+	// 9. Create another file at the mountpath and verify that creation is successful.
+	// 10. Delete pod.
+	// 11. Wait for volume to be detached.
+	// 12. Delete PVC and SC.
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
+		"Dynamic volume provisioning data persistence test with XFS filesystem", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var sc *storagev1.StorageClass
+		var pvc *v1.PersistentVolumeClaim
+		var err error
+
+		framework.Logf("CNS_TEST: Running for vanilla k8s setup")
+		ginkgo.By("Creating Storage Class with XFS as fstype and PVC")
+		scParameters[scParamFsType] = xfsFSType
+		sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc},
+			framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
+		pv := pvs[0]
+		volumeID := pv.Spec.CSI.VolumeHandle
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating pod")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		var vmUUID string
+		vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node %s", vmUUID)
+
+		ginkgo.By("Verify that filesystem type is xfs as expected")
+		_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+			xfsFSType, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Create file_A.txt at mountpath inside pod.
+		ginkgo.By(fmt.Sprintf("Creating file file_A.txt at mountpath inside pod: %v", pod.Name))
+		data1 := "This file file_A.txt is written by Pod1"
+		filePath1 := "/mnt/volume1/file_A.txt"
+		writeDataOnFileFromPod(namespace, pod.Name, filePath1, data1)
+
+		// Ensure that write is successful at the mountpath
+		ginkgo.By("Verify that data can be successfully read from file_A.txt")
+		output := readFileFromPod(namespace, pod.Name, filePath1)
+		gomega.Expect(output == data1+"\n").To(gomega.BeTrue(), "Pod1 is not able to read file_A.txt written by Pod1")
+
+		ginkgo.By("Deleting the pod")
+		err = fpod.DeletePodWithWait(client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify volume is detached from the node")
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+			"Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+
+		ginkgo.By("Creating a new pod using the same volume")
+		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
+		isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node %s", vmUUID)
+
+		// Ensure that data written by old pod can be read successfully from new pod,
+		// since PVC used is same.
+		ginkgo.By("Verify that data can be successfully read from file_A.txt from new pod")
+		output = readFileFromPod(namespace, pod.Name, filePath1)
+		gomega.Expect(output == data1+"\n").To(gomega.BeTrue(), "Pod2 is not able to read file_A.txt written by Pod1")
+
+		// Create another file file_B.txt at mountpath from new pod
+		ginkgo.By(fmt.Sprintf("Creating file file_B.txt at mountpath inside pod: %v", pod.Name))
+		data2 := "This file file_B.txt is written by Pod2"
+		filePath2 := "/mnt/volume1/file_B.txt"
+		writeDataOnFileFromPod(namespace, pod.Name, filePath2, data2)
+
+		// Ensure that write is successful at the mountpath
+		ginkgo.By("Verify that data can be successfully read from file_B.txt")
+		output = readFileFromPod(namespace, pod.Name, filePath2)
+		gomega.Expect(output == data2+"\n").To(gomega.BeTrue(), "Pod2 is not able to read file_B.txt written by Pod2")
+
+		ginkgo.By("Deleting the pod")
+		err = fpod.DeletePodWithWait(client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify volume is detached from the node")
+		isDiskDetached, err = e2eVSphere.waitForVolumeDetachedFromNode(client,
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+			"Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+	})
+
 	// Data Persistence in case of Static Volume Provisioning on SVC.
 	// Steps
 	//
