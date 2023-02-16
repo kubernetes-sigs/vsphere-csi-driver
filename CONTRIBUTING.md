@@ -16,9 +16,3 @@ If you find a bug or a feature request related to vsphere-csi-driver you can cre
 2. Fork the vsphere-csi-driver repo, develop and test your code changes.
 3. Submit a pull request.
 4. The bot will automatically assigns someone to review your PR. Check the full list of bot commands [here](https://prow.k8s.io/command-help).
-
-## Contact
-
-* [Slack](https://kubernetes.slack.com/messages/sig-vmware)
-* [Mailing list](https://groups.google.com/forum/#!forum/kubernetes-sig-vmware)
-* Please check the [sig-vmware community page](https://github.com/kubernetes/community/blob/master/sig-vmware/README.md) for meeting times and more details.
