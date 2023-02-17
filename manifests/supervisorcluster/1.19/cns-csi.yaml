@@ -344,7 +344,6 @@ data:
   "online-volume-extend": "true"
   "file-volume": "true"
   "csi-auth-check": "true"
-  "vsan-direct-disk-decommission": "false"
   "trigger-csi-fullsync": "false"
   "csi-sv-feature-states-replication": "true"
   "fake-attach": "true"
