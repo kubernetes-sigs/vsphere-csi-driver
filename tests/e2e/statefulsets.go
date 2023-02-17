@@ -59,7 +59,7 @@ const (
 	9. Delete the storage class.
 */
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] statefulset", func() {
+var _ = ginkgo.Describe("statefulset", func() {
 
 	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
@@ -113,7 +113,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 		}
 	})
 
-	ginkgo.It("Statefulset testing with default podManagementPolicy", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized]"+
+		"Statefulset testing with default podManagementPolicy", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
@@ -308,7 +309,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 		8. Delete all PVCs from the tests namespace.
 		9. Delete the storage class.
 	*/
-	ginkgo.It("Statefulset testing with parallel podManagementPolicy", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized]"+
+		"Statefulset testing with parallel podManagementPolicy", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
@@ -504,7 +506,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla
 			10. scale down statefulset to 0
 			11. delete statefulset and all PVC's and SC's
 	*/
-	ginkgo.It("Verify online volume expansion on statefulset", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] "+
+		"Verify online volume expansion on statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pvcSizeBeforeExpansion int64
