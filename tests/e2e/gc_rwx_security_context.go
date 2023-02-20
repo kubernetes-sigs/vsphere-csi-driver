@@ -179,6 +179,11 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 			err = fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s", pod.Spec.NodeName+"-"+pvcNameInSV))
+			err = waitTillCNSFileAccesscrdDeleted(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV, crdCNSFileAccessConfig,
+				crdVersion, crdGroup, false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1")
 			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
@@ -221,6 +226,13 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 			err = fpod.DeletePodWithWait(client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+			// ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig
+			//CRD is deleted %s", pod2.Spec.NodeName+"-"+pvcNameInSV))
+			// err = waitTillCNSFileAccesscrdDeleted(ctx, f,
+			// pod2.Spec.NodeName+"-"+pvcNameInSV, crdCNSFileAccessConfig,
+			// 	crdVersion, crdGroup, false)
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod2")
 			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+pvcNameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
@@ -247,6 +259,8 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		_, err = framework.RunKubectl(namespace, writeCmd2...)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		gomega.Expect(err).To(gomega.ContainSubstring("Permission denied"))
+
+		framework.Logf("End of the test")
 	})
 
 	/*
@@ -365,6 +379,11 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 			err = fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s", pod.Spec.NodeName+"-"+pvcNameInSV))
+			err = waitTillCNSFileAccesscrdDeleted(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV, crdCNSFileAccessConfig,
+				crdVersion, crdGroup, false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1")
 			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
@@ -411,6 +430,11 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
 			err = fpod.DeletePodWithWait(client, pod2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s", pod2.Spec.NodeName+"-"+pvcNameInSV))
+			err = waitTillCNSFileAccesscrdDeleted(ctx, f, pod2.Spec.NodeName+"-"+pvcNameInSV, crdCNSFileAccessConfig,
+				crdVersion, crdGroup, false)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod2")
@@ -591,6 +615,11 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
 			err = fpod.DeletePodWithWait(client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s", pod.Spec.NodeName+"-"+pvcNameInSV))
+			err = waitTillCNSFileAccesscrdDeleted(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV, crdCNSFileAccessConfig,
+				crdVersion, crdGroup, false)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1")

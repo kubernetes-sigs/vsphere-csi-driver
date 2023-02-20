@@ -183,6 +183,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 			err = fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s",
+				pod.Spec.NodeName+"-"+pvcNameInSV))
+			err = waitTillCNSFileAccesscrdDeleted(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV, crdCNSFileAccessConfig,
+				crdVersion, crdGroup, false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1")
 			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
@@ -289,6 +295,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		for _, multiPod := range pods {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", multiPod.Name, namespace))
 			err = fpod.DeletePodWithWait(client, multiPod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s",
+				multiPod.Spec.NodeName+"-"+pvcNameInSV))
+			err = waitTillCNSFileAccesscrdDeleted(ctx, f, multiPod.Spec.NodeName+"-"+pvcNameInSV, crdCNSFileAccessConfig,
+				crdVersion, crdGroup, false)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod")

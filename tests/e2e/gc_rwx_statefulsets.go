@@ -251,6 +251,13 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 		}
 
 		missingVolumeHandle := missingPodAndVolume[missingPod.Name]
+
+		ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s",
+			missingPod.Spec.NodeName+"-"+missingVolumeHandle))
+		err = waitTillCNSFileAccesscrdDeleted(ctx, f, missingPod.Spec.NodeName+"-"+missingVolumeHandle,
+			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for missing Pod")
 		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, missingPod.Spec.NodeName+"-"+missingVolumeHandle,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
@@ -539,6 +546,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 		}
 
 		missingVolumeHandle := missingPodAndVolume[missingPod.Name]
+		ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s",
+			missingPod.Spec.NodeName+"-"+missingVolumeHandle))
+		err = waitTillCNSFileAccesscrdDeleted(ctx, f, missingPod.Spec.NodeName+"-"+missingVolumeHandle,
+			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for missing Pod")
 		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, missingPod.Spec.NodeName+"-"+missingVolumeHandle,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
