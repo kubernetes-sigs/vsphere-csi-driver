@@ -908,7 +908,7 @@ func createStaticPvAndPvcInParallel(client clientset.Interface, ctx context.Cont
 		// PVC will use this label as Selector to find PV.
 		staticPVLabels["fcd-id"] = fcdIDs[i]
 		framework.Logf("Creating the PV from fcd ID: %s", fcdIDs[i])
-		pv := getPersistentVolumeSpec(fcdIDs[i], v1.PersistentVolumeReclaimRetain, staticPVLabels)
+		pv := getPersistentVolumeSpec(fcdIDs[i], v1.PersistentVolumeReclaimRetain, staticPVLabels, ext4FSType)
 		pv, err := client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)

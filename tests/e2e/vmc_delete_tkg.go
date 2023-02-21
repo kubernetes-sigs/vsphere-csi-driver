@@ -213,7 +213,7 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 		}()
 
 		ginkgo.By("creating PV in GC1")
-		pvNew := getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, nil)
+		pvNew := getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, nil, ext4FSType)
 		pvNew.Annotations = pv.Annotations
 		pvNew.Spec.StorageClassName = pv.Spec.StorageClassName
 		pvNew.Spec.CSI = pv.Spec.CSI
