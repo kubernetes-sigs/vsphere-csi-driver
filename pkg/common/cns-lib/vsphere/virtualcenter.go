@@ -657,20 +657,19 @@ func GetVirtualCenterInstanceForVCenterConfig(ctx context.Context,
 	return vCenterInstances[vcconfig.Host], nil
 }
 
-// UnregisterVirtualCenter helps delete vCenterServer instance for specified host
-func UnregisterVirtualCenter(ctx context.Context, vcHost string) error {
+// UnregisterAllVirtualCenters helps unregister and logout all registered vCenter instances
+// This function is called before exiting container to logout current sessions
+func UnregisterAllVirtualCenters(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	vCenterInstancesLock.Lock()
 	defer vCenterInstancesLock.Unlock()
 
 	// Initialize the virtual center manager.
 	virtualcentermanager := GetVirtualCenterManager(ctx)
-	// Unregister the VC from virtual center manager.
-	if err := virtualcentermanager.UnregisterVirtualCenter(ctx, vcHost); err != nil {
-		return logger.LogNewErrorf(log, "failed to unregister VirtualCenter %q with "+
-			"virtualCenterManager. Err: %+v", vcHost, err)
+	// Unregister all vCenters from virtual center manager.
+	if err := virtualcentermanager.UnregisterAllVirtualCenters(ctx); err != nil {
+		return logger.LogNewErrorf(log, "failed to unregister all VirtualCenter servers. Err: %+v", err)
 	}
-	delete(vCenterInstances, vcHost)
 	return nil
 }
 
