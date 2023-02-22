@@ -29,14 +29,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
-	volumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeinfo/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
+	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 )
 
 // CsiFullSync reconciles volume metadata on a vanilla k8s cluster with volume

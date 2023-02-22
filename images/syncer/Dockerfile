@@ -41,7 +41,7 @@ ENV CGO_ENABLED=0
 
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 
-RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
+RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
 
 ################################################################################
 ##                               MAIN STAGE                                   ##

@@ -26,12 +26,12 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/types"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/osutils"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/osutils"
 )
 
 const (

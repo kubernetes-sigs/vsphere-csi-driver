@@ -35,10 +35,10 @@ import (
 	k8svol "k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util/fs"
 	"k8s.io/mount-utils"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/mounter"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/mounter"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 const (

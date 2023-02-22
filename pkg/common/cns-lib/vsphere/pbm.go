@@ -25,7 +25,7 @@ import (
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 // SpbmPolicyRule is an individual policy rule.

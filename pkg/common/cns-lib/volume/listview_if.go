@@ -5,7 +5,7 @@ import (
 
 	"github.com/vmware/govmomi/vim25/types"
 
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 )
 
 // ListViewIf provides methods to start and modify a listView object to monitor CNS tasks.

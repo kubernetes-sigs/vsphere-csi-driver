@@ -26,9 +26,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	cnsfilevolclientv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsoperator/cnsfilevolumeclient/v1alpha1"
-	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
-	cnscsisvfeaturestatesv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/featurestates/v1alpha1"
+	cnsfilevolclientv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/cnsfilevolumeclient/v1alpha1"
+	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
+	cnscsisvfeaturestatesv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/featurestates/v1alpha1"
 )
 
 // GroupName represents the group for cns operator apis

@@ -17,7 +17,7 @@ limitations under the License.
 // Package v1alpha1 contains API Schema definitions for the cns v1alpha1 API group
 // +k8s:openapi-gen=true
 // +k8s:deepcopy-gen=package,register
-// +k8s:conversion-gen=sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cns
+// +k8s:conversion-gen=sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cns
 // +k8s:defaulter-gen=TypeMeta
 // +groupName=cns.vmware.com
 package v1alpha1

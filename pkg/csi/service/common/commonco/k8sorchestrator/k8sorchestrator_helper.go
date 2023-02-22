@@ -29,9 +29,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 )
 
 // getPVCAnnotations fetches annotations from PVC bound to passed volumeID and

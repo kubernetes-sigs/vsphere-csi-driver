@@ -32,9 +32,9 @@ import (
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 const (
