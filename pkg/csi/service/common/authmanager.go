@@ -50,10 +50,6 @@ type AuthorizationService interface {
 
 	// ResetvCenterInstance sets new vCenter instance for AuthorizationService
 	ResetvCenterInstance(ctx context.Context, vCenter *cnsvsphere.VirtualCenter)
-
-	// Stop signals  ComputeDatastoreMapForBlockVolumes and ComputeFSEnabledClustersToDsMap to stop the loop
-	// so unassigned authmanager instance can be garbage collected.
-	Stop()
 }
 
 // AuthManager maintains an internal map to track the datastores that need to be
@@ -70,8 +66,6 @@ type AuthManager struct {
 	rwMutex sync.RWMutex
 	// VCenter Instance.
 	vcenter *cnsvsphere.VirtualCenter
-	// set to true will end calling ComputeDatastoreMapForBlockVolumes and ComputeFSEnabledClustersToDsMap
-	stop bool
 }
 
 // onceForAuthorizationService is used for initializing the AuthorizationService
@@ -119,26 +113,6 @@ func GetAuthorizationServices(ctx context.Context, vcs []*cnsvsphere.VirtualCent
 
 	log.Info("authorization service initialized")
 	return authManagerInstances, nil
-}
-
-// GetNewAuthorizationService returns the new AuthManager instance for supplied vCenter server
-func GetNewAuthorizationService(ctx context.Context, vc *cnsvsphere.VirtualCenter) (*AuthManager, error) {
-	log := logger.GetLogger(ctx)
-	log.Infof("Initializing authorization service for vCenter: %q", vc.Config.Host)
-	authManagerInstance = &AuthManager{
-		datastoreMapForBlockVolumes: make(map[string]*cnsvsphere.DatastoreInfo),
-		fsEnabledClusterToDsMap:     make(map[string][]*cnsvsphere.DatastoreInfo),
-		rwMutex:                     sync.RWMutex{},
-		vcenter:                     vc,
-	}
-	log.Info("authorization service initialized for vCenter: %q", vc.Config.Host)
-	return authManagerInstance, nil
-}
-
-// Stop signals  ComputeDatastoreMapForBlockVolumes and ComputeFSEnabledClustersToDsMap to stop the loop
-// so unassigned authmanager instance can be garbage collected.
-func (authManager *AuthManager) Stop() {
-	authManager.stop = true
 }
 
 // GetDatastoreMapForBlockVolumes returns a DatastoreMapForBlockVolumes. This
@@ -222,14 +196,8 @@ func ComputeDatastoreMapForBlockVolumes(authManager *AuthManager, authCheckInter
 		authManager.vcenter.Config.Host)
 	ticker := time.NewTicker(time.Duration(authCheckInterval) * time.Minute)
 	for ; true; <-ticker.C {
-		if authManager.stop {
-			break
-		}
 		authManager.refreshDatastoreMapForBlockVolumes()
 	}
-	log.Infof("auth manager: ComputeDatastoreMapForBlockVolumes exited for vCenter %q",
-		authManager.vcenter.Config.Host)
-
 }
 
 // ComputeFSEnabledClustersToDsMap refreshes fsEnabledClusterToDsMap
@@ -240,13 +208,8 @@ func ComputeFSEnabledClustersToDsMap(authManager *AuthManager, authCheckInterval
 		authManager.vcenter.Config.Host)
 	ticker := time.NewTicker(time.Duration(authCheckInterval) * time.Minute)
 	for ; true; <-ticker.C {
-		if authManager.stop {
-			break
-		}
 		authManager.refreshFSEnabledClustersToDsMap()
 	}
-	log.Infof("auth manager: ComputeFSEnabledClustersToDsMap exited for vCenter %q",
-		authManager.vcenter.Config.Host)
 }
 
 // GenerateDatastoreMapForBlockVolumes scans all datastores in Vcenter and do
