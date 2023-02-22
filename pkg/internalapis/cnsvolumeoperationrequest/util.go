@@ -85,6 +85,7 @@ func convertToCnsVolumeOperationRequestDetails(
 	return &cnsvolumeoprequestv1alpha1.OperationDetails{
 		TaskInvocationTimestamp: details.TaskInvocationTimestamp,
 		TaskID:                  details.TaskID,
+		VCenterServer:           details.VCenterServer,
 		OpID:                    details.OpID,
 		TaskStatus:              details.TaskStatus,
 		Error:                   details.Error,
