@@ -1275,7 +1275,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gcNewClusterID := strings.Replace(svcNewPVCName, pvcNewUID, "", -1)
 
 		ginkgo.By("Creating PV in new guest cluster with volume handle from SVC")
-		pvNew := getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, nil)
+		pvNew := getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, nil, ext4FSType)
 		pvNew.Annotations = pvAnnotations
 		pvNew.Spec.StorageClassName = pvStorageClass
 		pvNew.Spec.CSI = pvSpec
@@ -1454,7 +1454,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		svcNamespace := os.Getenv("SVC_NAMESPACE")
 
 		ginkgo.By("Creating PV in guest cluster with volume handle from SVC")
-		pvNew := getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, nil)
+		pvNew := getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, nil, ext4FSType)
 		pvNew.Annotations = pvAnnotations
 		pvNew.Spec.StorageClassName = "gc-storage-profile"
 		pvNew.Spec.CSI = pvSpec

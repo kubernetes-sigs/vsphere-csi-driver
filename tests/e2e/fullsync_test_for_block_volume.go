@@ -180,7 +180,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		ginkgo.By(fmt.Sprintf("Creating the PV with the fcdID %s", fcdID))
 		staticPVLabels := make(map[string]string)
 		staticPVLabels["fcd-id"] = fcdID
-		pv := getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimRetain, staticPVLabels)
+		pv := getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimRetain, staticPVLabels, ext4FSType)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		if err != nil {
 			return
@@ -551,7 +551,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		ginkgo.By(fmt.Sprintf("Creating the PV with the fcdID %s", fcdID))
 		staticPVLabels := make(map[string]string)
 		staticPVLabels["fcd-id"] = fcdID
-		pv := getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimDelete, staticPVLabels)
+		pv := getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimDelete, staticPVLabels, ext4FSType)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		if err != nil {
 			return
@@ -628,7 +628,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		ginkgo.By(fmt.Sprintf("Creating the PV with the fcdID %s", fcdID))
 		staticPVLabels := make(map[string]string)
 		staticPVLabels["fcd-id"] = fcdID
-		pv := getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimRetain, staticPVLabels)
+		pv := getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimRetain, staticPVLabels, ext4FSType)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		if err != nil {
 			return
@@ -740,7 +740,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		ginkgo.By(fmt.Sprintf("Creating the PV with the fcdID %s", fcdID))
 		staticPVLabels := make(map[string]string)
 		staticPVLabels["fcd-id"] = fcdID
-		pv := getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimRetain, staticPVLabels)
+		pv := getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimRetain, staticPVLabels, ext4FSType)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
