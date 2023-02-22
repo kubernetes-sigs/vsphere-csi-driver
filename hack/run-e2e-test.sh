@@ -20,8 +20,8 @@ set -o pipefail
 
 # Fetching ginkgo for running the test
 export GO111MODULE=on
-export ACK_GINKGO_DEPRECATIONS=2.1.6
-if ! (go mod vendor && go install github.com/onsi/ginkgo/v2/ginkgo@v2.1.6)
+export ACK_GINKGO_DEPRECATIONS=2.8.3
+if ! (go mod vendor && go install github.com/onsi/ginkgo/v2/ginkgo@v2.8.3)
 then
     echo "go mod vendor or go install ginkgo error"
     exit 1
