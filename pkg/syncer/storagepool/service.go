@@ -24,15 +24,15 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	storagepoolconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/config"
+	storagepoolconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/config"
 
-	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/cns/v1alpha1"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	commonconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 // Service holds the controllers needed to manage StoragePools.

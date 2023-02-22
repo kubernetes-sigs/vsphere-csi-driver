@@ -32,8 +32,8 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vsan"
 	"github.com/vmware/govmomi/vslm"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/find"

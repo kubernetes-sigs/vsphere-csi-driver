@@ -24,9 +24,9 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 )
 
 var (

@@ -27,7 +27,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	disk "github.com/kubernetes-csi/csi-proxy/client/api/disk/v1"
 	diskclient "github.com/kubernetes-csi/csi-proxy/client/groups/disk/v1"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
 	fs "github.com/kubernetes-csi/csi-proxy/client/api/filesystem/v1"
 	fsclient "github.com/kubernetes-csi/csi-proxy/client/groups/filesystem/v1"

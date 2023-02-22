@@ -39,14 +39,14 @@ import (
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/cns/v1alpha1"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/k8scloudoperator"
+	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8scloudoperator"
 )
 
 // validateCreateBlockReqParam is a helper function used to validate the parameter

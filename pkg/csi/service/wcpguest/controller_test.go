@@ -32,11 +32,11 @@ import (
 	testclient "k8s.io/client-go/kubernetes/fake"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/unittestcommon"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 const (

@@ -47,7 +47,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
+	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 )
 
 type FaultDomains struct {

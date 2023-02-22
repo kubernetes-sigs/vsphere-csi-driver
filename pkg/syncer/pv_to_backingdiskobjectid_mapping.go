@@ -26,7 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 // TODO: refactor pv to backingdiskobjectid and volume health code to reduce duplicated code

@@ -46,16 +46,16 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/types"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology"
-	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology/v1alpha1"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology"
+	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 var (

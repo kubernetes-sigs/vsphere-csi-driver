@@ -1,6 +1,6 @@
 package placementengine
 
-import cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
+import cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 
 // VanillaRetrieveTopologyInfoParams represents the params
 // required to be able to call GetTopologyInfoFromNodes in

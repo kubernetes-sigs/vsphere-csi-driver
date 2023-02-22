@@ -45,8 +45,8 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
-	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", func() {

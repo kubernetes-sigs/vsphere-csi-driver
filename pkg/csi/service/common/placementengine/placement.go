@@ -8,12 +8,12 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
 )
 
 func GetSharedDatastores(ctx context.Context, reqParams interface{}) (

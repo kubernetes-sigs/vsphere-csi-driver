@@ -34,11 +34,11 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
 const (

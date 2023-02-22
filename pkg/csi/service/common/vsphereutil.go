@@ -33,12 +33,12 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/utils"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 // VanillaCreateBlockVolParamsForMultiVC stores the parameters

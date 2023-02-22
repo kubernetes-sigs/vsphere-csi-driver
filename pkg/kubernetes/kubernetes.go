@@ -48,16 +48,16 @@ import (
 
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
 	storagev1 "k8s.io/api/storage/v1"
-	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
-	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration/v1alpha1"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
-	internalapis "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis"
-	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeinfo/v1alpha1"
-	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
-	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology/v1alpha1"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	internalapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis"
+	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
+	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
+	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
 )
 
 const (
