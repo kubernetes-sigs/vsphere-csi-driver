@@ -833,6 +833,190 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
 	})
 
+	// TC to verify VCP to CSI migration workflow when xfs filesystem is used in VCP
+	// Steps:
+	// 1. Create SC1 StorageClass in VCP and use xfs as fstype.
+	// 2. Create PVC pvc1 using this SC
+	// 3. Create deployment using SC1 with 1 replica.
+	// 4. Wait for replica to come up.
+	// 5. Verify that filesystem used to mount volume inside pod is xfs.
+	// 6. Create file file1.txt at mountpath.
+	// 7. Enable CSIMigration and CSIMigrationvSphere feature gates on
+	//    kube-controller-manager (& restart).
+	// 8. Verify PV/PVCs used by deployment have the following annotation -
+	//    "pv.kubernetes.io/migrated-to": "csi.vsphere.vmware.com".
+	// 9. Verify cnsvspherevolumemigrations crd is created for PV/PVCs used
+	//    by deployment.
+	// 10. Repeat the following steps for all the nodes in the k8s cluster.
+	//    a. Drain and Cordon off the node.
+	//    b. Enable CSIMigration and CSIMigrationvSphere feature gates on the
+	//       kubelet and Restart kubelet.
+	//    c. Verify CSI node for the corresponding K8s node has the following
+	//       annotation - storage.alpha.kubernetes.io/migrated-plugins.
+	//    d. Enable scheduling on the node.
+	// 11. Verify that filesystem used is xfs inside pod even after migration
+	// 12. Write new data at mountpath and verify that write is successful.
+	// 13. Create a new PVC post migration.
+	// 14. Verify "pv.kubernetes.io/provisioned-by": "csi.vsphere.vmware.com"
+	//     annotation on new pvc created post migration.
+	// 15. Verify cnsvspherevolumemigrations crd is created for newly created PVC.
+	// 16. Scale down deployment replicas to 0.
+	// All cleanup will be done as part of AfterEach() function:
+	// 17. Delete deployment.
+	// 18. Delete all PVCs.
+	// 19. Wait for PVs and respective vmdks to get deleted.
+	// 20. Verify cnsvspherevolumemigrations crds are removed for all PV/PVCs.
+	// 21. Verify CNS entries are removed for all PVCs.
+	// 22. Delete SC1.
+	ginkgo.It("TC to verify VCP to CSI migration workflow when xfs filesystem is used in VCP", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("Creating VCP SC with fstype as xfs")
+		scParams := make(map[string]string)
+		scParams[vcpScParamDatastoreName] = GetAndExpectStringEnvVar(envSharedDatastoreName)
+		scParams[vcpScParamFstype] = "xfs"
+		vcpSc, err := createVcpStorageClass(client, scParams, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpScs = append(vcpScs, vcpSc)
+
+		ginkgo.By("Creating VCP PVC pvc1 before migration")
+		pvc1, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpPvcsPreMig = append(vcpPvcsPreMig, pvc1)
+
+		ginkgo.By("Waiting for all claims created before migration to be in bound state")
+		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating a Deployment using pvc1")
+		labelsMap := make(map[string]string)
+		labelsMap["dep-lkey"] = "lval"
+		dep1, err := createDeployment(ctx, client, 1, labelsMap, nil,
+			namespace, []*v1.PersistentVolumeClaim{pvc1}, execCommand, false, busyBoxImageOnGcr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		pods, err := fdep.GetPodsForDeployment(client, dep1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pod := pods.Items[0]
+		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Check filesystem used to mount volume inside pod is xfs as expeted
+		ginkgo.By("Verify if filesystem used to mount volume is xfs as expected")
+		_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+			xfsFSType, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Create file1.txt at mountpath inside pod.
+		ginkgo.By(fmt.Sprintf("Creating file file1.txt at mountpath inside pod: %v", pod.Name))
+		data1 := "This file file1.txt is written before migration"
+		filePath1 := "/mnt/volume1/file1.txt"
+		writeDataOnFileFromPod(namespace, pod.Name, filePath1, data1)
+
+		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		kcmMigEnabled = true
+
+		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
+
+		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
+
+		ginkgo.By("Enable CSI migration feature gates on kublets on k8s nodes")
+		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, true, namespace)
+		kubectlMigEnabled = true
+
+		// Verify that fstype used is still xfs after migration
+		// verify that data can be read successfully that was written before migration
+		// Verify that new write is successful post migration
+		dep1, err = client.AppsV1().Deployments(namespace).Get(ctx, dep1.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		podsAfterMig, err := fdep.GetPodsForDeployment(client, dep1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		podAfterMig := podsAfterMig.Items[0]
+		ginkgo.By("Verify if filesystem used to mount volume is xfs post migration")
+		_, err = framework.LookForStringInPodExec(namespace, podAfterMig.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+			xfsFSType, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify that data can be successfully read from file1.txt which was written before migration")
+		output := readFileFromPod(namespace, podAfterMig.Name, filePath1)
+		gomega.Expect(output == data1+"\n").To(gomega.BeTrue(), "Pod is not able to read file1.txt post migration")
+
+		// Create new file file2.txt at mountpath inside pod.
+		ginkgo.By(fmt.Sprintf("Creating file file2.txt at mountpath inside pod: %v", podAfterMig.Name))
+		data2 := "This file file2.txt is written post migration"
+		filePath2 := "/mnt/volume1/file2.txt"
+		writeDataOnFileFromPod(namespace, podAfterMig.Name, filePath2, data2)
+
+		ginkgo.By("Verify that data written post migration can be successfully read from file2.txt")
+		output = readFileFromPod(namespace, podAfterMig.Name, filePath2)
+		gomega.Expect(output == data2+"\n").To(gomega.BeTrue(), "Pod is not able to read file2.txt")
+
+		ginkgo.By("Creating VCP PVC pvc2 post migration")
+		pvc2, err := createPVC(client, namespace, nil, "", vcpSc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcpPvcsPostMig = append(vcpPvcsPostMig, pvc2)
+
+		ginkgo.By("Waiting for all claims created post migration to be in bound state")
+		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify annotations on PV/PVCs created post migration")
+		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPostMig, vcpPvsPostMig, false, migrationEnabledByDefault)
+
+		ginkgo.By("Wait and verify CNS entries for all CNS volumes created post migration " +
+			"along with their respective CnsVSphereVolumeMigration CRDs")
+		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPostMig)
+
+		ginkgo.By("Creating a new deployment using pvc2")
+		dep2, err := createDeployment(ctx, client, 1, labelsMap, nil,
+			namespace, []*v1.PersistentVolumeClaim{pvc2}, execCommand, false, busyBoxImageOnGcr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		podsDep2, err := fdep.GetPodsForDeployment(client, dep2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		podDep2 := podsDep2.Items[0]
+		err = fpod.WaitForPodNameRunningInNamespace(client, podDep2.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Check filesystem used to mount volume inside pod is xfs as expeted
+		ginkgo.By("Verify if filesystem used to mount volume is xfs as expected")
+		_, err = framework.LookForStringInPodExec(namespace, podDep2.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+			xfsFSType, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Scale down deployment1 to 0 replica")
+		dep1, err = client.AppsV1().Deployments(namespace).Get(ctx, dep1.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pods, err = fdep.GetPodsForDeployment(client, dep1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pod = pods.Items[0]
+		rep := dep1.Spec.Replicas
+		*rep = 0
+		dep1.Spec.Replicas = rep
+		_, err = client.AppsV1().Deployments(namespace).Update(ctx, dep1, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = fpod.WaitForPodNotFoundInNamespace(client, pod.Name, namespace, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Scale down deployment2 to 0 replica")
+		dep2, err = client.AppsV1().Deployments(namespace).Get(ctx, dep2.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pods, err = fdep.GetPodsForDeployment(client, dep2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pod = pods.Items[0]
+		rep2 := dep2.Spec.Replicas
+		*rep2 = 0
+		dep2.Spec.Replicas = rep2
+		_, err = client.AppsV1().Deployments(namespace).Update(ctx, dep2, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = fpod.WaitForPodNotFoundInNamespace(client, pod.Name, namespace, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
 	// Verify label and pod name updates with Deployment.
 	// Steps:
 	// 1. Create SC1 VCP SC.
