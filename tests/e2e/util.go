@@ -3930,14 +3930,9 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 	return pod, nil
 }
 
-// createDeployment create a deployment with 1 replica for given pvcs and node
-// selector.
-func createDeployment(ctx context.Context, client clientset.Interface, replicas int32,
+func getDeploymentSpec(ctx context.Context, client clientset.Interface, replicas int32,
 	podLabels map[string]string, nodeSelector map[string]string, namespace string,
-	pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool, image string) (*appsv1.Deployment, error) {
-	if len(command) == 0 {
-		command = "trap exit TERM; while true; do sleep 1; done"
-	}
+	pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool, image string) *appsv1.Deployment {
 	zero := int64(0)
 	deploymentName := "deployment-" + string(uuid.NewUUID())
 	deploymentSpec := &appsv1.Deployment{
@@ -3985,6 +3980,19 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	if nodeSelector != nil {
 		deploymentSpec.Spec.Template.Spec.NodeSelector = nodeSelector
 	}
+	return deploymentSpec
+}
+
+// createDeployment create a deployment with 1 replica for given pvcs and node
+// selector.
+func createDeployment(ctx context.Context, client clientset.Interface, replicas int32,
+	podLabels map[string]string, nodeSelector map[string]string, namespace string,
+	pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool, image string) (*appsv1.Deployment, error) {
+	if len(command) == 0 {
+		command = "trap exit TERM; while true; do sleep 1; done"
+	}
+	deploymentSpec := getDeploymentSpec(ctx, client, replicas, podLabels, nodeSelector, namespace,
+		pvclaims, command, isPrivileged, image)
 	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("deployment %q Create API error: %v", deploymentSpec.Name, err)
@@ -6137,4 +6145,23 @@ func readDataFromRawBlockVolume(ns string, podName string, devicePath string, te
 	output, err := framework.RunKubectl(ns, cmd...)
 	framework.ExpectNoError(err, fmt.Sprintf("failed to read device: %q inside the pod: %q", devicePath, podName))
 	gomega.Expect(strings.Contains(output, testData)).NotTo(gomega.BeFalse())
+}
+
+// getBlockDevSizeInSectors returns size of block device at given path
+func getBlockDevSizeInSectors(f *framework.Framework, ns string, pod *v1.Pod, devicePath string) (int64, error) {
+	cmd := []string{"exec", pod.Name, "--namespace=" + ns, "--", "/bin/sh", "-c",
+		fmt.Sprintf("/bin/ls %v", devicePath)}
+	_, err := framework.RunKubectl(ns, cmd...)
+	if err != nil {
+		return -1, fmt.Errorf("failed to get raw device path %v inside pod", devicePath)
+	}
+
+	cmd = []string{"exec", pod.Name, "--namespace=" + ns, "--", "/bin/sh", "-c",
+		fmt.Sprintf("/bin/blockdev --getsz %v", devicePath)}
+	output, err := framework.RunKubectl(ns, cmd...)
+	if err != nil {
+		return -1, fmt.Errorf("failed to get size of raw device %v inside pod", devicePath)
+	}
+	output = strings.TrimSuffix(output, "\n")
+	return strconv.ParseInt(output, 10, 64)
 }
