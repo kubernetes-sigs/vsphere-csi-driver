@@ -68,6 +68,10 @@ then
     fi
     OPTS+=(-p)
     ginkgo -mod=mod "${OPTS[@]}" --focus="csi-block-vanilla-parallelized" tests/e2e
+elif [ "$FOCUS" == "csi-block-vanilla-parallelized" ]
+then
+    OPTS+=(-p)
+    ginkgo -mod=mod "${OPTS[@]}" --focus="csi-block-vanilla-parallelized" tests/e2e
 else
     ginkgo -mod=mod "${OPTS[@]}" --focus="$FOCUS" tests/e2e
 fi
