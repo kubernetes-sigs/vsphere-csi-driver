@@ -56,13 +56,7 @@ rules:
     verbs: ["get", "list"]
   - apiGroups: [""]
     resources: ["persistentvolumes"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["persistentvolumeclaims"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["storage.k8s.io"]
-    resources: ["volumeattachments"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
