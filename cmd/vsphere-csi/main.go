@@ -58,7 +58,7 @@ func main() {
 	}
 	serviceMode := os.Getenv(csitypes.EnvVarMode)
 	commonco.SetInitParams(ctx, clusterFlavor, &service.COInitParams, *supervisorFSSName, *supervisorFSSNamespace,
-		*internalFSSName, *internalFSSNamespace, serviceMode)
+		*internalFSSName, *internalFSSNamespace, serviceMode, "")
 
 	// If no endpoint is set then exit the program.
 	CSIEndpoint := os.Getenv(csitypes.EnvVarEndpoint)
