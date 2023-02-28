@@ -1206,12 +1206,20 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 					metav1.Now(), "", "",
 					"", taskInvocationStatusSuccess, "")
+				err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+				if err != nil {
+					log.Warnf("failed to store DeleteVolume details with error: %v", err)
+				}
 				return "", nil
 			}
 			log.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 				metav1.Now(), "", "",
 				"", taskInvocationStatusError, err.Error())
+			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+			if err != nil {
+				log.Warnf("failed to store DeleteVolume details with error: %v", err)
+			}
 			return faultType, err
 		}
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, metav1.Now(),
@@ -2410,6 +2418,9 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 				if m.idempotencyHandlingEnabled {
 					volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 						metav1.Now(), "", "", "", taskInvocationStatusSuccess, "")
+					if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
+						log.Warnf("failed to store DeleteSnapshot operation details with error: %v", err)
+					}
 				}
 				return nil
 			}
@@ -2417,8 +2428,10 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 			if m.idempotencyHandlingEnabled {
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 					metav1.Now(), "", "", "", taskInvocationStatusError, err.Error())
+				if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
+					log.Warnf("failed to store DeleteSnapshot operation details with error: %v", err)
+				}
 			}
-
 			return logger.LogNewErrorf(log, "CNS DeleteSnapshot failed from the vCenter %q with err: %v",
 				m.virtualCenter.Config.Host, err)
 		}
