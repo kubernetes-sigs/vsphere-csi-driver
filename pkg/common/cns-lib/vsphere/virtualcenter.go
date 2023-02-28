@@ -68,6 +68,8 @@ type VirtualCenter struct {
 	VsanClient *vsan.Client
 	// VslmClient represents the Vslm client instance.
 	VslmClient *vslm.Client
+	// ClientMutex is used for exclusive connection creation.
+	ClientMutex *sync.Mutex
 }
 
 var (
@@ -82,9 +84,6 @@ var (
 	vCenterInstanceLock = &sync.RWMutex{}
 	// vCenterInstancesLock makes sure only one vCenter being initialized for specific host
 	vCenterInstancesLock = &sync.RWMutex{}
-	// clientMutex is used for exclusive connection creation.
-	// There is a separate lock for each VC.
-	clientMutex = make(map[string]*sync.Mutex)
 )
 
 func (vc *VirtualCenter) String() string {
@@ -274,11 +273,8 @@ func (vc *VirtualCenter) Connect(ctx context.Context) error {
 func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) error {
 	log := logger.GetLogger(ctx)
 
-	if _, ok := clientMutex[vc.Config.Host]; !ok {
-		clientMutex[vc.Config.Host] = &sync.Mutex{}
-	}
-	clientMutex[vc.Config.Host].Lock()
-	defer clientMutex[vc.Config.Host].Unlock()
+	vc.ClientMutex.Lock()
+	defer vc.ClientMutex.Unlock()
 
 	// If client was never initialized, initialize one.
 	var err error
