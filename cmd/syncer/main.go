@@ -91,7 +91,7 @@ func main() {
 		log.Errorf("failed retrieving cluster flavor. Error: %v", err)
 	}
 	commonco.SetInitParams(ctx, clusterFlavor, &syncer.COInitParams, *supervisorFSSName, *supervisorFSSNamespace,
-		*internalFSSName, *internalFSSNamespace, "")
+		*internalFSSName, *internalFSSNamespace, "", *operationMode)
 	admissionhandler.COInitParams = &syncer.COInitParams
 
 	if *operationMode == operationModeWebHookServer {
