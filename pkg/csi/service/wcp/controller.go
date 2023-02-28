@@ -77,8 +77,11 @@ var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 // Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
 var clusterComputeResourceMoIds = make([]string, 0)
 
-var expectedStartingIndex = 0
-var cnsVolumeIDs = make([]string, 0)
+var (
+	expectedStartingIndex             = 0
+	cnsVolumeIDs                      = make([]string, 0)
+	vmMoidToHostMoid, volumeIDToVMMap map[string]string
+)
 
 type controller struct {
 	manager     *common.Manager
@@ -1336,6 +1339,13 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			for _, cnsVolume := range cnsQueryVolumes.Volumes {
 				cnsVolumeIDs = append(cnsVolumeIDs, cnsVolume.VolumeId.Id)
 			}
+
+			// Get volume ID to VMMap and vmMoidToHostMoid map
+			vmMoidToHostMoid, volumeIDToVMMap, err = c.GetVolumeToHostMapping(ctx)
+			if err != nil {
+				log.Errorf("failed to get VM MoID to Host MoID map, err:%v", err)
+				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "failed to get VM MoID to Host MoID map")
+			}
 		}
 
 		// If the difference between the volumes reported by Kubernetes and CNS
@@ -1368,7 +1378,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			volumeIDs = append(volumeIDs, cnsVolumeIDs[i])
 		}
 
-		response, err := getVolumeIDToVMMap(ctx, c, volumeIDs)
+		response, err := getVolumeIDToVMMap(ctx, volumeIDs, vmMoidToHostMoid, volumeIDToVMMap)
 		if err != nil {
 			log.Errorf("Error while generating ListVolume response, err:%v", err)
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "Error while generating ListVolume response")
