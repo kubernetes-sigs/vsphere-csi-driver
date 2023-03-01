@@ -251,6 +251,10 @@ func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client) erro
 // If credentials are invalid then it fails the connection.
 func (vc *VirtualCenter) Connect(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
+
+	vc.ClientMutex.Lock()
+	defer vc.ClientMutex.Unlock()
+
 	// Set up the vc connection.
 	err := vc.connect(ctx, false)
 	if err != nil {
@@ -272,9 +276,6 @@ func (vc *VirtualCenter) Connect(ctx context.Context) error {
 // connect creates a connection to the virtual center host.
 func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) error {
 	log := logger.GetLogger(ctx)
-
-	vc.ClientMutex.Lock()
-	defer vc.ClientMutex.Unlock()
 
 	// If client was never initialized, initialize one.
 	var err error
