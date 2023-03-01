@@ -92,7 +92,7 @@ var _ = ginkgo.Describe("[vmc-gc] Deploy, Update and Scale Deployments", func() 
 		1. Create Storage Class and PVC
 		2. Deploy nginx pods with volume
 		3. Update the nginx deployment pods, update the nginx image from
-		k8s.gcr.io/nginx-slim:0.8 to k8s.gcr.io/nginx-slim:0.9
+		registry.k8s.io/nginx-slim:0.8 to registry.k8s.io/nginx-slim:0.9
 		4. Wait for some time and verify the update is successful
 		5. Scale dowm the deployment to 0 replicas
 		6. Scale up the deployment to 1 replicas and verify all the pods should be up and running
