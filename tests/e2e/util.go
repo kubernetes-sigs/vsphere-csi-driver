@@ -71,9 +71,11 @@ import (
 	"k8s.io/kubectl/pkg/util/podutils"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	"k8s.io/kubernetes/test/e2e/framework/manifest"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
@@ -2288,7 +2290,7 @@ func getPvFromSupervisorCluster(pvcName string) *v1.PersistentVolume {
 
 func verifyFilesExistOnVSphereVolume(namespace string, podName string, filePaths ...string) {
 	for _, filePath := range filePaths {
-		_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
+		_, err := e2ekubectl.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
 			podName, "--", "/bin/ls", filePath)
 		framework.ExpectNoError(err, fmt.Sprintf("failed to verify file: %q on the pod: %q", filePath, podName))
 	}
@@ -2296,7 +2298,7 @@ func verifyFilesExistOnVSphereVolume(namespace string, podName string, filePaths
 
 func createEmptyFilesOnVSphereVolume(namespace string, podName string, filePaths []string) {
 	for _, filePath := range filePaths {
-		err := framework.CreateEmptyFileOnPod(namespace, podName, filePath)
+		err := e2eoutput.CreateEmptyFileOnPod(namespace, podName, filePath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -3134,14 +3136,14 @@ func GetPodSpecByUserID(ns string, nodeSelector map[string]string, pvclaims []*v
 
 // writeDataOnFileFromPod writes specified data from given Pod at the given.
 func writeDataOnFileFromPod(namespace string, podName string, filePath string, data string) {
-	_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
+	_, err := e2ekubectl.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
 		podName, "--", "/bin/sh", "-c", fmt.Sprintf(" echo %s >  %s ", data, filePath))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 // readFileFromPod read data from given Pod and the given file.
 func readFileFromPod(namespace string, podName string, filePath string) string {
-	output, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
+	output, err := e2ekubectl.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
 		podName, "--", "/bin/sh", "-c", fmt.Sprintf("less  %s", filePath))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return output
@@ -4853,7 +4855,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 		for _, volumespec := range pod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-				ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to node: %s",
 					pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
 				var vmUUID string
 				var exists bool
@@ -5542,7 +5544,7 @@ func ExecInStsPodsInNs(c clientset.Interface, ss *appsv1.StatefulSet, cmd string
 	StatefulSetPoll := 10 * time.Second
 	StatefulPodTimeout := 5 * time.Minute
 	for _, statefulPod := range podList.Items {
-		stdout, err := framework.RunHostCmdWithRetries(statefulPod.Namespace,
+		stdout, err := e2eoutput.RunHostCmdWithRetries(statefulPod.Namespace,
 			statefulPod.Name, cmd, StatefulSetPoll, StatefulPodTimeout)
 		framework.Logf("stdout of %v on %v: %v", cmd, statefulPod.Name, stdout)
 		if err != nil {
@@ -6111,17 +6113,17 @@ func verifyDataOnRawBlockVolume(ns string, podName string, devicePath string, te
 func writeDataOnRawBlockVolume(ns string, podName string, devicePath string, testData string) {
 	cmd := []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
 		fmt.Sprintf("/bin/ls %v", devicePath)}
-	_, err := framework.RunKubectl(ns, cmd...)
+	_, err := e2ekubectl.RunKubectl(ns, cmd...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	cmd = []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
 		fmt.Sprintf("/bin/echo -ne '%v' > /tmp/data_to_write", testData)}
-	_, err = framework.RunKubectl(ns, cmd...)
+	_, err = e2ekubectl.RunKubectl(ns, cmd...)
 	framework.ExpectNoError(err, fmt.Sprintf("failed to write testdata inside the pod: %q", podName))
 
 	cmd = []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
 		fmt.Sprintf("/bin/dd if=/tmp/data_to_write of=%v", devicePath)}
-	_, err = framework.RunKubectl(ns, cmd...)
+	_, err = e2ekubectl.RunKubectl(ns, cmd...)
 	framework.ExpectNoError(err, fmt.Sprintf("failed to write device: %q inside the pod: %q", devicePath, podName))
 }
 
@@ -6129,12 +6131,12 @@ func writeDataOnRawBlockVolume(ns string, podName string, devicePath string, tes
 func readDataFromRawBlockVolume(ns string, podName string, devicePath string, testData string) {
 	cmd := []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
 		fmt.Sprintf("/bin/ls %v", devicePath)}
-	_, err := framework.RunKubectl(ns, cmd...)
+	_, err := e2ekubectl.RunKubectl(ns, cmd...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	cmd = []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
 		fmt.Sprintf("/bin/dd if=%v status=none count=1 bs=%v", devicePath, len(testData))}
-	output, err := framework.RunKubectl(ns, cmd...)
+	output, err := e2ekubectl.RunKubectl(ns, cmd...)
 	framework.ExpectNoError(err, fmt.Sprintf("failed to read device: %q inside the pod: %q", devicePath, podName))
 	gomega.Expect(strings.Contains(output, testData)).NotTo(gomega.BeFalse())
 }

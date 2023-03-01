@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
@@ -327,8 +328,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", func(
 
 		writeCmd := []string{"exec", pod2.Name, "--namespace=" + pod2.Namespace, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod2' > /mnt/volume1/Pod2.html"}
-		framework.RunKubectlOrDie(pod2.Namespace, writeCmd...)
-		output := framework.RunKubectlOrDie(pod2.Namespace, cmd...)
+		e2ekubectl.RunKubectlOrDie(pod2.Namespace, writeCmd...)
+		output := e2ekubectl.RunKubectlOrDie(pod2.Namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod2")).NotTo(gomega.BeFalse())
 	})
 })

@@ -44,8 +44,10 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fvolume "k8s.io/kubernetes/test/e2e/framework/volume"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
@@ -1285,7 +1287,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+		_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name,
 			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1550,7 +1552,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+		_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name,
 			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1699,7 +1701,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+		_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name,
 			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2579,7 +2581,7 @@ func createPODandVerifyVolumeMount(ctx context.Context, f *framework.Framework, 
 		"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+	_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name,
 		[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2781,7 +2783,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+	_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name,
 		[]string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2904,7 +2906,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+	_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name,
 		[]string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2998,7 +3000,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify after expansion the volume is accessible and filesystem type is as expected")
-	_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+	_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name,
 		[]string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -3434,7 +3436,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+	_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name,
 		[]string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -3641,7 +3643,7 @@ func getFSSizeMb(f *framework.Framework, pod *v1.Pod) (int64, error) {
 	if supervisorCluster {
 		namespace := getNamespaceToRunTests(f)
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
-		output = framework.RunKubectlOrDie(namespace, cmd...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, ext4FSType)).NotTo(gomega.BeFalse())
 	} else {
 		output, _, err = fvolume.PodExec(f, pod, "df -T -m | grep /mnt/volume1")

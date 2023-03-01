@@ -26,15 +26,6 @@ import (
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/kubernetes/test/e2e/framework"
-	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
-	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
-	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	admissionapi "k8s.io/pod-security-admission/api"
-
 	"github.com/vmware/govmomi/cns"
 	cnsmethods "github.com/vmware/govmomi/cns/methods"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -42,6 +33,15 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/types"
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisioning", func() {
@@ -192,7 +192,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 
 		ginkgo.By("Verify the volume is accessible and available to the pod by creating an empty file")
 		filepath := filepath.Join("/mnt/volume1", "/emptyFile.txt")
-		_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/touch", filepath}, "", time.Minute)
+		_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/touch", filepath}, "", time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
