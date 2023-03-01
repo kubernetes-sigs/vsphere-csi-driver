@@ -237,7 +237,7 @@ spec:
     spec:
       containers:
         - name: csi-snapshotter
-          image: 'k8s.gcr.io/sig-storage/csi-snapshotter:${qualified_version}'
+          image: 'registry.k8s.io/sig-storage/csi-snapshotter:${qualified_version}'
           args:
             - '--v=4'
             - '--kube-api-qps=100'
@@ -265,7 +265,7 @@ EOF
 check_snapshotter_sidecar(){
 	local found="false"
 	local container_images
-	local csi_snapshotter_image="k8s.gcr.io/sig-storage/csi-snapshotter"
+	local csi_snapshotter_image="registry.k8s.io/sig-storage/csi-snapshotter"
 	container_images=$(kubectl -n vmware-system-csi get deployment vsphere-csi-controller -o jsonpath='{.spec.template.spec.containers[*].image}')
 	IFS=' '
 	read -r -a container_images_arr <<< "$container_images"
