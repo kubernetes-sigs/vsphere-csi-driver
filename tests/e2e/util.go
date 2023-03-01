@@ -42,6 +42,7 @@ import (
 	"github.com/hashicorp/go-version"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/sfreiberg/simplessh"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
@@ -1870,6 +1871,98 @@ func getWCPSessionId(hostname string, username string, password string) string {
 
 }
 
+// getk8sWindowsWorkerIPs returns the windows worker node IPs
+func getk8sWindowsWorkerIPs(ctx context.Context, client clientset.Interface, nodeName string) string {
+	var err error
+	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var windowsWorkerIp string
+	for _, node := range nodes.Items {
+		if node.Name == nodeName {
+			addrs := node.Status.Addresses
+			for _, addr := range addrs {
+				if addr.Type == v1.NodeInternalIP && (net.ParseIP(addr.Address)).To4() != nil {
+					windowsWorkerIp = addr.Address
+				}
+			}
+		}
+	}
+	gomega.Expect(windowsWorkerIp).NotTo(gomega.BeEmpty(), "Unable to find k8s windows worker IP")
+	return windowsWorkerIp
+
+}
+
+// getDiskSize func returns the size of the volume
+func getDiskSize(ctx context.Context, client clientset.Interface, windowsWorkerIP string) int64 {
+	windowsUser := os.Getenv("WINDOWS_USER")
+	jumpVMIP := os.Getenv("JUMP_VM_IP")
+	jumpVMPassword := os.Getenv("JUMP_VM_PWD")
+	if windowsUser == "capv" {
+		framework.Logf("Inside getDisksize windows condition 1")
+		sshClient, err := simplessh.ConnectWithPassword(jumpVMIP, "kubo", jumpVMPassword)
+		framework.Logf("Inside getDisksize windows condition 2")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer sshClient.Close()
+		framework.Logf("Inside getDisksize windows condition 3")
+		cmd := "ssh capv@" + windowsWorkerIP + " '" + "Get-Disk | Where-Object Number -NE 0 |Format-List -Property Manufacturer,Size" + "'"
+		framework.Logf("command to be executed in windows node %s", cmd)
+		output, err := sshClient.Exec(cmd)
+		framework.Logf("GetDisk output %s\n%s", string(output))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		fullStr := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
+		var originalSizeInbytes int64
+		for index, line := range fullStr {
+			if strings.Contains(line, "VMware") {
+				sizeList := strings.Split(fullStr[index+1], ":")
+				size := strings.TrimSpace(sizeList[1])
+				originalSizeInbytes, _ = strconv.ParseInt(size, 10, 64)
+				if originalSizeInbytes < 96636764160 {
+					return originalSizeInbytes
+				}
+			}
+		}
+		return originalSizeInbytes
+
+	} else {
+		sshClient, err := simplessh.ConnectWithPassword(windowsWorkerIP, "Administrator", nimbusEsxPwd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer sshClient.Close()
+
+		cmd := "Get-Disk | Format-List -Property Manufacturer,Size"
+		framework.Logf("command to be executed in windows node %s", cmd)
+		output, err := sshClient.Exec(cmd)
+		framework.Logf("GetDisk output %s\n%s", string(output))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		fullStr := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
+		var originalSizeInbytes int64
+		for index, line := range fullStr {
+			if strings.Contains(line, "VMware") {
+				sizeList := strings.Split(fullStr[index+1], ":")
+				size := strings.TrimSpace(sizeList[1])
+				originalSizeInbytes, _ = strconv.ParseInt(size, 10, 64)
+				if originalSizeInbytes < 96636764160 {
+					return originalSizeInbytes
+				}
+			}
+		}
+		return originalSizeInbytes
+	}
+
+}
+
+// getWindowsPodSize finds the windowsWorkerIp and returns the size of the volume
+func getWindowsDiskSize(client clientset.Interface, pod *v1.Pod) int64 {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	podName := pod.Spec.NodeName
+	windowsWorkerIP := getk8sWindowsWorkerIPs(ctx, client, podName)
+	framework.Logf("windows worker ip %s", windowsWorkerIP)
+	size := getDiskSize(ctx, client, windowsWorkerIP)
+	framework.Logf("size %d", size)
+	return size
+
+}
+
 // replacePasswordRotationTime invokes the given command to replace the password
 // rotation time to 0, so that password roation happens immediately on the given
 // vCenter over SSH. Vmon-cli is used to restart the wcp service after changing
@@ -2347,9 +2440,16 @@ func getPvFromSupervisorCluster(pvcName string) *v1.PersistentVolume {
 
 func verifyFilesExistOnVSphereVolume(namespace string, podName string, filePaths ...string) {
 	for _, filePath := range filePaths {
-		_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
-			podName, "--", "/bin/ls", filePath)
-		framework.ExpectNoError(err, fmt.Sprintf("failed to verify file: %q on the pod: %q", filePath, podName))
+		if windowsEnv {
+			_, err := framework.LookForStringInPodExec(namespace, podName,
+				[]string{"powershell.exe", "ls", filePath}, "", time.Minute)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		} else {
+			_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
+				podName, "--", "/bin/ls", filePath)
+			framework.ExpectNoError(err, fmt.Sprintf("failed to verify file: %q on the pod: %q", filePath, podName))
+		}
 	}
 }
 
@@ -3193,17 +3293,30 @@ func GetPodSpecByUserID(ns string, nodeSelector map[string]string, pvclaims []*v
 
 // writeDataOnFileFromPod writes specified data from given Pod at the given.
 func writeDataOnFileFromPod(namespace string, podName string, filePath string, data string) {
-	_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
-		podName, "--", "/bin/sh", "-c", fmt.Sprintf(" echo %s >  %s ", data, filePath))
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if windowsEnv {
+		_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
+			podName, "--", "Powershell.exe", "-Command", fmt.Sprintf(" Add-Content %s '%s'", filePath, data))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
+			podName, "--", "/bin/sh", "-c", fmt.Sprintf(" echo %s >  %s ", data, filePath))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 }
 
 // readFileFromPod read data from given Pod and the given file.
 func readFileFromPod(namespace string, podName string, filePath string) string {
-	output, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
-		podName, "--", "/bin/sh", "-c", fmt.Sprintf("less  %s", filePath))
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	return output
+	if windowsEnv {
+		output, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
+			podName, "--", "Powershell.exe", "-Command", fmt.Sprintf("cat %s", filePath))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		return output
+	} else {
+		output, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
+			podName, "--", "/bin/sh", "-c", fmt.Sprintf("less  %s", filePath))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		return output
+	}
 }
 
 // getPersistentVolumeClaimSpecFromVolume gets vsphere persistent volume spec
@@ -3816,6 +3929,72 @@ func waitForCNSRegisterVolumeToGetDeleted(ctx context.Context, restConfig *rest.
 	return fmt.Errorf("CnsRegisterVolume %s deletion is failed within %v", cnsRegisterVolumeName, timeout)
 }
 
+func execCommanOnWindowsWorker(ctx context.Context, client clientset.Interface, windowsWorkerIP string) int64 {
+	//ips := getK8sMasterIPs(ctx, client)
+	//k8sMasterIP := ips[0]
+	windowsUser := os.Getenv("WINDOWS_USER")
+	jumpVMIP := os.Getenv("JUMP_VM_IP")
+	jumpVMPassword := os.Getenv("JUMP_VM_PWD")
+	//popIp
+	if windowsUser == "capv" {
+		framework.Logf("Inside windows condition 1")
+		sshClient, err := simplessh.ConnectWithPassword(jumpVMIP, "kubo", jumpVMPassword)
+		framework.Logf("Inside windows condition 2")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer sshClient.Close()
+
+		cmd := "ssh capv@" + windowsWorkerIP + " '" + "Get-Disk | Where-Object Number -NE 0 |Format-List -Property Manufacturer,Size" + "'"
+		framework.Logf("command to be executed in windows node %s", cmd)
+		output, err := sshClient.Exec(cmd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("GetDisk output %s\n", string(output))
+		fullStr := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
+		framework.Logf("Full string is: %s", fullStr)
+		var originalSizeInbytes int64
+		for index, line := range fullStr {
+			framework.Logf("Current line is: %s", line)
+			if strings.Contains(line, "VMware") {
+
+				sizeList := strings.Split(fullStr[index+1], ":")
+				size := strings.TrimSpace(sizeList[1])
+				framework.Logf(size)
+				originalSizeInbytes, _ = strconv.ParseInt(size, 10, 64)
+				if originalSizeInbytes < 96636764160 {
+					return originalSizeInbytes
+				}
+			}
+		}
+		return originalSizeInbytes
+	} else {
+		sshClient, err := simplessh.ConnectWithPassword(windowsWorkerIP, "Administrator", nimbusEsxPwd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer sshClient.Close()
+
+		cmd := "Get-Disk | Format-List -Property Manufacturer,Size"
+		framework.Logf("command to be executed in windows node %s", cmd)
+		output, err := sshClient.Exec(cmd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("GetDisk output %s\n", string(output))
+		fullStr := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
+		framework.Logf("Full string is: %s", fullStr)
+		var originalSizeInbytes int64
+		for index, line := range fullStr {
+			framework.Logf("Current line is: %s", line)
+			if strings.Contains(line, "VMware") {
+
+				sizeList := strings.Split(fullStr[index+1], ":")
+				size := strings.TrimSpace(sizeList[1])
+				framework.Logf(size)
+				originalSizeInbytes, _ = strconv.ParseInt(size, 10, 64)
+				if originalSizeInbytes < 96636764160 {
+					return originalSizeInbytes
+				}
+			}
+		}
+		return originalSizeInbytes
+	}
+}
+
 // getK8sMasterIP gets k8s master ip in vanilla setup.
 func getK8sMasterIPs(ctx context.Context, client clientset.Interface) []string {
 	var err error
@@ -3974,13 +4153,24 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 func createPod(client clientset.Interface, namespace string, nodeSelector map[string]string,
 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
-	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	commands := []string{"Powershell.exe", "-Command", command}
+	if windowsEnv {
+		pod.Spec.Containers[0].Image = windowsLTSC2019Image
+		pod.Spec.Containers[0].Command = commands
+	} else {
+		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	}
 	pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("pod Create API error: %v", err)
 	}
 	// Waiting for pod to be running.
-	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	// Waiting for pod to be running.
+	if windowsEnv {
+		err = fpod.WaitForPodRunningInNamespaceSlow(client, pod.Name, namespace)
+	} else {
+		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	}
 	if err != nil {
 		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
 	}
@@ -4033,7 +4223,11 @@ func getDeploymentSpec(ctx context.Context, client clientset.Interface, replicas
 	var volumes = make([]v1.Volume, len(pvclaims))
 	for index, pvclaim := range pvclaims {
 		volumename := fmt.Sprintf("volume%v", index+1)
-		volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/mnt/" + volumename}
+		if windowsEnv {
+			volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "C:\\mnt\\" + volumename}
+		} else {
+			volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/mnt/" + volumename}
+		}
 		volumes[index] = v1.Volume{Name: volumename, VolumeSource: v1.VolumeSource{
 			PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: false}}}
 	}
@@ -4055,6 +4249,11 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	}
 	deploymentSpec := getDeploymentSpec(ctx, client, replicas, podLabels, nodeSelector, namespace,
 		pvclaims, command, isPrivileged, image)
+	if windowsEnv {
+		deploymentSpec.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
+		deploymentSpec.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
+		deploymentSpec.Spec.Template.Spec.Containers[0].Args = []string{"-Command", command}
+	}
 	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("deployment %q Create API error: %v", deploymentSpec.Name, err)

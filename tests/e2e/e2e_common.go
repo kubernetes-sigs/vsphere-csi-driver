@@ -31,6 +31,7 @@ const (
 	adminUser                                  = "Administrator@vsphere.local"
 	apiServerIPs                               = "API_SERVER_IPS"
 	attacherContainerName                      = "csi-attacher"
+	windowsLTSC2019Image                       = "harbor-repo.vmware.com/csi/windows-servercore:ltsc2019"
 	nginxImage                                 = "registry.k8s.io/nginx-slim:0.26"
 	nginxImage4upg                             = "registry.k8s.io/nginx-slim:0.27"
 	configSecret                               = "vsphere-config-secret"
@@ -102,8 +103,17 @@ const (
 		"chmod o+rX /mnt /mnt/volume1/Pod1.html && while true ; do sleep 2 ; done"
 	execRWXCommandPod2 = "echo 'Hello message from Pod2' > /mnt/volume1/Pod2.html  && " +
 		"chmod o+rX /mnt /mnt/volume1/Pod2.html && while true ; do sleep 2 ; done"
+	windowsPodCmd = "while (1) " +
+		" { Add-Content -Encoding Ascii C:\\mnt\\volume1\\data.txt $(Get-Date -Format u); sleep 1 }"
+	windowsExecCmd = "while (1) " +
+		" { Add-Content -Encoding Ascii C:\\mnt\\volume1\\data.txt $([System.IO.DriveInfo]::getdrives() | Where-Object {$_.Name -eq 'C:\\'} | Select-Object -Property DriveFormat); sleep 1}"
+	windowsExecRWXCommandPod1 = "while (1) " +
+		" { mkdir C:\\mnt\\volume1; Add-Content C:\\mnt\\volume1\\Pod1.html 'Hello message from Pod1' }"
+	windowsExecRWXCommandPod2 = "while (1) " +
+		" { mkdir C:\\mnt\\volume1; Add-Content C:\\mnt\\volume1\\Pod2.html 'Hello message from Pod2' }"
 	ext3FSType                                = "ext3"
 	ext4FSType                                = "ext4"
+	ntfsFSType                                = "NTFS"
 	xfsFSType                                 = "xfs"
 	evacMModeType                             = "evacuateAllData"
 	fcdName                                   = "BasicStaticFCD"
@@ -231,6 +241,7 @@ var (
 	guestCluster         bool
 	rwxAccessMode        bool
 	wcpVsanDirectCluster bool
+	windowsEnv           bool
 )
 
 // For busybox pod image
@@ -331,5 +342,10 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	kind := os.Getenv("ACCESS_MODE")
 	if strings.TrimSpace(string(kind)) == "RWX" {
 		rwxAccessMode = true
+	}
+	//Check if its windows env
+	workerNode := os.Getenv("WORKER_TYPE")
+	if strings.TrimSpace(string(workerNode)) == "WINDOWS" {
+		windowsEnv = true
 	}
 }

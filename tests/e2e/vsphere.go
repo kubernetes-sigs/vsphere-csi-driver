@@ -294,6 +294,7 @@ func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID str
 		return false, err
 	}
 	if device == nil {
+		framework.Logf("It will say disk is no longer attached to VM ")
 		return false, nil
 	}
 	framework.Logf("Found the disk %q is attached to the VM with UUID: %q", volumeID, vmUUID)

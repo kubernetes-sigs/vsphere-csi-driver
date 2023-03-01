@@ -169,8 +169,14 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		}()
 
 		ginkgo.By("Creating pod")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		var pod *v1.Pod
+		if windowsEnv {
+			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, windowsPodCmd)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -195,10 +201,16 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node, %s", vmUUID))
 
 		var volumeFiles []string
+		var newEmptyFileName string
 		// Create an empty file on the mounted volumes on the pod.
 		ginkgo.By(fmt.Sprintf("Creating an empty file on the volume mounted on: %v", pod.Name))
-		newEmptyFileName := fmt.Sprintf("/mnt/volume1/%v_file_A.txt", namespace)
-		volumeFiles = append(volumeFiles, newEmptyFileName)
+		if windowsEnv {
+			newEmptyFileName = fmt.Sprintf("c:\\mnt\\volume1\\%v_file_A.txt", namespace)
+			volumeFiles = append(volumeFiles, newEmptyFileName)
+		} else {
+			newEmptyFileName = fmt.Sprintf("/mnt/volume1/%v_file_A.txt", namespace)
+			volumeFiles = append(volumeFiles, newEmptyFileName)
+		}
 		createAndVerifyFilesOnVolume(namespace, pod.Name, []string{newEmptyFileName}, volumeFiles)
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(client, pod)
@@ -225,8 +237,13 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		}
 
 		ginkgo.By("Creating a new pod using the same volume")
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if windowsEnv {
+			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, windowsPodCmd)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -253,8 +270,13 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		// verify newly and previously created files present on the volume
 		// mounted on the pod.
 		ginkgo.By(fmt.Sprintf("Creating a second empty file on the same volume mounted on: %v", pod.Name))
-		newEmptyFileName = fmt.Sprintf("/mnt/volume1/%v_file_B.txt", namespace)
-		volumeFiles = append(volumeFiles, newEmptyFileName)
+		if windowsEnv {
+			newEmptyFileName = fmt.Sprintf("c:\\mnt\\volume1\\%v_file_B.txt", namespace)
+			volumeFiles = append(volumeFiles, newEmptyFileName)
+		} else {
+			newEmptyFileName = fmt.Sprintf("/mnt/volume1/%v_file_B.txt", namespace)
+			volumeFiles = append(volumeFiles, newEmptyFileName)
+		}
 		createAndVerifyFilesOnVolume(namespace, pod.Name, []string{newEmptyFileName}, volumeFiles)
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(client, pod)
@@ -573,7 +595,23 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 
 func createAndVerifyFilesOnVolume(namespace string, podname string,
 	newEmptyfilesToCreate []string, filesToCheck []string) {
-	createEmptyFilesOnVSphereVolume(namespace, podname, newEmptyfilesToCreate)
+	if windowsEnv {
+		for _, filePath := range newEmptyfilesToCreate {
+			// _, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
+			// podname, "--", fmt.Sprintf("powershell.exe New-Item -Path %s", filePath), "-ItemType File")
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			framework.Logf("ABCDEFGHIJKLMNOOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOP")
+			_, err := framework.LookForStringInPodExec(namespace, podname,
+				[]string{"powershell.exe", "New-Item", "-Path", filePath, "-ItemType File"}, "", time.Minute)
+
+			framework.Logf("hereabc")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+	} else {
+		createEmptyFilesOnVSphereVolume(namespace, podname, newEmptyfilesToCreate)
+	}
 	ginkgo.By(fmt.Sprintf("Verify files exist on volume mounted on: %v", podname))
 	verifyFilesExistOnVSphereVolume(namespace, podname, filesToCheck...)
 }

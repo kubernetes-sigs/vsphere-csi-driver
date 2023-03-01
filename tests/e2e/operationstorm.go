@@ -121,6 +121,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 
 	ginkgo.It("create/delete pod with many volumes and verify no attach/detach call should fail", func() {
 		ctx, cancel := context.WithCancel(context.Background())
+		var pod *v1.Pod
 		defer cancel()
 		ginkgo.By(fmt.Sprintf("Running test with VOLUME_OPS_SCALE: %v", volumeOpsScale))
 		ginkgo.By("Creating Storage Class")
@@ -161,8 +162,22 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating pod to attach PVs to the node")
-		pod, err := createPod(client, namespace, nil, pvclaims, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		var windowsPodCmd string
+		podCount := 0
+		for podCount < volumeOpsScale {
+			ginkgo.By("Creating pod")
+			pvclaim = pvclaims[podCount]
+			if windowsEnv {
+				windowsPodCmd = fmt.Sprintf("while (1) "+
+					" { Add-Content -Encoding Ascii C:\\mnt\\volume%v\\data.txt $(Get-Date -Format u); sleep 1 }", podCount+1)
+				podArray[podCount], err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsPodCmd)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				pod, err = createPod(client, namespace, nil, pvclaims, false, "")
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			podCount++
+		}
 		defer func() {
 			err = client.CoreV1().Pods(namespace).Delete(ctx, pod.Name, *metav1.NewDeleteOptions(0))
 			if !apierrors.IsNotFound(err) {
@@ -196,10 +211,17 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		ginkgo.By("Verify all volumes are accessible in the pod")
 		for index := range persistentvolumes {
 			// Verify Volumes are accessible by creating an empty file on the volume
-			filepath := filepath.Join("/mnt/", fmt.Sprintf("volume%v", index+1), "/emptyFile.txt")
-			_, err = framework.LookForStringInPodExec(namespace, pod.Name,
-				[]string{"/bin/touch", filepath}, "", time.Minute)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if windowsEnv {
+				filepath := filepath.Join("C:\\mnt\\", fmt.Sprintf("volume%v", index+1), "\\data.txt")
+				_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+					[]string{"powershell.exe", "cat", filepath}, "", time.Minute)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			} else {
+				filepath := filepath.Join("/mnt/", fmt.Sprintf("volume%v", index+1), "/emptyFile.txt")
+				_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/touch", filepath}, "", time.Minute)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}
 
 		ginkgo.By("Deleting pod")
@@ -289,8 +311,16 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		for podCount < volumeOpsScale {
 			ginkgo.By("Creating pod to attach PVs to the node")
 			pvclaim = pvclaims[podCount]
-			podArray[podCount], err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if windowsEnv {
+				podArray[podCount], err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsPodCmd)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			} else {
+				podArray[podCount], err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			// podArray[podCount], err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			podCount++
 		}
 
