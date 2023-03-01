@@ -2326,8 +2326,15 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 		// csifault.CSIInternalFault csifault.CSIUnimplementedFault csifault.CSIInvalidArgumentFault
 		if strings.Contains(req.VolumeId, ".vmdk") {
-			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-				"cannot expand migrated vSphere volume. :%q", req.VolumeId)
+			if err := initVolumeMigrationService(ctx, c); err != nil {
+				// Error is already wrapped in CSI error code.
+				return nil, csifault.CSIInternalFault, err
+			}
+			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: req.VolumeId}, false)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get VolumeID from volumeMigrationService for volumePath: %q", req.VolumeId)
+			}
 		}
 
 		// Fetch vCenterHost, vCenterManager & volumeManager for given volume, based on VC configuration
@@ -2384,7 +2391,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			volSizeMB, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
+				"failed to expand volume: %q to size: %d with error: %+v", "df", volSizeMB, err)
 		}
 
 		// Always set nodeExpansionRequired to true, even if requested size is equal
