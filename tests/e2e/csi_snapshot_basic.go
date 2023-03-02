@@ -61,6 +61,8 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		restConfig              *restclient.Config
 		snapc                   *snapclient.Clientset
 		nimbusGeneratedK8sVmPwd string
+		image                   string
+		execCommandPod1         string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -73,6 +75,14 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
+		}
+		// get execCommand & image for deployment
+		if windowsEnv {
+			image = windowsLTSC2019Image
+			execCommandPod1 = windowsExecRWXCommandPod1
+		} else {
+			image = busyBoxImageOnGcr
+			execCommandPod1 = execRWXCommandPod1
 		}
 
 		//Get snapshot client using the rest config
@@ -1065,7 +1075,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false,
-			execRWXCommandPod1)
+			execCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -1090,7 +1100,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim3}, false,
-			execRWXCommandPod1)
+			execCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -1113,26 +1123,50 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(isDiskAttached2).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"cat /mnt/volume1/Pod1.html "}
+		var cmd []string
+		if windowsEnv {
+			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "Powershell.exe", "-Command",
+				"cat C:\\mnt\\volume1\\Pod1.html"}
+		} else {
+			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+				"cat /mnt/volume1/Pod1.html "}
+		}
 		output := framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
-		wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
-		framework.RunKubectlOrDie(namespace, wrtiecmd...)
+		var writecmd []string
+		if windowsEnv {
+			writecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "Powershell.exe", "-Command",
+				"Add-Content C:\\mnt\\volume1\\Pod1.html 'Hello message from test into Pod1'"}
+		} else {
+			writecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+				"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
+		}
+		framework.RunKubectlOrDie(namespace, writecmd...)
 		output = framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		cmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"cat /mnt/volume1/Pod1.html "}
+		var cmd2 []string
+		if windowsEnv {
+			cmd2 = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "Powershell.exe", "-Command",
+				"cat C:\\mnt\\volume1\\Pod1.html"}
+		} else {
+			cmd2 = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+				"cat /mnt/volume1/Pod1.html "}
+		}
 		output2 := framework.RunKubectlOrDie(namespace, cmd2...)
 		gomega.Expect(strings.Contains(output2, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
-		wrtiecmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
-		framework.RunKubectlOrDie(namespace, wrtiecmd2...)
+		var writecmd2 []string
+		if windowsEnv {
+			writecmd2 = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "Powershell.exe", "-Command",
+				"Add-Content C:\\mnt\\volume1\\Pod1.html 'Hello message from test into Pod1'"}
+		} else {
+			writecmd2 = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+				"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
+		}
+		framework.RunKubectlOrDie(namespace, writecmd2...)
 		output2 = framework.RunKubectlOrDie(namespace, cmd2...)
 		gomega.Expect(strings.Contains(output2, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
@@ -3259,7 +3293,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		ginkgo.By("Creating a Deployment using pvc1")
 
 		dep, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace,
-			[]*v1.PersistentVolumeClaim{pvclaim}, execRWXCommandPod1, false, busyBoxImageOnGcr)
+			[]*v1.PersistentVolumeClaim{pvclaim}, execCommandPod1, false, image)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -3354,7 +3388,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		labelsMap2["app2"] = "test2"
 
 		dep2, err := createDeployment(ctx, client, 1, labelsMap2, nil, namespace,
-			[]*v1.PersistentVolumeClaim{pvclaim2}, "", false, busyBoxImageOnGcr)
+			[]*v1.PersistentVolumeClaim{pvclaim2}, "", false, image)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -3371,8 +3405,14 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		cmd := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"cat /mnt/volume1/Pod1.html "}
+		var cmd []string
+		if windowsEnv {
+			cmd = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "Powershell.exe", "-Command",
+				"cat C:\\mnt\\volume1\\Pod1.html"}
+		} else {
+			cmd = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+				"cat /mnt/volume1/Pod1.html "}
+		}
 		output := framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 	})
@@ -3631,7 +3671,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
-			false, execRWXCommandPod1)
+			false, execCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -4040,7 +4080,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		ginkgo.By("Creating a Deployment using pvc1")
 
 		dep, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace,
-			pvclaims, execRWXCommandPod1, false, busyBoxImageOnGcr)
+			pvclaims, execCommandPod1, false, image)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -4180,7 +4220,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		labelsMap2["app2"] = "test2"
 
 		dep2, err := createDeployment(ctx, client, 1, labelsMap2, nil, namespace,
-			restoredpvclaims, "", false, busyBoxImageOnGcr)
+			restoredpvclaims, "", false, image)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -4197,8 +4237,14 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		cmd := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"cat /mnt/volume1/Pod1.html "}
+		var cmd []string
+		if windowsEnv {
+			cmd = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "Powershell.exe", "-Command",
+				"cat C:\\mnt\\volume1\\Pod1.html"}
+		} else {
+			cmd = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+				"cat /mnt/volume1/Pod1.html "}
+		}
 		output := framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 	})
@@ -4864,7 +4910,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
-			false, execRWXCommandPod1)
+			false, execCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
