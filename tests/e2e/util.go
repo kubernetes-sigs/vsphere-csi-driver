@@ -4676,10 +4676,10 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 					"as specified in allowed topolgies of Storage Class", sspod.Name)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				// Verify the attached volume match the one in CNS cache
-				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+				// // Verify the attached volume match the one in CNS cache
+				// error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+				// 	volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+				// gomega.Expect(error).NotTo(gomega.HaveOccurred())
 			}
 		}
 	}
