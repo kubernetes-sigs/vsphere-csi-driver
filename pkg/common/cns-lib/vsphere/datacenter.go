@@ -116,6 +116,29 @@ func (dc *Datacenter) GetVirtualMachineByUUID(ctx context.Context,
 	return vm, nil
 }
 
+// GetVirtualMachineByDNSName returns the VirtualMachine instance given its DNS name in a datacenter.
+func (dc *Datacenter) GetVirtualMachineByDNSName(ctx context.Context, dnsName string) (*VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
+	searchIndex := object.NewSearchIndex(dc.Datacenter.Client())
+	svm, err := searchIndex.FindByDnsName(ctx, dc.Datacenter, dnsName, true)
+	if err != nil {
+		log.Errorf("failed to find VM given DNS name %s with err: %v", dnsName, err)
+		return nil, err
+	} else if svm == nil {
+		log.Errorf("Couldn't find VM given DNS name %s", dnsName)
+		return nil, ErrVMNotFound
+	}
+	vmObject := object.NewVirtualMachine(dc.Datacenter.Client(), svm.Reference())
+	uuid := vmObject.UUID(ctx)
+	vm := &VirtualMachine{
+		VirtualCenterHost: dc.VirtualCenterHost,
+		UUID:              uuid,
+		VirtualMachine:    vmObject,
+		Datacenter:        dc,
+	}
+	return vm, nil
+}
+
 // asyncGetAllDatacenters returns *Datacenter instances over the given
 // channel. If an error occurs, it will be returned via the given error channel.
 // If the given context is canceled, the processing will be stopped as soon as

@@ -147,6 +147,8 @@ func GetUUIDFromVMReference(ctx context.Context, vc *VirtualCenter, vmRef types.
 	return vm.Config.Uuid, nil
 }
 
+type getVirtualMachineFunc func(ctx context.Context, dc *Datacenter) (*VirtualMachine, error)
+
 // GetVirtualMachineByUUID returns virtual machine given its UUID in entire VC.
 // If instanceUuid is set to true, then UUID is an instance UUID.
 // In this case, this function searches for virtual machines whose instance UUID
@@ -155,8 +157,23 @@ func GetUUIDFromVMReference(ctx context.Context, vc *VirtualCenter, vmRef types.
 // In this case, this function searches for virtual machines whose BIOS UUID
 // matches the given uuid.
 func GetVirtualMachineByUUID(ctx context.Context, uuid string, instanceUUID bool) (*VirtualMachine, error) {
+	term := fmt.Sprintf("UUID %s", uuid)
+	return getVirtualMachineByFunc(ctx, term, func(ctx context.Context, dc *Datacenter) (*VirtualMachine, error) {
+		return dc.GetVirtualMachineByUUID(ctx, uuid, instanceUUID)
+	})
+}
+
+// GetVirtualMachineByDNSName returns virtual machine given its dnsName in entire VC.
+func GetVirtualMachineByDNSName(ctx context.Context, dnsName string) (*VirtualMachine, error) {
+	term := fmt.Sprintf("DNS name %s", dnsName)
+	return getVirtualMachineByFunc(ctx, term, func(ctx context.Context, dc *Datacenter) (*VirtualMachine, error) {
+		return dc.GetVirtualMachineByDNSName(ctx, dnsName)
+	})
+}
+
+func getVirtualMachineByFunc(ctx context.Context, term string, f getVirtualMachineFunc) (*VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
-	log.Infof("Initiating asynchronous datacenter listing with uuid %s", uuid)
+	log.Infof("Initiating asynchronous datacenter listing with %s", term)
 	dcsChan, errChan := AsyncGetAllDatacenters(ctx, dcBufferSize)
 
 	var wg sync.WaitGroup
@@ -172,15 +189,15 @@ func GetVirtualMachineByUUID(ctx context.Context, uuid string, instanceUUID bool
 				case err, ok := <-errChan:
 					if !ok {
 						// Async function finished.
-						log.Debugf("AsyncGetAllDatacenters finished with uuid %s", uuid)
+						log.Debugf("AsyncGetAllDatacenters finished with %s", term)
 						return
 					} else if err == context.Canceled {
 						// Canceled by another instance of this goroutine.
-						log.Debugf("AsyncGetAllDatacenters ctx was canceled with uuid %s", uuid)
+						log.Debugf("AsyncGetAllDatacenters ctx was canceled with %s", term)
 						return
 					} else {
 						// Some error occurred.
-						log.Errorf("AsyncGetAllDatacenters with uuid %s sent an error: %v", uuid, err)
+						log.Errorf("AsyncGetAllDatacenters with %s sent an error: %v", term, err)
 						poolErr = err
 						return
 					}
@@ -188,26 +205,26 @@ func GetVirtualMachineByUUID(ctx context.Context, uuid string, instanceUUID bool
 				case dc, ok := <-dcsChan:
 					if !ok {
 						// Async function finished.
-						log.Debugf("AsyncGetAllDatacenters finished with uuid %s", uuid)
+						log.Debugf("AsyncGetAllDatacenters finished with %s", term)
 						return
 					}
 
 					// Found some Datacenter object.
-					log.Infof("AsyncGetAllDatacenters with uuid %s sent a dc %v", uuid, dc)
-					if vm, err := dc.GetVirtualMachineByUUID(ctx, uuid, instanceUUID); err != nil {
+					log.Infof("AsyncGetAllDatacenters with %s sent a dc %v", term, dc)
+					if vm, err := f(ctx, dc); err != nil {
 						if err == ErrVMNotFound {
 							// Didn't find VM on this DC, so, continue searching on other DCs.
-							log.Warnf("Couldn't find VM given uuid %s on DC %v with err: %v, continuing search", uuid, dc, err)
+							log.Warnf("Couldn't find VM given %s on DC %v with err: %v, continuing search", term, dc, err)
 							continue
 						} else {
 							// Some serious error occurred, so stop the async function.
-							log.Errorf("Failed finding VM given uuid %s on DC %v with err: %v", uuid, dc, err)
+							log.Errorf("Failed finding VM given %s on DC %v with err: %v", term, dc, err)
 							poolErr = err
 							return
 						}
 					} else {
 						// Virtual machine was found, so stop the async function.
-						log.Infof("Found VM %v given uuid %s on DC %v", vm, uuid, dc)
+						log.Infof("Found VM %v given %s on DC %v", vm, term, dc)
 						nodeVM = vm
 						return
 					}
@@ -218,13 +235,13 @@ func GetVirtualMachineByUUID(ctx context.Context, uuid string, instanceUUID bool
 	wg.Wait()
 
 	if nodeVM != nil {
-		log.Infof("Returning VM %v for UUID %s", nodeVM, uuid)
+		log.Infof("Returning VM %v for %s", nodeVM, term)
 		return nodeVM, nil
 	} else if poolErr != nil {
-		log.Errorf("Returning err: %v for UUID %s", poolErr, uuid)
+		log.Errorf("Returning err: %v for %s", poolErr, term)
 		return nil, poolErr
 	} else {
-		log.Errorf("Returning VM not found err for UUID %s", uuid)
+		log.Errorf("Returning VM not found err for %s", term)
 		return nil, ErrVMNotFound
 	}
 }
