@@ -11,35 +11,24 @@ spec:
         image: ${VSPHERE_CSI_CONTROLLER_IMAGE}
       - name: vsphere-syncer
         image: ${VSPHERE_SYNCER_IMAGE}
-      - name: csi-provisioner
-        image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v3.1.0_vmware.2
-      - name: csi-attacher
-        image: localhost:5000/vmware.io/csi-attacher:v3.4.0_vmware.1
-      - name: csi-resizer
-        image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.4.0_vmware.1
-      - name: liveness-probe
-        image: localhost:5000/vmware.io/csi-livenessprobe:v2.6.0_vmware.1
 ---
+
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: vsphere-csi-webhook
+  namespace: vmware-system-csi
+spec:
+  template:
+    spec:
+      containers:
+      - name: vsphere-webhook
+        image: ${VSPHERE_SYNCER_IMAGE}
 ---
 apiVersion: v1
 data:
-  "volume-extend": "true"
-  "volume-health": "true"
-  "online-volume-extend": "true"
-  "file-volume": "true"
-  "csi-auth-check": "true"
-  "trigger-csi-fullsync": "false"
-  "csi-sv-feature-states-replication": "true"
-  "fake-attach": "true"
-  "async-query-volume": "true"
-  "improved-csi-idempotency": "true"
-  "block-volume-snapshot": "false"
-  "sibling-replica-bound-pvc-check": "true"
 # Set tkgs-ha to false, else csi-controller and csi-syncer containers do not start.
   "tkgs-ha": "false"
-  "list-volumes": "false"
-  "cnsmgr-suspend-create-volume": "true"
-  "listview-tasks": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
