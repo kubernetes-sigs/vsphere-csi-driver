@@ -228,6 +228,9 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(len(queryResult.Volumes) > 0).To(gomega.BeTrue())
 
+		time.Sleep(pollTimeout)
+		time.Sleep(pollTimeout)
+
 		framework.Logf("Cluster-distribution value on CNS is %s",
 			queryResult.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution)
 		gomega.Expect(queryResult.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution).Should(
