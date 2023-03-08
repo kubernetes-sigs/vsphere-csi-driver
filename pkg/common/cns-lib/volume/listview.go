@@ -116,11 +116,6 @@ func getListViewWaitFilter(listView *view.ListView) *property.WaitFilter {
 func (l *ListViewImpl) AddTask(ctx context.Context, taskMoRef types.ManagedObjectReference, ch chan TaskResult) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("AddTask called for %+v", taskMoRef)
-	err := l.listView.Add(l.ctx, []types.ManagedObjectReference{taskMoRef})
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to add task to ListView. error: %+v", err)
-	}
-	log.Infof("task %+v added to listView", taskMoRef)
 
 	l.taskMap.Upsert(taskMoRef, TaskDetails{
 		Reference:        taskMoRef,
@@ -128,6 +123,13 @@ func (l *ListViewImpl) AddTask(ctx context.Context, taskMoRef types.ManagedObjec
 		ResultCh:         ch,
 	})
 	log.Debugf("task %+v added to map", taskMoRef)
+
+	err := l.listView.Add(l.ctx, []types.ManagedObjectReference{taskMoRef})
+	if err != nil {
+		l.taskMap.Delete(taskMoRef)
+		return logger.LogNewErrorf(log, "failed to add task to ListView. error: %+v", err)
+	}
+	log.Infof("task %+v added to listView", taskMoRef)
 	return nil
 }
 
