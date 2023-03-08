@@ -198,7 +198,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 
 		// After reboot.
 		bootstrap()
-		time.Sleep(pollTimeout)
+		//time.Sleep(pollTimeout)
 
 		ginkgo.By("Waiting for PVC2 claim to be in bound phase")
 		pvc2, err := fpv.WaitForPVClaimBoundPhase(client,
