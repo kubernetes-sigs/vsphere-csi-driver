@@ -104,6 +104,7 @@ var (
 	// variable for list snapshots
 	CNSSnapshotsForListSnapshots = make([]cnstypes.CnsSnapshotQueryResultEntry, 0)
 	CNSVolumeDetailsMap          = make([]map[string]*utils.CnsVolumeDetails, 0)
+	volumeIDToNodeUUIDMap        = make(map[string]string)
 )
 
 // New creates a CNS controller.
@@ -2510,7 +2511,22 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 				}
 				CNSVolumesforListVolume = cnsQueryResult.Volumes
 			}
+
+			// Get all nodes from the vanilla K8s cluster from the node manager
+			allNodeVMs, err := c.nodeMgr.GetAllNodes(ctx)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get nodes(node vms) in the vanilla cluster. Error: %v", err)
+			}
+
+			// Fetching below map once per resync cycle to be used later while processing the volumes
+			volumeIDToNodeUUIDMap, err = getBlockVolumeIDToNodeUUIDMap(ctx, c, allNodeVMs)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"get block volumeIDToNodeUUIDMap failed with err = %+v ", err)
+			}
 		}
+
 		// Step 3: If the difference between number of K8s volumes and CNS volumes is greater than threshold,
 		// fail the operation, as it can result in too many attach calls.
 		if len(volIDsInK8s)-len(CNSVolumesforListVolume) > cfg.Global.ListVolumeThreshold {
@@ -2525,21 +2541,13 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			maxEntries = len(CNSVolumesforListVolume)
 		}
 		// Step 4: process queryLimit number of items starting from ListVolumeRequest.start_token
-		var allNodeVMs []*cnsvsphere.VirtualMachine
 		var entries []*csi.ListVolumesResponse_Entry
-
-		// Get all nodes from the vanilla K8s cluster from the node manager
-		allNodeVMs, err = c.nodeMgr.GetAllNodes(ctx)
-		if err != nil {
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get nodes(node vms) in the vanilla cluster. Error: %v", err)
-		}
 
 		nextToken := ""
 		log.Debugf("Starting token: %d, Length of Query volume result: %d, Max entries: %d ",
 			startingToken, len(CNSVolumesforListVolume), maxEntries)
 		entries, nextToken, volumeType, err = c.processQueryResultsListVolumes(ctx, startingToken, maxEntries,
-			CNSVolumesforListVolume, allNodeVMs)
+			CNSVolumesforListVolume)
 		if err != nil {
 			return nil, csifault.CSIInternalFault, fmt.Errorf("error while processing query results for list "+
 				" volumes, err: %v", err)
@@ -2568,7 +2576,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 }
 
 func (c *controller) processQueryResultsListVolumes(ctx context.Context, startingToken int, maxEntries int,
-	cnsVolumes []cnstypes.CnsVolume, allNodeVMs []*cnsvsphere.VirtualMachine) ([]*csi.ListVolumesResponse_Entry,
+	cnsVolumes []cnstypes.CnsVolume) ([]*csi.ListVolumesResponse_Entry,
 	string, string, error) {
 
 	volumeType := ""
@@ -2577,11 +2585,6 @@ func (c *controller) processQueryResultsListVolumes(ctx context.Context, startin
 	nextTokenCounter := 0
 	log := logger.GetLogger(ctx)
 	var entries []*csi.ListVolumesResponse_Entry
-
-	volumeIDToNodeUUIDMap, err := getBlockVolumeIDToNodeUUIDMap(ctx, c, allNodeVMs)
-	if err != nil {
-		return entries, nextToken, volumeType, err
-	}
 
 	for i := startingToken; i < len(cnsVolumes); i++ {
 		if cnsVolumes[i].VolumeType == common.FileVolumeType {
