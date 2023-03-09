@@ -215,10 +215,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod2, pvclaim2, pv2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
@@ -252,7 +255,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		testUser1NewPassword := "Admin!123"
-		ignoreLabels := make(map[string]string)
+		//ignoreLabels := make(map[string]string)
 
 		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
@@ -360,18 +363,25 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Wait for csi controller pods to be in running state")
-		list_of_pods, err := fpod.GetPodsInNamespace(client, csiNamespace, ignoreLabels)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		for i := 0; i < len(list_of_pods); i++ {
-			err = fpod.WaitTimeoutForPodRunningInNamespace(client, list_of_pods[i].Name, csiNamespace, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
+		// framework.Logf("Waiting for %v csi controller pods to be in running state",
+		// 	pollTimeout)
+		// time.Sleep(pollTimeout)
+
+		// ginkgo.By("Check csi controller pods running state")
+		// list_of_pods, err := fpod.GetPodsInNamespace(client, csiNamespace, ignoreLabels)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// for i := 0; i < len(list_of_pods); i++ {
+		// 	err = fpod.WaitTimeoutForPodRunningInNamespace(client, list_of_pods[i].Name, csiNamespace, pollTimeout)
+		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// }
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod4, pvclaim4, pv4 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
@@ -467,10 +477,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod2, pvclaim2, pv2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
@@ -557,10 +570,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
 			vCenterHostName, vCenterPort, dataCenter, "")
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod2, pvclaim2, pv2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
@@ -584,10 +600,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod3, pvclaim3, pv3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
@@ -669,17 +688,20 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		createCsiVsphereSecret(client, ctx, dummyTestUser, configSecretTestUser1Password, csiNamespace,
 			vCenterIP, vCenterPort, dataCenter, "")
 
-		ginkgo.By("Restart CSI driver")
-		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = updateDeploymentReplicawithWait(client, csiReplicas, vSphereCSIControllerPodNamePrefix, csiNamespace)
-		if err != nil {
-			if strings.Contains(err.Error(), "error waiting for deployment") {
-				framework.Logf("csi pods are not in ready state")
-			} else {
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}
+		// ginkgo.By("Restart CSI driver")
+		// err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// err = updateDeploymentReplicawithWait(client, csiReplicas, vSphereCSIControllerPodNamePrefix, csiNamespace)
+		// if err != nil {
+		// 	if strings.Contains(err.Error(), "error waiting for deployment") {
+		// 		framework.Logf("csi pods are not in ready state")
+		// 	} else {
+		// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// 	}
+		// }
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
 		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
@@ -711,10 +733,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod3, pvclaim3, pv3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
@@ -797,10 +822,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		createCsiVsphereSecret(client, ctx, configSecretUser2Alias, configSecretTestUser1Password, csiNamespace,
 			vCenterIP, vCenterPort, dataCenter, "")
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
 		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
@@ -832,10 +860,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod3, pvclaim3, pvs3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
@@ -939,10 +970,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
 			dataCenters, clusters, hosts, vms, datastores, "reuseUser", "reuseRoles")
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod2, pvclaim2, pvs2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
@@ -1032,11 +1066,14 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
 			vCenterIP, vCenterPort, dummyDataCenter, "")
 
-		ginkgo.By("Restart CSI driver")
-		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = updateDeploymentReplicawithWait(client, csiReplicas, vSphereCSIControllerPodNamePrefix, csiNamespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// err = updateDeploymentReplicawithWait(client, csiReplicas, vSphereCSIControllerPodNamePrefix, csiNamespace)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
 		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
@@ -1068,10 +1105,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod3, pvclaim3, pv3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
@@ -1174,10 +1214,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod2, pvclaim2, pvs2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
@@ -1279,10 +1322,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod2, pvclaim2, pvs2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
@@ -1384,10 +1430,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
 			vCenterIP, dummyvCenterPort, dataCenter, "")
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
 		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
@@ -1419,10 +1468,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Restart CSI driver")
+		// restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		// gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for 1min for csi driver to auto-detect the changes")
+		time.Sleep(1 * time.Minute)
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod3, pvclaim3, pvs3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
