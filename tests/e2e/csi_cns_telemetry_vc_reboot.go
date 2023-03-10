@@ -222,6 +222,19 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached2).To(gomega.BeTrue(), "Volume is not attached to the node")
 
+		// For Old PVCs to reflect the latest Cluster-Distribution Value, wait for
+		// full sync.
+		framework.Logf("Sleeping double full-sync interval for all the volumes Metadata " +
+			"to reflect the cluster-distribution value")
+		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+
+		// Add additional safe wait time for cluster-distribution to reflect on
+		// metadata.
+		framework.Logf("Sleeping for additional safe one min for volumes Metadata " +
+			"to reflect the cluster-distribution value")
+		time.Sleep(time.Duration(pollTimeoutShort))
+
 		// Verify the attached volume has cluster-distribution value set.
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult for PVC with VolumeID: %s", pv2.Spec.CSI.VolumeHandle))
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(pv2.Spec.CSI.VolumeHandle)
@@ -330,7 +343,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 
 		ginkgo.By("Waiting for claim to be in bound phase")
 		pvc, err := fpv.WaitForPVClaimBoundPhase(client,
-			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+			[]*v1.PersistentVolumeClaim{pvclaim}, 10*time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
 		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
