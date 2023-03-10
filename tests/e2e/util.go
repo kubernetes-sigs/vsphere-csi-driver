@@ -81,12 +81,12 @@ import (
 	snapc "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
 	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
-	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
-	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
-	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
-	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
+	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
+	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
+	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 var (
@@ -1191,7 +1191,7 @@ func getPersistentVolumeClaimSpec(namespace string, labels map[string]string, pv
 
 // Create PV volume spec with given FCD ID, Reclaim Policy and labels.
 func getPersistentVolumeSpec(fcdID string, persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy,
-	labels map[string]string) *v1.PersistentVolume {
+	labels map[string]string, fstype string) *v1.PersistentVolume {
 	var (
 		pvConfig fpv.PersistentVolumeConfig
 		pv       *v1.PersistentVolume
@@ -1204,7 +1204,7 @@ func getPersistentVolumeSpec(fcdID string, persistentVolumeReclaimPolicy v1.Pers
 				Driver:       e2evSphereCSIDriverName,
 				VolumeHandle: fcdID,
 				ReadOnly:     false,
-				FSType:       "ext4",
+				FSType:       fstype,
 			},
 		},
 		Prebind: nil,
@@ -4042,7 +4042,7 @@ func createPodForFSGroup(client clientset.Interface, namespace string,
 func getPersistentVolumeSpecForFileShare(fileshareID string,
 	persistentVolumeReclaimPolicy v1.PersistentVolumeReclaimPolicy, labels map[string]string,
 	accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolume {
-	pv := getPersistentVolumeSpec(fileshareID, persistentVolumeReclaimPolicy, labels)
+	pv := getPersistentVolumeSpec(fileshareID, persistentVolumeReclaimPolicy, labels, nfs4FSType)
 	pv.Spec.AccessModes = []v1.PersistentVolumeAccessMode{accessMode}
 	return pv
 }
@@ -6083,4 +6083,58 @@ func getAllPVCFromNamespace(client clientset.Interface, namespace string) *v1.Pe
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(pvcList).NotTo(gomega.BeNil())
 	return pvcList
+}
+
+// CheckDevice helps verify the raw block device inside pod is accessible correctly
+func CheckDevice(client clientset.Interface, sts *appsv1.StatefulSet, devicePath string) error {
+	for _, cmd := range []string{
+		fmt.Sprintf("ls -idlh %v", devicePath),
+		fmt.Sprintf("find %v", devicePath),
+		fmt.Sprintf("dd if=/dev/zero of=%v bs=1024 count=1 seek=0", devicePath),
+	} {
+		if err := fss.ExecInStatefulPods(client, sts, cmd); err != nil {
+			return fmt.Errorf("failed to check device in command %v, err %v", cmd, err)
+		}
+	}
+	return nil
+}
+
+// verifyDataOnRawBlockVolume helps check data integrity for raw block volumes
+func verifyDataOnRawBlockVolume(ns string, podName string, devicePath string, testData string) {
+	//Write some data to file first and then to raw block device
+	writeDataOnRawBlockVolume(ns, podName, devicePath, testData)
+	// Read the data to verify that is it same as what written
+	readDataFromRawBlockVolume(ns, podName, devicePath, testData)
+}
+
+// writeDataOnRawBlockVolume writes test data to raw block device
+func writeDataOnRawBlockVolume(ns string, podName string, devicePath string, testData string) {
+	cmd := []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
+		fmt.Sprintf("/bin/ls %v", devicePath)}
+	_, err := framework.RunKubectl(ns, cmd...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	cmd = []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
+		fmt.Sprintf("/bin/echo -ne '%v' > /tmp/data_to_write", testData)}
+	_, err = framework.RunKubectl(ns, cmd...)
+	framework.ExpectNoError(err, fmt.Sprintf("failed to write testdata inside the pod: %q", podName))
+
+	cmd = []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
+		fmt.Sprintf("/bin/dd if=/tmp/data_to_write of=%v", devicePath)}
+	_, err = framework.RunKubectl(ns, cmd...)
+	framework.ExpectNoError(err, fmt.Sprintf("failed to write device: %q inside the pod: %q", devicePath, podName))
+}
+
+// readDataFromRawBlockVolume reads data from raw block device and verifies it against given input
+func readDataFromRawBlockVolume(ns string, podName string, devicePath string, testData string) {
+	cmd := []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
+		fmt.Sprintf("/bin/ls %v", devicePath)}
+	_, err := framework.RunKubectl(ns, cmd...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	cmd = []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
+		fmt.Sprintf("/bin/dd if=%v status=none count=1 bs=%v", devicePath, len(testData))}
+	output, err := framework.RunKubectl(ns, cmd...)
+	framework.ExpectNoError(err, fmt.Sprintf("failed to read device: %q inside the pod: %q", devicePath, podName))
+	gomega.Expect(strings.Contains(output, testData)).NotTo(gomega.BeFalse())
 }

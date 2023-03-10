@@ -52,14 +52,9 @@ import (
 // creation.
 //
 // Steps
-// 1. Create StorageClass with inavlid.
+// 1. Create StorageClass with inavlid fstype.
 // 2. Create PVC which uses the StorageClass created in step 1.
-// 3. Wait for PV to be provisioned.
-// 4. Wait for PVC's status to become Bound.
-// 5. Create pod using PVC.
-// 6. Verify if the pod creation fails.
-// 7. Verify if the MountVolume.MountDevice fails because it is unable to find
-//    the file system executable file on the node.
+// 3. Make sure that PVC remains in pending state with proper error message.
 
 var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func() {
 

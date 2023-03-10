@@ -21,11 +21,11 @@ import (
 	"fmt"
 	"os"
 
-	csiconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
+	csiconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 )
 
 var (
@@ -58,7 +58,7 @@ func main() {
 	}
 	serviceMode := os.Getenv(csitypes.EnvVarMode)
 	commonco.SetInitParams(ctx, clusterFlavor, &service.COInitParams, *supervisorFSSName, *supervisorFSSNamespace,
-		*internalFSSName, *internalFSSNamespace, serviceMode)
+		*internalFSSName, *internalFSSNamespace, serviceMode, "")
 
 	// If no endpoint is set then exit the program.
 	CSIEndpoint := os.Getenv(csitypes.EnvVarEndpoint)

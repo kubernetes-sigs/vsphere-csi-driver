@@ -22,15 +22,16 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
-	csiconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/k8sorchestrator"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	csiconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 // SetInitParams initializes the parameters required to create a container
 // agnostic orchestrator instance.
 func SetInitParams(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, initParams *interface{},
-	supervisorFSSName, supervisorFSSNamespace, internalFSSName, internalFSSNamespace, serviceMode string) {
+	supervisorFSSName, supervisorFSSNamespace, internalFSSName, internalFSSNamespace, serviceMode,
+	operationMode string) {
 	log := logger.GetLogger(ctx)
 	// Set default values for FSS, if not given and initiate CO-agnostic init
 	// params.
@@ -49,7 +50,8 @@ func SetInitParams(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 				Name:      supervisorFSSName,
 				Namespace: supervisorFSSNamespace,
 			},
-			ServiceMode: serviceMode,
+			ServiceMode:   serviceMode,
+			OperationMode: operationMode,
 		}
 	case cnstypes.CnsClusterFlavorVanilla:
 		if strings.TrimSpace(internalFSSName) == "" {
@@ -65,7 +67,8 @@ func SetInitParams(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 				Name:      internalFSSName,
 				Namespace: internalFSSNamespace,
 			},
-			ServiceMode: serviceMode,
+			ServiceMode:   serviceMode,
+			OperationMode: operationMode,
 		}
 	case cnstypes.CnsClusterFlavorGuest:
 		if strings.TrimSpace(supervisorFSSName) == "" {
@@ -94,7 +97,8 @@ func SetInitParams(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 				Name:      supervisorFSSName,
 				Namespace: supervisorFSSNamespace,
 			},
-			ServiceMode: serviceMode,
+			ServiceMode:   serviceMode,
+			OperationMode: operationMode,
 		}
 	default:
 		log.Fatalf("Unrecognised cluster flavor %q. Container orchestrator init params not initialized.", clusterFlavor)

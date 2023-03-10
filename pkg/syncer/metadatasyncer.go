@@ -44,25 +44,25 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
-	volumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/utils"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/k8sorchestrator"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
-	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeinfo"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology"
-	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology/v1alpha1"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/featurestates"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/storagepool"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
+	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology"
+	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/featurestates"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/storagepool"
 )
 
 var (
@@ -275,11 +275,13 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}()
 		}
 	} else {
+		// code block only applicable to Vanilla
 		tasksListViewEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ListViewPerf)
 		// Initialize volume manager with vcenter credentials for Vanilla flavor
 		if !isMultiVCenterFssEnabled {
 			// Initialize volume manager with vcenter credentials
 			vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+			vCenter.Config.ReloadVCConfigForNewClient = true
 			if err != nil {
 				return err
 			}
@@ -305,11 +307,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				multivCenterTopologyDeployment = true
 			}
 			for _, vcconfig := range vcconfigs {
+				vcconfig.ReloadVCConfigForNewClient = true
 				vCenter, err := cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
 				if err != nil {
 					return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, err: %v", vcconfig.Host, err)
 				}
-
 				volumeManager, err := volumes.GetManager(ctx, vCenter, nil,
 					false, true,
 					multivCenterTopologyDeployment, tasksListViewEnabled)
@@ -344,7 +346,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 	}
 
-	cfgPath := common.GetConfigPath(ctx)
+	cfgPath := cnsconfig.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
@@ -360,14 +362,25 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				}
 				log.Debugf("fsnotify event: %q", event.String())
 				if event.Op&fsnotify.Remove == fsnotify.Remove {
-					for {
+					if clusterFlavor != cnstypes.CnsClusterFlavorWorkload &&
+						clusterFlavor != cnstypes.CnsClusterFlavorGuest {
+						// Only Vanilla Code block
 						reloadConfigErr := ReloadConfiguration(metadataSyncer, false)
 						if reloadConfigErr == nil {
 							log.Infof("Successfully reloaded configuration from: %q", cfgPath)
-							break
+						} else {
+							log.Errorf("failed to reload configuration will retry again in 5 seconds. err: %+v", reloadConfigErr)
 						}
-						log.Errorf("failed to reload configuration will retry again in 5 seconds. err: %+v", reloadConfigErr)
-						time.Sleep(5 * time.Second)
+					} else {
+						for {
+							reloadConfigErr := ReloadConfiguration(metadataSyncer, false)
+							if reloadConfigErr == nil {
+								log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+								break
+							}
+							log.Errorf("failed to reload configuration will retry again in 5 seconds. err: %+v", reloadConfigErr)
+							time.Sleep(5 * time.Second)
+						}
 					}
 				}
 				// Handling create event for reconnecting to VC when ca file is
@@ -533,7 +546,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 							log.Infof("CSI full sync failed with error: %+v", err)
 						}
 					} else {
-						vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, configInfo.Cfg)
+						vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, metadataSyncer.configInfo.Cfg)
 						if err != nil {
 							log.Errorf("Failed to get all virtual configs for CSI full sync. Error: %+v", err)
 						}
@@ -782,7 +795,7 @@ func topoCRDeleted(obj interface{}) {
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &nodeTopoObj)
 	if err != nil {
 		log.Errorf("topoCRDeleted: failed to cast object %+v to %s type. Error: %+v",
-			csinodetopology.CRDSingular, err)
+			obj, csinodetopology.CRDSingular, err)
 		return
 	}
 	// Delete topology labels from MetadataSyncer.topologyVCMap if the status of the CR was set to Success.
@@ -900,7 +913,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIInternalGeneratedClusterID) {
 		cfg, err = getConfig(ctx)
 	} else {
-		cfg, err = common.GetConfig(ctx)
+		cfg, err = cnsconfig.GetConfig(ctx)
 	}
 
 	if err != nil {
@@ -928,72 +941,39 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create supervisorClient. Error: %+v", err)
 		}
-	} else {
+	}
+
+	if metadataSyncer.clusterFlavor != cnstypes.CnsClusterFlavorWorkload &&
+		metadataSyncer.clusterFlavor != cnstypes.CnsClusterFlavorGuest {
+		// Vanilla ReloadConfiguration
 		if isMultiVCenterFssEnabled {
-			var multivCenterTopologyDeployment bool
-			if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
-				multivCenterTopologyDeployment = true
-			}
 			newVcenterConfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, cfg)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err=%v", err)
 			}
 			if newVcenterConfigs != nil {
 				for _, newVCConfig := range newVcenterConfigs {
+					newVCConfig.ReloadVCConfigForNewClient = true
+					if metadataSyncer.volumeManagers[newVCConfig.Host] == nil {
+						log.Infof("Observed new vCenter server: %q in the config secret. "+
+							"Existing syncer Container for re-initialization", newVCConfig.Host)
+						unregisterAllvCenterErr := cnsvsphere.UnregisterAllVirtualCenters(ctx)
+						if unregisterAllvCenterErr != nil {
+							log.Warnf("failed to Unregister all vCenter servers. Error: %v. "+
+								"Proceeding to exit the syncer container for re-initialization", unregisterAllvCenterErr)
+						}
+						os.Exit(1)
+					}
 					var vcenter *cnsvsphere.VirtualCenter
-					oldvcconfig, found := metadataSyncer.configInfo.Cfg.VirtualCenter[newVCConfig.Host]
-					if !found || oldvcconfig.User != newVCConfig.Username ||
-						oldvcconfig.Password != newVCConfig.Password ||
-						reconnectToVCFromNewConfig {
-						newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
-						if err = newVC.Connect(ctx); err != nil {
-							return logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q, Err: %+v",
-								newVCConfig.Host, err)
-						}
-						// Reset vCenter singleton instance by passing reload flag as true.
-						log.Info("Obtaining new vCenterInstance using new credentials for vCenter: %q", newVCConfig.Host)
-						vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, newVCConfig, true)
-						if err != nil {
-							return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, "+
-								"err: %v", newVCConfig.Host, err)
-						}
-					} else {
-						// If it's not VC credentials update, same singleton
-						// instance can be used and it's Config field can be updated.
-						vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
-						if err != nil {
-							return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
-						}
-						vcenter.Config = newVCConfig
+					vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterHost(ctx, newVCConfig.Host, false)
+					if err != nil {
+						return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
 					}
-					if metadataSyncer.volumeManagers[newVCConfig.Host] != nil {
-						log.Infof("resetting vCenter instance in volumemanager for vCenter: %q", newVCConfig.Host)
-						err := metadataSyncer.volumeManagers[newVCConfig.Host].ResetManager(ctx, vcenter)
-						if err != nil {
-							return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
-						}
-					} else {
-						log.Infof("creating new volumemanager for vCenter: %q", newVCConfig.Host)
-						volumeManager, err := volumes.GetManager(ctx, vcenter, nil,
-							true, true, multivCenterTopologyDeployment, tasksListViewEnabled)
-						if err != nil {
-							return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
-						}
-						metadataSyncer.volumeManagers[newVCConfig.Host] = volumeManager
-					}
-				}
-				// Remove Old Volume Managers which are replaced with new VC IP or FQDN
-				for vcHost := range metadataSyncer.configInfo.Cfg.VirtualCenter {
-					var retainVolumeManager bool
-					for _, newconfig := range newVcenterConfigs {
-						if newconfig.Host == vcHost {
-							retainVolumeManager = true
-							break
-						}
-					}
-					if !retainVolumeManager {
-						log.Infof("deleting volume manager for vCenter: %q", vcHost)
-						delete(metadataSyncer.volumeManagers, vcHost)
+					vcenter.Config = newVCConfig
+					err := metadataSyncer.volumeManagers[newVCConfig.Host].ResetManager(ctx, vcenter)
+					if err != nil {
+						return logger.LogNewErrorf(log, "failed to reset updated VC object in volumemanager for vCenter: %q "+
+							"err=%v", newVCConfig.Host, err)
 					}
 				}
 				if cfg != nil {
@@ -1002,61 +982,94 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 				}
 			}
 		} else {
+			oldvCenter := metadataSyncer.configInfo.Cfg.Global.VCenterIP
 			newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
+			newVCConfig.ReloadVCConfigForNewClient = true
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to get VirtualCenterConfig. err=%v", err)
 			}
 			if newVCConfig != nil {
-				var vcenter *cnsvsphere.VirtualCenter
-				if metadataSyncer.host != newVCConfig.Host ||
-					metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User != newVCConfig.Username ||
-					metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].Password != newVCConfig.Password ||
-					reconnectToVCFromNewConfig {
-					// Verify if new configuration has valid credentials by connecting
-					// to vCenter. Proceed only if the connection succeeds, else return
-					// error.
-					newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
-					if err = newVC.Connect(ctx); err != nil {
-						return logger.LogNewErrorf(log,
-							"failed to connect to VirtualCenter host: %s using new credentials, Err: %+v",
-							newVCConfig.Host, err)
+				if oldvCenter != newVCConfig.Host {
+					log.Infof("Observed new vCenter server: %q in the config secret. "+
+						"Exiting syncer Container for re-initialization", newVCConfig.Host)
+					unregisterAllvCenterErr := cnsvsphere.UnregisterAllVirtualCenters(ctx)
+					if unregisterAllvCenterErr != nil {
+						log.Warnf("failed to Unregister all vCenter servers. Error: %v. "+
+							"Proceeding to exit the syncer container for re-initialization", unregisterAllvCenterErr)
 					}
-
-					// Reset virtual center singleton instance by passing reload flag
-					// as true.
-					log.Info("Obtaining new vCenterInstance using new credentials")
-					vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
-					if err != nil {
-						return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
-					}
-				} else {
-					// If it's not a VC host or VC credentials update, same singleton
-					// instance can be used and it's Config field can be updated.
-					vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
-					if err != nil {
-						return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
-					}
-					vcenter.Config = newVCConfig
+					os.Exit(1)
 				}
+				var vcenter *cnsvsphere.VirtualCenter
+				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
+				if err != nil {
+					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+				}
+				vcenter.Config = newVCConfig
 				err := metadataSyncer.volumeManager.ResetManager(ctx, vcenter)
 				if err != nil {
 					return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
 				}
-				volumeManager, err := volumes.GetManager(ctx, vcenter, nil, false, false, false, tasksListViewEnabled)
-				if err != nil {
-					return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
-				}
-				metadataSyncer.volumeManager = volumeManager
-
-				if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-					storagepool.ResetVC(ctx, vcenter)
-				}
-				metadataSyncer.host = newVCConfig.Host
 			}
 			if cfg != nil {
 				metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{Cfg: cfg}
 				log.Infof("updated metadataSyncer.configInfo")
 			}
+		}
+	}
+
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to get VirtualCenterConfig. err=%v", err)
+		}
+		if newVCConfig != nil {
+			var vcenter *cnsvsphere.VirtualCenter
+			newVCConfig.ReloadVCConfigForNewClient = true
+			if metadataSyncer.host != newVCConfig.Host ||
+				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User != newVCConfig.Username ||
+				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].Password != newVCConfig.Password ||
+				reconnectToVCFromNewConfig {
+				// Verify if new configuration has valid credentials by connecting
+				// to vCenter. Proceed only if the connection succeeds, else return
+				// error.
+				newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig, ClientMutex: &sync.Mutex{}}
+				if err = newVC.Connect(ctx); err != nil {
+					return logger.LogNewErrorf(log,
+						"failed to connect to VirtualCenter host: %s using new credentials, Err: %+v",
+						newVCConfig.Host, err)
+				}
+
+				// Reset virtual center singleton instance by passing reload flag
+				// as true.
+				log.Info("Obtaining new vCenterInstance using new credentials")
+				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
+				if err != nil {
+					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+				}
+			} else {
+				// If it's not a VC host or VC credentials update, same singleton
+				// instance can be used and it's Config field can be updated.
+				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
+				if err != nil {
+					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+				}
+				vcenter.Config = newVCConfig
+			}
+			err := metadataSyncer.volumeManager.ResetManager(ctx, vcenter)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
+			}
+			volumeManager, err := volumes.GetManager(ctx, vcenter, nil, false, false, false, tasksListViewEnabled)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
+			}
+			metadataSyncer.volumeManager = volumeManager
+			storagepool.ResetVC(ctx, vcenter)
+			metadataSyncer.host = newVCConfig.Host
+		}
+		if cfg != nil {
+			metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{Cfg: cfg}
+			log.Infof("updated metadataSyncer.configInfo")
 		}
 	}
 	return nil

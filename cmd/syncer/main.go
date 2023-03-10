@@ -28,18 +28,18 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/admissionhandler"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/cnsoperator/manager"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/k8scloudoperator"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/storagepool"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/admissionhandler"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/manager"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8scloudoperator"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/storagepool"
 )
 
 // OperationModeWebHookServer starts container for webhook server.
@@ -91,7 +91,7 @@ func main() {
 		log.Errorf("failed retrieving cluster flavor. Error: %v", err)
 	}
 	commonco.SetInitParams(ctx, clusterFlavor, &syncer.COInitParams, *supervisorFSSName, *supervisorFSSNamespace,
-		*internalFSSName, *internalFSSNamespace, "")
+		*internalFSSName, *internalFSSNamespace, "", *operationMode)
 	admissionhandler.COInitParams = &syncer.COInitParams
 
 	if *operationMode == operationModeWebHookServer {
@@ -187,7 +187,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 				os.Exit(1)
 			}
 		} else {
-			configInfo, err = common.InitConfigInfo(ctx)
+			configInfo, err = config.InitConfigInfo(ctx)
 			if err != nil {
 				log.Errorf("failed to initialize the configInfo. Err: %+v", err)
 				os.Exit(1)

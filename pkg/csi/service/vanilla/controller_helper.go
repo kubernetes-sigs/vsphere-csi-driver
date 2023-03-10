@@ -30,13 +30,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
-	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeinfo"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
 )
 
 // validateVanillaDeleteVolumeRequest is the helper function to validate
@@ -279,4 +279,16 @@ func getVCenterManagerForVCenter(ctx context.Context, controller *controller) vs
 		vCenterManager = controller.manager.VcenterManager
 	}
 	return vCenterManager
+}
+
+// GetVolumeManagerFromVCHost retreives the volume manager associated with
+// vCenterHost under managers. Error out if the vCenterHost does not exist.
+func GetVolumeManagerFromVCHost(ctx context.Context, managers *common.Managers, vCenterHost string) (
+	cnsvolume.Manager, error) {
+	log := logger.GetLogger(ctx)
+	volumeMgr, exists := managers.VolumeManagers[vCenterHost]
+	if !exists {
+		return nil, logger.LogNewErrorf(log, "failed to find vCenter %q under volume managers.", vCenterHost)
+	}
+	return volumeMgr, nil
 }

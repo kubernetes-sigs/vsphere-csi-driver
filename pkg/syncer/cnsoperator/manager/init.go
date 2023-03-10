@@ -31,24 +31,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
-	cnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/config"
-	internalapiscnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsoperator/config"
-	csinodetopologyconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology/config"
+	cnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/config"
+	internalapiscnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/config"
+	csinodetopologyconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/config"
 
-	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
-	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
-	volumes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	commonconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis"
-	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology"
-	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology/v1alpha1"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/cnsoperator/controller"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis"
+	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology"
+	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/controller"
 )
 
 var (
@@ -345,7 +345,7 @@ func InitCommonModules(ctx context.Context, clusterFlavor cnstypes.CnsClusterFla
 // container.
 func watcher(ctx context.Context, cnsOperator *cnsOperator) error {
 	log := logger.GetLogger(ctx)
-	cfgPath := common.GetConfigPath(ctx)
+	cfgPath := commonconfig.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("Failed to create fsnotify watcher. Err: %+v", err)
@@ -391,7 +391,7 @@ func watcher(ctx context.Context, cnsOperator *cnsOperator) error {
 // with the latest configInfo.
 func reloadConfiguration(ctx context.Context, cnsOperator *cnsOperator) error {
 	log := logger.GetLogger(ctx)
-	cfg, err := common.GetConfig(ctx)
+	cfg, err := commonconfig.GetConfig(ctx)
 	if err != nil {
 		log.Errorf("Failed to read config. Error: %+v", err)
 		return err

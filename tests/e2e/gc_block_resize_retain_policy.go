@@ -463,7 +463,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 
 		ginkgo.By("Creating the PV")
-		pvNew := getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, nil)
+		pvNew := getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, nil, ext4FSType)
 		pvNew.Annotations = pvtemp.Annotations
 		pvNew.Spec.StorageClassName = pvtemp.Spec.StorageClassName
 		pvNew.Spec.CSI = pvtemp.Spec.CSI

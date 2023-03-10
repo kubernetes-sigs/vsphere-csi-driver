@@ -46,16 +46,16 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/types"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology"
-	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology/v1alpha1"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology"
+	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 var (
@@ -202,7 +202,7 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 				// Set isMultivCenterCluster if the K8s cluster is a multi-VC cluster.
 				isMultiVCSupportEnabled = c.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
 				if isMultiVCSupportEnabled {
-					cfg, err := common.GetConfig(ctx)
+					cfg, err := cnsconfig.GetConfig(ctx)
 					if err != nil {
 						return nil, logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
 					}
@@ -223,7 +223,7 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 
 				if controllerVolumeTopologyInstance.isTopologyPreferentialDatastoresFSSEnabled {
 					// Get CNS config.
-					cnsCfg, err := common.GetConfig(ctx)
+					cnsCfg, err := cnsconfig.GetConfig(ctx)
 					if err != nil {
 						return nil, logger.LogNewErrorf(log, "failed to fetch CNS config. Error: %+v", err)
 					}
@@ -297,7 +297,7 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 func refreshPreferentialDatastores(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	// Get VC instance.
-	cnsCfg, err := common.GetConfig(ctx)
+	cnsCfg, err := cnsconfig.GetConfig(ctx)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to fetch CNS config. Error: %+v", err)
 	}

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -37,22 +38,22 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
-	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/utils"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/types"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/placementengine"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeinfo"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/placementengine"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
 // NodeManagerInterface provides functionality to manage (VM) nodes.
@@ -134,19 +135,21 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
 	if !multivCenterCSITopologyEnabled {
-		// Get VirtualCenterManager instance and validate version.
+		// Get VirtualCenterInstance and validate version.
+		vc, err := cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: config}, false)
+		if err != nil {
+			log.Errorf("failed to get vCenter Instance. err=%v", err)
+			return err
+		}
 		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)
+		// force loading latest vCenter config at the time of creating new VC client
+		vcenterconfig.ReloadVCConfigForNewClient = true
 		if err != nil {
 			log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
 			return err
 		}
-		vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
-		if err != nil {
-			log.Errorf("failed to register VC %q with virtualCenterManager. err=%v", vcenterconfig.Host, err)
-			return err
-		}
-
-		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore, true, false, false, tasksListViewEnabled)
+		vc.Config = vcenterconfig
+		volumeManager, err := cnsvolume.GetManager(ctx, vc, operationStore, true, false, false, tasksListViewEnabled)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
@@ -156,11 +159,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			CnsConfig:      config,
 			VolumeManager:  volumeManager,
 			VcenterManager: vcManager,
-		}
-		vc, err := common.GetVCenter(ctx, c.manager)
-		if err != nil {
-			log.Errorf("failed to get the vcenter. err=%v", err)
-			return err
 		}
 		// Check vCenter API Version
 		err = common.CheckAPI(ctx, vc.Client.ServiceContent.About.ApiVersion, common.MinSupportedVCenterMajor,
@@ -232,9 +230,10 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			multivCenterTopologyDeployment = true
 		}
 		for _, vcenterconfig := range vcenterconfigs {
-			vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
+			vcenterconfig.ReloadVCConfigForNewClient = true
+			vcenter, err := cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcenterconfig, false)
 			if err != nil {
-				return logger.LogNewErrorf(log, "failed to register VC %q with virtualCenterManager. "+
+				return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter %q"+
 					"err=%v", vcenterconfig.Host, err)
 			}
 			c.managers.VcenterConfigs[vcenterconfig.Host] = vcenterconfig
@@ -309,7 +308,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListViewPerf) {
 		go cnsvolume.ClearInvalidTasksFromListView(multivCenterCSITopologyEnabled)
 	}
-	cfgPath := common.GetConfigPath(ctx)
+	cfgPath := cnsconfig.GetConfigPath(ctx)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -326,14 +325,11 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 				}
 				log.Debugf("fsnotify event: %q", event.String())
 				if event.Op&fsnotify.Remove == fsnotify.Remove {
-					for {
-						reloadConfigErr := c.ReloadConfiguration()
-						if reloadConfigErr == nil {
-							log.Infof("Successfully reloaded configuration from: %q", cfgPath)
-							break
-						}
-						log.Errorf("failed to reload configuration. will retry again in 5 seconds. err: %+v", reloadConfigErr)
-						time.Sleep(5 * time.Second)
+					reloadConfigErr := c.ReloadConfiguration()
+					if reloadConfigErr == nil {
+						log.Infof("Successfully reloaded configuration from: %q", cfgPath)
+					} else {
+						log.Errorf("failed to reload configuration. err: %+v", reloadConfigErr)
 					}
 				}
 			case err, ok := <-watcher.Errors:
@@ -404,181 +400,91 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 func (c *controller) ReloadConfiguration() error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
-	cfg, err := common.GetConfig(ctx)
+	newCfg, err := cnsconfig.GetConfig(ctx)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
 	}
-	tasksListViewEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.ListViewPerf)
 	if multivCenterCSITopologyEnabled {
-		var multivCenterTopologyDeployment bool
-		if len(c.managers.VcenterConfigs) > 1 {
-			multivCenterTopologyDeployment = true
-		}
-		newVcenterConfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, cfg)
+		newVcenterConfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, newCfg)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err=%v", err)
 		}
-		if newVcenterConfigs != nil {
-			for _, newVCConfig := range newVcenterConfigs {
-				var vcenter *cnsvsphere.VirtualCenter
-				// Get vCenter config cached in c.managers.VcenterConfigs for the VC Host
-				oldvcconfig, found := c.managers.VcenterConfigs[newVCConfig.Host]
-				// Compare cached vCenerConfig against new vCenterConfig and determine if vCenter Client needs to be
-				// Refreshed or recreated.
-				if !found || oldvcconfig.Username != newVCConfig.Username || oldvcconfig.Password != newVCConfig.Password {
-					newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
-					if err = newVC.Connect(ctx); err != nil {
-						return logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q, Err: %+v",
-							newVCConfig.Host, err)
-					}
-					// Reset vCenter singleton instance by passing reload flag as true.
-					log.Info("Obtaining new vCenterInstance using new credentials")
-					vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, newVCConfig, true)
-					if err != nil {
-						return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: "+
-							"%q, err: %v", newVCConfig.Host, err)
-					}
-				} else {
-					// If it's not VC credentials update, same singleton
-					// instance can be used and it's Config field can be updated.
-					vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
-					if err != nil {
-						return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
-					}
-					vcenter.Config = newVCConfig
+		for _, newVCConfig := range newVcenterConfigs {
+			newVCConfig.ReloadVCConfigForNewClient = true
+			if c.managers.VolumeManagers[newVCConfig.Host] == nil {
+				log.Infof("Observed new vCenter server: %q in the config secret. "+
+					"Exiting vSphere CSI Controller Container for re-initialization", newVCConfig.Host)
+				unregisterAllvCenterErr := c.managers.VcenterManager.UnregisterAllVirtualCenters(ctx)
+				if unregisterAllvCenterErr != nil {
+					log.Warnf("failed to Unregister all vCenter servers. Error: %v. "+
+						"Proceeding to exit the vSphere CSI Controller Container for re-initialization",
+						unregisterAllvCenterErr)
 				}
-				var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
-				operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
-					c.managers.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
-					func() bool {
-						return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-					})
-				if err != nil {
-					log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
-					return err
-				}
-				c.managers.VcenterConfigs[newVCConfig.Host] = newVCConfig
-				if c.managers.VolumeManagers[newVCConfig.Host] != nil {
-					err = c.managers.VolumeManagers[newVCConfig.Host].ResetManager(ctx, vcenter)
-					if err != nil {
-						return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
-					}
-				} else {
-					volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
-						true, true, multivCenterTopologyDeployment, tasksListViewEnabled)
-					if err != nil {
-						return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
-					}
-					c.managers.VolumeManagers[newVCConfig.Host] = volumeManager
-				}
-				if c.authMgrs[newVCConfig.Host] != nil {
-					c.authMgrs[newVCConfig.Host].ResetvCenterInstance(ctx, vcenter)
-					log.Debugf("Updated vCenter in auth manager")
-				} else {
-					authmanager, err := common.GetNewAuthorizationService(ctx, vcenter)
-					if err != nil {
-						log.Errorf("failed to initialize authorization service for vCenter:%q with error: %v",
-							vcenter.Config.Host, err)
-						return err
-					}
-					c.authMgrs[newVCConfig.Host] = authmanager
-					go common.ComputeDatastoreMapForBlockVolumes(c.authMgrs[newVCConfig.Host], cfg.Global.CSIAuthCheckIntervalInMin)
-				}
+				os.Exit(1)
 			}
-			// Remove old VC entries from c.managers.VcenterConfigs, c.managers.VolumeManagers and c.authMgrs
-			// which are not present in the newVcenterConfigs
-			// This is required for the case when VC IP changed to FQDN
-			vcConfigsToRetain := make(map[string]*cnsvsphere.VirtualCenterConfig)
-			for _, config := range c.managers.VcenterConfigs {
-				var retainVCconfig bool
-				for _, newconfig := range newVcenterConfigs {
-					if newconfig.Host == config.Host {
-						retainVCconfig = true
-						break
-					}
-				}
-				if retainVCconfig {
-					vcConfigsToRetain[config.Host] = config
-				} else {
-					log.Infof("Deleting volumemanager for vCenter: %q", config.Host)
-					delete(c.managers.VolumeManagers, config.Host)
-					log.Infof("Deleting authmanager for vCenter: %q", config.Host)
-					delete(c.authMgrs, config.Host)
-				}
-			}
-			c.managers.VcenterConfigs = vcConfigsToRetain
-			// Re-Initialize Node Manager to cache latest vCenter config.
-			c.nodeMgr = &node.Nodes{}
-			err = c.nodeMgr.Initialize(ctx, true)
+			var vcenter *cnsvsphere.VirtualCenter
+			vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterHost(ctx, newVCConfig.Host, false)
 			if err != nil {
-				log.Errorf("failed to re-initialize nodeMgr. err=%v", err)
-				return err
+				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
 			}
+			vcenter.Config = newVCConfig
+			err := c.managers.VolumeManagers[newVCConfig.Host].ResetManager(ctx, vcenter)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to reset updated VC object in volumemanager for vCenter: %q "+
+					"err=%v", newVCConfig.Host, err)
+			}
+			c.managers.VcenterConfigs[newVCConfig.Host] = newVCConfig
+			c.authMgrs[newVCConfig.Host].ResetvCenterInstance(ctx, vcenter)
 		}
-		if cfg != nil {
-			c.managers.CnsConfig = cfg
+		if newCfg != nil {
+			c.managers.CnsConfig = newCfg
 			log.Debugf("Updated managers.CnsConfig")
+		}
+		// Re-Initialize Node Manager to cache latest vCenter config.
+		log.Debug("Re-Initializing node manager")
+		c.nodeMgr = &node.Nodes{}
+		err = c.nodeMgr.Initialize(ctx, true)
+		if err != nil {
+			log.Errorf("failed to re-initialize nodeMgr. err=%v", err)
+			return err
 		}
 	} else {
 		// multivCenterCSITopology feature is disabled
-		newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cfg)
+		oldvCenter := c.manager.VcenterConfig.Host
+		newVCConfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, newCfg)
 		if err != nil {
 			log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
 			return err
 		}
 		if newVCConfig != nil {
+			newVCConfig.ReloadVCConfigForNewClient = true
+			if oldvCenter != newVCConfig.Host {
+				log.Infof("Observed new vCenter server: %q in the config secret. "+
+					"Exiting vSphere CSI Controller Container for re-initialization", newVCConfig.Host)
+				unregisterAllvCenterErr := c.managers.VcenterManager.UnregisterAllVirtualCenters(ctx)
+				if unregisterAllvCenterErr != nil {
+					log.Warnf("failed to Unregister all vCenter servers. Error: %v. "+
+						"Proceeding to exit the vSphere CSI Controller Container for re-initialization",
+						unregisterAllvCenterErr)
+				}
+				os.Exit(1)
+			}
+
 			var vcenter *cnsvsphere.VirtualCenter
-			if c.manager.VcenterConfig.Host != newVCConfig.Host ||
-				c.manager.VcenterConfig.Username != newVCConfig.Username ||
-				c.manager.VcenterConfig.Password != newVCConfig.Password {
-
-				// Verify if new configuration has valid credentials by connecting to
-				// vCenter. Proceed only if the connection succeeds, else return error.
-				newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
-				if err = newVC.Connect(ctx); err != nil {
-					return logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q, Err: %+v",
-						newVCConfig.Host, err)
-				}
-
-				// Reset vCenter singleton instance by passing reload flag as true.
-				log.Info("Obtaining new vCenterInstance using new credentials")
-				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
-				if err != nil {
-					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
-				}
-			} else {
-				// If it's not a VC host or VC credentials update, same singleton
-				// instance can be used and it's Config field can be updated.
-				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
-				if err != nil {
-					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
-				}
-				vcenter.Config = newVCConfig
-			}
-			var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
-			operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
-				c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
-				func() bool {
-					return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-				})
+			vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: newCfg}, false)
 			if err != nil {
-				log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
-				return err
+				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
 			}
-
+			vcenter.Config = newVCConfig
+			if c.authMgr != nil {
+				c.authMgr.ResetvCenterInstance(ctx, vcenter)
+				log.Info("Updated vCenter in auth manager")
+			}
 			err = c.manager.VolumeManager.ResetManager(ctx, vcenter)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
 			}
 			c.manager.VcenterConfig = newVCConfig
-			volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore, true,
-				false, false, tasksListViewEnabled)
-			if err != nil {
-				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
-			}
-
-			c.manager.VolumeManager = volumeManager
 			// Re-Initialize Node Manager to cache latest vCenter config.
 			useNodeUuid := false
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
@@ -590,13 +496,9 @@ func (c *controller) ReloadConfiguration() error {
 				log.Errorf("failed to re-initialize nodeMgr. err=%v", err)
 				return err
 			}
-			if c.authMgr != nil {
-				c.authMgr.ResetvCenterInstance(ctx, vcenter)
-				log.Debugf("Updated vCenter in auth manager")
-			}
 		}
-		if cfg != nil {
-			c.manager.CnsConfig = cfg
+		if newCfg != nil {
+			c.manager.CnsConfig = newCfg
 			log.Debugf("Updated manager.CnsConfig")
 		}
 	}
@@ -979,7 +881,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 			datastoreURL = queryResult.Volumes[0].DatastoreUrl
 		}
-
 		// If improved topology FSS is enabled, retrieve datastore topology information
 		// from CSINodeTopology CRs.
 		// Get all nodeVMs in cluster.
@@ -1311,7 +1212,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 			}()
 
 			// Monitor CreateVolume task.
-			volumeMgr, err = common.GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
+			volumeMgr, err = GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
 			}
@@ -1445,7 +1346,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 						"failed to filter datastores based on authorisation check in vCenter %q. Error: %+v",
 						vcHost, err)
 				}
-				volumeMgr, err = common.GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
+				volumeMgr, err = GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
 				}
@@ -1481,7 +1382,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 					"failed to get vCenter instance for host %q. Error: %+v", vcHost, err)
 			}
 
-			volumeMgr, err = common.GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
+			volumeMgr, err = GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
 			}
@@ -1576,7 +1477,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 		datastoreURL := volumeInfo.DatastoreURL
 		if datastoreURL == "" {
 			if volumeMgr == nil {
-				volumeMgr, err = common.GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
+				volumeMgr, err = GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
 				}
@@ -2425,8 +2326,15 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 		// csifault.CSIInternalFault csifault.CSIUnimplementedFault csifault.CSIInvalidArgumentFault
 		if strings.Contains(req.VolumeId, ".vmdk") {
-			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-				"cannot expand migrated vSphere volume. :%q", req.VolumeId)
+			if err := initVolumeMigrationService(ctx, c); err != nil {
+				// Error is already wrapped in CSI error code.
+				return nil, csifault.CSIInternalFault, err
+			}
+			req.VolumeId, err = volumeMigrationService.GetVolumeID(ctx, &migration.VolumeSpec{VolumePath: req.VolumeId}, false)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get VolumeID from volumeMigrationService for volumePath: %q", req.VolumeId)
+			}
 		}
 
 		// Fetch vCenterHost, vCenterManager & volumeManager for given volume, based on VC configuration
@@ -2483,7 +2391,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			volSizeMB, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
+				"failed to expand volume: %q to size: %d with error: %+v", "df", volSizeMB, err)
 		}
 
 		// Always set nodeExpansionRequired to true, even if requested size is equal
@@ -2547,7 +2455,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "List Volumes")
 	}
-	cfg, err := common.GetConfig(ctx)
+	cfg, err := cnsconfig.GetConfig(ctx)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
 	}

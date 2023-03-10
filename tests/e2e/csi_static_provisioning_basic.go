@@ -45,7 +45,7 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
+	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 )
 
 var _ = ginkgo.Describe("Basic Static Provisioning", func() {
@@ -286,7 +286,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		staticPVLabels["fcd-id"] = fcdID
 
 		ginkgo.By("Creating the PV")
-		pv = getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimDelete, staticPVLabels)
+		pv = getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimDelete, staticPVLabels, ext4FSType)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		if err != nil {
 			return
@@ -358,6 +358,127 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pv = nil
 	})
 
+	// This test verifies the static provisioning workflow with XFS filesystem.
+	//
+	// Test Steps:
+	// 1. Create FCD and wait for fcd to allow syncing with pandora.
+	// 2. Create PV Spec with volumeID set to FCDID created in Step-1, and
+	//    PersistentVolumeReclaimPolicy is set to Delete, also mention fstype as xfs.
+	// 3. Create PVC with the storage request set to PV's storage capacity.
+	// 4. Wait for PV and PVC to bound.
+	// 5. Create a POD.
+	// 6. Verify volume is attached to the node and volume is accessible in the pod.
+	// 7. Verify filesystem used inside pod to mount volume is xfs.
+	// 7. Verify container volume metadata is present in CNS cache.
+	// 8. Delete POD.
+	// 9. Verify volume is detached from the node.
+	// 10. Delete PVC.
+	// 11. Verify PV is deleted automatically.
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify basic static provisioning workflow "+
+		"with XFS filesystem", func() {
+		var err error
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("Creating FCD Disk")
+		fcdID, err := e2eVSphere.createFCD(ctx, "BasicStaticFCD", diskSizeInMb, defaultDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		deleteFCDRequired = true
+
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
+			pandoraSyncWaitTime, fcdID))
+		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+		// Creating label for PV.
+		// PVC will use this label as Selector to find PV.
+		staticPVLabels := make(map[string]string)
+		staticPVLabels["fcd-id"] = fcdID
+
+		ginkgo.By("Creating the PV with fstype as xfs")
+		pv = getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimDelete, staticPVLabels, xfsFSType)
+		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
+		if err != nil {
+			return
+		}
+		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating the PVC")
+		pvc = getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
+		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Wait for PV and PVC to Bind.
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv, pvc))
+
+		// Set deleteFCDRequired to false.
+		// After PV, PVC is in the bind state, Deleting PVC should delete
+		// container volume. So no need to delete FCD directly using vSphere
+		// API call.
+		deleteFCDRequired = false
+
+		ginkgo.By("Verifying CNS entry is present in cache")
+		_, err = e2eVSphere.queryCNSVolumeWithResult(pv.Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating the Pod")
+		var pvclaims []*v1.PersistentVolumeClaim
+		pvclaims = append(pvclaims, pvc)
+		pod, err := createPod(client, namespace, nil, pvclaims, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
+
+		// Verify that fstype used to mount volume inside pod is xfs.
+		ginkgo.By("Verify that filesystem type used to mount volume is xfs as expected")
+		_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+			xfsFSType, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Verify that write and read is successful at mountpath.
+		ginkgo.By(fmt.Sprintf("Creating file file.txt at mountpath inside pod: %v", pod.Name))
+		data := "This file file.txt is written by pod " + pod.Name
+		filePath := "/mnt/volume1/file.txt"
+		writeDataOnFileFromPod(namespace, pod.Name, filePath, data)
+
+		ginkgo.By("Verify that data can be successfully read from file.txt")
+		output := readFileFromPod(namespace, pod.Name, filePath)
+		gomega.Expect(output == data+"\n").To(gomega.BeTrue(), "Pod is not able to read file.txt")
+
+		ginkgo.By("Verify container volume metadata is present in CNS cache")
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolume with VolumeID: %s", pv.Spec.CSI.VolumeHandle))
+		_, err = e2eVSphere.queryCNSVolumeWithResult(pv.Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		labels := []types.KeyValue{{Key: "fcd-id", Value: fcdID}}
+		ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
+		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+			pvc.Name, pv.ObjectMeta.Name, pod.Name, labels...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Deleting the Pod")
+		framework.ExpectNoError(fpod.DeletePodWithWait(client, pod), "Failed to delete pod", pod.Name)
+
+		ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", pod.Spec.NodeName))
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
+
+		ginkgo.By("Deleting the PVC")
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace),
+			"Failed to delete PVC", pvc.Name)
+		pvc = nil
+
+		ginkgo.By("Verify PV should be deleted automatically")
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeout))
+		pv = nil
+	})
+
 	// This test verifies the static provisioning workflow by creating the PV
 	// by same name twice.
 	//
@@ -392,7 +513,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		staticPVLabels["fcd-id"] = fcdID
 
 		ginkgo.By("Create PV Spec")
-		pvSpec := getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimRetain, staticPVLabels)
+		pvSpec := getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimRetain, staticPVLabels, ext4FSType)
 
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
@@ -511,7 +632,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		staticPVLabels["fcd-id"] = volumeID
 
 		ginkgo.By("Creating the PV")
-		pv = getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, staticPVLabels)
+		pv = getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, staticPVLabels, ext4FSType)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -594,7 +715,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		svcPVCName := volumeID
 		ginkgo.By("Creating the PV in guest cluster")
-		pv = getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, staticPVLabels)
+		pv = getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, staticPVLabels, ext4FSType)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

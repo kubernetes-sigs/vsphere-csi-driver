@@ -470,6 +470,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 			err = fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s",
+				pod.Spec.NodeName+"-"+pvcNameInSV))
+			err = waitTillCNSFileAccesscrdDeleted(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV, crdCNSFileAccessConfig,
+				crdVersion, crdGroup, false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod")
 			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
@@ -486,9 +492,11 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 			err = fpod.DeletePodWithWait(client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod2")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+pvcNameInSV,
-				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
+			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s",
+				pod2.Spec.NodeName+"-"+pvcNameInSV))
+			err = waitTillCNSFileAccesscrdDeleted(ctx, f, pod2.Spec.NodeName+"-"+pvcNameInSV, crdCNSFileAccessConfig,
+				crdVersion, crdGroup, false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		gcClusterID := strings.Replace(pvcNameInSV, pvcUID, "", -1)
@@ -700,6 +708,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
 			err = fpod.DeletePodWithWait(client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s",
+				pod.Spec.NodeName+"-"+pvcNameInSV))
+			err = waitTillCNSFileAccesscrdDeleted(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV, crdCNSFileAccessConfig,
+				crdVersion, crdGroup, false)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod")

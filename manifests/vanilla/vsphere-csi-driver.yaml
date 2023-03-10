@@ -154,16 +154,16 @@ data:
   "trigger-csi-fullsync": "false"
   "async-query-volume": "true"
   "block-volume-snapshot": "true"
-  "csi-windows-support": "false"
+  "csi-windows-support": "true"
   "use-csinode-id": "true"
   "list-volumes": "true"
   "pv-to-backingdiskobjectid-mapping": "false"
   "cnsmgr-suspend-create-volume": "true"
   "topology-preferential-datastores": "true"
   "max-pvscsi-targets-per-vm": "true"
-  "multi-vcenter-csi-topology": "false"
-  "csi-internal-generated-cluster-id": "false"
-  "listview-tasks": "false"
+  "multi-vcenter-csi-topology": "true"
+  "csi-internal-generated-cluster-id": "true"
+  "listview-tasks": "true"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
@@ -244,7 +244,7 @@ spec:
       dnsPolicy: "Default"
       containers:
         - name: csi-attacher
-          image: k8s.gcr.io/sig-storage/csi-attacher:v4.1.0
+          image: registry.k8s.io/sig-storage/csi-attacher:v4.2.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -262,7 +262,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-resizer
-          image: k8s.gcr.io/sig-storage/csi-resizer:v1.7.0
+          image: registry.k8s.io/sig-storage/csi-resizer:v1.7.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -329,7 +329,7 @@ spec:
             periodSeconds: 180
             failureThreshold: 3
         - name: liveness-probe
-          image: k8s.gcr.io/sig-storage/livenessprobe:v2.8.0
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.9.0
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"
@@ -372,7 +372,7 @@ spec:
               name: vsphere-config-volume
               readOnly: true
         - name: csi-provisioner
-          image: k8s.gcr.io/sig-storage/csi-provisioner:v3.4.0
+          image: registry.k8s.io/sig-storage/csi-provisioner:v3.4.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -394,7 +394,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-snapshotter
-          image: k8s.gcr.io/sig-storage/csi-snapshotter:v6.2.1
+          image: registry.k8s.io/sig-storage/csi-snapshotter:v6.2.1
           args:
             - "--v=4"
             - "--kube-api-qps=100"
@@ -445,7 +445,7 @@ spec:
       dnsPolicy: "ClusterFirstWithHostNet"
       containers:
         - name: node-driver-registrar
-          image: k8s.gcr.io/sig-storage/csi-node-driver-registrar:v2.7.0
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.7.0
           args:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
@@ -530,7 +530,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
         - name: liveness-probe
-          image: k8s.gcr.io/sig-storage/livenessprobe:v2.9.0
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.9.0
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"
@@ -592,7 +592,7 @@ spec:
       serviceAccountName: vsphere-csi-node
       containers:
         - name: node-driver-registrar
-          image: k8s.gcr.io/sig-storage/csi-node-driver-registrar:v2.7.0
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.7.0
           args:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
@@ -672,7 +672,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
         - name: liveness-probe
-          image: k8s.gcr.io/sig-storage/livenessprobe:v2.9.0
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.9.0
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"

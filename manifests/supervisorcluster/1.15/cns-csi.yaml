@@ -252,8 +252,6 @@ spec:
           emptyDir: {}
 ---
 apiVersion: v1
-data:
-  "vsan-direct-disk-decommission": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

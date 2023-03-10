@@ -183,3 +183,6 @@ type SnapshotConfig struct {
 	// per volume in VVOL datastores.
 	GranularMaxSnapshotsPerBlockVolumeInVVOL int `gcfg:"granular-max-snapshots-per-block-volume-vvol"`
 }
+
+// EnvClusterFlavor is the k8s cluster type on which CSI Driver is being deployed
+const EnvClusterFlavor = "CLUSTER_FLAVOR"

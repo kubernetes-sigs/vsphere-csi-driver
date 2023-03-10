@@ -45,16 +45,17 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
-	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 var (
@@ -83,12 +84,12 @@ func New() csitypes.CnsController {
 }
 
 // Init is initializing controller struct
-func (c *controller) Init(config *cnsconfig.Config, version string) error {
+func (c *controller) Init(config *commonconfig.Config, version string) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Initializing WCPGC CSI controller")
 	var err error
 	// connect to the CSI controller in supervisor cluster
-	c.supervisorNamespace, err = cnsconfig.GetSupervisorNamespace(ctx)
+	c.supervisorNamespace, err = commonconfig.GetSupervisorNamespace(ctx)
 	if err != nil {
 		return err
 	}
@@ -123,7 +124,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		return err
 	}
 
-	pvcsiConfigPath := common.GetConfigPath(ctx)
+	pvcsiConfigPath := commonconfig.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
@@ -166,10 +167,10 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
 	}
-	log.Infof("Adding watch on path: %q", cnsconfig.DefaultpvCSIProviderPath)
-	err = watcher.Add(cnsconfig.DefaultpvCSIProviderPath)
+	log.Infof("Adding watch on path: %q", commonconfig.DefaultpvCSIProviderPath)
+	err = watcher.Add(commonconfig.DefaultpvCSIProviderPath)
 	if err != nil {
-		log.Errorf("failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
+		log.Errorf("failed to watch on path: %q. err=%v", commonconfig.DefaultpvCSIProviderPath, err)
 		return err
 	}
 	// Go module to keep the metrics http server running all the time.
@@ -193,7 +194,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 func (c *controller) ReloadConfiguration() error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
-	cfg, err := common.GetConfig(ctx)
+	cfg, err := commonconfig.GetConfig(ctx)
 	if err != nil {
 		log.Errorf("failed to read config. Error: %+v", err)
 		return err
@@ -244,7 +245,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		*csi.CreateVolumeResponse, string, error) {
 
 		log.Infof("CreateVolume: called with args %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
@@ -332,12 +333,29 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				c.supervisorNamespace, err)
 			log.Error(msg)
 			eventList, err := c.supervisorClient.CoreV1().Events(c.supervisorNamespace).List(ctx,
-				metav1.ListOptions{FieldSelector: "involvedObject.name=" + pvc.Name})
+				metav1.ListOptions{
+					FieldSelector:        "involvedObject.name=" + pvc.Name,
+					ResourceVersion:      pvc.ResourceVersion,
+					ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
+				})
 			if err != nil {
 				log.Errorf("Unable to fetch events for pvc %q/%q from supervisor cluster with err: %+v",
 					c.supervisorNamespace, pvc.Name, err)
 				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 			}
+
+			var failureMessage string
+			for _, svcPvcEvent := range eventList.Items {
+				if svcPvcEvent.Type == corev1.EventTypeWarning {
+					failureMessage = svcPvcEvent.Message
+					break
+				}
+			}
+
+			if failureMessage != "" {
+				msg = fmt.Sprintf("%s. reason: %s", msg, failureMessage)
+			}
+
 			log.Errorf("Last observed events on the pvc %q/%q in supervisor cluster: %+v",
 				c.supervisorNamespace, pvc.Name, spew.Sdump(eventList.Items))
 			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
@@ -431,7 +449,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	deleteVolumeInternal := func() (
 		*csi.DeleteVolumeResponse, string, error) {
 		log.Infof("DeleteVolume: called with args: %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
@@ -506,7 +524,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	controllerPublishVolumeInternal := func() (
 		*csi.ControllerPublishVolumeResponse, string, error) {
 		log.Infof("ControllerPublishVolume: called with args %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
@@ -678,7 +696,7 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 		log.Debugf("disk UUID %v is set for the volume: %q ", diskUUID, req.VolumeId)
 	}
 
-	//return PublishContext with diskUUID of the volume attached to node.
+	// return PublishContext with diskUUID of the volume attached to node.
 	publishInfo := make(map[string]string)
 	publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
 	publishInfo[common.AttributeFirstClassDiskUUID] = common.FormatDiskUUID(diskUUID)
@@ -842,7 +860,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	controllerUnpublishVolumeInternal := func() (
 		*csi.ControllerUnpublishVolumeResponse, string, error) {
 		log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
@@ -1121,7 +1139,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			return nil, csifault.CSIUnimplementedFault, status.Error(codes.Unimplemented, msg)
 		}
 		log.Infof("ControllerExpandVolume: called with args %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.

@@ -25,7 +25,7 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 )
 
 var (

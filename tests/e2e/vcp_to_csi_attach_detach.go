@@ -37,7 +37,7 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/migration/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
 )
 
 var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests", func() {

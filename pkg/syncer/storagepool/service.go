@@ -22,17 +22,17 @@ import (
 	"sync"
 	"time"
 
-	cnstypes "github.com/vmware/govmomi/cns/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-	storagepoolconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/config"
 
-	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/cns/v1alpha1"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	commonconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+	storagepoolconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/config"
+
+	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 // Service holds the controllers needed to manage StoragePools.
@@ -132,26 +132,15 @@ func InitStoragePoolService(ctx context.Context,
 	go func() {
 		diskDecommEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
 		defer diskDecommEnablementTicker.Stop()
-		clusterFlavor := cnstypes.CnsClusterFlavorWorkload
 		for ; true; <-diskDecommEnablementTicker.C {
-			coCommonInterface, err := commonco.GetContainerOrchestratorInterface(ctx,
-				common.Kubernetes, clusterFlavor, *coInitParams)
+			_, err := initDiskDecommController(ctx, migrationController)
 			if err != nil {
-				log.Errorf("Failed to create CO agnostic interface. Error: %v", err)
+				log.Warnf("Error while initializing disk decommission controller. Error: %+v. "+
+					"Retry will be triggered at %v",
+					err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
 				continue
 			}
-			if !coCommonInterface.IsFSSEnabled(ctx, common.VSANDirectDiskDecommission) {
-				log.Infof("VSANDirectDiskDecommission feature is disabled on the cluster")
-			} else {
-				_, err := initDiskDecommController(ctx, migrationController)
-				if err != nil {
-					log.Warnf("Error while initializing disk decommission controller. Error: %+v. "+
-						"Retry will be triggered at %v",
-						err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
-					continue
-				}
-				break
-			}
+			break
 		}
 	}()
 

@@ -64,7 +64,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 
 	ginkgo.AfterEach(func() {
 		svcClient, svcNamespace := getSvcClientAndNamespace()
-		deleteResourceQuota(svcClient, svcNamespace)
+		setResourceQuota(svcClient, svcNamespace, rqLimit)
 	})
 
 	/*
@@ -84,7 +84,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		createResourceQuota(svcClient, svcNamespace, defaultrqLimit, storagePolicyName)
-		defer deleteResourceQuota(svcClient, svcNamespace)
+		defer func() {
+			setResourceQuota(svcClient, svcNamespace, rqLimit)
+		}()
 
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		if err == nil && storageclass != nil {
@@ -114,17 +116,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 
 		framework.Logf("Waiting for claims %s to be in bound state", pvclaims[0].Name)
 		_, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaims[0]},
-			totalResizeWaitPeriod)
-		if err == nil {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			_, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaims[1]},
-				framework.ClaimProvisionTimeout)
-			gomega.Expect(err).To(gomega.HaveOccurred())
-		} else {
-			gomega.Expect(err).To(gomega.HaveOccurred())
-			_, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaims[1]},
-				framework.ClaimProvisionTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
+			healthStatusWaitTime)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+
+		framework.Logf("Waiting for claims %s to be in bound state", pvclaims[1].Name)
+		_, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaims[1]},
+			healthStatusWaitTime)
+		gomega.Expect(err).To(gomega.HaveOccurred())
 	})
 })

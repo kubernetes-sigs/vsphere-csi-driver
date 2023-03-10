@@ -48,7 +48,7 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fvolume "k8s.io/kubernetes/test/e2e/framework/volume"
-	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
+	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 )
@@ -173,7 +173,29 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized] "+
 		"Verify volume expansion with initial filesystem before expansion", func() {
-		invokeTestForVolumeExpansionWithFilesystem(f, client, namespace, "", storagePolicyName, profileID)
+		invokeTestForVolumeExpansionWithFilesystem(f, client, namespace, ext4FSType, "", storagePolicyName, profileID)
+	})
+
+	// Test to verify offline volume expansion workflow with xfs filesystem.
+
+	// Steps
+	// 1. Create StorageClass with fstype set to xfs and allowVolumeExpansion set to true.
+	// 2. Create PVC which uses the StorageClass created in step 1.
+	// 3. Wait for PV to be provisioned.
+	// 4. Wait for PVC's status to become Bound.
+	// 5. Create pod using PVC on specific node.
+	// 6. Wait for Disk to be attached to the node.
+	// 7. Detach the volume.
+	// 8. Modify PVC's size to trigger offline volume expansion.
+	// 9. Create pod again using PVC on specific node.
+	// 10. Wait for Disk to be attached to the node.
+	// 11. Wait for file system resize to complete.
+	// 12. Delete pod and Wait for Volume Disk to be detached from the Node.
+	// 13. Delete PVC, PV and Storage Class.
+
+	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized] "+
+		"Verify offline volume expansion workflow with xfs filesystem", func() {
+		invokeTestForVolumeExpansionWithFilesystem(f, client, namespace, xfsFSType, xfsFSType, storagePolicyName, profileID)
 	})
 
 	// Test to verify volume expansion is not supported if allowVolumeExpansion
@@ -287,7 +309,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, sharedVSANDatastoreURL, storagePolicyName, namespace)
+			f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -301,7 +323,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 
 		defer func() {
 			// Delete Pod.
@@ -323,6 +345,64 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 				gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
 					fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 			}
+		}()
+
+		ginkgo.By("Increase PVC size and verify online volume resize")
+		increaseSizeOfPvcAttachedToPod(f, client, namespace, pvclaim, pod)
+	})
+
+	/*
+		Test to verify online volume expansion workflow with xfs filesystem
+
+		1. Create StorageClass with fstype set to xfs and allowVolumeExpansion set to true.
+		2. Create PVC which uses the StorageClass created in step 1.
+		3. Wait for PV to be provisioned.
+		4. Wait for PVC's status to become Bound and note down the size
+		5. Create a Pod using the above created PVC
+		6. Modify PVC's size to trigger online volume expansion
+		7. verify the PVC status will change to "FilesystemResizePending". Wait till the status is removed
+		8. Verify the resized PVC by doing CNS query
+		9. Make sure data is intact on the PV mounted on the pod
+		10. Make sure file system has increased
+	*/
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
+		"Verify online volume expansion workflow with xfs filesystem", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var storageclass *storagev1.StorageClass
+		var pvclaim *v1.PersistentVolumeClaim
+		var pv *v1.PersistentVolume
+		var volHandle string
+
+		ginkgo.By("Create StorageClass with fstype set to xfs and allowVolumeExpansion set to true, Create PVC")
+		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
+		volHandle, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(
+			f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, xfsFSType)
+
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create Pod using the above PVC")
+		pod, _ := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, xfsFSType)
+
+		defer func() {
+			// Delete Pod.
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+			err := fpod.DeletePodWithWait(client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+				pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}()
 
 		ginkgo.By("Increase PVC size and verify online volume resize")
@@ -362,7 +442,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD")
-		pod, _ := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+		pod, _ := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 
 		defer func() {
 			// Delete Pod.
@@ -400,7 +480,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, "", storagePolicyName, namespace)
+			f, client, "", storagePolicyName, namespace, ext4FSType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -414,7 +494,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD")
-		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 
 		defer func() {
 			// Delete POD
@@ -470,7 +550,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		defer cancel()
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, "", storagePolicyName, namespace)
+			f, client, "", storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -483,7 +563,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD")
-		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 
 		defer func() {
 			// Delete POD
@@ -538,7 +618,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		var expectedErrMsg string
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, "", storagePolicyName, namespace)
+			f, client, "", storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -551,7 +631,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD")
-		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 
 		//Fetch original FileSystemSize
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
@@ -668,7 +748,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		//featureEnabled := isFssEnabled(vcAddress, cnsNewSyncFSS)
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, "", storagePolicyName, namespace)
+			f, client, "", storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -681,7 +761,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create POD")
-		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 
 		//Fetch original FileSystemSize
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
@@ -788,7 +868,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, "", storagePolicyName, namespace)
+			f, client, "", storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -801,7 +881,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 
 		//Fetch original FileSystemSize
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
@@ -926,7 +1006,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass on shared VVOL datastore with allowVolumeExpansion set to true, Create PVC")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, sharedVVOLdatastoreURL, storagePolicyName, namespace)
+			f, client, sharedVVOLdatastoreURL, storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -945,7 +1025,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		if vanillaCluster || guestCluster {
 			ginkgo.By("Create POD using the above PVC")
-			pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+			pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 		}
 
 		defer func() {
@@ -1016,7 +1096,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass on shared NFS datastore with allowVolumeExpansion set to true")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, sharedNFSdatastoreURL, storagePolicyName, namespace)
+			f, client, sharedNFSdatastoreURL, storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1035,7 +1115,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		if vanillaCluster || guestCluster {
 			ginkgo.By("Create POD using the above PVC")
-			pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+			pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 		}
 
 		defer func() {
@@ -1107,7 +1187,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass on shared VMFS datastore with allowVolumeExpansion set to true")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, sharedVMFSdatastoreURL, storagePolicyName, namespace)
+			f, client, sharedVMFSdatastoreURL, storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1126,7 +1206,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		if vanillaCluster || guestCluster {
 			ginkgo.By("Create POD using the above PVC")
-			pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+			pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 		}
 
 		defer func() {
@@ -1361,7 +1441,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass2 = createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, sharedVSANDatastoreURL, storagePolicyName2, namespace)
+			f, client, sharedVSANDatastoreURL, storagePolicyName2, namespace, ext4FSType)
 
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass2.Name, *metav1.NewDeleteOptions(0))
@@ -1386,7 +1466,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 
 		defer func() {
 			// Delete POD
@@ -1452,7 +1532,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, "", storagePolicyName, namespace)
+			f, client, "", storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1603,7 +1683,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		var err error
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, "", storagePolicyName, namespace)
+			f, client, "", storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1757,7 +1837,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, sharedVSANDatastoreURL, storagePolicyName, namespace)
+			f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -1771,7 +1851,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 
 		defer func() {
 			// Delete POD
@@ -1830,7 +1910,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}
 
 		ginkgo.By("re-create Pod using the same PVC")
-		pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvclaim, err = waitForFSResize(pvclaim, client)
@@ -1879,7 +1959,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, sharedVSANDatastoreURL, storagePolicyName, namespace)
+			f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -1895,7 +1975,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 
 		defer func() {
 			// Delete POD
@@ -1987,7 +2067,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass on shared VSAN datastore with allowVolumeExpansion set to true")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, sharedVSANDatastoreURL, storagePolicyName, namespace)
+			f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -2000,7 +2080,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
@@ -2110,7 +2190,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass on shared VSAN datastore with allowVolumeExpansion set to true")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, sharedVSANDatastoreURL, storagePolicyName, namespace)
+			f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -2150,7 +2230,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		svcCsiDeployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+		pod, vmUUID = createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 
 		defer func() {
 			// Delete POD
@@ -2295,7 +2375,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		_, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, sharedVSANDatastoreURL, storagePolicyName, namespace)
+			f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -2497,10 +2577,10 @@ func createStaticPVC(ctx context.Context, f *framework.Framework,
 // allowVolumeExpansion set to true and Creates PVC. Waits till PV, PVC
 // are in bound.
 func createSCwithVolumeExpansionTrueAndDynamicPVC(f *framework.Framework,
-	client clientset.Interface, dsurl string, storagePolicyName string,
-	namespace string) (string, *v1.PersistentVolumeClaim, *v1.PersistentVolume, *storagev1.StorageClass) {
+	client clientset.Interface, dsurl string, storagePolicyName string, namespace string,
+	fstype string) (string, *v1.PersistentVolumeClaim, *v1.PersistentVolume, *storagev1.StorageClass) {
 	scParameters := make(map[string]string)
-	scParameters[scParamFsType] = ext4FSType
+	scParameters[scParamFsType] = fstype
 
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
@@ -2553,7 +2633,7 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(f *framework.Framework,
 
 // createPODandVerifyVolumeMount this method creates Pod and verifies VolumeMount
 func createPODandVerifyVolumeMount(ctx context.Context, f *framework.Framework, client clientset.Interface,
-	namespace string, pvclaim *v1.PersistentVolumeClaim, volHandle string) (*v1.Pod, string) {
+	namespace string, pvclaim *v1.PersistentVolumeClaim, volHandle string, expectedContent string) (*v1.Pod, string) {
 	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
 	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
@@ -2580,7 +2660,7 @@ func createPODandVerifyVolumeMount(ctx context.Context, f *framework.Framework, 
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 	_, err = framework.LookForStringInPodExec(namespace, pod.Name,
-		[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
+		[]string{"/bin/cat", "/mnt/volume1/fstype"}, expectedContent, time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return pod, vmUUID
@@ -2838,14 +2918,15 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 }
 
 func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client clientset.Interface,
-	namespace string, expectedContent string, storagePolicyName string, profileID string) {
+	namespace string, fstype string, expectedContent string, storagePolicyName string, profileID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ginkgo.By("Invoking Test for Volume Expansion 2")
 	scParameters := make(map[string]string)
-	scParameters[scParamFsType] = ext4FSType
+	scParameters[scParamFsType] = fstype
 	// Create Storage class and PVC
-	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
+	ginkgo.By(fmt.Sprintf("Creating Storage Class with %s filesystem and PVC with allowVolumeExpansion = true",
+		fstype))
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
@@ -3226,7 +3307,7 @@ func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework,
 	staticPVLabels["fcd-id"] = fcdID
 
 	ginkgo.By("Creating the PV")
-	pv = getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimDelete, staticPVLabels)
+	pv = getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimDelete, staticPVLabels, ext4FSType)
 	pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 	if err != nil {
 		return
@@ -3782,7 +3863,7 @@ func offlineVolumeExpansionOnSupervisorPVC(client clientset.Interface, f *framew
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Create Pod using the above PVC")
-	pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle)
+	pod, vmUUID := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvclaim, volHandle, "")
 
 	ginkgo.By("Waiting for file system resize to finish")
 	pvclaim, err = waitForFSResize(pvclaim, client)

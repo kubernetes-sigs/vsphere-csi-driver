@@ -39,14 +39,14 @@ import (
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/storagepool/cns/v1alpha1"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/syncer/k8scloudoperator"
+	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8scloudoperator"
 )
 
 // validateCreateBlockReqParam is a helper function used to validate the parameter
@@ -598,7 +598,8 @@ func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]str
 
 // getVolumeIDToVMMap returns the csi list volume response by computing the volumeID to nodeNames map for
 // fake attached volumes and non-fake attached volumes.
-func getVolumeIDToVMMap(ctx context.Context, c *controller, volumeIDs []string) (*csi.ListVolumesResponse, error) {
+func getVolumeIDToVMMap(ctx context.Context, volumeIDs []string, vmMoidToHostMoid,
+	volumeIDToVMMap map[string]string) (*csi.ListVolumesResponse, error) {
 	log := logger.GetLogger(ctx)
 	response := &csi.ListVolumesResponse{}
 
@@ -609,6 +610,7 @@ func getVolumeIDToVMMap(ctx context.Context, c *controller, volumeIDs []string) 
 			fakeAttachedVolumes = append(fakeAttachedVolumes, volumeID)
 		}
 	}
+
 	// Process fake attached volumes
 	log.Debugf("Fake attached volumes %v", fakeAttachedVolumes)
 	volumeIDToNodesMap := commonco.ContainerOrchestratorUtility.GetNodesForVolumes(ctx, fakeAttachedVolumes)
@@ -624,13 +626,6 @@ func getVolumeIDToVMMap(ctx context.Context, c *controller, volumeIDs []string) 
 			Status: volumeStatus,
 		}
 		response.Entries = append(response.Entries, entry)
-	}
-
-	// Process remaining volumes
-	vmMoidToHostMoid, volumeIDToVMMap, err := c.GetVolumeToHostMapping(ctx)
-	if err != nil {
-		log.Errorf("failed to get VM MoID to Host MoID map, err:%v", err)
-		return nil, fmt.Errorf("failed to get VM MoID to Host MoID map, err: %v", err)
 	}
 
 	hostNames := commonco.ContainerOrchestratorUtility.GetNodeIDtoNameMap(ctx)
@@ -672,6 +667,5 @@ func getVolumeIDToVMMap(ctx context.Context, c *controller, volumeIDs []string) 
 		}
 		response.Entries = append(response.Entries, entry)
 	}
-
 	return response, nil
 }

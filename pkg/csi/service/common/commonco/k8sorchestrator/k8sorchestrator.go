@@ -42,19 +42,22 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/apis/cnsoperator"
-	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/featurestates"
-	featurestatesv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/featurestates/v1alpha1"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v2/pkg/kubernetes"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/featurestates"
+	featurestatesv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/featurestates/v1alpha1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 const informerCreateRetryInterval = 5 * time.Minute
+
+// operationModeWebHookServer indicates container running as webhook server
+const operationModeWebHookServer = "WEBHOOK_SERVER"
 
 var (
 	k8sOrchestratorInstance            *K8sOrchestrator
@@ -64,6 +67,7 @@ var (
 	// of the TKG cluster.
 	doesSvFssCRExist         bool
 	serviceMode              string
+	operationMode            string
 	svFssCRMutex             = &sync.RWMutex{}
 	k8sOrchestratorInitMutex = &sync.RWMutex{}
 )
@@ -210,6 +214,7 @@ type K8sGuestInitParams struct {
 	InternalFeatureStatesConfigInfo   cnsconfig.FeatureStatesConfigInfo
 	SupervisorFeatureStatesConfigInfo cnsconfig.FeatureStatesConfigInfo
 	ServiceMode                       string
+	OperationMode                     string
 }
 
 // K8sSupervisorInitParams lists the set of parameters required to run the init
@@ -217,6 +222,7 @@ type K8sGuestInitParams struct {
 type K8sSupervisorInitParams struct {
 	SupervisorFeatureStatesConfigInfo cnsconfig.FeatureStatesConfigInfo
 	ServiceMode                       string
+	OperationMode                     string
 }
 
 // K8sVanillaInitParams lists the set of parameters required to run the init for
@@ -224,6 +230,7 @@ type K8sSupervisorInitParams struct {
 type K8sVanillaInitParams struct {
 	InternalFeatureStatesConfigInfo cnsconfig.FeatureStatesConfigInfo
 	ServiceMode                     string
+	OperationMode                   string
 }
 
 // Newk8sOrchestrator instantiates K8sOrchestrator object and returns this
@@ -268,18 +275,42 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 				return nil, coInstanceErr
 			}
 
-			if (controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+			if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+				svInitParams, ok := params.(K8sSupervisorInitParams)
+				if !ok {
+					return nil, fmt.Errorf("expected orchestrator params of type K8sSupervisorInitParams, got %T instead", params)
+				}
+				operationMode = svInitParams.OperationMode
+			} else if controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+				vanillaInitParams, ok := params.(K8sVanillaInitParams)
+				if !ok {
+					return nil, fmt.Errorf("expected orchestrator params of type K8sVanillaInitParams, got %T instead", params)
+				}
+				operationMode = vanillaInitParams.OperationMode
+			} else if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest {
+				guestInitParams, ok := params.(K8sGuestInitParams)
+				if !ok {
+					return nil, fmt.Errorf("expected orchestrator params of type K8sGuestInitParams, got %T instead", params)
+				}
+				operationMode = guestInitParams.OperationMode
+			} else {
+				return nil, fmt.Errorf("wrong orchestrator params type")
+			}
+
+			if ((controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
 				k8sOrchestratorInstance.IsFSSEnabled(ctx, common.FakeAttach)) ||
 				(controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
-					k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes)) {
+					k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes))) &&
+				(operationMode != operationModeWebHookServer) {
 				initVolumeHandleToPvcMap(ctx, controllerClusterFlavor)
 			}
 
-			if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			if (controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload) &&
+				(operationMode != operationModeWebHookServer) {
 				// Initialize the map for volumeName to nodes, as it is needed for WCP detach volume handling
 				initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
 				initNodeIDToNameMap(ctx)
-			} else {
+			} else if operationMode != operationModeWebHookServer {
 				// Initialize the map for volumeName to nodes, for non-WCP flavors and when ListVolume FSS is on
 				if k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes) {
 					initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
@@ -405,7 +436,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 				log.Errorf("failed to retrieve supervisor cluster namespace from config. Error: %+v", err)
 				return err
 			}
-			cfg, err := common.GetConfig(ctx)
+			cfg, err := cnsconfig.GetConfig(ctx)
 			if err != nil {
 				log.Errorf("failed to read config. Error: %+v", err)
 				return err

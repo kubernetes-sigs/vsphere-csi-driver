@@ -19,7 +19,7 @@ package cnsvolumeoperationrequest
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
+	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 )
 
 const (
@@ -85,6 +85,7 @@ func convertToCnsVolumeOperationRequestDetails(
 	return &cnsvolumeoprequestv1alpha1.OperationDetails{
 		TaskInvocationTimestamp: details.TaskInvocationTimestamp,
 		TaskID:                  details.TaskID,
+		VCenterServer:           details.VCenterServer,
 		OpID:                    details.OpID,
 		TaskStatus:              details.TaskStatus,
 		Error:                   details.Error,

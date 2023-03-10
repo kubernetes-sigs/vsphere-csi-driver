@@ -8,6 +8,7 @@ spec:
     name: example-raw-block-snapshot
     kind: VolumeSnapshot
     apiGroup: snapshot.storage.k8s.io
+  volumeMode: Block
   accessModes:
     - ReadWriteOnce
   resources:

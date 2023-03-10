@@ -21,8 +21,8 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"k8s.io/mount-utils"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 type OsUtils struct {

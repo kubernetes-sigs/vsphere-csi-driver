@@ -25,15 +25,15 @@ import (
 	"github.com/google/uuid"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/osutils"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/vanilla"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/wcp"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/wcpguest"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/osutils"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/vanilla"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/wcp"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/wcpguest"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 )
 
 const (
@@ -82,7 +82,7 @@ func NewDriver() Driver {
 
 func (driver *vsphereCSIDriver) GetController() csi.ControllerServer {
 	// Check which controller type to use.
-	clusterFlavor = cnstypes.CnsClusterFlavor(os.Getenv(csitypes.EnvClusterFlavor))
+	clusterFlavor = cnstypes.CnsClusterFlavor(os.Getenv(cnsconfig.EnvClusterFlavor))
 	switch clusterFlavor {
 	case cnstypes.CnsClusterFlavorWorkload:
 		driver.cnscs = wcp.New()
@@ -134,7 +134,7 @@ func (driver *vsphereCSIDriver) BeforeServe(ctx context.Context) error {
 
 	if !strings.EqualFold(driver.mode, "node") {
 		// Controller service is needed.
-		cfg, err = common.GetConfig(ctx)
+		cfg, err = cnsconfig.GetConfig(ctx)
 		if err != nil {
 			log.Errorf("failed to read config. Error: %+v", err)
 			return err

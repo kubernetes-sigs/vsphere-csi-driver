@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vmware/govmomi/vim25/types"
@@ -40,18 +41,18 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/volume"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
-	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/utils"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
-	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco/types"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/types"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
 const (
@@ -77,8 +78,11 @@ var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 // Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
 var clusterComputeResourceMoIds = make([]string, 0)
 
-var expectedStartingIndex = 0
-var cnsVolumeIDs = make([]string, 0)
+var (
+	expectedStartingIndex             = 0
+	cnsVolumeIDs                      = make([]string, 0)
+	vmMoidToHostMoid, volumeIDToVMMap map[string]string
+)
 
 type controller struct {
 	manager     *common.Manager
@@ -177,7 +181,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	if tasksListViewEnabled {
 		go cnsvolume.ClearInvalidTasksFromListView(false)
 	}
-	cfgPath := common.GetConfigPath(ctx)
+	cfgPath := cnsconfig.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
@@ -300,7 +304,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
-	cfg, err := common.GetConfig(ctx)
+	cfg, err := cnsconfig.GetConfig(ctx)
 	if err != nil {
 		log.Errorf("failed to read config. Error: %+v", err)
 		return err
@@ -324,7 +328,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 
 			// Verify if new configuration has valid credentials by connecting to
 			// vCenter. Proceed only if the connection succeeds, else return error.
-			newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig}
+			newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig, ClientMutex: &sync.Mutex{}}
 			if err = newVC.Connect(ctx); err != nil {
 				return logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q, Err: %+v",
 					newVCConfig.Host, err)
@@ -1336,6 +1340,13 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			for _, cnsVolume := range cnsQueryVolumes.Volumes {
 				cnsVolumeIDs = append(cnsVolumeIDs, cnsVolume.VolumeId.Id)
 			}
+
+			// Get volume ID to VMMap and vmMoidToHostMoid map
+			vmMoidToHostMoid, volumeIDToVMMap, err = c.GetVolumeToHostMapping(ctx)
+			if err != nil {
+				log.Errorf("failed to get VM MoID to Host MoID map, err:%v", err)
+				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "failed to get VM MoID to Host MoID map")
+			}
 		}
 
 		// If the difference between the volumes reported by Kubernetes and CNS
@@ -1368,7 +1379,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			volumeIDs = append(volumeIDs, cnsVolumeIDs[i])
 		}
 
-		response, err := getVolumeIDToVMMap(ctx, c, volumeIDs)
+		response, err := getVolumeIDToVMMap(ctx, volumeIDs, vmMoidToHostMoid, volumeIDToVMMap)
 		if err != nil {
 			log.Errorf("Error while generating ListVolume response, err:%v", err)
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "Error while generating ListVolume response")

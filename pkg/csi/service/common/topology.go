@@ -7,11 +7,12 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/mo"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/csinodetopology/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
 )
 
 var (
@@ -59,8 +60,8 @@ func GetAccessibilityRequirementsByVC(ctx context.Context, topoReq *csi.Topology
 		segments := topology.GetSegments()
 		vcHost, err := getVCForTopologySegments(ctx, segments)
 		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to fetch vCenter associated with topology segments %+v",
-				segments)
+			return nil, logger.LogNewErrorf(log, "failed to fetch vCenter associated with topology segments: %+v , err: %v",
+				segments, err)
 		}
 		vcTopoSegmentsMap[vcHost] = append(vcTopoSegmentsMap[vcHost], segments)
 	}
@@ -120,7 +121,7 @@ func getVCForTopologySegments(ctx context.Context, topologySegments map[string]s
 // with the latest information on the preferential datastores for each topology domain across all vCenter Servers
 func RefreshPreferentialDatastoresForMultiVCenter(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
-	cnsCfg, err := GetConfig(ctx)
+	cnsCfg, err := config.GetConfig(ctx)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to fetch CNS config. Error: %+v", err)
 	}

@@ -29,8 +29,8 @@ import (
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 // AuthorizationService exposes interfaces to support authorization check on
@@ -113,20 +113,6 @@ func GetAuthorizationServices(ctx context.Context, vcs []*cnsvsphere.VirtualCent
 
 	log.Info("authorization service initialized")
 	return authManagerInstances, nil
-}
-
-// GetNewAuthorizationService returns the new AuthManager instance for supplied vCenter server
-func GetNewAuthorizationService(ctx context.Context, vc *cnsvsphere.VirtualCenter) (*AuthManager, error) {
-	log := logger.GetLogger(ctx)
-	log.Infof("Initializing authorization service for vCenter: %q", vc.Config.Host)
-	authManagerInstance = &AuthManager{
-		datastoreMapForBlockVolumes: make(map[string]*cnsvsphere.DatastoreInfo),
-		fsEnabledClusterToDsMap:     make(map[string][]*cnsvsphere.DatastoreInfo),
-		rwMutex:                     sync.RWMutex{},
-		vcenter:                     vc,
-	}
-	log.Info("authorization service initialized for vCenter: %q", vc.Config.Host)
-	return authManagerInstance, nil
 }
 
 // GetDatastoreMapForBlockVolumes returns a DatastoreMapForBlockVolumes. This

@@ -34,11 +34,11 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/vsphere"
-	csifault "sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/fault"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/internalapis/cnsvolumeoperationrequest"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
 const (
@@ -60,7 +60,6 @@ const (
 
 	// maxLengthOfVolumeNameInCNS is the maximum length of CNS volume name.
 	maxLengthOfVolumeNameInCNS = 80
-
 	// Alias for TaskInvocationStatus constants.
 	taskInvocationStatusInProgress = cnsvolumeoperationrequest.TaskInvocationStatusInProgress
 	taskInvocationStatusSuccess    = cnsvolumeoperationrequest.TaskInvocationStatusSuccess
@@ -1207,12 +1206,20 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 					metav1.Now(), "", "",
 					"", taskInvocationStatusSuccess, "")
+				err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+				if err != nil {
+					log.Warnf("failed to store DeleteVolume details with error: %v", err)
+				}
 				return "", nil
 			}
 			log.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 				metav1.Now(), "", "",
 				"", taskInvocationStatusError, err.Error())
+			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+			if err != nil {
+				log.Warnf("failed to store DeleteVolume details with error: %v", err)
+			}
 			return faultType, err
 		}
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, metav1.Now(),
@@ -1503,7 +1510,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		if volumeOperationDetails.OperationDetails != nil {
 			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusSuccess &&
 				volumeOperationDetails.Capacity >= size {
-				log.Infof("Volume with ID %s already expanded to size %s", volumeID, size)
+				log.Infof("Volume with ID %s already expanded to size %v", volumeID, size)
 				return "", nil
 			}
 			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&
@@ -2411,6 +2418,9 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 				if m.idempotencyHandlingEnabled {
 					volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 						metav1.Now(), "", "", "", taskInvocationStatusSuccess, "")
+					if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
+						log.Warnf("failed to store DeleteSnapshot operation details with error: %v", err)
+					}
 				}
 				return nil
 			}
@@ -2418,8 +2428,10 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 			if m.idempotencyHandlingEnabled {
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 					metav1.Now(), "", "", "", taskInvocationStatusError, err.Error())
+				if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
+					log.Warnf("failed to store DeleteSnapshot operation details with error: %v", err)
+				}
 			}
-
 			return logger.LogNewErrorf(log, "CNS DeleteSnapshot failed from the vCenter %q with err: %v",
 				m.virtualCenter.Config.Host, err)
 		}

@@ -24,8 +24,8 @@ import (
 	stroagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 var (
@@ -43,8 +43,7 @@ var (
 )
 
 const (
-	volumeExpansionErrorMessage = "AllowVolumeExpansion can not be set to true on the in-tree vSphere StorageClass"
-	migrationParamErrorMessage  = "Invalid StorageClass Parameters. " +
+	migrationParamErrorMessage = "Invalid StorageClass Parameters. " +
 		"Migration specific parameters should not be used in the StorageClass"
 )
 
@@ -75,15 +74,7 @@ func validateStorageClass(ctx context.Context, ar *admissionv1.AdmissionReview) 
 			}
 		}
 		log.Infof("Validating StorageClass: %q", sc.Name)
-		// AllowVolumeExpansion check for kubernetes.io/vsphere-volume provisioner.
-		if sc.Provisioner == "kubernetes.io/vsphere-volume" {
-			if sc.AllowVolumeExpansion != nil && *sc.AllowVolumeExpansion {
-				allowed = false
-				result = &metav1.Status{
-					Reason: volumeExpansionErrorMessage,
-				}
-			}
-		} else if sc.Provisioner == "csi.vsphere.vmware.com" {
+		if sc.Provisioner == "csi.vsphere.vmware.com" {
 			// Migration parameters check for csi.vsphere.vmware.com provisioner.
 			for param := range sc.Parameters {
 				if unSupportedParameters.Has(param) {
