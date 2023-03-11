@@ -970,7 +970,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 						return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
 					}
 					vcenter.Config = newVCConfig
-					err := metadataSyncer.volumeManagers[newVCConfig.Host].ResetManager(ctx, vcenter)
+					err := metadataSyncer.volumeManagers[newVCConfig.Host].ResetManager(ctx, vcenter, false)
 					if err != nil {
 						return logger.LogNewErrorf(log, "failed to reset updated VC object in volumemanager for vCenter: %q "+
 							"err=%v", newVCConfig.Host, err)
@@ -1005,7 +1005,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
 				}
 				vcenter.Config = newVCConfig
-				err := metadataSyncer.volumeManager.ResetManager(ctx, vcenter)
+				err := metadataSyncer.volumeManager.ResetManager(ctx, vcenter, true)
 				if err != nil {
 					return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
 				}
@@ -1055,7 +1055,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 				}
 				vcenter.Config = newVCConfig
 			}
-			err := metadataSyncer.volumeManager.ResetManager(ctx, vcenter)
+			err := metadataSyncer.volumeManager.ResetManager(ctx, vcenter, true)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
 			}

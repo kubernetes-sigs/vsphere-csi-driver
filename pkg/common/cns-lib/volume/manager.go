@@ -109,7 +109,7 @@ type Manager interface {
 	// should not be nil.
 	ExpandVolume(ctx context.Context, volumeID string, size int64) (string, error)
 	// ResetManager helps set new manager instance and VC configuration.
-	ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter) error
+	ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter, createNewClientForListView bool) error
 	// ConfigureVolumeACLs configures net permissions for a given CnsVolumeACLConfigureSpec.
 	ConfigureVolumeACLs(ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec) error
 	// RegisterDisk registers virtual disks as FCDs using Vslm endpoint.
@@ -298,14 +298,18 @@ func ClearInvalidTasksFromListView(multivCenterCSITopologyEnabled bool) {
 }
 
 // ResetManager helps set manager instance with new VC configuration.
-func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter) error {
+func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+	createNewClientForListView bool) error {
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
 	log.Infof("Re-initializing defaultManager.virtualCenter")
 	managerInstance.virtualCenter = vcenter
 	if m.tasksListViewEnabled {
-		err := m.listViewIf.SetVirtualCenter(ctx, managerInstance.virtualCenter)
+		// createNewClientForListView will be false for Vanilla Deployment
+		// with multi-vcenter-csi-topology feature gate enabled
+		// We do not need to create new govomi client during ReadLoadConfig for listViewIf
+		err := m.listViewIf.SetVirtualCenter(ctx, managerInstance.virtualCenter, createNewClientForListView)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to set virtual center to listView instance. err: %v", err)
 		}
