@@ -17,17 +17,20 @@ limitations under the License.
 package osutils
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
 
-	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -42,11 +45,23 @@ import (
 )
 
 const (
-	devDiskID   = "/dev/disk/by-id"
-	blockPrefix = "wwn-0x"
-	dmiDir      = "/sys/class/dmi"
-	UUIDPrefix  = "VMware-"
+	devDiskID        = "/dev/disk/by-id"
+	blockPrefix      = "wwn-0x"
+	dmiDir           = "/sys/class/dmi"
+	UUIDPrefix       = "VMware-"
+	procMountsPath   = "/proc/self/mountinfo"
+	procMountsFields = 9
 )
+
+// This struct stores the contents of /proc/self/mountinfo file
+type MountInfoDetail struct {
+	Device string
+	Path   string
+	Source string
+	Type   string
+	Opts   []string
+	Root   string
+}
 
 // defaultFileMountOptions are the mount flag options used by default while publishing a file volume.
 var defaultFileMountOptions = []string{"hard", "sec=sys", "vers=4", "minorversion=1"}
@@ -108,7 +123,7 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 	// Mount Volume.
 	// Fetch dev mounts to check if the device is already staged.
 	log.Debugf("nodeStageBlockVolume: Fetching device mounts")
-	mnts, err := gofsutil.GetDevMounts(ctx, dev.RealDev)
+	mnts, err := osUtils.getMountsForDev(ctx, dev)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"could not reliably determine existing mount status. Parameters: %v err: %v", params, err)
@@ -121,7 +136,7 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 			log.Debugf("nodeStageBlockVolume: Mounting %q at %q in read-only mode with mount flags %v",
 				dev.FullPath, params.StagingTarget, params.MntFlags)
 			params.MntFlags = append(params.MntFlags, "ro")
-			err := gofsutil.Mount(ctx, dev.FullPath, params.StagingTarget, params.FsType, params.MntFlags...)
+			err := osUtils.Mounter.Mount(dev.FullPath, params.StagingTarget, params.FsType, params.MntFlags)
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"error mounting volume. Parameters: %v err: %v", params, err)
@@ -132,7 +147,7 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 		// Format and mount the device.
 		log.Debugf("nodeStageBlockVolume: Format and mount the device %q at %q with mount flags %v",
 			dev.FullPath, params.StagingTarget, params.MntFlags)
-		err := gofsutil.FormatAndMount(ctx, dev.FullPath, params.StagingTarget, params.FsType, params.MntFlags...)
+		err := osUtils.Mounter.FormatAndMount(dev.FullPath, params.StagingTarget, params.FsType, params.MntFlags)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"error in formating and mounting volume. Parameters: %v err: %v", params, err)
@@ -179,7 +194,7 @@ func (osUtils *OsUtils) CleanupStagePath(ctx context.Context, stagingTarget stri
 	// Volume is still mounted. Unstage the volume.
 	if isMounted {
 		log.Infof("Attempting to unmount target %q for volume %q", stagingTarget, volID)
-		if err := gofsutil.Unmount(ctx, stagingTarget); err != nil {
+		if err := osUtils.Mounter.Unmount(stagingTarget); err != nil {
 			return fmt.Errorf(
 				"error unmounting stagingTarget: %v", err)
 		}
@@ -221,7 +236,7 @@ func (osUtils *OsUtils) IsBlockVolumeMounted(
 		volID, dev.FullPath, dev.RealDev, stagingTargetPath)
 
 	// Get mounts for device.
-	mnts, err := gofsutil.GetDevMounts(ctx, dev.RealDev)
+	mnts, err := osUtils.getMountsForDev(ctx, dev)
 	if err != nil {
 		return false, logger.LogNewErrorCodef(log, codes.Internal,
 			"isBlockVolumeMounted: could not reliably determine existing mount status: %s",
@@ -259,7 +274,7 @@ func (osUtils *OsUtils) CleanupPublishPath(ctx context.Context, target string, v
 	}
 
 	// Fetch all the mount points.
-	mnts, err := gofsutil.GetMounts(ctx)
+	mnts, err := osUtils.Mounter.List()
 	if err != nil {
 		return fmt.Errorf(
 			"could not retrieve existing mount points: %q", err.Error())
@@ -287,7 +302,7 @@ func (osUtils *OsUtils) CleanupPublishPath(ctx context.Context, target string, v
 
 	if isPublished {
 		log.Infof("NodeUnpublishVolume: Attempting to unmount target %q for volume %q", target, volID)
-		if err := gofsutil.Unmount(ctx, target); err != nil {
+		if err := osUtils.Mounter.Unmount(target); err != nil {
 			return fmt.Errorf(
 				"error unmounting target %q for volume %q. %q", target, volID, err.Error())
 		}
@@ -410,7 +425,7 @@ func (osUtils *OsUtils) PublishMountVol(
 	}
 
 	// Get block device mounts. Check if device is already mounted.
-	devMnts, err := osUtils.GetDevMounts(ctx, dev)
+	devMnts, err := osUtils.GetDevMountInfo(ctx, dev)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"could not reliably determine existing mount status. Parameters: %v err: %v", params, err)
@@ -451,7 +466,8 @@ func (osUtils *OsUtils) PublishMountVol(
 	}
 	log.Debugf("PublishMountVolume: Attempting to bind mount %q to %q with mount flags %v",
 		params.StagingTarget, params.Target, mntFlags)
-	if err := gofsutil.BindMount(ctx, params.StagingTarget, params.Target, mntFlags...); err != nil {
+	mntFlags = addBindFlag(mntFlags)
+	if err := osUtils.Mounter.Mount(params.StagingTarget, params.Target, "", mntFlags); err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"error mounting volume. Parameters: %v err: %v", params, err)
 	}
@@ -489,7 +505,7 @@ func (osUtils *OsUtils) PublishBlockVol(
 	}
 
 	// Get block device mounts.
-	devMnts, err := osUtils.GetDevMounts(ctx, dev)
+	devMnts, err := osUtils.GetDevMountInfo(ctx, dev)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"could not reliably determine existing mount status. Parameters: %v err: %v", params, err)
@@ -502,7 +518,8 @@ func (osUtils *OsUtils) PublishBlockVol(
 		mntFlags := make([]string, 0)
 		log.Debugf("PublishBlockVolume: Attempting to bind mount %q to %q with mount flags %v",
 			dev.FullPath, params.Target, mntFlags)
-		if err := gofsutil.BindMount(ctx, dev.FullPath, params.Target, mntFlags...); err != nil {
+		mntFlags = append(mntFlags, "bind")
+		if err := osUtils.Mounter.Mount(dev.FullPath, params.Target, "", mntFlags); err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"error mounting volume. Parameters: %v err: %v", params, err)
 		}
@@ -548,7 +565,7 @@ func (osUtils *OsUtils) PublishFileVol(
 	log.Debugf("PublishFileVolume: Created target path %q", params.Target)
 
 	// Check if target already mounted.
-	mnts, err := gofsutil.GetMounts(ctx)
+	mnts, err := osUtils.Mounter.List()
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"could not retrieve existing mount points: %v", err)
@@ -589,7 +606,7 @@ func (osUtils *OsUtils) PublishFileVol(
 	// Directly mount the file share volume to the pod. No bind mount required.
 	log.Debugf("PublishFileVolume: Attempting to mount %q to %q with fstype %q and mountflags %v",
 		mntSrc, params.Target, fsType, mntFlags)
-	if err := gofsutil.Mount(ctx, mntSrc, params.Target, fsType, mntFlags...); err != nil {
+	if err := osUtils.Mounter.Mount(mntSrc, params.Target, fsType, mntFlags); err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"error publish volume to target path: %v", err)
 	}
@@ -814,13 +831,13 @@ func (osUtils *OsUtils) Rmpath(ctx context.Context, target string) error {
 	return nil
 }
 
-// A wrapper around gofsutil.GetMounts that handles bind mounts.
-func (osUtils *OsUtils) GetDevMounts(ctx context.Context,
-	sysDevice *Device) ([]gofsutil.Info, error) {
+// A wrapper around mount-utils.List that handles bind mounts.
+func (osUtils *OsUtils) GetDevMountInfo(ctx context.Context,
+	sysDevice *Device) ([]MountInfoDetail, error) {
 
-	devMnts := make([]gofsutil.Info, 0)
+	devMnts := make([]MountInfoDetail, 0)
 
-	mnts, err := gofsutil.GetMounts(ctx)
+	mnts, err := getMountInfo(ctx)
 	if err != nil {
 		return devMnts, err
 	}
@@ -830,6 +847,138 @@ func (osUtils *OsUtils) GetDevMounts(ctx context.Context,
 		}
 	}
 	return devMnts, nil
+}
+
+// getMountInfo scans through /proc/self/mountinfo and
+// returns complete information for each entry in the file.
+func getMountInfo(ctx context.Context) ([]MountInfoDetail, error) {
+	infos := make([]MountInfoDetail, 0)
+	content, err := readProcsFile(procMountsPath)
+	if err != nil {
+		return infos, err
+	}
+	buffer := bytes.NewBuffer(content)
+	infos, err = readProcMountsFrom(ctx, buffer, true)
+	return infos, err
+}
+
+// readProcMountsFrom reads through the given file
+// and construct MountInfo struct objects.
+func readProcMountsFrom(ctx context.Context,
+	file io.Reader,
+	quick bool) ([]MountInfoDetail, error) {
+
+	var (
+		infos []MountInfoDetail
+		fscan = bufio.NewScanner(file)
+		cache = map[string]string{}
+	)
+
+	for fscan.Scan() {
+
+		// Read the next line of text and attempt to parse it into
+		// distinct, space-separated fields.
+		line := fscan.Text()
+		fields := strings.Fields(line)
+
+		// Remove the optional fields that should be ignored.
+		for {
+			val := fields[6]
+			fields = append(fields[:6], fields[7:]...)
+			// The end of the optional fields is marked by a hyphen.
+			if val == "-" {
+				break
+			}
+		}
+
+		if len(fields) != procMountsFields {
+			return nil, fmt.Errorf(
+				"readProcMountsFrom: invalid field count: exp=%d, act=%d: %s",
+				procMountsFields, len(fields), line)
+		}
+
+		mountInfo := &MountInfoDetail{
+			Device: fields[7],
+			Opts:   strings.Split(fields[5], ","),
+			Type:   fields[6],
+			Path:   fields[4],
+			Source: fields[7],
+			Root:   fields[3],
+		}
+
+		// Check if the entry is valid or not.
+		valid, err := scanEntry(ctx, mountInfo, cache)
+		if err != nil {
+			return infos, err
+		}
+		if !valid {
+			continue
+		}
+
+		infos = append(infos, *mountInfo)
+	}
+
+	return infos, nil
+}
+
+// scanEntry validates each line in and constructs entry object for each of them.
+func scanEntry(
+	ctx context.Context,
+	mountInfo *MountInfoDetail,
+	cache map[string]string) (valid bool, err error) {
+
+	// Validate the mount table entry.
+	valid, err = regexp.MatchString(
+		`(?i)^devtmpfs|(?:fuse\..*)|(?:nfs\d?)$`, mountInfo.Type)
+
+	sourceHasSlashPrefix := strings.HasPrefix(mountInfo.Source, "/")
+	if sourceHasSlashPrefix || !valid {
+		return
+	}
+
+	// If this is the first time a source is encountered in the
+	// output then cache its mountPoint field as the filesystem path
+	// to which the source is mounted as a non-bind mount.
+	//
+	// Subsequent encounters with the source will resolve it
+	// to the cached root value in order to set the mount info's
+	// Source field to the the cached mountPont field value + the
+	// value of the current line's root field.
+	if cachedMountpoint, ok := cache[mountInfo.Source]; ok {
+		mountInfo.Source = path.Join(cachedMountpoint, mountInfo.Root)
+	} else {
+		cache[mountInfo.Source] = mountInfo.Path
+	}
+
+	return
+}
+
+// Read the given file.
+func readProcsFile(filename string) ([]byte, error) {
+	content, err := os.ReadFile(filepath.Clean(filename))
+	if err != nil {
+		return nil, err
+	}
+
+	return content, nil
+}
+
+// Returns mounts for matching device.
+func (osUtils *OsUtils) getMountsForDev(ctx context.Context, dev *Device) ([]mount.MountPoint, error) {
+	log := logger.GetLogger(ctx)
+
+	allMnts, err := osUtils.Mounter.List()
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"could not determine existing mount status. Error %+v", err)
+	}
+	mnts := make([]mount.MountPoint, 0)
+	for _, mnt := range allMnts {
+		if mnt.Device == dev.RealDev {
+			mnts = append(mnts, mnt)
+		}
+	}
+	return mnts, nil
 }
 
 // GetSystemUUID returns the UUID used to identify node vm
@@ -880,7 +1029,7 @@ func (osUtils *OsUtils) ConvertUUID(uuid string) (string, error) {
 func (osUtils *OsUtils) GetDevFromMount(ctx context.Context, target string) (*Device, error) {
 
 	// Get list of all mounts on system.
-	mnts, err := gofsutil.GetMounts(context.Background())
+	mnts, err := getMountInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -942,7 +1091,7 @@ func (osUtils *OsUtils) GetDevFromMount(ctx context.Context, target string) (*De
 // IsTargetInMounts checks if a path exists in the mounts
 func (osUtils *OsUtils) IsTargetInMounts(ctx context.Context, path string) (bool, error) {
 	log := logger.GetLogger(ctx)
-	mnts, err := gofsutil.GetMounts(ctx)
+	mnts, err := osUtils.Mounter.List()
 	if err != nil {
 		return false, err
 	}
@@ -1043,7 +1192,7 @@ func (osUtils *OsUtils) VerifyVolumeAttachedAndFillParams(ctx context.Context,
 // IsFileVolumeMount loops through the list of mount points and
 // checks if the target path mount point is a file volume type or not.
 // Returns an error if the target path is not found in the mount points.
-func isFileVolumeMount(ctx context.Context, target string, mnts []gofsutil.Info) (bool, error) {
+func isFileVolumeMount(ctx context.Context, target string, mnts []mount.MountPoint) (bool, error) {
 	log := logger.GetLogger(ctx)
 	for _, m := range mnts {
 		if unescape(ctx, m.Path) == target {
@@ -1061,7 +1210,7 @@ func isFileVolumeMount(ctx context.Context, target string, mnts []gofsutil.Info)
 
 // IsTargetInMounts checks if the given target path is present in list of
 // mount points.
-func isTargetInMounts(ctx context.Context, target string, mnts []gofsutil.Info) bool {
+func isTargetInMounts(ctx context.Context, target string, mnts []mount.MountPoint) bool {
 	log := logger.GetLogger(ctx)
 	for _, m := range mnts {
 		if unescape(ctx, m.Path) == target {
@@ -1107,4 +1256,13 @@ func (osUtils *OsUtils) IsBlockDevice(ctx context.Context, volumePath string) (b
 		return false, logger.LogNewErrorf(log, "IsBlockDevice: could not get device info for path %s", volumePath)
 	}
 	return deviceInfo.Mode()&os.ModeDevice == os.ModeDevice, nil
+}
+
+func addBindFlag(flags []string) []string {
+	for _, flag := range flags {
+		if flag == "bind" {
+			return flags
+		}
+	}
+	return append(flags, "bind")
 }
