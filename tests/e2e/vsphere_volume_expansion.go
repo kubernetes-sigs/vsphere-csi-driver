@@ -2671,10 +2671,12 @@ func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Int
 	namespace string, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod) {
 	var originalSizeInMb int64
 	var err error
-	//Fetch original FileSystemSize
-	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
-	originalSizeInMb, err = getFSSizeMb(f, pod)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	//Fetch original FileSystemSize if not raw block volume
+	if *pvclaim.Spec.VolumeMode != v1.PersistentVolumeBlock {
+		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
+		originalSizeInMb, err = getFSSizeMb(f, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	//resize PVC
 	// Modify PVC spec to trigger volume expansion
@@ -2694,18 +2696,22 @@ func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Int
 	pvcConditions := pvclaim.Status.Conditions
 	expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
-	var fsSize int64
-	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-	fsSize, err = getFSSizeMb(f, pod)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("File system size after expansion : %v", fsSize)
-	// Filesystem size may be smaller than the size of the block volume
-	// so here we are checking if the new filesystem size is greater than
-	// the original volume size as the filesystem is formatted for the
-	// first time
-	gomega.Expect(fsSize).Should(gomega.BeNumerically(">", originalSizeInMb),
-		fmt.Sprintf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize))
-	ginkgo.By("File system resize finished successfully")
+	if *pvclaim.Spec.VolumeMode != v1.PersistentVolumeBlock {
+		var fsSize int64
+		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
+		fsSize, err = getFSSizeMb(f, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("File system size after expansion : %v", fsSize)
+		// Filesystem size may be smaller than the size of the block volume
+		// so here we are checking if the new filesystem size is greater than
+		// the original volume size as the filesystem is formatted for the
+		// first time
+		gomega.Expect(fsSize).Should(gomega.BeNumerically(">", originalSizeInMb),
+			fmt.Sprintf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize))
+		ginkgo.By("File system resize finished successfully")
+	} else {
+		ginkgo.By("Volume resize finished successfully")
+	}
 }
 
 func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Interface,

@@ -3930,14 +3930,9 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 	return pod, nil
 }
 
-// createDeployment create a deployment with 1 replica for given pvcs and node
-// selector.
-func createDeployment(ctx context.Context, client clientset.Interface, replicas int32,
+func getDeploymentSpec(ctx context.Context, client clientset.Interface, replicas int32,
 	podLabels map[string]string, nodeSelector map[string]string, namespace string,
-	pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool, image string) (*appsv1.Deployment, error) {
-	if len(command) == 0 {
-		command = "trap exit TERM; while true; do sleep 1; done"
-	}
+	pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool, image string) *appsv1.Deployment {
 	zero := int64(0)
 	deploymentName := "deployment-" + string(uuid.NewUUID())
 	deploymentSpec := &appsv1.Deployment{
@@ -3985,6 +3980,19 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	if nodeSelector != nil {
 		deploymentSpec.Spec.Template.Spec.NodeSelector = nodeSelector
 	}
+	return deploymentSpec
+}
+
+// createDeployment create a deployment with 1 replica for given pvcs and node
+// selector.
+func createDeployment(ctx context.Context, client clientset.Interface, replicas int32,
+	podLabels map[string]string, nodeSelector map[string]string, namespace string,
+	pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool, image string) (*appsv1.Deployment, error) {
+	if len(command) == 0 {
+		command = "trap exit TERM; while true; do sleep 1; done"
+	}
+	deploymentSpec := getDeploymentSpec(ctx, client, replicas, podLabels, nodeSelector, namespace,
+		pvclaims, command, isPrivileged, image)
 	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("deployment %q Create API error: %v", deploymentSpec.Name, err)
@@ -6099,42 +6107,79 @@ func CheckDevice(client clientset.Interface, sts *appsv1.StatefulSet, devicePath
 	return nil
 }
 
-// verifyDataOnRawBlockVolume helps check data integrity for raw block volumes
-func verifyDataOnRawBlockVolume(ns string, podName string, devicePath string, testData string) {
+// verifyIOOnRawBlockVolume helps check data integrity for raw block volumes
+func verifyIOOnRawBlockVolume(ns string, podName string, devicePath string, testdataFile string,
+	startSizeInMB, dataSizeInMB int64) {
 	//Write some data to file first and then to raw block device
-	writeDataOnRawBlockVolume(ns, podName, devicePath, testData)
+	writeDataOnRawBlockVolume(ns, podName, devicePath, testdataFile, startSizeInMB, dataSizeInMB)
 	// Read the data to verify that is it same as what written
-	readDataFromRawBlockVolume(ns, podName, devicePath, testData)
+	verifyDataFromRawBlockVolume(ns, podName, devicePath, testdataFile, startSizeInMB, dataSizeInMB)
 }
 
 // writeDataOnRawBlockVolume writes test data to raw block device
-func writeDataOnRawBlockVolume(ns string, podName string, devicePath string, testData string) {
+func writeDataOnRawBlockVolume(ns string, podName string, devicePath string, testdataFile string,
+	startSizeInMB, dataSizeInMB int64) {
 	cmd := []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
 		fmt.Sprintf("/bin/ls %v", devicePath)}
 	_, err := framework.RunKubectl(ns, cmd...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	cmd = []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
-		fmt.Sprintf("/bin/echo -ne '%v' > /tmp/data_to_write", testData)}
-	_, err = framework.RunKubectl(ns, cmd...)
+	_ = framework.RunKubectlOrDie(ns, "cp", testdataFile, fmt.Sprintf(
+		"%v/%v:/tmp/data_to_write", ns, podName))
 	framework.ExpectNoError(err, fmt.Sprintf("failed to write testdata inside the pod: %q", podName))
 
-	cmd = []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
-		fmt.Sprintf("/bin/dd if=/tmp/data_to_write of=%v", devicePath)}
-	_, err = framework.RunKubectl(ns, cmd...)
-	framework.ExpectNoError(err, fmt.Sprintf("failed to write device: %q inside the pod: %q", devicePath, podName))
+	// If startSizeInMB is given, fill 1M with testData from offset=startSizeInMB given, upto dataSizeInMB.
+	// Otherwise write the testData given from offset=0.
+	gomega.Expect(dataSizeInMB).NotTo(gomega.BeZero())
+	for i := int64(0); i < dataSizeInMB; i = i + 1 {
+		seek := fmt.Sprintf("%v", startSizeInMB+i)
+		cmd = []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
+			fmt.Sprintf("/bin/dd if=/tmp/data_to_write of=%v bs=1M count=1 conv=fsync seek=%v",
+				devicePath, seek)}
+		_, err = framework.RunKubectl(ns, cmd...)
+		framework.ExpectNoError(err, fmt.Sprintf("failed to write device: %q inside the pod: %q", devicePath, podName))
+	}
+	cmd = []string{"--namespace=" + ns, "exec", podName, "--", "/bin/sh", "-c", "rm /tmp/data_to_write"}
+	_ = framework.RunKubectlOrDie(ns, cmd...)
 }
 
-// readDataFromRawBlockVolume reads data from raw block device and verifies it against given input
-func readDataFromRawBlockVolume(ns string, podName string, devicePath string, testData string) {
+// verifyDataFromRawBlockVolume reads data from raw block device and verifies it against given input
+func verifyDataFromRawBlockVolume(ns string, podName string, devicePath string, testdataFile string,
+	startSizeInMB, dataSizeInMB int64) {
 	cmd := []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
 		fmt.Sprintf("/bin/ls %v", devicePath)}
 	_, err := framework.RunKubectl(ns, cmd...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	cmd = []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
-		fmt.Sprintf("/bin/dd if=%v status=none count=1 bs=%v", devicePath, len(testData))}
+	// Verify testData written on 1MB upto dataSizeInMB from the specified offset=startSizeInMB
+	// Otherwise verify the testdata specified from offset=0
+	gomega.Expect(dataSizeInMB).NotTo(gomega.BeZero())
+	for i := int64(0); i < dataSizeInMB; i = i + 1 {
+		skip := fmt.Sprintf("%v", startSizeInMB+i)
+		cmd = []string{"exec", podName, "--namespace=" + ns, "--", "/bin/sh", "-c",
+			fmt.Sprintf("/bin/dd if=%v of=/tmp/data_to_read bs=1M count=1 skip=%v", devicePath, skip)}
+		_, err = framework.RunKubectl(ns, cmd...)
+		framework.ExpectNoError(err, fmt.Sprintf("failed to read device: %q inside the pod: %q", devicePath, podName))
+		_ = framework.RunKubectlOrDie(ns, "cp",
+			fmt.Sprintf("%v/%v:/tmp/data_to_read", ns, podName), testdataFile+podName)
+
+		framework.Logf("Running diff with source file and file from pod %v for 1M starting %vM", podName, skip)
+		op, err := exec.Command("diff", testdataFile, testdataFile+podName).Output()
+		framework.Logf("diff: ", op)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(len(op)).To(gomega.BeZero())
+	}
+
+}
+
+// getBlockDevSizeInBytes returns size of block device at given path
+func getBlockDevSizeInBytes(f *framework.Framework, ns string, pod *v1.Pod, devicePath string) (int64, error) {
+	cmd := []string{"exec", pod.Name, "--namespace=" + ns, "--", "/bin/sh", "-c",
+		fmt.Sprintf("/bin/blockdev --getsize64 %v", devicePath)}
 	output, err := framework.RunKubectl(ns, cmd...)
-	framework.ExpectNoError(err, fmt.Sprintf("failed to read device: %q inside the pod: %q", devicePath, podName))
-	gomega.Expect(strings.Contains(output, testData)).NotTo(gomega.BeFalse())
+	if err != nil {
+		return -1, fmt.Errorf("failed to get size of raw device %v inside pod", devicePath)
+	}
+	output = strings.TrimSuffix(output, "\n")
+	return strconv.ParseInt(output, 10, 64)
 }
