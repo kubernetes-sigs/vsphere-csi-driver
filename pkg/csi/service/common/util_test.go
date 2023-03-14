@@ -306,6 +306,21 @@ func TestInvalidVolumeCapabilitiesForFile(t *testing.T) {
 	if err := IsValidVolumeCapabilities(ctx, volCap); err == nil {
 		t.Errorf("Invalid file VolCap = %+v passed validation!", volCap)
 	}
+
+	// Invalid case: volumeMode=block and accessMode=MULTI_NODE_READER_ONLY
+	volCap = []*csi.VolumeCapability{
+		{
+			AccessType: &csi.VolumeCapability_Block{
+				Block: &csi.VolumeCapability_BlockVolume{},
+			},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
+			},
+		},
+	}
+	if err := IsValidVolumeCapabilities(ctx, volCap); err == nil {
+		t.Errorf("Invalid file VolCap = %+v passed validation!", volCap)
+	}
 }
 
 func isStorageClassParamsEqual(expected *StorageClassParams, actual *StorageClassParams) bool {
