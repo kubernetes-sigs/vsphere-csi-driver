@@ -54,6 +54,8 @@ const (
 	// used only for listView
 	noTimeout = 0 * time.Minute
 
+	listviewAdditionError = "failed to add task to list view"
+
 	// defaultOpsExpirationTimeInHours is expiration time for create volume operations.
 	// TODO: This timeout will be configurable in future releases
 	defaultOpsExpirationTimeInHours = 1
@@ -383,6 +385,7 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 
 			return nil, ExtractFaultTypeFromErr(ctx, err), err
 		}
+
 		// WaitForResult can fail for many reasons, including:
 		// - CNS restarted and marked "InProgress" tasks as "Failed".
 		// - Any failures from CNS.
@@ -491,9 +494,9 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 					},
 				}, "", nil
 			}
+
 			// Validate if previous operation is pending.
-			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&
-				volumeOperationDetails.OperationDetails.TaskID != "" {
+			if IsTaskPending(volumeOperationDetails) {
 				log.Infof("Volume with name %s has CreateVolume task %s pending on CNS.",
 					volNameFromInputSpec,
 					volumeOperationDetails.OperationDetails.TaskID)
@@ -560,6 +563,21 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 	return resp, faultType, err
 }
 
+// IsTaskPending returns true in two cases -
+// 1. if the task status was in progress
+// 2. if the status was an error but the error was for adding the task to the listview
+// (as we don't know the status of the task on CNS)
+func IsTaskPending(volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails) bool {
+	if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&
+		volumeOperationDetails.OperationDetails.TaskID != "" {
+		return true
+	} else if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusError &&
+		strings.Contains(volumeOperationDetails.OperationDetails.Error, listviewAdditionError) {
+		return true
+	}
+	return false
+}
+
 func (m *defaultManager) waitOnTask(csiOpContext context.Context,
 	taskMoRef vim25types.ManagedObjectReference) (*vim25types.TaskInfo, error) {
 	log := logger.GetLogger(csiOpContext)
@@ -572,7 +590,7 @@ func (m *defaultManager) waitOnTask(csiOpContext context.Context,
 	ch := make(chan TaskResult)
 	err := m.listViewIf.AddTask(csiOpContext, taskMoRef, ch)
 	if err != nil {
-		return nil, logger.LogNewErrorf(log, "failed to add task to list view. err: %v", err)
+		return nil, logger.LogNewErrorf(log, "%s. err: %v", listviewAdditionError, err)
 	}
 
 	// deferring removal of task after response from CNS
@@ -1160,8 +1178,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 				return "", nil
 			}
 			// Validate if previous operation is pending.
-			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&
-				volumeOperationDetails.OperationDetails.TaskID != "" {
+			if IsTaskPending(volumeOperationDetails) {
 				taskMoRef := vim25types.ManagedObjectReference{
 					Type:  "Task",
 					Value: volumeOperationDetails.OperationDetails.TaskID,
@@ -1524,8 +1541,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 				log.Infof("Volume with ID %s already expanded to size %v", volumeID, size)
 				return "", nil
 			}
-			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&
-				volumeOperationDetails.OperationDetails.TaskID != "" {
+			if IsTaskPending(volumeOperationDetails) {
 				log.Infof("Volume with ID %s has ExtendVolume task %s pending on CNS.",
 					volumeID,
 					volumeOperationDetails.OperationDetails.TaskID)
@@ -2145,8 +2161,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 				}, nil
 			}
 			// Validate if previous operation is pending.
-			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&
-				volumeOperationDetails.OperationDetails.TaskID != "" {
+			if IsTaskPending(volumeOperationDetails) {
 				log.Infof("Snapshot with name %s has CreateSnapshot task %s pending on CNS.",
 					instanceName,
 					volumeOperationDetails.OperationDetails.TaskID)
@@ -2390,8 +2405,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 					return nil
 				}
 				// Validate if previous operation is pending.
-				if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusInProgress &&
-					volumeOperationDetails.OperationDetails.TaskID != "" {
+				if IsTaskPending(volumeOperationDetails) {
 					taskMoRef := vim25types.ManagedObjectReference{
 						Type:  "Task",
 						Value: volumeOperationDetails.OperationDetails.TaskID,

@@ -711,9 +711,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				},
 			}
 			volTaskAlreadyRegistered = true
-		} else if volumeOperationDetails.OperationDetails.TaskStatus ==
-			cnsvolumeoperationrequest.TaskInvocationStatusInProgress &&
-			volumeOperationDetails.OperationDetails.TaskID != "" {
+		} else if cnsvolume.IsTaskPending(volumeOperationDetails) {
 			// If task is created in CNS for this volume but task is in progress, then
 			// we need to monitor the task to check if volume creation is completed or not.
 			log.Infof("Volume with name %s has CreateVolume task %s pending on CNS.",
@@ -1171,9 +1169,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 				},
 			}
 			volTaskAlreadyRegistered = true
-		} else if volumeOperationDetails.OperationDetails.TaskStatus ==
-			cnsvolumeoperationrequest.TaskInvocationStatusInProgress &&
-			volumeOperationDetails.OperationDetails.TaskID != "" {
+		} else if cnsvolume.IsTaskPending(volumeOperationDetails) {
 			// If task is already created in CNS for this volume but task is in progress,
 			// we need to monitor the task to check if volume creation is complete or not.
 			log.Infof("Volume with name %s has CreateVolume task %s pending on VC %q.",
@@ -1663,9 +1659,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 
 			volumeID = volumeOperationDetails.VolumeID
 			volTaskAlreadyRegistered = true
-		} else if volumeOperationDetails.OperationDetails.TaskStatus ==
-			cnsvolumeoperationrequest.TaskInvocationStatusInProgress &&
-			volumeOperationDetails.OperationDetails.TaskID != "" {
+		} else if cnsvolume.IsTaskPending(volumeOperationDetails) {
 			var (
 				volumeInfo *cnsvolume.CnsVolumeInfo
 				vcenter    *cnsvsphere.VirtualCenter
