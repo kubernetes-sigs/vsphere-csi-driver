@@ -87,7 +87,8 @@ SHARED_VSPHERE_DATASTORE_URL=$(govc datastore.info "$DATACENTER"/datastore/vsanD
 export SHARED_VSPHERE_DATASTORE_URL
 LIST_NONSHARED_DATASTORE_URL=$(govc datastore.info "$DATACENTER"/datastore/\*local-\* | grep URL | awk '{print $2}')
 [ -z "$LIST_NONSHARED_DATASTORE_URL" ] && LIST_NONSHARED_DATASTORE_URL=$(govc datastore.info "$DATACENTER"/datastore/\*datastore\* | grep URL | awk '{print $2}')
-export LIST_NONSHARED_DATASTORE_URL
+NONSHARED_VSPHERE_DATASTORE_URL=$(echo "$LIST_NONSHARED_DATASTORE_URL" | awk '{print $1; exit}')
+export NONSHARED_VSPHERE_DATASTORE_URL
 export FULL_SYNC_WAIT_TIME=350
 export SVC_NAMESPACE="e2e-test-namespace"
 export SVC_NAMESPACE_TO_DELETE="e2e-namespace-to-delete"

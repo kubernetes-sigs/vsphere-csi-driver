@@ -89,11 +89,6 @@ echo "VSPHERE_SYNCER_IMAGE = $VSPHERE_SYNCER_IMAGE"
 
 # Store all the values into Artifacts.
 { echo "id=$id"; echo "vcIp=$vcIp"; echo "vcRootPassword=$vcRootPassword"; echo "vimPassword=$vimPassword"; echo "vimUsername=$vimUsername"; echo "externalVMGatewayIp=$externalVMGatewayIp";} >> ./env.json
-# echo "vcIp=$vcIp" >> ./env.json
-# echo "vcRootPassword=$vcRootPassword" >> ./env.json
-# echo "vimPassword=$vimPassword" >> ./env.json
-# echo "vimUsername=$vimUsername" >> ./env.json
-# echo "externalVMGatewayIp=$externalVMGatewayIp" >> ./env.json
 
 SV_KUBECONFIG=/tmp/$$
 
