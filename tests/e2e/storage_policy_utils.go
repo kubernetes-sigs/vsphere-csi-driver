@@ -24,10 +24,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/pbm"
-	"github.com/vmware/govmomi/pbm/types"
+	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vapi/tags"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -35,7 +36,7 @@ import (
 
 // createVmfsStoragePolicy create a vmfs policy with given allocation type and category/tag map
 func createVmfsStoragePolicy(ctx context.Context, pbmClient *pbm.Client, allocationType string,
-	categoryTagMap map[string]string) (*types.PbmProfileId, string) {
+	categoryTagMap map[string]string) (*pbmtypes.PbmProfileId, string) {
 	s1 := rand.NewSource(time.Now().UnixNano())
 	r1 := rand.New(s1)
 	profileName := fmt.Sprintf("vmfs-policy-%v-%v", time.Now().UnixNano(), strconv.Itoa(r1.Intn(1000)))
@@ -83,8 +84,8 @@ func createVmfsStoragePolicy(ctx context.Context, pbmClient *pbm.Client, allocat
 }
 
 // deleteStoragePolicy deletes the given storage policy
-func deleteStoragePolicy(ctx context.Context, pbmClient *pbm.Client, profileID *types.PbmProfileId) {
-	_, err := pbmClient.DeleteProfile(ctx, []types.PbmProfileId{*profileID})
+func deleteStoragePolicy(ctx context.Context, pbmClient *pbm.Client, profileID *pbmtypes.PbmProfileId) {
+	_, err := pbmClient.DeleteProfile(ctx, []pbmtypes.PbmProfileId{*profileID})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
@@ -151,7 +152,7 @@ func getDsMoRefFromURL(ctx context.Context, dsURL string) vim25types.ManagedObje
 
 // createTagBasedPolicy creates a tag based storage policy with given tag and category map
 func createTagBasedPolicy(ctx context.Context, pbmClient *pbm.Client,
-	categoryTagMap map[string]string) (*types.PbmProfileId, string) {
+	categoryTagMap map[string]string) (*pbmtypes.PbmProfileId, string) {
 	s1 := rand.NewSource(time.Now().UnixNano())
 	r1 := rand.New(s1)
 	profileName := fmt.Sprintf("shared-ds-policy-%v-%v", time.Now().UnixNano(), strconv.Itoa(r1.Intn(1000)))
@@ -185,4 +186,49 @@ func createTagBasedPolicy(ctx context.Context, pbmClient *pbm.Client,
 	framework.Logf("Tag based profile with id: %v and name: '%v' created", profileID.UniqueId, profileName)
 
 	return profileID, profileName
+}
+
+// updateVmfsPolicyAlloctype updates the given policy's allocation type to given type
+func updateVmfsPolicyAlloctype(
+	ctx context.Context, pbmClient *pbm.Client, allocationType string, policyName string,
+	policyId *pbmtypes.PbmProfileId) error {
+
+	updateSpec := pbmtypes.PbmCapabilityProfileUpdateSpec{
+		Name: policyName,
+		Constraints: &pbmtypes.PbmCapabilitySubProfileConstraints{
+			SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
+				{
+					Capability: []pbmtypes.PbmCapabilityInstance{
+						{
+							Id: pbmtypes.PbmCapabilityMetadataUniqueId{
+								Id:        "VolumeAllocationType",
+								Namespace: "com.vmware.storage.volumeallocation",
+							},
+							Constraint: []pbmtypes.PbmCapabilityConstraintInstance{
+								{
+									PropertyInstance: []pbmtypes.PbmCapabilityPropertyInstance{
+										{
+											Id:    "VolumeAllocationType",
+											Value: allocationType,
+										},
+									},
+								},
+							},
+						},
+					},
+					Name: "volumeallocation.capabilityobjectschema.namespaceInfo.info.label rules",
+				},
+			},
+		},
+	}
+	err := pbmClient.UpdateProfile(ctx, *policyId, updateSpec)
+	if err != nil {
+		return err
+	}
+	policyContent, err := pbmClient.RetrieveContent(ctx, []pbmtypes.PbmProfileId{*policyId})
+	if err != nil {
+		return err
+	}
+	framework.Logf("policy content after update", spew.Sdump(policyContent))
+	return nil
 }

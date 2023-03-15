@@ -23,9 +23,12 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/pbm"
@@ -255,7 +258,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		9. Delete the SCs created in step 2
 		10. Deleted the SPBM policies created in step 1
 	*/
-	ginkgo.It("[csi-block-vanilla][csi-block-vanilla-parallelized] Fill LZT/EZT volume", func() {
+	ginkgo.It("[csi-block-vanilla][csi-guest][csi-supervisor] Fill LZT/EZT volume", func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -414,7 +418,9 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		7. Delete the SC created in step 2
 		8. Deleted the SPBM policy created in step 1
 	*/
-	ginkgo.It("[csi-block-vanilla] Verify large EZT volume creation which takes longer than vpxd timeout", func() {
+	ginkgo.It("[csi-block-vanilla][csi-guest][csi-supervisor] Verify large EZT volume creation which takes "+
+		"longer than vpxd timeout", func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -550,8 +556,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		10	Delete the SC created in step 2
 		11	Deleted the SPBM policy created in step 1
 	*/
-	t := "[csi-block-vanilla] Verify EZT online volume expansion to a large size which takes longer than vpxd timeout"
-	ginkgo.It(t, func() {
+	ginkgo.It("[csi-block-vanilla][csi-guest][csi-supervisor] Verify EZT online volume expansion to a large size "+
+		"which takes longer than vpxd timeout", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -750,7 +756,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		11	Delete the SC created in step 2
 		12	Deleted the SPBM policy created in step 1
 	*/
-	ginkgo.It("[csi-block-vanilla][csi-block-vanilla-parallelized] Verify online LZT/EZT volume expansion of "+
+	ginkgo.It("[csi-block-vanilla][csi-guest][csi-supervisor] Verify online LZT/EZT volume expansion of "+
 		"attached volumes with IO", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -960,21 +966,33 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 	/*
 		Relocate volume to another same type datastore
-		Steps:
-			1	Create a SPBM policy with thin volume allocation for vmfs/vsand datastore.
-			2.	Create SC using policy created in step 1
-			3.	Create PVC using SC created in step 2
-			4.	Verify that pvc created in step 3 are bound
-			5.	Create a pod, say pod1 using pvc created in step 4.
-			6.	write some data to the volume.
-			7.	delete pod1.
-			8.	Relocate volumes from vmfs/vsand → vmfs/vsand.
-			9.	Recreate pod1
-			10.	Verify pod1 is running and pvc1 is accessible and verify the data written in step 6
-			11.	Delete pod1
-			12.	Delete pvc, sc and SPBM policy created for this test
+		Steps for offline volumes:
+		1	Create a vmfs SPBM policy with thin volume allocation
+		2	Create a SC using policy created in step 1
+		3	Create a PVC using SC created in step 2
+		4	Verify that pvc created in step 3 is bound
+		5	Create a pod, say pod1 using pvc created in step 4.
+		6	write some data to the volume.
+		7	delete pod1.
+		8	Relocate volume to another vmfs datastore.
+		9	Recreate pod1
+		10	Verify pod1 is running and pvc1 is accessible and verify the data written in step 6
+		11	Delete pod1
+		12	Delete pvc, sc and SPBM policy created for this test
+
+		Steps for online volumes:
+		1	Create a vmfs SPBM policies with thin volume allocation
+		2	Create a SC using policy created in step 1
+		3	Create a PVC using SC created in step 2
+		4	Verify that pvc created in step 3 is bound
+		5	Create a pod, say pod1 using pvc created in step 4.
+		6	write some data to the volume.
+		7	Relocate volume to another vmfs datastore.
+		8	Verify the data written in step 6
+		9	Delete pod1
+		10	Delete pvc, sc and SPBM policy created for this test
 	*/
-	ginkgo.It("[csi-supervisor][csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest]"+
+	ginkgo.It("[csi-supervisor][csi-block-vanilla][csi-guest]"+
 		" Relocate volume to another same type datastore", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1029,7 +1047,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		var policyID *pbmtypes.PbmProfileId
 
 		policyID, policyName = createVmfsStoragePolicy(
-			ctx, pc, lztAllocType, map[string]string{categoryName: tagName})
+			ctx, pc, thinAllocType, map[string]string{categoryName: tagName})
 
 		defer func() {
 			deleteStoragePolicy(ctx, pc, policyID)
@@ -1047,27 +1065,28 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters[scParamStoragePolicyName] = policyName
-			storageclass, pvclaim, err = createPVCAndStorageClass(client,
-				namespace, nil, scParameters, "", nil, "", false, "")
+			storageclass, err = createStorageClass(client,
+				scParameters, nil, "", "", false, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
-			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			pvclaim, err = createPVC(client, namespace, nil, "", storageclass, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			pvclaim, err = createPVC(client, namespace, nil, "", storageclass, "")
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		pvcs = append(pvcs, pvclaim)
+
+		pvclaim, err = createPVC(client, namespace, nil, "", storageclass, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvcs = append(pvcs, pvclaim, pvclaim2)
 		pvclaims2d = append(pvclaims2d, []*v1.PersistentVolumeClaim{pvclaim})
+		pvclaims2d = append(pvclaims2d, []*v1.PersistentVolumeClaim{pvclaim2})
 
 		defer func() {
 			if vanillaCluster {
@@ -1083,23 +1102,29 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		ginkgo.By("Verify that the created CNS volumes are compliant and have correct policy id")
 
-		volumeID := pvs[0].Spec.CSI.VolumeHandle
-		if guestCluster {
-			volumeID = getVolumeIDFromSupervisorCluster(pvs[0].Spec.CSI.VolumeHandle)
-			gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+		volIds := []string{}
+		ginkgo.By("Verify that the created CNS volumes are compliant and have correct policy id")
+		for _, pv := range pvs {
+			volumeID := pv.Spec.CSI.VolumeHandle
+			if guestCluster {
+				volumeID = getVolumeIDFromSupervisorCluster(pvs[0].Spec.CSI.VolumeHandle)
+				gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+			}
+			storagePolicyExists, err := e2eVSphere.VerifySpbmPolicyOfVolume(volumeID, policyNames[0])
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(storagePolicyExists).To(gomega.BeTrue(), "storage policy verification failed")
+			e2eVSphere.verifyVolumeCompliance(volumeID, true)
+			volIds = append(volIds, volumeID)
 		}
-		storagePolicyExists, err := e2eVSphere.VerifySpbmPolicyOfVolume(volumeID, policyNames[0])
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(storagePolicyExists).To(gomega.BeTrue(), "storage policy verification failed")
-		e2eVSphere.verifyVolumeCompliance(volumeID, true)
 
 		defer func() {
 			ginkgo.By("Delete the PVCs created in step 3")
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+			for i, pvc := range pvcs {
+				err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volIds[i])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Create pods with using the PVCs created in step 3 and wait for them to be ready")
@@ -1109,35 +1134,64 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		ginkgo.By("Delete the pod created")
 		deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
 
-		ginkgo.By("Verify if VolumeID is created on the given datastores")
-		dsUrlWhereVolumeIsPresent := fetchDsUrl4CnsVol(e2eVSphere, volumeID)
-		framework.Logf("Volume is present on %s", dsUrlWhereVolumeIsPresent)
-		e2eVSphere.verifyDatastoreMatch(volumeID, datastoreUrls)
+		rand.New(rand.NewSource(time.Now().Unix()))
+		testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
+		ginkgo.By(fmt.Sprintf("Creating a 100mb test data file %v", testdataFile))
+		op, err := exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
+			"bs=1M", "count=100").Output()
+		fmt.Println(op)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			op, err = exec.Command("rm", "-f", testdataFile).Output()
+			fmt.Println(op)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
-		// Get the destination ds url where the volume will get relocated
-		destDsUrl := ""
-		for _, dsurl := range datastoreUrls {
-			if dsurl != dsUrlWhereVolumeIsPresent {
-				destDsUrl = dsurl
-			}
+		ginkgo.By("Writing known data to pods")
+		for _, pod := range pods {
+			writeKnownData2Pod(f, pod, testdataFile)
 		}
 
-		framework.Logf("dest url: %s", destDsUrl)
+		ginkgo.By("delete pod1")
+		pvcName := pods[1].Spec.Volumes[0].VolumeSource.PersistentVolumeClaim.ClaimName // for recreating pod1
+		deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pods[1]}, true)
 
-		dsRefDest := getDsMoRefFromURL(ctx, destDsUrl)
-		err = e2eVSphere.cnsRelocateVolume(e2eVSphere, ctx, volumeID, dsRefDest)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		e2eVSphere.verifyDatastoreMatch(volumeID, []string{destDsUrl})
+		ginkgo.By("Relocate volume to another vmfs datastore")
+		for _, volumeID := range volIds {
+			dsUrlWhereVolumeIsPresent := fetchDsUrl4CnsVol(e2eVSphere, volumeID)
+			framework.Logf("Volume is present on %s", dsUrlWhereVolumeIsPresent)
+			e2eVSphere.verifyDatastoreMatch(volumeID, datastoreUrls)
+			destDsUrl := ""
+			for _, dsurl := range datastoreUrls {
+				if dsurl != dsUrlWhereVolumeIsPresent {
+					destDsUrl = dsurl
+					break
+				}
+			}
 
-		storagePolicyExists, err = e2eVSphere.VerifySpbmPolicyOfVolume(volumeID, policyNames[0])
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(storagePolicyExists).To(gomega.BeTrue(), "storage policy verification failed")
-		e2eVSphere.verifyVolumeCompliance(volumeID, true)
+			framework.Logf("dest url for volume id %s is %s", volumeID, destDsUrl)
+			dsRefDest := getDsMoRefFromURL(ctx, destDsUrl)
+			err = e2eVSphere.cnsRelocateVolume(e2eVSphere, ctx, volumeID, dsRefDest)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			e2eVSphere.verifyDatastoreMatch(volumeID, []string{destDsUrl})
 
-		podsNew := createMultiplePods(ctx, client, pvclaims2d, true)
-		ginkgo.By("Delete the pod created")
-		deletePodsAndWaitForVolsToDetach(ctx, client, podsNew, true)
+			storagePolicyMatches, err := e2eVSphere.VerifySpbmPolicyOfVolume(volumeID, policyName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(storagePolicyMatches).To(gomega.BeTrue(), "storage policy verification failed")
+			e2eVSphere.verifyVolumeCompliance(volumeID, true)
+		}
+
+		ginkgo.By("Recreate pod1")
+		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvcs2d2 := [][]*v1.PersistentVolumeClaim{{pvc}}
+		podsNew := createMultiplePods(ctx, client, pvcs2d2, true)
+		pods[1] = podsNew[0]
+
+		ginkgo.By("Verify the data written to the pods")
+		for _, pod := range pods {
+			verifyKnownDataInPod(f, pod, testdataFile)
+		}
 
 	})
 
@@ -1158,8 +1212,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		12.	Delete the SC created in step 2
 		13.	Deleted the SPBM policy created in step 1
 	*/
-	t = "[csi-block-vanilla] Verify EZT offline volume expansion"
-	ginkgo.It(t, func() {
+	ginkgo.It("[csi-guest][csi-supervisor][csi-block-vanilla] Verify EZT offline volume expansion", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1374,6 +1427,490 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		deletePodsAndWaitForVolsToDetach(ctx, client, newPods, true)
 
 	})
+
+	/*
+		verify volume allocation change post snapshot deletion works fine
+		Steps for detached volumes:
+		1	Create 2 SPBM policies with thin and LZT volume allocation respectively, say pol1, pol2
+		2	Create 2 SCs each with a SPBM policy created from step 1
+		3	Create a PVC of 10g using each of the SCs created from step 2
+		4	Wait for PVCs created in step 3 to be bound
+		5	Create a snapshot class
+		6	Create a snapshots of all PVCs created in step 3
+		7	Change volume allocation of pol1 and pol2 to EZT and apply the changes
+		8	Verify the volume allocation type changes fail
+		9	Delete snapshots created in step 6
+		10	Apply volume allocation type changes again and verify that it is successful this time
+		11	Delete the PVCs created in step 3
+		12	Delete the SCs created in step 2
+		13	Delete the SPBM policies created in step 1
+
+		Steps for attached volumes:
+		1	Create 2 SPBM policies with thin, and LZT volume allocation respectively, say pol1, pol2
+		2	Create 2 SCs each with a SPBM policy created from step 1
+		3	Create a PVC of 10g using each of the SCs created from step 2
+		4	Wait for PVCs created in step 3 to be bound
+		5	Create pods using PVCs created in step 3
+		6	Create a snapshot class
+		7	Create a snapshots of all PVCs created in step 3
+		8	Change volume allocation of pol1 and pol2 to EZT and apply the changes
+		9	Verify the volume allocation type changes fail
+		10	Delete snapshots created in step 6
+		11	Apply volume allocation type changes again and verify that it is successful this time
+		12	Delete pods created in step 5
+		13	Delete the PVCs created in step 3
+		14	Delete the SCs created in step 2
+		15	Delete the SPBM policies created in step 1
+	*/
+	ginkgo.It("[csi-block-vanilla] verify volume allocation change post snapshot deletion works fine", func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sharedvmfsURL := os.Getenv(envSharedVMFSDatastoreURL)
+		if sharedvmfsURL == "" {
+			ginkgo.Skip(fmt.Sprintf("Env %v is missing", envSharedVMFSDatastoreURL))
+		}
+
+		scParameters := make(map[string]string)
+		policyNames := []string{}
+		policyIds := []*pbmtypes.PbmProfileId{}
+		pvcs := []*v1.PersistentVolumeClaim{}
+		scs := []*storagev1.StorageClass{}
+		pvcs2d := [][]*v1.PersistentVolumeClaim{}
+
+		rand.New(rand.NewSource(time.Now().UnixNano()))
+		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
+		categoryName := "category" + suffix
+		tagName := "tag" + suffix
+
+		catID, tagID := createCategoryNTag(ctx, categoryName, tagName)
+		defer func() {
+			deleteCategoryNTag(ctx, catID, tagID)
+		}()
+
+		attachTagToDS(ctx, tagID, sharedvmfsURL)
+		defer func() {
+			detachTagFromDS(ctx, tagID, sharedvmfsURL)
+		}()
+
+		allocationTypes := []string{
+			thinAllocType,
+			lztAllocType,
+		}
+
+		ginkgo.By("create 2 SPBM policies with thin, LZT volume allocation respectively")
+		ginkgo.By("Create 2 SCs each with a SPBM policy created from step 1")
+		ginkgo.By("Create two PVCs of 10g using each of the SCs created from step 2")
+		for _, at := range allocationTypes {
+			policyID, policyName := createVmfsStoragePolicy(
+				ctx, pc, at, map[string]string{categoryName: tagName})
+			defer func() {
+				deleteStoragePolicy(ctx, pc, policyID)
+			}()
+			scParameters[scParamStoragePolicyName] = policyName
+			policyNames = append(policyNames, policyName)
+			policyIds = append(policyIds, policyID)
+			storageclass, pvclaim, err := createPVCAndStorageClass(client,
+				namespace, nil, scParameters, "", nil, "", false, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvcs = append(pvcs, pvclaim)
+			scs = append(scs, storageclass)
+			pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvcs = append(pvcs, pvclaim2)
+			pvcs2d = append(pvcs2d, []*v1.PersistentVolumeClaim{pvclaim})
+		}
+
+		defer func() {
+			ginkgo.By("Delete the SCs created in step 2")
+			for _, sc := range scs {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Verify the PVCs created in step 3 are bound")
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, pvcs, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		volIds := []string{}
+		ginkgo.By("Verify that the created CNS volumes are compliant and have correct policy id")
+		for i, pv := range pvs {
+			volumeID := pv.Spec.CSI.VolumeHandle
+			storagePolicyMatches, err := e2eVSphere.VerifySpbmPolicyOfVolume(volumeID, policyNames[i/2])
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(storagePolicyMatches).To(gomega.BeTrue(), "storage policy verification failed")
+			e2eVSphere.verifyVolumeCompliance(volumeID, true)
+			e2eVSphere.verifyDatastoreMatch(volumeID, []string{sharedvmfsURL})
+			volIds = append(volIds, volumeID)
+		}
+
+		defer func() {
+			ginkgo.By("Delete the PVCs created in step 3")
+			for _, pvc := range pvcs {
+				err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			for i := range pvcs {
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[i].Spec.CSI.VolumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		// Create a Pod to use this PVC, and verify volume has been attached
+		ginkgo.By("Creating 2 pods to attach 2 PVCs")
+		pods := createMultiplePods(ctx, client, pvcs2d, true)
+
+		defer func() {
+			ginkgo.By("Delete pods")
+			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+		}()
+
+		//Get snapshot client using the rest config
+		restConfig := getRestConfigClient()
+		snapc, err := snapclient.NewForConfig(restConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create volume snapshot class")
+		volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
+			getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil), metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Volume snapshot class with name %q created", volumeSnapshotClass.Name)
+
+		defer func() {
+			err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(
+				ctx, volumeSnapshotClass.Name, metav1.DeleteOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		snaps := []*snapV1.VolumeSnapshot{}
+		snapIDs := []string{}
+		ginkgo.By("Create a snapshots of all PVCs created in step 3")
+		for i, pvc := range pvcs {
+			volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+				getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvc.Name), metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
+			snaps = append(snaps, volumeSnapshot)
+			ginkgo.By("Verify volume snapshot is created")
+			volumeSnapshot, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, volumeSnapshot.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("snapshot restore size is : %s", volumeSnapshot.Status.RestoreSize.String())
+			gomega.Expect(volumeSnapshot.Status.RestoreSize.Cmp(pvc.Spec.Resources.Requests[v1.ResourceStorage])).To(
+				gomega.BeZero())
+
+			ginkgo.By("Verify volume snapshot content is created")
+			snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
+				*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(*snapshotContent.Status.ReadyToUse).To(gomega.BeTrue())
+
+			framework.Logf("Get volume snapshot ID from snapshot handle")
+			snapshothandle := *snapshotContent.Status.SnapshotHandle
+			snapshotId := strings.Split(snapshothandle, "+")[1]
+			snapIDs = append(snapIDs, snapshotId)
+
+			ginkgo.By("Query CNS and check the volume snapshot entry")
+			err = verifySnapshotIsCreatedInCNS(volIds[i], snapshotId)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		defer func() {
+			if len(snaps) > 0 {
+				for _, snap := range snaps {
+					framework.Logf("Delete volume snapshot %v", snap.Name)
+					err = snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(
+						ctx, snap.Name, metav1.DeleteOptions{})
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+				for i, snapshotId := range snapIDs {
+					framework.Logf("Verify snapshot entry %v is deleted from CNS for volume %v", snapshotId, volIds[i])
+					err = waitForCNSSnapshotToBeDeleted(volIds[i], snapshotId)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}
+		}()
+
+		ginkgo.By("Change volume allocation of pol1 and pol2 to EZT and apply the changes")
+		ginkgo.By("Verify the volume allocation type changes fail")
+		for i, volId := range volIds {
+			framework.Logf("updating policy %v with %v allocation type", policyNames[i/2], eztAllocType)
+			err = updateVmfsPolicyAlloctype(ctx, pc, eztAllocType, policyNames[i/2], policyIds[i/2])
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf(
+				"trying to reconfigure volume %v with policy %v which is expected to fail", volId, policyNames[i/2])
+			err = e2eVSphere.reconfigPolicy(ctx, volId, policyIds[i/2].UniqueId)
+			framework.Logf("reconfigure volume %v with policy %v errored out with:\n%v", volId, policyNames[i/2], err)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Delete snapshots created in step 6")
+		for _, snap := range snaps {
+			framework.Logf("Delete volume snapshot %v", snap.Name)
+			err = snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(
+				ctx, snap.Name, metav1.DeleteOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		for i, snapshotId := range snapIDs {
+			framework.Logf("Verify snapshot entry %v is deleted from CNS for volume %v", snapshotId, volIds[i])
+			err = waitForCNSSnapshotToBeDeleted(volIds[i], snapshotId)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		snaps = []*snapV1.VolumeSnapshot{}
+		ginkgo.By("Apply volume allocation type changes again and verify that it is successful this time")
+		for i, volId := range volIds {
+			framework.Logf("trying to reconfigure volume %v with policy %v", volId, policyNames[i/2])
+			err = e2eVSphere.reconfigPolicy(ctx, volIds[i], policyIds[i/2].UniqueId)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+	})
+
+	/*
+		Verify expansion during Thin -> EZT, LZT -> EZT conversion (should take >vpxd task timeout)
+		Steps for offline volumes:
+		1	Create 2 SPBM policies with thin, and LZT volume allocation respectively, say pol1, pol2
+		2	Create 2 SCs each with a SPBM policy created from step 1
+		3	Create a PVC of 10g using each of the SCs created from step 2
+		4	Wait for PVCs created in step 3 to be bound
+		5	Change volume allocation of pol1 and pol2 to EZT and opt for immediate updation
+		6	While updation in step 5 is still running, expand all PVCs created in step 3 such that resize should take
+		    more than vpxd task timeout for PVCs updated to EZT allocation
+		7	Wait for all PVCs created in step 3 to reach FileSystemResizePending state
+		8	Delete the PVCs created in step 3
+		9	Delete the SCs created in step 2
+		10	Deleted the SPBM policies created in step 1
+
+		Steps for online volumes:
+		1	Create 2 SPBM policies with thin, and LZT volume allocation respectively, say pol1, pol2
+		2	Create 2 SCs each with a SPBM policy created from step 1
+		3	Create a PVC of 10g using each of the SCs created from step 2
+		4	Wait for PVCs created in step 3 to be bound
+		5	Create pods using PVCs created in step 4
+		6	Change volume allocation of pol1 and pol2 to EZT and opt for immediate updation
+		7	While updation in step 5 is still running, expand all PVCs created in step 3 such that resize should take
+		    more than vpxd task timeout for PVCs updated to EZT allocation
+		8	Wait for file system resize to complete on all PVCs created in step 3
+		9	Delete pods created in step 4
+		10	Delete the PVCs created in step 3
+		11	Delete the SCs created in step 2
+		12	Deleted the SPBM policies created in step 1
+	*/
+	ginkgo.It("[csi-block-vanilla][csi-guest][csi-supervisor] Verify expansion during Thin -> EZT, LZT -> EZT"+
+		" conversion (should take >vpxd task timeout)", func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sharedvmfsURL := os.Getenv(envSharedVMFSDatastoreURL)
+		if sharedvmfsURL == "" {
+			ginkgo.Skip(fmt.Sprintf("Env %v is missing", envSharedVMFSDatastoreURL))
+		}
+
+		scParameters := make(map[string]string)
+		policyNames := []string{}
+		policyIds := []*pbmtypes.PbmProfileId{}
+		pvcs := []*v1.PersistentVolumeClaim{}
+		scs := []*storagev1.StorageClass{}
+		pvcs2d := [][]*v1.PersistentVolumeClaim{}
+		largeSize := os.Getenv(envDiskSizeLarge)
+		pvc10g := "10Gi"
+		if largeSize == "" {
+			largeSize = diskSizeLarge
+		}
+
+		rand.New(rand.NewSource(time.Now().UnixNano()))
+		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
+		categoryName := "category" + suffix
+		tagName := "tag" + suffix
+
+		catID, tagID := createCategoryNTag(ctx, categoryName, tagName)
+		defer func() {
+			deleteCategoryNTag(ctx, catID, tagID)
+		}()
+
+		attachTagToDS(ctx, tagID, sharedvmfsURL)
+		defer func() {
+			detachTagFromDS(ctx, tagID, sharedvmfsURL)
+		}()
+
+		allocationTypes := []string{
+			thinAllocType,
+			lztAllocType,
+		}
+
+		ginkgo.By("create 2 SPBM policies with thin, LZT volume allocation respectively")
+		for _, at := range allocationTypes {
+			policyID, policyName := createVmfsStoragePolicy(
+				ctx, pc, at, map[string]string{categoryName: tagName})
+			defer func() {
+				deleteStoragePolicy(ctx, pc, policyID)
+			}()
+			scParameters[scParamStoragePolicyName] = policyName
+			policyNames = append(policyNames, policyName)
+			policyIds = append(policyIds, policyID)
+		}
+
+		defer func() {
+			for _, policyID := range policyIds {
+				deleteStoragePolicy(ctx, pc, policyID)
+			}
+		}()
+
+		ginkgo.By("Create 2 SCs each with a SPBM policy created from step 1")
+		if vanillaCluster {
+			for i, policyName := range policyNames {
+				scParameters[scParamStoragePolicyName] = policyName
+				policyNames = append(policyNames, policyName)
+				policyIds = append(policyIds, policyIds[i])
+				storageclass, err := createStorageClass(client,
+					scParameters, nil, "", "", false, "")
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				scs = append(scs, storageclass)
+			}
+		} else if supervisorCluster {
+			assignPolicyToWcpNamespace(client, ctx, namespace, policyNames)
+			for _, policyName := range policyNames {
+				createResourceQuota(client, namespace, rqLimit, policyName)
+				storageclass, err := client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				scs = append(scs, storageclass)
+			}
+		} else if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			assignPolicyToWcpNamespace(svcClient, ctx, svNamespace, policyNames)
+			for _, policyName := range policyNames {
+				createResourceQuota(svcClient, svNamespace, rqLimit, policyName)
+				storageclass, err := svcClient.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				scs = append(scs, storageclass)
+			}
+		}
+
+		defer func() {
+			ginkgo.By("Delete the SCs created in step 2")
+			if vanillaCluster {
+				for _, sc := range scs {
+					err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}
+		}()
+
+		ginkgo.By("Create two PVCs of 10g using each of the SCs created from step 2")
+		for _, sc := range scs {
+			pvclaim, err := createPVC(client, namespace, nil, pvc10g, sc, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvcs = append(pvcs, pvclaim)
+			pvclaim2, err := createPVC(client, namespace, nil, pvc10g, sc, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvcs = append(pvcs, pvclaim2)
+			// one pvc for online case and one more pvc for offline case
+			pvcs2d = append(pvcs2d, []*v1.PersistentVolumeClaim{pvclaim})
+		}
+
+		ginkgo.By("Verify the PVCs created in step 3 are bound")
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, pvcs, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		volIds := []string{}
+		ginkgo.By("Verify that the created CNS volumes are compliant and have correct policy id")
+		for i, pv := range pvs {
+			volumeID := pv.Spec.CSI.VolumeHandle
+			if guestCluster {
+				volumeID = getVolumeIDFromSupervisorCluster(pvs[0].Spec.CSI.VolumeHandle)
+				gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+			}
+			storagePolicyMatches, err := e2eVSphere.VerifySpbmPolicyOfVolume(volumeID, policyNames[i/2])
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(storagePolicyMatches).To(gomega.BeTrue(), "storage policy verification failed")
+			e2eVSphere.verifyVolumeCompliance(volumeID, true)
+			e2eVSphere.verifyDatastoreMatch(volumeID, []string{sharedvmfsURL})
+			volIds = append(volIds, volumeID)
+		}
+
+		defer func() {
+			ginkgo.By("Delete the PVCs created in step 3")
+			for _, pvc := range pvcs {
+				err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			for _, volId := range volIds {
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volId)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		// Create a Pod to use this PVC, and verify volume has been attached
+		ginkgo.By("Creating 2 pods to attach 2 PVCs")
+		pods := createMultiplePods(ctx, client, pvcs2d, true)
+
+		defer func() {
+			ginkgo.By("Delete pods")
+			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+		}()
+
+		fsSizes := []int64{}
+		for _, pod := range pods {
+			originalSizeInMb, err := getFSSizeMb(f, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			fsSizes = append(fsSizes, originalSizeInMb)
+		}
+
+		ginkgo.By("Change volume allocation of pol1 and pol2 to EZT")
+		for i, policyId := range policyIds {
+			err = updateVmfsPolicyAlloctype(ctx, pc, eztAllocType, policyNames[i], policyId)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Apply the volume allocation changes and while it is still running, expand PVCs created to a" +
+			" large size such that the resize takes more than vpxd task timeout")
+		var wg sync.WaitGroup
+		wg.Add(len(volIds))
+		n := resource.MustParse(largeSize)
+		sizeInInt, b := n.AsInt64()
+		gomega.Expect(b).To(gomega.BeTrue())
+		// since we are creating 4 volumes reducing the size of each expansion by half to start with
+		newSize := *(resource.NewQuantity(sizeInInt/2, resource.BinarySI))
+		start := time.Now()
+		for i, volId := range volIds {
+			go reconfigPolicyParallel(ctx, volId, policyIds[i/2].UniqueId, &wg)
+		}
+		wg.Wait()
+
+		wg.Add(len(volIds))
+		for _, pvc := range pvcs {
+			go resize(client, pvc, pvc.Spec.Resources.Requests[v1.ResourceStorage], newSize, &wg)
+		}
+		wg.Wait()
+		for i := range pvcs {
+			err = waitForPvResize(pvs[i], client, newSize, totalResizeWaitPeriod*2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "resize exceeded timeout")
+		}
+		elapsed := time.Since(start)
+
+		ginkgo.By("Verify PVC expansion took longer than vpxd timeout")
+		gomega.Expect(elapsed > time.Second*time.Duration(vpxdReducedTaskTimeoutSecsInt)).To(
+			gomega.BeTrue(), "PVC expansion was faster than vpxd timeout")
+
+		ginkgo.By("Wait and verify the file system resize on pvcs")
+		for i := range pods {
+			framework.Logf("Waiting for file system resize to finish for pvc %v", pvcs[i*2].Name)
+			pvcs[i*2], err = waitForFSResize(pvcs[i*2], client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			fsSize, err := getFSSizeMb(f, pods[i])
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("File system size after expansion : %v", fsSize)
+			gomega.Expect(fsSize > fsSizes[i]).To(gomega.BeTrue(),
+				fmt.Sprintf(
+					"filesystem size %v is not > than before expansion %v for pvc %q",
+					fsSize, fsSizes[i], pvcs[i*2].Name))
+
+			framework.Logf("File system resize finished successfully for pvc %v", pvcs[i*2].Name)
+		}
+
+	})
+
 })
 
 // fillVolumesInPods fills the volumes in pods after leaving 100m for FS metadata
@@ -1525,4 +2062,10 @@ func verifyKnownDataInPod(f *framework.Framework, pod *v1.Pod, testdataFile stri
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(len(op)).To(gomega.BeZero())
 	}
+}
+
+func reconfigPolicyParallel(ctx context.Context, volID string, policyId string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	err := e2eVSphere.reconfigPolicy(ctx, volID, policyId)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
