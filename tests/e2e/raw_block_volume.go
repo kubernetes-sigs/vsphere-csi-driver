@@ -26,6 +26,8 @@ import (
 	"strings"
 	"time"
 
+	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -71,6 +73,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		fcdID               string
 		pv                  *corev1.PersistentVolume
 		pvc                 *corev1.PersistentVolumeClaim
+		snapc               *snapclient.Clientset
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -84,6 +87,11 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+
+		//Get snapshot client using the rest config
+		restConfig = getRestConfigClient()
+		snapc, err = snapclient.NewForConfig(restConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
 		if err == nil && sc != nil {
@@ -147,6 +155,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			err := e2eVSphere.deleteFCD(ctx, fcdID, defaultDatastore.Reference())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+
 	})
 
 	/*
@@ -494,6 +503,11 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		ginkgo.By(fmt.Sprintf("Verify previously written data on raw volume attached to: %v at path %v", pod.Name,
 			pod.Spec.Containers[0].VolumeDevices[0].DevicePath))
 		verifyDataFromRawBlockVolume(namespace, pod.Name, devicePath, testdataFile, 0, 1)
+		ginkgo.By(fmt.Sprintf("Writing new 1mb test data in file %v", testdataFile))
+		op, err = exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
+			"bs=1M", "count=1").Output()
+		fmt.Println(op)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Write and read new data on raw volume attached to: %v at path %v", pod.Name,
 			pod.Spec.Containers[0].VolumeDevices[0].DevicePath))
 		verifyIOOnRawBlockVolume(namespace, pod.Name, devicePath, testdataFile, 0, 1)
@@ -795,6 +809,11 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			pod.Spec.Containers[0].VolumeDevices[0].DevicePath))
 		verifyDataFromRawBlockVolume(namespace, pod.Name, devicePath, testdataFile, 0, 1)
 		// Write data on expanded space to verify the expansion is successful and accessible.
+		ginkgo.By(fmt.Sprintf("Writing new 1mb test data in file %v", testdataFile))
+		op, err = exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
+			"bs=1M", "count=1").Output()
+		fmt.Println(op)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Write testdata of 1MB size from offset=%v on raw volume at path %v inside pod %v",
 			volsizeInMiBBeforeExpansion, pod.Spec.Containers[0].VolumeDevices[0].DevicePath, pod.Name))
 		verifyIOOnRawBlockVolume(namespace, pod.Name, devicePath, testdataFile,
@@ -1007,6 +1026,11 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			pod.Spec.Containers[0].VolumeDevices[0].DevicePath))
 		verifyDataFromRawBlockVolume(namespace, pod.Name, devicePath, testdataFile, 0, 1)
 		// Write data on expanded space to verify the expansion is successful and accessible.
+		ginkgo.By(fmt.Sprintf("Writing new 1mb test data in file %v", testdataFile))
+		op, err = exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
+			"bs=1M", "count=1").Output()
+		fmt.Println(op)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Write testdata of 1MB size from offset=%v on raw volume at path %v inside pod %v",
 			volsizeInMiBBeforeExpansion, pod.Spec.Containers[0].VolumeDevices[0].DevicePath, pod.Name))
 		verifyIOOnRawBlockVolume(namespace, pod.Name, devicePath, testdataFile,
@@ -1028,5 +1052,231 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			verifyCRDInSupervisorWithWait(ctx, f, pod.Spec.NodeName+"-"+svcPVCName,
 				crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
 		}
+	})
+
+	/*
+		Test snapshot restore operation with raw block volume
+		Steps:
+		1. Create a storage class (eg: vsan default) and create a pvc using this sc
+		2. Write some data on source volume
+		3. Create a VolumeSnapshot class with snapshotter as vsphere-csi-driver and set deletionPolicy to Delete
+		4. Create a volume-snapshot with labels, using the above snapshot-class and pvc (from step-1) as source
+		5. Ensure the snapshot is created, verify using get VolumeSnapshot
+		6. Also verify that VolumeSnapshotContent is auto-created
+		7. Verify the references to pvc and volume-snapshot on this object
+		8. Verify that the VolumeSnapshot has ready-to-use set to True
+		9. Verify that the Restore Size set on the snapshot is same as that of the source volume size
+		10. Query the snapshot from CNS side using volume id - should pass and return the snapshot entry
+		11. Restore the snapshot to another pvc
+		12. Verify previous data written on source volume is present on restored volume
+		13. Delete the above snapshot from k8s side using kubectl delete, run a get and ensure it is removed
+		14. Also ensure that the VolumeSnapshotContent is deleted along with the
+		    volume snapshot as the policy is delete
+		15. Query the snapshot from CNS side - should return 0 entries
+		16. Cleanup: Delete PVC, SC (validate they are removed)
+	*/
+	ginkgo.It("[block-vanilla-snapshot] Verify snapshot dynamic provisioning workflow with raw block volume", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		var snapshotContentCreated = false
+
+		ginkgo.By("Create storage class")
+		scParameters[scParamDatastoreURL] = datastoreURL
+		sc, err := createStorageClass(client, scParameters, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating source raw block PVC")
+		pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", sc, nil, "")
+		pvcspec.Spec.VolumeMode = &rawBlockVolumeMode
+		pvc1, err := fpv.CreatePVC(client, namespace, pvcspec)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
+
+		ginkgo.By("Expect source volume claim to provision volume successfully")
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*corev1.PersistentVolumeClaim{pvc1},
+			framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volumeID := pvs[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvc1.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// Verify using CNS Query API if VolumeID retrieved from PV is present.
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volumeID))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+		gomega.Expect(queryResult.Volumes[0].VolumeId.Id).To(gomega.Equal(volumeID))
+
+		ginkgo.By("Creating pod to attach source PV to the node")
+		pod1, err := createPod(client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc1},
+			false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			// Delete POD
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod1.Name, namespace))
+			err = fpod.DeletePodWithWait(client, pod1)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		var vmUUID string
+		nodeName := pod1.Spec.NodeName
+		if vanillaCluster {
+			vmUUID = getNodeUUID(ctx, client, pod1.Spec.NodeName)
+		}
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+
+		// Write and read some data on raw block volume inside the pod.
+		// Use same devicePath for raw block volume here as used inside podSpec by createPod().
+		// Refer setVolumes() for more information on naming of devicePath.
+		volumeIndex := 1
+		devicePath := fmt.Sprintf("%v%v", pod_devicePathPrefix, volumeIndex)
+		rand.New(rand.NewSource(time.Now().Unix()))
+		testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
+		ginkgo.By(fmt.Sprintf("Creating a 1mb test data file %v", testdataFile))
+		op, err := exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
+			"bs=1M", "count=1").Output()
+		fmt.Println(op)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			op, err = exec.Command("rm", "-f", testdataFile).Output()
+			fmt.Println(op)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+		ginkgo.By(fmt.Sprintf("Write and read data on source raw volume attached to: %v at path %v", pod1.Name,
+			pod1.Spec.Containers[0].VolumeDevices[0].DevicePath))
+		verifyIOOnRawBlockVolume(namespace, pod1.Name, devicePath, testdataFile, 0, 1)
+
+		// Create VolumeSnapshot and wait for it to be ready to use
+		ginkgo.By("Create volume snapshot class")
+		volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
+			getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil), metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			framework.Logf("Deleting volume snapshot class")
+			err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name, metav1.DeleteOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create a volume snapshot")
+		volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+			getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvc1.Name), metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Volume snapshot name is : %s and source volume name is : %s", volumeSnapshot.Name, pvc1.Name)
+		snapshotCreated := true
+
+		defer func() {
+			if snapshotCreated {
+				framework.Logf("Deleting volume snapshot")
+				err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, volumeSnapshot.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Verify volume snapshot is created")
+		volumeSnapshot, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, volumeSnapshot.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(volumeSnapshot.Status.RestoreSize.Cmp(resource.MustParse(diskSize))).To(gomega.BeZero())
+		snapshotContentCreated = true
+		defer func() {
+			if snapshotContentCreated {
+				framework.Logf("Deleting volume snapshot content")
+				err := snapc.SnapshotV1().VolumeSnapshotContents().Delete(ctx,
+					*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Verify volume snapshot content is created")
+		snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
+			*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(*snapshotContent.Status.ReadyToUse).To(gomega.BeTrue())
+
+		framework.Logf("Get volume snapshot ID from snapshot handle")
+		snapshothandle := *snapshotContent.Status.SnapshotHandle
+		snapshotId := strings.Split(snapshothandle, "+")[1]
+
+		ginkgo.By("Query CNS and check the volume snapshot entry")
+		err = verifySnapshotIsCreatedInCNS(volumeID, snapshotId)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Restore volumeSnapshot to another PVC
+		ginkgo.By("Restore volume snapshot to another raw block PVC")
+		restorePvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, sc, nil,
+			corev1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
+		restorePvcSpec.Spec.VolumeMode = &rawBlockVolumeMode
+		restoredPvc, err := fpv.CreatePVC(client, namespace, restorePvcSpec)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		restoredPvs, err := fpv.WaitForPVClaimBoundPhase(client,
+			[]*corev1.PersistentVolumeClaim{restoredPvc},
+			framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volumeID2 := restoredPvs[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volumeID2).NotTo(gomega.BeEmpty())
+
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, restoredPvc.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// Create a Pod to use this PVC, and verify volume has been attached
+		ginkgo.By("Creating pod to attach restored PVC to the node")
+		pod2, err := createPod(client, namespace, nil, []*corev1.PersistentVolumeClaim{restoredPvc}, false,
+			"")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		nodeName = pod2.Spec.NodeName
+		vmUUID = getNodeUUID(ctx, client, pod2.Spec.NodeName)
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID2, nodeName))
+		isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, volumeID2, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+		defer func() {
+			// Delete POD
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
+			err = fpod.DeletePodWithWait(client, pod2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Verify volume is detached from the node after expansion")
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod2.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod2.Spec.NodeName))
+			if guestCluster {
+				ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
+				time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
+				verifyCRDInSupervisorWithWait(ctx, f, pod2.Spec.NodeName+"-"+svcPVCName,
+					crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+			}
+		}()
+
+		// Verify previously written data. Later perform another write and verify it.
+		ginkgo.By(fmt.Sprintf("Verify previously written data on restored volume attached to: %v at path %v", pod2.Name,
+			pod2.Spec.Containers[0].VolumeDevices[0].DevicePath))
+		verifyDataFromRawBlockVolume(namespace, pod2.Name, devicePath, testdataFile, 0, 1)
+		ginkgo.By(fmt.Sprintf("Writing new 1mb test data in file %v", testdataFile))
+		op, err = exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
+			"bs=1M", "count=1").Output()
+		fmt.Println(op)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Write and read data on restored volume attached to: %v at path %v", pod2.Name,
+			pod2.Spec.Containers[0].VolumeDevices[0].DevicePath))
+		verifyIOOnRawBlockVolume(namespace, pod2.Name, devicePath, testdataFile, 0, 1)
 	})
 })

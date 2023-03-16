@@ -1480,8 +1480,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 	   26. Disable CSIMigration and CSIMigrationvSphere feature gates on
 	       kube-controller-manager (& restart).
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Test VCP-to-CSI migration "+
-		"with raw block volume", func() {
+	ginkgo.It("Test VCP-to-CSI migration with raw block volume", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating VCP SC")
