@@ -84,7 +84,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			if volumeMigrationService == nil {
 				// Instantiate volumeMigrationService when migration feature state is True.
 				if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
-					log.Errorf("FullSync for VC %s: Failed to get migration service. Err: %v", vc, err)
+					log.Errorf("FullSync for VC %s: Failed to initialize migration service. Err: %v", vc, err)
 					return err
 				}
 			}
