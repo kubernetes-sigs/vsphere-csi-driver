@@ -1131,8 +1131,10 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		ginkgo.By("verify we can read and write on the PVCs")
 		pods := createMultiplePods(ctx, client, pvclaims2d, true)
 
-		ginkgo.By("Delete the pod created")
-		deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+		defer func() {
+			ginkgo.By("Delete the pod created")
+			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+		}()
 
 		rand.New(rand.NewSource(time.Now().Unix()))
 		testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
@@ -1764,7 +1766,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				policyNames = append(policyNames, policyName)
 				policyIds = append(policyIds, policyIds[i])
 				storageclass, err := createStorageClass(client,
-					scParameters, nil, "", "", false, "")
+					scParameters, nil, "", "", true, "")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				scs = append(scs, storageclass)
 			}
