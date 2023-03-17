@@ -588,12 +588,19 @@ func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) 
 // statefulset, deployment and volumes of statfulset created
 func createStsDeployment(ctx context.Context, client clientset.Interface, namespace string,
 	sc *storagev1.StorageClass, isDeploymentRequired bool, modifyStsSpec bool,
-	replicaCount int32, stsName string) (*appsv1.StatefulSet, *appsv1.Deployment, []string) {
+	replicaCount int32, stsName string,
+	accessMode v1.PersistentVolumeAccessMode) (*appsv1.StatefulSet, *appsv1.Deployment, []string) {
 	var pvclaims []*v1.PersistentVolumeClaim
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		accessMode = v1.ReadWriteOnce
+	}
 	statefulset := GetStatefulSetFromManifest(namespace)
 	framework.Logf("Creating statefulset")
 	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 		Annotations["volume.beta.kubernetes.io/storage-class"] = sc.Name
+	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+		Spec.AccessModes[0] = accessMode
 	if modifyStsSpec {
 		statefulset.Name = stsName
 		statefulset.Spec.Template.Labels["app"] = statefulset.Name

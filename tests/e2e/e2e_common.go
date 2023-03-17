@@ -215,6 +215,7 @@ const (
 	topologyLength                             = 5
 	tkgshaTopologyLevels                       = 1
 	vmcPrdEndpoint                             = "https://vmc.vmware.com/vmc/api/orgs/"
+	vsphereClusterIdConfigMapName              = "vsphere-csi-cluster-id"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
 )

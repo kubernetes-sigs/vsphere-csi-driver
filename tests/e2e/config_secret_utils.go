@@ -551,7 +551,7 @@ func setSearchlevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig
 // createCsiVsphereSecret method is used to create csi vsphere secret file
 func createCsiVsphereSecret(client clientset.Interface, ctx context.Context, testUser string,
 	password string, csiNamespace string, vCenterIP string,
-	vCenterPort string, dataCenter string, targetvSANFileShareDatastoreURLs string) {
+	vCenterPort string, dataCenter string, targetvSANFileShareDatastoreURLs string, clusterID string) {
 	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	originalConf := string(currentSecret.Data[vSphereCSIConf])
@@ -560,6 +560,7 @@ func createCsiVsphereSecret(client clientset.Interface, ctx context.Context, tes
 	vsphereCfg.Global.User = testUser
 	vsphereCfg.Global.Password = password
 	vsphereCfg.Global.Datacenters = dataCenter
+	vsphereCfg.Global.ClusterID = clusterID
 	vsphereCfg.Global.TargetvSANFileShareDatastoreURLs = targetvSANFileShareDatastoreURLs
 	modifiedConf, err := writeConfigToSecretString(vsphereCfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
