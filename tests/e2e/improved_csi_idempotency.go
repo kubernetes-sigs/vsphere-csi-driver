@@ -396,7 +396,7 @@ func createVolumesByReducingProvisionerTime(namespace string, client clientset.I
 
 	ginkgo.By("Waiting for all claims to be in bound state")
 	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims,
-		framework.ClaimProvisionTimeout)
+		(2 * framework.ClaimProvisionTimeout))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// TODO: Add a logic to check for the no orphan volumes
@@ -603,7 +603,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 	ginkgo.By("Waiting for all claims to be in bound state")
 	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims,
-		framework.ClaimProvisionTimeout)
+		(2 * framework.ClaimProvisionTimeout))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// TODO: Add a logic to check for the no orphan volumes
@@ -708,7 +708,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 	ginkgo.By("Waiting for all claims to be in bound state")
 	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims,
-		framework.ClaimProvisionTimeout)
+		(2 * framework.ClaimProvisionTimeout))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// TODO: Add a logic to check for the no orphan volumes

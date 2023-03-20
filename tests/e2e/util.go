@@ -1110,7 +1110,7 @@ func updateCSIDeploymentProvisionerTimeout(client clientset.Interface, namespace
 	framework.Logf("Waiting for a min for update operation on deployment to take effect...")
 	time.Sleep(1 * time.Minute)
 	err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
-		pollTimeout, ignoreLabels)
+		2*pollTimeout, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
@@ -5263,7 +5263,7 @@ func waitForVolumeSnapshotReadyToUse(client snapclient.Clientset, ctx context.Co
 func waitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx context.Context,
 	name string) error {
 	var err error
-	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
+	waitErr := wait.PollImmediate(poll, 2*pollTimeout, func() (bool, error) {
 		_, err = client.SnapshotV1().VolumeSnapshotContents().Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {

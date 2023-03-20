@@ -44,18 +44,19 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 	f := framework.NewDefaultFramework("file-snapshot")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client           clientset.Interface
-		csiNamespace     string
-		csiReplicas      int32
-		isServiceStopped bool
-		namespace        string
-		scParameters     map[string]string
-		datastoreURL     string
-		fullSyncWaitTime int
-		pvclaims         []*v1.PersistentVolumeClaim
-		restConfig       *restclient.Config
-		snapc            *snapclient.Clientset
-		serviceName      string
+		client              clientset.Interface
+		csiNamespace        string
+		csiReplicas         int32
+		isServiceStopped    bool
+		namespace           string
+		scParameters        map[string]string
+		datastoreURL        string
+		fullSyncWaitTime    int
+		pvclaims            []*v1.PersistentVolumeClaim
+		restConfig          *restclient.Config
+		snapc               *snapclient.Clientset
+		serviceName         string
+		pandoraSyncWaitTime int
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -93,6 +94,13 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicas = *csiDeployment.Spec.Replicas
+
+		if os.Getenv(envPandoraSyncWaitTime) != "" {
+			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+		}
 	})
 
 	ginkgo.AfterEach(func() {
@@ -201,6 +209,9 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 				framework.Logf("Deleting volume snapshot")
 				err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, volumeSnapshot.Name, metav1.DeleteOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+				time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 			}
 		}()
 
@@ -222,38 +233,38 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 	ginkgo.It("create volume snapshot when hostd goes down", func() {
 		serviceName = hostdServiceName
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
-			fullSyncWaitTime, isServiceStopped, true, csiReplicas)
+			fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 
 	ginkgo.It("create volume snapshot when CSI restarts", func() {
 		serviceName = "CSI"
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
-			fullSyncWaitTime, isServiceStopped, true, csiReplicas)
+			fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 
 	ginkgo.It("create volume snapshot when VPXD goes down", func() {
 		serviceName = vpxdServiceName
 		snapshotOperationWhileServiceDownNegative(serviceName, namespace, client, snapc, datastoreURL,
-			fullSyncWaitTime, isServiceStopped, csiReplicas)
+			fullSyncWaitTime, isServiceStopped, csiReplicas, pandoraSyncWaitTime)
 	})
 
 	ginkgo.It("create volume snapshot when CNS goes down", func() {
 		serviceName = vsanhealthServiceName
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
-			fullSyncWaitTime, isServiceStopped, false, csiReplicas)
+			fullSyncWaitTime, isServiceStopped, false, csiReplicas, pandoraSyncWaitTime)
 	})
 
 	ginkgo.It("create volume snapshot when SPS goes down", func() {
 		serviceName = spsServiceName
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
-			fullSyncWaitTime, isServiceStopped, true, csiReplicas)
+			fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 })
 
 // snapshotOperationWhileServiceDown creates the volumesnapshot while the services is down
 func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 	client clientset.Interface, snapc *snapclient.Clientset, datastoreURL string,
-	fullSyncWaitTime int, isServiceStopped bool, isSnapshotCreated bool, csiReplicas int32) {
+	fullSyncWaitTime int, isServiceStopped bool, isSnapshotCreated bool, csiReplicas int32, pandoraSyncWaitTime int) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var storageclass *storagev1.StorageClass
@@ -322,6 +333,9 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 				snapshot.Name, metav1.DeleteOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+			time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
 			framework.Logf("Wait till the volume snapshot is deleted")
 			err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, snapshot.ObjectMeta.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -332,6 +346,10 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 			framework.Logf("Deleting volume snapshot content")
 			err := snapc.SnapshotV1().VolumeSnapshotContents().Delete(ctx,
 				*snapshot.Status.BoundVolumeSnapshotContentName, metav1.DeleteOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			framework.Logf("Wait till the volume snapshot is deleted")
+			err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *snapshot.Status.BoundVolumeSnapshotContentName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}()
@@ -639,7 +657,7 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 // snapshotOperationWhileServiceDownNegative creates the volumesnapshot while the services is down
 func snapshotOperationWhileServiceDownNegative(serviceName string, namespace string,
 	client clientset.Interface, snapc *snapclient.Clientset, datastoreURL string,
-	fullSyncWaitTime int, isServiceStopped bool, csiReplicas int32) {
+	fullSyncWaitTime int, isServiceStopped bool, csiReplicas int32, pandoraSyncWaitTime int) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var storageclass *storagev1.StorageClass
@@ -705,6 +723,9 @@ func snapshotOperationWhileServiceDownNegative(serviceName string, namespace str
 			err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx,
 				snapshot.Name, metav1.DeleteOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+			time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
 			framework.Logf("Wait till the volume snapshot is deleted")
 			err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, snapshot.ObjectMeta.Name)
