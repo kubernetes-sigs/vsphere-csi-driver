@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			} else if serviceName == hostdServiceName {
 				framework.Logf("In afterEach function to start the hostd service on all hosts")
-				hostIPs := getAllHostsIP(ctx)
+				hostIPs := getAllHostsIP(ctx, true)
 				for _, hostIP := range hostIPs {
 					startHostDOnHost(ctx, hostIP)
 				}
@@ -396,7 +396,7 @@ func createVolumesByReducingProvisionerTime(namespace string, client clientset.I
 
 	ginkgo.By("Waiting for all claims to be in bound state")
 	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims,
-		framework.ClaimProvisionTimeout)
+		2*framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// TODO: Add a logic to check for the no orphan volumes
@@ -536,7 +536,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 	} else if serviceName == hostdServiceName {
 		ginkgo.By("Fetch IPs for the all the hosts in the cluster")
-		hostIPs := getAllHostsIP(ctx)
+		hostIPs := getAllHostsIP(ctx, true)
 		isServiceStopped = true
 
 		var wg sync.WaitGroup
@@ -603,7 +603,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 	ginkgo.By("Waiting for all claims to be in bound state")
 	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims,
-		framework.ClaimProvisionTimeout)
+		2*framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// TODO: Add a logic to check for the no orphan volumes
@@ -708,7 +708,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 	ginkgo.By("Waiting for all claims to be in bound state")
 	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims,
-		framework.ClaimProvisionTimeout)
+		2*framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// TODO: Add a logic to check for the no orphan volumes

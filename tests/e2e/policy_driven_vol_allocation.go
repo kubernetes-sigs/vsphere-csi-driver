@@ -1468,6 +1468,14 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var err error
+		var pandoraSyncWaitTime int
+		if os.Getenv(envPandoraSyncWaitTime) != "" {
+			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+		}
 
 		sharedvmfsURL := os.Getenv(envSharedVMFSDatastoreURL)
 		if sharedvmfsURL == "" {
@@ -1621,9 +1629,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			if len(snaps) > 0 {
 				for _, snap := range snaps {
 					framework.Logf("Delete volume snapshot %v", snap.Name)
-					err = snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(
-						ctx, snap.Name, metav1.DeleteOptions{})
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, snap.Name, pandoraSyncWaitTime)
 				}
 				for i, snapshotId := range snapIDs {
 					framework.Logf("Verify snapshot entry %v is deleted from CNS for volume %v", snapshotId, volIds[i])
@@ -1649,9 +1655,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		ginkgo.By("Delete snapshots created in step 6")
 		for _, snap := range snaps {
 			framework.Logf("Delete volume snapshot %v", snap.Name)
-			err = snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(
-				ctx, snap.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, snap.Name, pandoraSyncWaitTime)
 		}
 		for i, snapshotId := range snapIDs {
 			framework.Logf("Verify snapshot entry %v is deleted from CNS for volume %v", snapshotId, volIds[i])

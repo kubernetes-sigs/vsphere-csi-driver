@@ -154,6 +154,25 @@ func verifySnapshotIsDeletedInCNS(volumeId string, snapshotId string) error {
 	return nil
 }
 
+// verifySnapshotIsDeletedInCNSWithPandoraWait verifies the snapshotId's presence on CNS
+func verifySnapshotIsDeletedInCNSWithPandoraWait(volumeId string, snapshotId string, pandoraSyncWaitTime int) error {
+	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",
+		volumeId, snapshotId))
+	querySnapshotResult, err := e2eVSphere.queryCNSVolumeSnapshotWithResult(volumeId, snapshotId)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("Task result is %+v", querySnapshotResult))
+	gomega.Expect(querySnapshotResult.Entries).ShouldNot(gomega.BeEmpty())
+	if querySnapshotResult.Entries[0].Snapshot.SnapshotId.Id != "" {
+		return fmt.Errorf("snapshot entry is still present in CNS %s",
+			querySnapshotResult.Entries[0].Snapshot.SnapshotId.Id)
+	}
+
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+	return nil
+}
+
 // verifySnapshotIsCreatedInCNS verifies the snapshotId's presence on CNS
 func verifySnapshotIsCreatedInCNS(volumeId string, snapshotId string) error {
 	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",
@@ -449,7 +468,7 @@ func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string
 // waitForCNSVolumeToBeDeleted executes QueryVolume API on vCenter and verifies
 // volume entries are deleted from vCenter Database
 func (vs *vSphere) waitForCNSVolumeToBeDeleted(volumeID string) error {
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+	err := wait.Poll(poll, 2*pollTimeout, func() (bool, error) {
 		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 		if err != nil {
 			return true, err
@@ -769,9 +788,14 @@ func (vs *vSphere) getVsanClusterResource(ctx context.Context, forceRefresh ...b
 }
 
 // getAllHostsIP reads cluster, gets hosts in it and returns IP array
-func getAllHostsIP(ctx context.Context) []string {
+func getAllHostsIP(ctx context.Context, forceRefresh ...bool) []string {
 	var result []string
-	cluster := e2eVSphere.getVsanClusterResource(ctx)
+	refresh := false
+	if len(forceRefresh) > 0 {
+		refresh = forceRefresh[0]
+	}
+
+	cluster := e2eVSphere.getVsanClusterResource(ctx, refresh)
 	hosts, err := cluster.Hosts(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

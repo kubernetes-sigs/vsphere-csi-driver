@@ -29,7 +29,6 @@ import (
 	"golang.org/x/crypto/ssh"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -491,14 +490,13 @@ snapshot class, volume snapshot created for pvc post testcase completion
 */
 func performCleanUpForSnapshotCreated(ctx context.Context, snapc *snapclient.Clientset,
 	namespace string, volHandle string, volumeSnapshot *snapV1.VolumeSnapshot, snapshotId string,
-	volumeSnapshotClass *snapV1.VolumeSnapshotClass) {
+	volumeSnapshotClass *snapV1.VolumeSnapshotClass, pandoraSyncWaitTime int) {
 
 	framework.Logf("Delete volume snapshot and verify the snapshot content is deleted")
-	err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, volumeSnapshot.Name, metav1.DeleteOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
 
 	framework.Logf("Wait till the volume snapshot is deleted")
-	err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
+	err := waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	framework.Logf("Verify snapshot entry is deleted from CNS")
@@ -506,10 +504,7 @@ func performCleanUpForSnapshotCreated(ctx context.Context, snapc *snapclient.Cli
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	framework.Logf("Deleting volume snapshot Again to check Not found error")
-	err = snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, volumeSnapshot.Name, metav1.DeleteOptions{})
-	if !apierrors.IsNotFound(err) {
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
+	deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
 
 	framework.Logf("Deleting volume snapshot class")
 	err = snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name, metav1.DeleteOptions{})

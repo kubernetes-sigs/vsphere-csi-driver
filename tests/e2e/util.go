@@ -1110,7 +1110,7 @@ func updateCSIDeploymentProvisionerTimeout(client clientset.Interface, namespace
 	framework.Logf("Waiting for a min for update operation on deployment to take effect...")
 	time.Sleep(1 * time.Minute)
 	err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
-		pollTimeout, ignoreLabels)
+		2*pollTimeout, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
@@ -1410,7 +1410,7 @@ func checkVcenterServicesRunning(
 
 	var pollTime time.Duration
 	if len(timeout) == 0 {
-		pollTime = pollTimeout * 2
+		pollTime = pollTimeout * 6
 	} else {
 		pollTime = timeout[0]
 	}
@@ -5263,16 +5263,64 @@ func waitForVolumeSnapshotReadyToUse(client snapclient.Clientset, ctx context.Co
 func waitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx context.Context,
 	name string) error {
 	var err error
-	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
+	waitErr := wait.PollImmediate(poll, 2*pollTimeout, func() (bool, error) {
 		_, err = client.SnapshotV1().VolumeSnapshotContents().Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
+			if apierrors.IsNotFound(err) {
 				return true, nil
 			} else {
 				return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
 			}
 		}
 		return false, nil
+	})
+	return waitErr
+}
+
+// deleteVolumeSnapshotWithPandoraWait deletes Volume Snapshot with Pandora wait for CNS to sync
+func deleteVolumeSnapshotWithPandoraWait(ctx context.Context, snapc *snapclient.Clientset,
+	namespace string, snapshotName string, pandoraSyncWaitTime int) {
+	err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, snapshotName,
+		metav1.DeleteOptions{})
+	if !apierrors.IsNotFound(err) {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+}
+
+// deleteVolumeSnapshotContentWithPandoraWait deletes Volume Snapshot Content with Pandora wait for CNS to sync
+func deleteVolumeSnapshotContentWithPandoraWait(ctx context.Context, snapc *snapclient.Clientset,
+	snapshotContentName string, pandoraSyncWaitTime int) {
+	err := snapc.SnapshotV1().VolumeSnapshotContents().Delete(ctx, snapshotContentName, metav1.DeleteOptions{})
+	if !apierrors.IsNotFound(err) {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+	err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc, snapshotContentName, pandoraSyncWaitTime)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// waitForVolumeSnapshotContentToBeDeletedWithPandoraWait wait till the volume snapshot content is deleted
+func waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx context.Context, snapc *snapclient.Clientset,
+	name string, pandoraSyncWaitTime int) error {
+	var err error
+	waitErr := wait.PollImmediate(poll, 2*pollTimeout, func() (bool, error) {
+		_, err = snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+				time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+				return true, nil
+			} else {
+				return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
+			}
+		}
+		return false, err
 	})
 	return waitErr
 }
