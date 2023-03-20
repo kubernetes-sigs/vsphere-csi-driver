@@ -60,8 +60,10 @@ const (
 */
 
 var _ = ginkgo.Describe("statefulset", func() {
-
 	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
+	if supervisorCluster {
+		f.SkipNamespaceCreation = true
+	}
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		namespace               string
@@ -76,6 +78,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 	ginkgo.BeforeEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		namespace = getNamespaceToRunTests(f)
 		client = f.ClientSet
 		bootstrap()
