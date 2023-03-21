@@ -45,7 +45,9 @@ import (
 
 var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor] [csi-guest] "+
 	"[csi-block-vanilla-parallelized] Volume Disk Size ", func() {
-	f := framework.NewDefaultFramework("volume-disksize")
+
+	f := NewFramework("volume-disksize")
+	//f := framework.NewDefaultFramework("volume-disksize")
 	var (
 		client            clientset.Interface
 		namespace         string
@@ -53,6 +55,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		datastoreURL      string
 		pvclaims          []*v1.PersistentVolumeClaim
 		storagePolicyName string
+		is_DevopsUser     bool
 	)
 	ginkgo.BeforeEach(func() {
 		bootstrap()
@@ -61,11 +64,16 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		scParameters = make(map[string]string)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
-		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
-		if !(len(nodeList.Items) > 0) {
-			framework.Failf("Unable to find ready and schedulable Node")
+		is_DevopsUser = GetAndExpectBoolEnvVar(isdevopsUser)
+
+		if !is_DevopsUser {
+			nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+			if !(len(nodeList.Items) > 0) {
+				framework.Failf("Unable to find ready and schedulable Node")
+			}
 		}
+
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, rqLimit)
@@ -158,4 +166,86 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
+
+	// Test for valid disk size of 2Gi
+	ginkgo.It("dynamic-test", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("Invoking Test for valid disk size")
+		var storageclass *storagev1.StorageClass
+		var pvclaim *v1.PersistentVolumeClaim
+		var err error
+		// decide which test setup is available to run
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters[scParamDatastoreURL] = datastoreURL
+			storageclass, pvclaim, err = createPVCAndStorageClass(client,
+				namespace, nil, scParameters, diskSize, nil, "", false, "")
+		} else if supervisorCluster {
+			ginkgo.By("CNS_TEST: Running for WCP setup")
+			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			scParameters[scParamStoragePolicyID] = profileID
+
+			if !is_DevopsUser {
+
+				// create resource quota
+				createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+			}
+
+			storageclass, pvclaim, err = createPVCAndStorageClass(client,
+				namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+		} else {
+			ginkgo.By("CNS_TEST: Running for GC setup")
+			scParameters[svStorageClassName] = storagePolicyName
+			storageclass, pvclaim, err = createPVCAndStorageClass(client,
+				namespace, nil, scParameters, diskSize, nil, "", false, "")
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			if !supervisorCluster {
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Expect claim to provision volume successfully")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
+
+		pvclaims = append(pvclaims, pvclaim)
+
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+		if guestCluster {
+			// svcPVCName refers to PVC Name in the supervisor cluster
+			svcPVCName := volHandle
+			volHandle = getVolumeIDFromSupervisorCluster(svcPVCName)
+		}
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if len(queryResult.Volumes) == 0 {
+			err = fmt.Errorf("QueryCNSVolumeWithResult returned no volume")
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Verifying disk size specified in PVC in honored")
+		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != diskSizeInMb {
+			err = fmt.Errorf("wrong disk size provisioned ")
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
 })

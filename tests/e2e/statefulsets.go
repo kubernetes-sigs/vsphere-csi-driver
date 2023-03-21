@@ -61,7 +61,6 @@ const (
 
 var _ = ginkgo.Describe("statefulset", func() {
 
-	//f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
 	f := NewFramework("e2e-vsphere-statefulset")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
@@ -72,6 +71,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		storageClassName        string
 		sshClientConfig         *ssh.ClientConfig
 		nimbusGeneratedK8sVmPwd string
+		is_DevopsUser           bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -87,6 +87,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 		}
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+		is_DevopsUser = GetAndExpectBoolEnvVar(isdevopsUser)
 
 		sshClientConfig = &ssh.ClientConfig{
 			User: "root",
@@ -115,8 +116,8 @@ var _ = ginkgo.Describe("statefulset", func() {
 		}
 	})
 
-	ginkgo.It("[csi-supervisor]"+
-		"Statefulset-test", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized]"+
+		"Statefulset testing with default podManagementPolicy", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
@@ -131,7 +132,10 @@ var _ = ginkgo.Describe("statefulset", func() {
 			scParameters[scParamStoragePolicyID] = profileID
 			storageClassName = defaultNginxStorageClassName
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, defaultNginxStorageClassName)
+			if !is_DevopsUser {
+				createResourceQuota(client, namespace, rqLimit, defaultNginxStorageClassName)
+			}
+
 		}
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)

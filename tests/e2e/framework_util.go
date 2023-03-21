@@ -32,7 +32,13 @@ func NewFramework(baseName string) *framework.Framework {
 		ClientQPS:   20,
 		ClientBurst: 50,
 	}
-	return NewSupervisourFramework(baseName, options, nil)
+
+	if supervisorCluster {
+		return NewSupervisourFramework(baseName, options, nil)
+	} else {
+		return framework.NewFramework(baseName, options, nil)
+	}
+
 }
 
 // NewFramework creates a test framework.

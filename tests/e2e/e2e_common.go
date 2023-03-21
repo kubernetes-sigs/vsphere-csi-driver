@@ -217,6 +217,7 @@ const (
 	vmcPrdEndpoint                             = "https://vmc.vmware.com/vmc/api/orgs/"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
+	isdevopsUser = "IS_DEVOPS_USER"
 )
 
 // The following variables are required to know cluster type to run common e2e
