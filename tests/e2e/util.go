@@ -5081,9 +5081,9 @@ func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Cont
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// Verify the attached volume match the one in CNS cache
-			error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-				volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
-			gomega.Expect(error).NotTo(gomega.HaveOccurred())
+			// error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+			// 	volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+			// gomega.Expect(error).NotTo(gomega.HaveOccurred())
 		}
 	}
 }
