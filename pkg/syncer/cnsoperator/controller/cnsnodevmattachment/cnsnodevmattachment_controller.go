@@ -630,6 +630,9 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		// This can happen when reconciler returns reconcile.Result{RequeueAfter: timeout}, the err will be set to nil,
 		// and corresponding faulttype will be set
 		// for this case, we need count it as an attach/detach failure
+		if csifault.IsNonStorageFault(faulttype) {
+			faulttype = csifault.AddCsiNonStoragePrefix(ctx, faulttype)
+		}
 		log.Errorf("Operation failed, reporting failure status to Prometheus."+
 			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
 			volumeOpType, volumeType, faulttype)
