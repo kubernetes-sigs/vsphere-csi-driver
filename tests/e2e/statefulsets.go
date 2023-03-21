@@ -60,14 +60,9 @@ const (
 */
 
 var _ = ginkgo.Describe("statefulset", func() {
-	framework.Logf("1****** before NewDefaultFramework")
-	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
-	framework.Logf("2****** before SkipNamespaceCreation")
-	if supervisorCluster {
-		framework.Logf("*******Setting true *****")
-		f.SkipNamespaceCreation = true
-	}
-	framework.Logf("3****** after SkipNamespaceCreation")
+
+	//f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
+	f := NewFramework("e2e-vsphere-statefulset")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		namespace               string
