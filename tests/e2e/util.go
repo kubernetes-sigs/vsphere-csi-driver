@@ -605,11 +605,16 @@ func getVMUUIDFromNodeName(nodeName string) (string, error) {
 // one is CNS cache.
 func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string,
 	PersistentVolumeClaimName string, PersistentVolumeName string,
-	PodName string, Labels ...vim25types.KeyValue) error {
+	PodName string, clusterID string, Labels ...vim25types.KeyValue) error {
 	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 	if err != nil {
 		return err
 	}
+
+	if clusterID == "" {
+		clusterID = e2eVSphere.Config.Global.ClusterID
+	}
+
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 	if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
 		return fmt.Errorf("failed to query cns volume %s", volumeID)
@@ -624,6 +629,15 @@ func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string,
 		} else if kubernetesMetadata.EntityType == "PERSISTENT_VOLUME_CLAIM" &&
 			kubernetesMetadata.EntityName != PersistentVolumeClaimName {
 			return fmt.Errorf("entity PVC with name %s not found for volume %s", PersistentVolumeClaimName, volumeID)
+		}
+		if kubernetesMetadata.EntityType == "POD" && kubernetesMetadata.ClusterID != clusterID {
+			return fmt.Errorf("clusterID %s is not matching with %s ", clusterID, kubernetesMetadata.ClusterID)
+		} else if kubernetesMetadata.EntityType == "PERSISTENT_VOLUME" &&
+			kubernetesMetadata.ClusterID != clusterID {
+			return fmt.Errorf("clusterID %s is not matching with %s ", clusterID, kubernetesMetadata.ClusterID)
+		} else if kubernetesMetadata.EntityType == "PERSISTENT_VOLUME_CLAIM" &&
+			kubernetesMetadata.ClusterID != clusterID {
+			return fmt.Errorf("clusterID %s is not matching with %s ", clusterID, kubernetesMetadata.ClusterID)
 		}
 	}
 	labelMap := make(map[string]string)
@@ -948,9 +962,12 @@ func updateDeploymentReplicawithWait(client clientset.Interface, count int32, na
 	var err error
 	waitErr := wait.Poll(healthStatusPollInterval, healthStatusPollTimeout, func() (bool, error) {
 		deployment, err = client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if err != nil {
-			return false, nil
+			if count == 0 && apierrors.IsNotFound(err) {
+				return true, nil
+			} else {
+				return false, err
+			}
 		}
 		*deployment.Spec.Replicas = count
 		ginkgo.By("Waiting for update operation on deployment to take effect")
@@ -4480,7 +4497,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context,
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				// Verify the attached volume match the one in CNS cache
 				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name, "")
 				gomega.Expect(error).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -4686,7 +4703,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 
 				// Verify the attached volume match the one in CNS cache
 				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name, "")
 				gomega.Expect(error).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -4813,7 +4830,7 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 			if volumespec.PersistentVolumeClaim != nil {
 				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 				err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name, "")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -4881,7 +4898,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 				gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
 				ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
 				err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name, "")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -5038,7 +5055,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Co
 
 				// Verify the attached volume match the one in CNS cache
 				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name, "")
 				gomega.Expect(error).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -5090,7 +5107,7 @@ func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Cont
 
 			// Verify the attached volume match the one in CNS cache
 			error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-				volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+				volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name, "")
 			gomega.Expect(error).NotTo(gomega.HaveOccurred())
 		}
 	}
@@ -6199,4 +6216,44 @@ func getBlockDevSizeInBytes(f *framework.Framework, ns string, pod *v1.Pod, devi
 	}
 	output = strings.TrimSuffix(output, "\n")
 	return strconv.ParseInt(output, 10, 64)
+}
+
+// verifyClusterIdConfigMapGeneration verifies if cluster id configmap gets generated by
+// csi driver in csi namespace
+func verifyClusterIdConfigMapGeneration(client clientset.Interface, ctx context.Context,
+	csiNamespace string, cmToExist bool) {
+	_, err := client.CoreV1().ConfigMaps(csiNamespace).Get(ctx, vsphereClusterIdConfigMapName,
+		metav1.GetOptions{})
+	if cmToExist && apierrors.IsNotFound(err) {
+		framework.Logf("Configmap: %s not found in namespace: %s", vsphereClusterIdConfigMapName, csiNamespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else if !cmToExist && !apierrors.IsNotFound(err) {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+// fetchClusterIdFromConfigmap fetches cluster id value from
+// auto generated cluster id configmap by csi driver
+func fetchClusterIdFromConfigmap(client clientset.Interface, ctx context.Context,
+	csiNamespace string) string {
+	clusterIdCm, err := client.CoreV1().ConfigMaps(csiNamespace).Get(ctx, vsphereClusterIdConfigMapName,
+		metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	data := clusterIdCm.Data
+	framework.Logf("cluster id configmap: %v", clusterIdCm)
+	return data["clusterID"]
+}
+
+// recreateVsphereConfigSecret recreates config secret with new config parameters
+// and restarts CSI driver
+func recreateVsphereConfigSecret(client clientset.Interface, ctx context.Context,
+	vCenterUIUser string, vCenterUIPassword string, csiNamespace string, vCenterIP string,
+	clusterId string, vCenterPort string, dataCenter string, csiReplicas int32) {
+	createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
+		vCenterIP, clusterId, vCenterPort, dataCenter, "")
+
+	ginkgo.By("Restart CSI driver")
+	restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
+	gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

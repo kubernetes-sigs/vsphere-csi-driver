@@ -126,7 +126,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] st
 					volumesBeforeScaleDown = append(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -170,7 +170,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] st
 				if volumespec.PersistentVolumeClaim != nil {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -212,7 +212,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] st
 					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
 					ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
 					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}

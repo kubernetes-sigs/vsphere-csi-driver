@@ -188,6 +188,7 @@ const (
 	vsanhealthServiceName                     = "vsan-health"
 	vsphereCloudProviderConfiguration         = "vsphere-cloud-provider.conf"
 	vsphereControllerManager                  = "vmware-system-tkg-controller-manager"
+	vsphereClusterIdConfigMapName             = "vsphere-csi-cluster-id"
 	vSphereCSIConf                            = "csi-vsphere.conf"
 	vsphereTKGSystemNamespace                 = "vmware-system-tkg"
 	waitTimeForCNSNodeVMAttachmentReconciler  = 30 * time.Second

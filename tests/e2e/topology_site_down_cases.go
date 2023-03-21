@@ -290,7 +290,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -482,7 +482,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -671,7 +671,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -857,7 +857,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -1047,7 +1047,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -1275,7 +1275,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
