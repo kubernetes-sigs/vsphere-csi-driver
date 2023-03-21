@@ -365,7 +365,11 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Wait for csi controller pods to be in running state")
+		framework.Logf("Waiting for %v csi controller pods to be in running state",
+			pollTimeout)
+		time.Sleep(pollTimeout)
+
+		ginkgo.By("Check csi controller pods running state")
 		list_of_pods, err := fpod.GetPodsInNamespace(client, csiNamespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i := 0; i < len(list_of_pods); i++ {

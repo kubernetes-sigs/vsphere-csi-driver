@@ -261,7 +261,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 		storagePolicyNameFromOtherZone := GetAndExpectStringEnvVar(envStoragePolicyNameFromInaccessibleZone)
 		scParameters := make(map[string]string)
 		scParameters[scParamStoragePolicyName] = storagePolicyNameFromOtherZone
-		errStringToVerify := "No compatible shared datastores found for storage policy"
+		errStringToVerify := "No compatible datastores found for accessibility requirements"
 		invokeTopologyBasedVolumeProvisioningWithInaccessibleParameters(f, client,
 			namespace, scParameters, allowedTopologies, errStringToVerify)
 	})

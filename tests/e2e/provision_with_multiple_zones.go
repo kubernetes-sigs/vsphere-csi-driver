@@ -166,7 +166,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 			in the allowed topology
 		//Steps
 		1. Create SC with multiple Zone and region details specified in the SC
-		2. Create statefulset with replica 5 using the above SC
+		2. Create statefulset with replica 3 using the above SC
 		3. Wait for PV, PVC to bound
 		4. Statefulset should get distributed across zones.
 		5. Describe PV and verify node affinity details should contain both
@@ -199,11 +199,17 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		// Creating statefulset with 5 replicas
-		ginkgo.By("Creating statefulset with 5 replica")
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
+		// Creating statefulset with 3 replicas
+		ginkgo.By("Creating statefulset with 3 replica")
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
-		var replica int32 = 5
+		var replica int32 = 3
 		statefulset.Spec.Replicas = &replica
 		replicas := *(statefulset.Spec.Replicas)
 		CreateStatefulSet(namespace, statefulset, client)

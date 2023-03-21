@@ -96,7 +96,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		// Get the event list and verify if it contains expected error message
 		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
-		expectedErrMsg := "failed to get shared datastores for topology requirement"
+		expectedErrMsg := "No compatible datastores found for accessibility requirements"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
 	})
@@ -137,7 +137,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		// Get the event list and verify if it contains expected error message
 		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
-		expectedErrMsg := "failed to get shared datastores for topology requirement"
+		expectedErrMsg := "No compatible datastores found for accessibility requirements"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
 	})
@@ -177,7 +177,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		// Get the event list and verify if it contains expected error message
 		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
-		expectedErrMsg := "failed to get shared datastores for topology requirement"
+		expectedErrMsg := "No compatible datastores found for accessibility requirements"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error %q", expectedErrMsg))
 	})

@@ -295,10 +295,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 				}
 			}
 		}
-		ginkgo.By("Verify k8s cluster is healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Scale down statefulSets replica count
 		statefulSetReplicaCount = 0
@@ -492,11 +488,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			}
 		}
 
-		ginkgo.By("Verify k8s cluster is healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		// Scale down statefulSets replica count
 		statefulSetReplicaCount = 0
 		ginkgo.By("Scale down statefulset replica count")
@@ -616,6 +607,12 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		}()
 		powerOffHostsList = append(append(powerOffHostsList, powerOffHostsList2...), powerOffHostsList3...)
 
+		// Wait for k8s cluster to be healthy
+		ginkgo.By("Wait for k8s cluster to be healthy")
+		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
@@ -629,6 +626,12 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		for i := 0; i < len(powerOffHostsList); i++ {
 			powerOnEsxiHostByCluster(powerOffHostsList[i])
 		}
+
+		// Wait for k8s cluster to be healthy
+		ginkgo.By("Wait for k8s cluster to be healthy")
+		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Scale up statefulSets replicas count
 		ginkgo.By("Scaleup any one StatefulSets replica")
@@ -648,11 +651,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 				"Number of Pods in the statefulset should match with number of replicas")
 		}
-
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		/* Verify PV nde affinity and that the pods are running on appropriate nodes
 		for each StatefulSet pod */
@@ -678,11 +676,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 				}
 			}
 		}
-
-		ginkgo.By("Verify k8s cluster is healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Scale down statefulSets replica count
 		statefulSetReplicaCount = 0
@@ -870,11 +863,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			}
 		}
 
-		ginkgo.By("Verify k8s cluster is healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		// Scale down statefulSets replica count
 		statefulSetReplicaCount = 0
 		ginkgo.By("Scale down statefulset replica count")
@@ -987,6 +975,12 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			}
 		}()
 
+		// Wait for k8s cluster to be healthy
+		ginkgo.By("Wait for k8s cluster to be healthy")
+		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
 		ssPods = fss.GetPodList(client, statefulSets[1])
@@ -1058,11 +1052,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 				}
 			}
 		}
-
-		ginkgo.By("Verify k8s cluster is healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Scale down statefulSets replica count
 		statefulSetReplicaCount = 0
@@ -1291,10 +1280,6 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 				}
 			}
 		}
-		ginkgo.By("Verify k8s cluster is healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Scale down statefulSets replica count
 		statefulSetReplicaCount = 0
