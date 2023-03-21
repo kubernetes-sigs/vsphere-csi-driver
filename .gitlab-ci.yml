@@ -5,6 +5,7 @@ stages:
   - e2e-tests-dev
   - deploy-staging
   - tests-staging
+  - prod-rollout
 
 run-unit-tests:
   stage: unit-test
@@ -103,9 +104,6 @@ deploy-images-staging:
     - build-images
   only:
     - master
-  artifacts:
-    reports:
-      dotenv: build.env
 
 e2e-tests-staging:
   stage: tests-staging
@@ -137,5 +135,16 @@ perf-tests-staging:
     - deploy-images-staging
   script:
     - echo "TODO - Add perf tests."
+  only:
+    - master
+
+patch-prod-images:
+  stage: prod-rollout
+  # Image built from cd-infra/images/ci-deploy/Dockerfile
+  image: $CNS_IMAGE_CI_DEPLOY_STAGE
+  script:
+    - ./pipeline/patch-prod.sh
+  dependencies:
+    - build-images
   only:
     - master
