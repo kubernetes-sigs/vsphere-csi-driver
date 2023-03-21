@@ -125,11 +125,6 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			}
 		}()
 
-		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
 		ginkgo.By("Waiting for claim to be in bound phase")
 		pvc, err := fpv.WaitForPVClaimBoundPhase(client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
@@ -137,6 +132,13 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
 		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
 		volumeID := pv.Spec.CSI.VolumeHandle
+
+		defer func() {
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		if guestCluster {
 			// svcPVCName refers to PVC Name in the supervisor cluster
