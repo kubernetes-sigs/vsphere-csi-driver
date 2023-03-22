@@ -982,43 +982,54 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 	}
 	defer watchVirtualMachine.Stop()
 
-	// Loop until the volume is removed from virtualmachine status
-	isVolumeDetached := false
-	for !isVolumeDetached {
-		log.Debugf("Waiting for update on VirtualMachine: %q", virtualMachine.Name)
-		// Block on update events
-		event := <-watchVirtualMachine.ResultChan()
-		vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
-		if !ok {
-			msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+	isVolumePresentInVMStatus := false
+	for _, volume := range virtualMachine.Status.Volumes {
+		if volume.Name == req.VolumeId {
+			isVolumePresentInVMStatus = true
 		}
-		if vm.Name != virtualMachine.Name {
-			log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
-				vm.Name, virtualMachine.Name, req.VolumeId)
-			continue
-		}
-		switch event.Type {
-		case watch.Added, watch.Modified:
-			isVolumeDetached = true
-			for _, volume := range vm.Status.Volumes {
-				if volume.Name == req.VolumeId {
-					log.Debugf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name)
-					isVolumeDetached = false
-					if volume.Attached && volume.Error != "" {
-						msg := fmt.Sprintf("failed to detach volume %q from VirtualMachine %q with Error: %v",
-							volume.Name, virtualMachine.Name, volume.Error)
-						log.Error(msg)
-						return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-					}
-					break
-				}
+	}
+	if !isVolumePresentInVMStatus {
+		log.Infof("ControllerUnpublishVolume: Volume %q not found in VM %q status field. Assuming it's already detached",
+			req.VolumeId, req.NodeId)
+	} else {
+		// Loop until the volume is removed from virtualmachine status
+		isVolumeDetached := false
+		for !isVolumeDetached {
+			log.Debugf("Waiting for update on VirtualMachine: %q", virtualMachine.Name)
+			// Block on update events
+			event := <-watchVirtualMachine.ResultChan()
+			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
+			if !ok {
+				msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 			}
-		case watch.Deleted:
-			log.Infof("VirtualMachine %s/%s deleted. Assuming volume %s was detached.",
-				c.supervisorNamespace, req.NodeId, req.VolumeId)
-			isVolumeDetached = true
+			if vm.Name != virtualMachine.Name {
+				log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
+					vm.Name, virtualMachine.Name, req.VolumeId)
+				continue
+			}
+			switch event.Type {
+			case watch.Added, watch.Modified:
+				isVolumeDetached = true
+				for _, volume := range vm.Status.Volumes {
+					if volume.Name == req.VolumeId {
+						log.Debugf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name)
+						isVolumeDetached = false
+						if volume.Attached && volume.Error != "" {
+							msg := fmt.Sprintf("failed to detach volume %q from VirtualMachine %q with Error: %v",
+								volume.Name, virtualMachine.Name, volume.Error)
+							log.Error(msg)
+							return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+						}
+						break
+					}
+				}
+			case watch.Deleted:
+				log.Infof("VirtualMachine %s/%s deleted. Assuming volume %s was detached.",
+					c.supervisorNamespace, req.NodeId, req.VolumeId)
+				isVolumeDetached = true
+			}
 		}
 	}
 	log.Infof("ControllerUnpublishVolume: Volume detached successfully %q", req.VolumeId)
