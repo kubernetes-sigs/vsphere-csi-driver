@@ -962,26 +962,6 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 		}
 		virtualMachine = &vmoperatortypes.VirtualMachine{}
 	}
-
-	// Watch virtual machine object and wait for volume name to be removed from the status field.
-	watchVirtualMachine, err := c.vmWatcher.Watch(metav1.ListOptions{
-		FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
-		ResourceVersion: virtualMachine.ResourceVersion,
-		TimeoutSeconds:  &timeoutSeconds,
-	})
-	if err != nil {
-		msg := fmt.Sprintf("failed to watch VirtualMachine %q with Error: %v", virtualMachine.Name, err)
-		log.Error(msg)
-		return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-	}
-	if watchVirtualMachine == nil {
-		msg := fmt.Sprintf("watchVirtualMachine for %q is nil", virtualMachine.Name)
-		log.Error(msg)
-		return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-
-	}
-	defer watchVirtualMachine.Stop()
-
 	isVolumePresentInVMStatus := false
 	for _, volume := range virtualMachine.Status.Volumes {
 		if volume.Name == req.VolumeId {
@@ -992,6 +972,25 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 		log.Infof("ControllerUnpublishVolume: Volume %q not found in VM %q status field. Assuming it's already detached",
 			req.VolumeId, req.NodeId)
 	} else {
+		// Watch virtual machine object and wait for volume name to be removed from the status field.
+		watchVirtualMachine, err := c.vmWatcher.Watch(metav1.ListOptions{
+			FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
+			ResourceVersion: virtualMachine.ResourceVersion,
+			TimeoutSeconds:  &timeoutSeconds,
+		})
+		if err != nil {
+			msg := fmt.Sprintf("failed to watch VirtualMachine %q with Error: %v", virtualMachine.Name, err)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+		}
+		if watchVirtualMachine == nil {
+			msg := fmt.Sprintf("watchVirtualMachine for %q is nil", virtualMachine.Name)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+
+		}
+		defer watchVirtualMachine.Stop()
+
 		// Loop until the volume is removed from virtualmachine status
 		isVolumeDetached := false
 		for !isVolumeDetached {
