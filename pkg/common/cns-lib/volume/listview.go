@@ -92,16 +92,10 @@ func (l *ListViewImpl) createListView(ctx context.Context, tasks []types.Managed
 }
 
 // SetVirtualCenter is a setter method for vc. use case: ReloadConfiguration
-func (l *ListViewImpl) SetVirtualCenter(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter) error {
+func (l *ListViewImpl) SetVirtualCenter(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter) {
 	log := logger.GetLogger(ctx)
 	l.virtualCenter = virtualCenter
-	client, err := virtualCenter.NewClient(ctx)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to create a govmomiClient for listView. error: %+v", err)
-	}
-	client.Timeout = noTimeout
-	l.govmomiClient = client
-	return nil
+	log.Debugf("New virtualCenter object stored for use by ListView")
 }
 
 func getListViewWaitFilter(listView *view.ListView) *property.WaitFilter {

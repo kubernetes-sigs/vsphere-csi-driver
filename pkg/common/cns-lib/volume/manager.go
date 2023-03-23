@@ -305,10 +305,7 @@ func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.V
 	log.Infof("Re-initializing defaultManager.virtualCenter")
 	managerInstance.virtualCenter = vcenter
 	if m.tasksListViewEnabled {
-		err := m.listViewIf.SetVirtualCenter(ctx, managerInstance.virtualCenter)
-		if err != nil {
-			return logger.LogNewErrorf(log, "failed to set virtual center to listView instance. err: %v", err)
-		}
+		m.listViewIf.SetVirtualCenter(ctx, managerInstance.virtualCenter)
 	}
 	if m.virtualCenter.Client != nil {
 		m.virtualCenter.Client.Timeout = time.Duration(vcenter.Config.VCClientTimeout) * time.Minute
