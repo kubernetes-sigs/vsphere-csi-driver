@@ -1,0 +1,24 @@
+{
+	"cluster": "domain-c9",
+	"namespace": "test-gc-e2e-demo-ns-1",
+    "storage_specs": [
+		{
+			"limit": 0,
+			"policy": "profile-id"
+		}
+	],
+    "vm_service_spec": {
+		"vm_classes": [
+			"best-effort-xsmall"
+		]
+	},
+    "access_list": [
+		{
+			"domain": "bma.local",
+			"identity_provider": "bma.local",
+			"role": "OWNER",
+			"subject": "testuser",
+			"subject_type": "USER"
+		}
+	]
+}

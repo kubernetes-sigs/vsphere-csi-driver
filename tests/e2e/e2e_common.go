@@ -216,6 +216,7 @@ const (
 	topologyLength                             = 5
 	tkgshaTopologyLevels                       = 1
 	vmcPrdEndpoint                             = "https://vmc.vmware.com/vmc/api/orgs/"
+	namespaceAPI                               = "/api/vcenter/namespaces/instances"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
 )

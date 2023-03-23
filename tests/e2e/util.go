@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"math/rand"
 	"net"
 	"net/http"
@@ -6256,4 +6257,33 @@ func recreateVsphereConfigSecret(client clientset.Interface, ctx context.Context
 	restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 	gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// create a wcpname in vmc environment
+func createnamespace(sessionid string, hostname string) {
+
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	client := &http.Client{Transport: transCfg}
+	createNSURL := "https://" + hostname + namespaceAPI
+	framework.Logf("URL %v", createNSURL)
+	ns_yaml, err := filepath.Abs(nsManifestPath + "namespace.json")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Taking json from %v", ns_yaml)
+	gcBytes, err := ioutil.ReadFile(ns_yaml)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	req, err := http.NewRequest("POST", createNSURL, bytes.NewBuffer(gcBytes))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("vmware-api-session-id", sessionid)
+	//req.Header.Add("Accept", "application/json")
+	req.Header.Add("Content-Type", "application/json")
+	bodyBytes, statusCode := httpRequest(client, req)
+
+	response := string(bodyBytes)
+	framework.Logf(response)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
+
 }
