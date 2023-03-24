@@ -608,7 +608,7 @@ func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string,
 	PodName string, clusterID string, Labels ...vim25types.KeyValue) error {
 
 	ginkgo.By("ClusterDistribution = %s" + vs.Config.Global.ClusterDistribution)
-	ginkgo.By("e2eVSphere = %s" + vs.Config.Global.ClusterID)
+	ginkgo.By("e2eVSphere = %v" + vs.Config.Global.ClusterID)
 	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 	if err != nil {
 		return err
@@ -616,7 +616,7 @@ func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string,
 
 	if clusterID == "" {
 		clusterID = e2eVSphere.Config.Global.ClusterID
-		ginkgo.By("Inside if = %s" + vs.Config.Global.ClusterDistribution)
+		ginkgo.By("Inside if = %v" + vs.Config.Global.ClusterDistribution)
 	}
 
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
