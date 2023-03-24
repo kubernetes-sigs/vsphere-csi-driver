@@ -1071,7 +1071,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		ginkgo.By("Verify vmdk1 is registered as a CNS volume and pod metadata is added for the CNS volume")
 		crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, getCanonicalPath(vmdk1))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, nil, nil, pod1, "")
+		err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, nil, nil, pod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete pod1")
@@ -1231,7 +1231,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		podsToDelete = append(podsToDelete, pod)
 
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes")
-		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvc1, vcpPv, pod, "")
+		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvc1, vcpPv, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete pod")
@@ -1239,7 +1239,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		podsToDelete = nil
 
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes")
-		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvc1, vcpPv, nil, "")
+		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvc1, vcpPv, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete PVC")
@@ -1769,7 +1769,7 @@ func verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx context.C
 		crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pod := getPodTryingToUsePvc(ctx, client, pvc.Namespace, pvc.Name)
-		err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, pod, "")
+		err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -2038,13 +2038,7 @@ func scaleDownNDeleteStsDeploymentsInNamespace(ctx context.Context, c clientset.
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		deletePolicy := metav1.DeletePropagationForeground
 		err = c.AppsV1().Deployments(ns).Delete(ctx, dep.Name, metav1.DeleteOptions{PropagationPolicy: &deletePolicy})
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				return
-			} else {
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
 

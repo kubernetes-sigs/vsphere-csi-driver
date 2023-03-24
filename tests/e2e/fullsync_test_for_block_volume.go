@@ -584,8 +584,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 
 		ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
-		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, pvc.Name, pv.ObjectMeta.Name, "",
-			"")
+		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, pvc.Name, pv.ObjectMeta.Name, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting pvc %s in namespace %s", pvc.Name, pvc.Namespace))
@@ -822,7 +821,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			svcPVCName = pv.Spec.CSI.VolumeHandle
 			err = waitAndVerifyCnsVolumeMetadata4GCVol(volHandle, svcPVCName, pvc, pv, pod)
 		} else {
-			err = waitAndVerifyCnsVolumeMetadata(volHandle, pvc, pv, pod, "")
+			err = waitAndVerifyCnsVolumeMetadata(volHandle, pvc, pv, pod)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -865,7 +864,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		if guestCluster {
 			err = waitAndVerifyCnsVolumeMetadata4GCVol(volHandle, svcPVCName, pvc, pv, pod2)
 		} else {
-			err = waitAndVerifyCnsVolumeMetadata(volHandle, pvc, pv, pod2, "")
+			err = waitAndVerifyCnsVolumeMetadata(volHandle, pvc, pv, pod2)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

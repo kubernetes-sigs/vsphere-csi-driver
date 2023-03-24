@@ -991,7 +991,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		gomega.Expect(volHandle3).NotTo(gomega.BeEmpty())
 		// Verify the attached volume match the one in CNS cache
 		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv3.Spec.CSI.VolumeHandle,
-			pvc3.ClaimName, pv3.ObjectMeta.Name, pod3.Name, "")
+			pvc3.ClaimName, pv3.ObjectMeta.Name, pod3.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create volume snapshot class, volume snapshot")

@@ -1025,7 +1025,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			ginkgo.By("Verify annotations on SVC PV and required node affinity details on SVC PV and GC PV")
 			ginkgo.By("Verify pod gets scheduled on appropriate nodes preset in the availability zone")
 			verifyVolumeMetadataOnDeployments(ctx, client, deployment, namespace, allowedTopologyHAMap,
-				categories, nodeList, zonalPolicy, "")
+				categories, nodeList, zonalPolicy)
 
 		})
 

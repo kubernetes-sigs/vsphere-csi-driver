@@ -1102,7 +1102,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		labels := []types.KeyValue{{Key: "fcd-id", Value: fcdID}}
 		ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
 		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-			pvc.Name, pv.ObjectMeta.Name, pod.Name, e2eVSphere.Config.Global.ClusterID, labels...)
+			pvc.Name, pv.ObjectMeta.Name, pod.Name, labels...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Deleting the Pod")
@@ -1244,7 +1244,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		labels := []types.KeyValue{{Key: "fcd-id", Value: fcdID}}
 		ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
 		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-			pvc.Name, pv.ObjectMeta.Name, pod.Name, e2eVSphere.Config.Global.ClusterID, labels...)
+			pvc.Name, pv.ObjectMeta.Name, pod.Name, labels...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Deleting the Pod")
@@ -1333,7 +1333,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 
 		// Verify volume metadata for POD, PVC and PV
 		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaim, pv, pod, "")
+		err = waitAndVerifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaim, pv, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})

@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -244,7 +243,7 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 // verifyOnlineVolumeExpansionOnGc is a util method which helps in verifying online volume expansion on gc
 func verifyOnlineVolumeExpansionOnGc(client clientset.Interface, namespace string, svcPVCName string,
 	volHandle string, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod, f *framework.Framework) {
-	rand.NewSource(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().Unix()))
 	testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
 	ginkgo.By(fmt.Sprintf("Creating a 512mb test data file %v", testdataFile))
 	op, err := exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
@@ -293,7 +292,7 @@ func verifyOfflineVolumeExpansionOnGc(client clientset.Interface, pvclaim *v1.Pe
 	originalFsSize, err := getFSSizeMb(f, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	rand.NewSource(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().Unix()))
 	testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
 	ginkgo.By(fmt.Sprintf("Creating a 512mb test data file %v", testdataFile))
 	op, err := exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
@@ -548,11 +547,10 @@ func verifyVolumeMetadataOnStatefulsets(client clientset.Interface, ctx context.
 func verifyVolumeMetadataOnDeployments(ctx context.Context,
 	client clientset.Interface, deployment *appsv1.Deployment, namespace string,
 	allowedTopologyHAMap map[string][]string, categories []string,
-	nodeList *v1.NodeList, storagePolicyName string, clusterID string) {
+	nodeList *v1.NodeList, storagePolicyName string) {
 
 	pods, err := GetPodsForMultipleDeployment(client, deployment)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	topologyFeature := os.Getenv(topologyFeature)
 
 	for _, depPod := range pods.Items {
 		pod, err := client.CoreV1().Pods(namespace).Get(ctx, depPod.Name, metav1.GetOptions{})
@@ -565,27 +563,22 @@ func verifyVolumeMetadataOnDeployments(ctx context.Context,
 					pvcName, metav1.GetOptions{})
 				gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				if guestCluster {
-					volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
-					gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-					svcPVCName := pv.Spec.CSI.VolumeHandle
+				volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+				svcPVCName := pv.Spec.CSI.VolumeHandle
 
-					svcPVC := getPVCFromSupervisorCluster(svcPVCName)
-					if topologyFeature == topologyTkgHaName {
-						gomega.Expect(*svcPVC.Spec.StorageClassName == storagePolicyName).To(
-							gomega.BeTrue(), "SV Pvc storageclass does not match with SV storageclass")
-						framework.Logf("GC PVC's storageclass matches SVC PVC's storageclass")
-						verifyAnnotationsAndNodeAffinity(allowedTopologyHAMap, categories, pod,
-							nodeList, svcPVC, pv, svcPVCName)
-					}
-					// Verify the attached volume match the one in CNS cache
-					err = waitAndVerifyCnsVolumeMetadata4GCVol(volHandle, svcPVCName, pvclaim,
-						pv, pod)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				} else if vanillaCluster {
-					err = waitAndVerifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaim, pv, pod, clusterID)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				}
+				svcPVC := getPVCFromSupervisorCluster(svcPVCName)
+				gomega.Expect(*svcPVC.Spec.StorageClassName == storagePolicyName).To(
+					gomega.BeTrue(), "SV Pvc storageclass does not match with SV storageclass")
+				framework.Logf("GC PVC's storageclass matches SVC PVC's storageclass")
+
+				verifyAnnotationsAndNodeAffinity(allowedTopologyHAMap, categories, pod,
+					nodeList, svcPVC, pv, svcPVCName)
+
+				// Verify the attached volume match the one in CNS cache
+				err = waitAndVerifyCnsVolumeMetadata4GCVol(volHandle, svcPVCName, pvclaim,
+					pv, pod)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
 	}

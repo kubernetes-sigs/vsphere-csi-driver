@@ -2360,7 +2360,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 
 		// Verify the attached volume match the one in CNS cache
 		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv1.Spec.CSI.VolumeHandle,
-			pvc1.ClaimName, pv1.ObjectMeta.Name, pod1.Name, "")
+			pvc1.ClaimName, pv1.ObjectMeta.Name, pod1.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Fetching pod 2, pvc2 and pv2 details")
@@ -2380,7 +2380,7 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 
 		// Verify the attached volume match the one in CNS cache
 		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv2.Spec.CSI.VolumeHandle,
-			pvc2.ClaimName, pv2.ObjectMeta.Name, pod2.Name, "")
+			pvc2.ClaimName, pv2.ObjectMeta.Name, pod2.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create volume snapshot class")
