@@ -694,7 +694,7 @@ func verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvsWithoutPvc(ctx 
 		framework.Logf("Processing PV: %s", pv.Name)
 		crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, pv.Spec.VsphereVolume.VolumePath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, nil, pv, nil, "")
+		err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, nil, pv, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
