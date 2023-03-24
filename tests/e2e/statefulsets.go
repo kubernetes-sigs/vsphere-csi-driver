@@ -170,7 +170,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					volumesBeforeScaleDown = append(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)
 					// Verify the attached volume match the one in CNS cache
-					ginkgo.By("e2eVSphere = %v" + e2eVSphere.Config.Global.ClusterID)
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
