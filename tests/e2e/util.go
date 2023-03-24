@@ -613,11 +613,11 @@ func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string,
 	}
 
 	clusterID1 := e2eVSphere.Config.Global.ClusterID
-	framework.Logf("Outside if %q", clusterID1)
+	framework.Logf("Before if block: %v", clusterID1)
 
 	if clusterID == "" {
-		//clusterID = e2eVSphere.Config.Global.ClusterID
-		framework.Logf("Inside if  %q" + clusterID)
+		clusterID = e2eVSphere.Config.Global.ClusterID
+		framework.Logf("After If block  %q" + clusterID)
 	}
 
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
