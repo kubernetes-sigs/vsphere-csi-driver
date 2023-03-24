@@ -21,7 +21,7 @@ const (
 )
 
 // validatePVC helps validate AdmissionReview requests for PersistentVolumeClaim.
-func validatePVC(ctx context.Context, ar *admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
+func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
 	if !featureGateBlockVolumeSnapshotEnabled {
 		// If CSI block volume snapshot is disabled and webhook is running,
 		// skip validation for PersistentVolumeClaim.
@@ -30,7 +30,7 @@ func validatePVC(ctx context.Context, ar *admissionv1.AdmissionReview) *admissio
 		}
 	}
 
-	if ar.Request.Operation != admissionv1.Update && ar.Request.Operation != admissionv1.Delete {
+	if req.Operation != admissionv1.Update && req.Operation != admissionv1.Delete {
 		// If AdmissionReview request operation is out of expectation,
 		// skip validation for PersistentVolumeClaim.
 		return &admissionv1.AdmissionResponse{
@@ -39,7 +39,6 @@ func validatePVC(ctx context.Context, ar *admissionv1.AdmissionReview) *admissio
 	}
 
 	log := logger.GetLogger(ctx)
-	req := ar.Request
 	var result *metav1.Status
 	allowed := true
 

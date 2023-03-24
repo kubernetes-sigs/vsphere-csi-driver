@@ -140,6 +140,7 @@ func StartWebhookServer(ctx context.Context) error {
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		featureGateTKGSHaEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 		featureGateVolumeHealthEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeHealth)
+		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		startCNSCSIWebhookManager(ctx)
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		if cfg == nil {
@@ -255,7 +256,7 @@ func validationHandler(w http.ResponseWriter, r *http.Request) {
 			case "StorageClass":
 				admissionResponse = validateStorageClass(ctx, &ar)
 			case "PersistentVolumeClaim":
-				admissionResponse = validatePVC(ctx, &ar)
+				admissionResponse = validatePVC(ctx, ar.Request)
 			default:
 				log.Infof("Skipping validation for resource type: %q", ar.Request.Kind.Kind)
 				admissionResponse = &admissionv1.AdmissionResponse{

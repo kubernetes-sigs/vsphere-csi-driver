@@ -429,7 +429,7 @@ func TestValidatePVC(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			actualResponse := validatePVC(ctx, test.admissionReview)
+			actualResponse := validatePVC(ctx, test.admissionReview.Request)
 			assert.Equal(t, actualResponse, test.expectedResponse)
 		})
 	}
