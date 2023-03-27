@@ -359,7 +359,6 @@ func restartCSIDriver(ctx context.Context, client clientset.Interface, namespace
 		return isServiceStopped, err
 	}
 	isServiceStarted, err := startCSIPods(ctx, client, csiReplicas)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	if err != nil {
 		return isServiceStarted, err
 	}
