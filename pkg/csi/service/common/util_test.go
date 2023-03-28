@@ -272,6 +272,40 @@ func TestValidVolumeCapabilitiesForFile(t *testing.T) {
 	if err := IsValidVolumeCapabilities(ctx, volCap); err != nil {
 		t.Errorf("File VolCap = %+v failed validation!", volCap)
 	}
+
+	// fstype=ntfs and mode=SINGLE_NODE_WRITER
+	volCap = []*csi.VolumeCapability{
+		{
+			AccessType: &csi.VolumeCapability_Mount{
+				Mount: &csi.VolumeCapability_MountVolume{
+					FsType: "ntfs",
+				},
+			},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	if err := IsValidVolumeCapabilities(ctx, volCap); err != nil {
+		t.Errorf("File VolCap = %+v failed validation!", volCap)
+	}
+
+	// fstype=NTFS and mode=SINGLE_NODE_WRITER
+	volCap = []*csi.VolumeCapability{
+		{
+			AccessType: &csi.VolumeCapability_Mount{
+				Mount: &csi.VolumeCapability_MountVolume{
+					FsType: "NTFS",
+				},
+			},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	if err := IsValidVolumeCapabilities(ctx, volCap); err != nil {
+		t.Errorf("File VolCap = %+v failed validation!", volCap)
+	}
 }
 
 func TestInvalidVolumeCapabilitiesForFile(t *testing.T) {
