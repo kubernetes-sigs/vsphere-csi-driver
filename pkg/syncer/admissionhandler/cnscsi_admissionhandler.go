@@ -97,10 +97,17 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 		}
 		if featureGateVolumeHealthEnabled {
 			resp = validatePVCAnnotationForVolumeHealth(ctx, req)
+			if !resp.Allowed {
+				return
+			}
 		}
 		if featureGateBlockVolumeSnapshotEnabled {
 			admissionResp := validatePVC(ctx, &req.AdmissionRequest)
 			resp.AdmissionResponse = *admissionResp.DeepCopy()
+		}
+	} else if req.Kind.Kind == "VolumeSnapshot" {
+		if featureGateBlockVolumeSnapshotEnabled {
+			resp = validateSnapshotOperationSupervisorRequest(ctx, req)
 		}
 	}
 	return
