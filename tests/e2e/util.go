@@ -6295,3 +6295,27 @@ func checkClusterIdValueOnWorkloads(vs *vSphere, client clientset.Interface,
 	}
 	return nil
 }
+
+// Clean up statefulset and make sure no volume is left in CNS after it is deleted from k8s
+// TODO: Code improvements is needed in case if the function is called from snapshot test.
+// add a logic to delete the snapshots for the volumes and then delete volumes
+func cleaupStatefulset(client clientset.Interface, ctx context.Context, namespace string,
+	statefulset *appsv1.StatefulSet) {
+	scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+	pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, claim := range pvcs.Items {
+		pv := getPvFromClaim(client, namespace, claim.Name)
+		err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+		err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+			pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volumeHandle := pv.Spec.CSI.VolumeHandle
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+				"kubernetes", volumeHandle))
+	}
+}

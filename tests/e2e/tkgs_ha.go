@@ -2395,4 +2395,377 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
+
+	/*
+		Statefulset - storage class with Zonal storage and
+		Wffc and with default pod management policy with PodAffinity
+		1. Create a zonal storage policy, on the datastore that is shared only to specific cluster
+		2. Use the Zonal storage class and Wait for first consumer binding mode
+			and create statefulset
+			with parallel pod management policy with replica 3 and PodAntiAffinity
+		3. wait for all the gc-PVC to bound - Make sure corresponding SVC-PVC will
+			have "csi.vsphere.volume-accessible-topology" annotation
+			csi.vsphere.requested.cluster-topology=
+			[{"topology.kubernetes.io/zone":"zone1"},{"topology.kubernetes.io/zone":"zone2"},
+			{"topology.kubernetes.io/zone":"zone2"}]
+		4. storageClassName: should point to gcStorageclass
+		5. Wait for the PODs to reach running state - make sure Pod scheduled on appropriate nodes
+			preset in the availability zone
+		6. Describe SVC-PV , and GC-PV  and verify node affinity, make sure appropriate node affinity gets added
+		7. Delete the above statefulset
+		8. Create New statefulset with PODAffinity rules set
+		9. Wait for all the PVC's and POD's to come up
+		7. Scale up the statefulset replica to 5 , and validate the node affinity on
+		   the newly create PV's and annotations on PVC's
+		8. Validate the CNS metadata
+		9. Scale down the sts to 0
+		10.Delete Statefulset,PVC,POD,SC
+	*/
+	ginkgo.It("Validate statefulset creation with  POD affinity and POD Anti affinity", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("CNS_TEST: Running for GC setup")
+
+		cleanupsts := false
+		nodeList, _ := fnodes.GetReadySchedulableNodes(client)
+
+		ginkgo.By("Create statefulset with parallel pod management policy with replica 3")
+		createResourceQuota(client, namespace, rqLimit, zonalWffcPolicy)
+		scParameters[svStorageClassName] = zonalWffcPolicy
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalWffcPolicy, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		// Creating StatefulSet service
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
+		statefulset := GetStatefulSetFromManifest(namespace)
+		ginkgo.By("Creating statefulset with POD Anti affinity")
+		allowedTopologies := getTopologySelector(allowedTopologyHAMap, categories,
+			tkgshaTopologyLevels)
+		framework.Logf("allowedTopo: %v", allowedTopologies)
+		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+		statefulset.Spec.Template.Spec.Affinity = new(v1.Affinity)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity = new(v1.NodeAffinity)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
+			RequiredDuringSchedulingIgnoredDuringExecution = new(v1.NodeSelector)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
+			RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = getNodeSelectorTerms(allowedTopologies)
+
+		statefulset.Spec.Template.Spec.Affinity.PodAntiAffinity = new(v1.PodAntiAffinity)
+		statefulset.Spec.Template.Spec.Affinity.PodAntiAffinity.
+			RequiredDuringSchedulingIgnoredDuringExecution = getPodAffinityTerm(allowedTopologyHAMap)
+
+		*statefulset.Spec.Replicas = 3
+		framework.Logf("Statefulset spec: %v", statefulset)
+		ginkgo.By("Create Statefulset with PodAntiAffinity")
+		cleanupsts = true
+		CreateStatefulSet(namespace, statefulset, client)
+		replicas := *(statefulset.Spec.Replicas)
+
+		defer func() {
+			if cleanupsts {
+				framework.Logf("cleaning up statefulset with podAtiAffinity")
+				cleaupStatefulset(client, ctx, namespace, statefulset)
+			}
+		}()
+
+		ginkgo.By("Verify annotations on SVC PV and required node affinity details on SVC PV and GC PV")
+		ginkgo.By("Verify pod gets scheduled on appropriate nodes preset in the availability zone")
+		verifyStsVolumeMetadata(client, ctx, namespace, statefulset, replicas,
+			allowedTopologyHAMap, categories, zonalPolicy, nodeList, f)
+
+		ginkgo.By("Delete Statefulset with PodAntiAffinity")
+		cleaupStatefulset(client, ctx, namespace, statefulset)
+		cleanupsts = false
+
+		ginkgo.By("Creating statefulset with POD-affinity")
+		statefulset = GetStatefulSetFromManifest(namespace)
+		allowedTopologies = getTopologySelector(allowedTopologyHAMap, categories,
+			tkgshaTopologyLevels)
+		framework.Logf("allowedTopo: %v", allowedTopologies)
+		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+		statefulset.Spec.Template.Spec.Affinity = new(v1.Affinity)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity = new(v1.NodeAffinity)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
+			RequiredDuringSchedulingIgnoredDuringExecution = new(v1.NodeSelector)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
+			RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = getNodeSelectorTerms(allowedTopologies)
+
+		statefulset.Spec.Template.Spec.Affinity.PodAffinity = new(v1.PodAffinity)
+		statefulset.Spec.Template.Spec.Affinity.PodAffinity.
+			RequiredDuringSchedulingIgnoredDuringExecution = getPodAffinityTerm(allowedTopologyHAMap)
+
+		*statefulset.Spec.Replicas = 3
+		framework.Logf("Statefulset spec: %v", statefulset)
+		ginkgo.By("Create Statefulset with PodAffinity")
+		CreateStatefulSet(namespace, statefulset, client)
+		replicas = *(statefulset.Spec.Replicas)
+
+		defer func() {
+			framework.Logf("cleaning up statefulset with podAffinity")
+			cleaupStatefulset(client, ctx, namespace, statefulset)
+		}()
+
+		framework.Logf("Verify statefulset volume metadata, node affinities and pod's availability on appropriate zone")
+		verifyStsVolumeMetadata(client, ctx, namespace, statefulset, replicas,
+			allowedTopologyHAMap, categories, zonalPolicy, nodeList, f)
+
+		replicas = 5
+		framework.Logf(fmt.Sprintf("Scaling up statefulset: %v to number of Replica: %v",
+			statefulset.Name, replicas))
+		_, scaleupErr := fss.Scale(client, statefulset, replicas)
+		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
+
+		fss.WaitForStatusReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		ssPodsAfterScaleUp := fss.GetPodList(client, statefulset)
+		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset %s, %v, should match with number of replicas %v",
+			statefulset.Name, ssPodsAfterScaleUp.Size(), replicas,
+		)
+
+		verifyStsVolumeMetadata(client, ctx, namespace, statefulset, replicas,
+			allowedTopologyHAMap, categories, zonalPolicy, nodeList, f)
+
+	})
+
+	/*
+		Verify volume provisioning after VC reboot using zonal storage
+		1. Create few statefulsets , PVC's, deployment POD's using zonal SC's and note the details
+		2. Re-boot VC and wait till all the services up and running
+		3. Validate the Pre-data, sts's, PVC's and PODs's should be in up and running state
+		4. Use the existing SC's and create stateful set with 3 replica. Make sure PVC's
+		   reach bound state, POd's reach running state
+		5. validate node affinity details on the gc-PV's and svc-pv's
+		7. Create PVC using the zonal sc
+		8. Wait for PVC to reach bound state and PV should have appropriate node affinity
+		9. Create POD using the PVC created in step 9 , POD should come up on appropriate zone
+		10. trigger online and offline volume  expansion and validate
+		11. delete all sts's , PVC's, SC and POD's
+	*/
+	ginkgo.It("Verify volume provisioning after VC reboot using zonal storage", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("CNS_TEST: Running for GC setup")
+		nodeList, err := fnodes.GetReadySchedulableNodes(client)
+		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+		if !(len(nodeList.Items) > 0) {
+			framework.Failf("Unable to find ready and schedulable Node")
+		}
+
+		ginkgo.By("Create 3 statefulsets with parallel pod management policy with replica 3")
+		createResourceQuota(client, namespace, rqLimit, zonalWffcPolicy)
+		scParameters[svStorageClassName] = zonalWffcPolicy
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalWffcPolicy, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		scParameters[svStorageClassName] = zonalPolicy
+		storageclassImmediate, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		var stsList []*appsv1.StatefulSet
+		var deploymentList []*appsv1.Deployment
+		var replicas int32
+		var pvclaims, pvcs, svcPVCs []*v1.PersistentVolumeClaim
+		var volumeHandles, svcPVCNames []string
+		var pods []*v1.Pod
+		volumeOpsScale := 3
+
+		// Creating StatefulSet service
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
+		ginkgo.By("Creating 3 statefulsets with parallel pod management policy and 3 replicas")
+
+		for i := 0; i < volumeOpsScale; i++ {
+			statefulset := GetStatefulSetFromManifest(namespace)
+			ginkgo.By("Creating statefulset")
+			statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+			statefulset.Name = "sts-" + strconv.Itoa(i) + "-" + statefulset.Name
+			statefulset.Spec.Template.Labels["app"] = statefulset.Name
+			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+				Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+			*statefulset.Spec.Replicas = 3
+			CreateStatefulSet(namespace, statefulset, client)
+			stsList = append(stsList, statefulset)
+		}
+		replicas = 3
+
+		ginkgo.By("Creating 3 PVCs")
+		for i := 0; i < volumeOpsScale; i++ {
+			framework.Logf("Creating pvc%v", i)
+
+			pvclaim, err := createPVC(client, namespace, nil, "", storageclassImmediate, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvclaims = append(pvclaims, pvclaim)
+		}
+
+		ginkgo.By("Expect all pvcs to provision volume successfully")
+		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		labelsMap := make(map[string]string)
+		labelsMap["app"] = "test"
+
+		ginkgo.By("Creating 3 deployment with each PVC created earlier")
+
+		for i := 0; i < volumeOpsScale; i++ {
+			deployment, err := createDeployment(
+				ctx, client, 1, labelsMap, nil, namespace, []*v1.PersistentVolumeClaim{pvclaims[i]},
+				"", false, busyBoxImageOnGcr)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			deploymentList = append(deploymentList, deployment)
+
+		}
+
+		ginkgo.By("Rebooting VC")
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		err = invokeVCenterReboot(vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Done with reboot")
+		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName, wcpServiceName}
+		checkVcenterServicesRunning(ctx, vcAddress, essentialServices, healthStatusPollTimeout)
+
+		// After reboot.
+		bootstrap()
+
+		defer func() {
+			scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, claim := range pvcs.Items {
+				pv := getPvFromClaim(client, namespace, claim.Name)
+				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+					pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volumeHandle := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeHandle))
+			}
+		}()
+
+		framework.Logf("After the VC reboot, Wait for all the PVC's to reach bound state")
+		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		framework.Logf("After the VC reboot, Verify all the pre-created deployment pod's, its status and metadata")
+		for _, deployment := range deploymentList {
+			pods, err := fdep.GetPodsForDeployment(client, deployment)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pod := pods.Items[0]
+			err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			verifyVolumeMetadataOnDeployments(ctx, client, deployment, namespace, allowedTopologyHAMap,
+				categories, nodeList, zonalPolicy)
+
+		}
+
+		framework.Logf("After the VC reboot, Verify all the pre-created stateful set metadata")
+		for _, sts := range stsList {
+			verifyStsVolumeMetadata(client, ctx, namespace, sts, replicas,
+				allowedTopologyHAMap, categories, zonalPolicy, nodeList, f)
+		}
+
+		replicas = 5
+		framework.Logf(fmt.Sprintf("Increase statefulset %v to number of Replica: %v",
+			stsList[0].Name, replicas))
+		time.Sleep(60 * time.Second)
+		_, scaleupErr := fss.Scale(client, stsList[0], replicas)
+		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReplicas(client, stsList[0], replicas)
+		fss.WaitForStatusReadyReplicas(client, stsList[0], replicas)
+		ssPodsAfterScaleUp := fss.GetPodList(client, stsList[0])
+		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
+			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", stsList[0].Name))
+		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
+			"Number of Pods in the statefulset %s, %v, should match with number of replicas %v",
+			stsList[0].Name, ssPodsAfterScaleUp.Size(), replicas,
+		)
+
+		ginkgo.By("Creating Pvc with Immediate topology storageclass")
+		ginkgo.By("Creating 3 PVCs for volume expansion")
+		for i := 0; i < volumeOpsScale; i++ {
+			framework.Logf("Creating pvc%v", i)
+
+			pvc, err := createPVC(client, namespace, nil, "", storageclassImmediate, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvcs = append(pvclaims, pvc)
+		}
+
+		ginkgo.By("Wait for GC PVC to come to bound state")
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, pvcs,
+			framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		for _, pv := range pvs {
+			volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+			volumeHandles = append(volumeHandles, volHandle)
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+			svcPVCName := pv.Spec.CSI.VolumeHandle
+			svcPVCNames = append(svcPVCNames, svcPVCName)
+			svcPVC := getPVCFromSupervisorCluster(svcPVCName)
+			svcPVCs = append(svcPVCs, svcPVC)
+		}
+
+		ginkgo.By("Create a pod and wait for it to come to Running state")
+		for _, pvc := range pvcs {
+			pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pods = append(pods, pod)
+		}
+
+		defer func() {
+			ginkgo.By("Delete pods")
+			for _, pod := range pods {
+				err = fpod.DeletePodWithWait(client, pod)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Verify annotations on SVC PV and required node affinity details on SVC PV and GC PV")
+		ginkgo.By("Verify pod gets scheduled on appropriate nodes preset in the availability zone")
+		for i, pv := range pvs {
+			verifyAnnotationsAndNodeAffinity(allowedTopologyHAMap, categories, pods[i],
+				nodeList, svcPVCs[i], pv, svcPVCNames[i])
+		}
+
+		ginkgo.By("Triggering online volume expansion on PVCs")
+		for i := range pods {
+			verifyOnlineVolumeExpansionOnGc(client, namespace, svcPVCNames[i],
+				volumeHandles[i], pvcs[i], pods[i], f)
+		}
+
+		ginkgo.By("Triggering offline volume expansion on PVCs")
+		for i := range pods {
+			verifyOfflineVolumeExpansionOnGc(client, pvcs[i], svcPVCNames[i], namespace,
+				volumeHandles[i], pods[i], pvs[i], f)
+		}
+	})
 })

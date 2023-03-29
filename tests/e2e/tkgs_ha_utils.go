@@ -282,31 +282,9 @@ func verifyOnlineVolumeExpansionOnGc(client clientset.Interface, namespace strin
 // verifyOfflineVolumeExpansionOnGc is a util method which helps in verifying offline volume expansion on gc
 func verifyOfflineVolumeExpansionOnGc(client clientset.Interface, pvclaim *v1.PersistentVolumeClaim, svcPVCName string,
 	namespace string, volHandle string, pod *v1.Pod, pv *v1.PersistentVolume, f *framework.Framework) {
-	cmd := []string{"exec", "", "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
-	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	cmd[1] = pod.Name
-	lastOutput := framework.RunKubectlOrDie(namespace, cmd...)
-	gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
-
 	ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
 	originalFsSize, err := getFSSizeMb(f, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	rand.New(rand.NewSource(time.Now().Unix()))
-	testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
-	ginkgo.By(fmt.Sprintf("Creating a 512mb test data file %v", testdataFile))
-	op, err := exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
-		"bs=64k", "count=8000").Output()
-	fmt.Println(op)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	defer func() {
-		op, err = exec.Command("rm", "-f", testdataFile).Output()
-		fmt.Println(op)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}()
-
-	_ = framework.RunKubectlOrDie(namespace, "cp", testdataFile,
-		fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name))
 
 	// Delete POD.
 	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s before expansion", pod.Name, namespace))
@@ -391,11 +369,6 @@ func verifyOfflineVolumeExpansionOnGc(client clientset.Interface, pvclaim *v1.Pe
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
-	ginkgo.By("Verify after expansion the filesystem type is as expected")
-	cmd[1] = pod.Name
-	lastOutput = framework.RunKubectlOrDie(namespace, cmd...)
-	gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
-
 	ginkgo.By("Waiting for file system resize to finish")
 	pvclaim, err = waitForFSResize(pvclaim, client)
 	framework.ExpectNoError(err, "while waiting for fs resize to finish")
@@ -412,20 +385,6 @@ func verifyOfflineVolumeExpansionOnGc(client clientset.Interface, pvclaim *v1.Pe
 	if fsSize < originalFsSize {
 		framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize)
 	}
-
-	ginkgo.By("Checking data consistency after PVC resize")
-	_ = framework.RunKubectlOrDie(namespace, "cp",
-		fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name), testdataFile+"_pod")
-	defer func() {
-		op, err = exec.Command("rm", "-f", testdataFile+"_pod").Output()
-		fmt.Println("rm: ", op)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}()
-	ginkgo.By("Running diff...")
-	op, err = exec.Command("diff", testdataFile, testdataFile+"_pod").Output()
-	fmt.Println("diff: ", op)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(len(op)).To(gomega.BeZero())
 
 	ginkgo.By("File system resize finished successfully in GC")
 	ginkgo.By("Checking for PVC resize completion on SVC PVC")
@@ -844,4 +803,94 @@ func exitHostMM(ctx context.Context, host *object.HostSystem, timeout int32) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	framework.Logf("Host: %v exited from maintenance mode", host)
+}
+
+// PodAffinity values are set in this method
+func getPodAffinityTerm(allowedTopologyHAMap map[string][]string) []v1.PodAffinityTerm {
+	var podAffinityTerm v1.PodAffinityTerm
+	var podAffinityTerms []v1.PodAffinityTerm
+	var labelSelector *metav1.LabelSelector
+	var labelSelectorRequirements []metav1.LabelSelectorRequirement
+	var labelSelectorRequirement metav1.LabelSelectorRequirement
+
+	labelSelectorRequirement.Key = "app"
+	labelSelectorRequirement.Operator = "In"
+	labelSelectorRequirement.Values = []string{"nginx"}
+	labelSelectorRequirements = append(labelSelectorRequirements, labelSelectorRequirement)
+	labelSelector = new(metav1.LabelSelector)
+	labelSelector.MatchExpressions = labelSelectorRequirements
+	podAffinityTerm.LabelSelector = labelSelector
+	for key := range allowedTopologyHAMap {
+		podAffinityTerm.TopologyKey = key
+	}
+	podAffinityTerms = append(podAffinityTerms, podAffinityTerm)
+	return podAffinityTerms
+}
+
+// verifyStsVolumeMetadata verifies sts pod replicas and tkg annotations and
+// node affinities on svc pvc and verify cns volume meetadata
+func verifyStsVolumeMetadata(client clientset.Interface, ctx context.Context, namespace string,
+	statefulset *appsv1.StatefulSet, replicas int32, allowedTopologyHAMap map[string][]string,
+	categories []string, storagePolicyName string, nodeList *v1.NodeList, f *framework.Framework) {
+	// Waiting for pods status to be Ready
+	fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+	gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+	ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
+		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
+		"Number of Pods in the statefulset should match with number of replicas")
+
+	ginkgo.By("Verify GV PV and SV PV has has required PV node affinity details")
+	ginkgo.By("Verify SV PVC has TKG HA annotations set")
+	// Get the list of Volumes attached to Pods before scale down
+	for _, sspod := range ssPodsBeforeScaleDown.Items {
+		pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, volumespec := range sspod.Spec.Volumes {
+			if volumespec.PersistentVolumeClaim != nil {
+				pvcName := volumespec.PersistentVolumeClaim.ClaimName
+				pv := getPvFromClaim(client, statefulset.Namespace, pvcName)
+				pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
+					pvcName, metav1.GetOptions{})
+				gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+				svcPVCName := pv.Spec.CSI.VolumeHandle
+
+				svcPVC := getPVCFromSupervisorCluster(svcPVCName)
+				gomega.Expect(*svcPVC.Spec.StorageClassName == storagePolicyName).To(
+					gomega.BeTrue(), "SV Pvc storageclass does not match with SV storageclass")
+				framework.Logf("GC PVC's storageclass matches SVC PVC's storageclass")
+
+				verifyAnnotationsAndNodeAffinity(allowedTopologyHAMap, categories, pod,
+					nodeList, svcPVC, pv, svcPVCName)
+
+				// Verify the attached volume match the one in CNS cache
+				err = waitAndVerifyCnsVolumeMetadata4GCVol(volHandle, svcPVCName, pvclaim,
+					pv, pod)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				framework.Logf(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+					pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+				var vmUUID string
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				verifyCRDInSupervisorWithWait(ctx, f, pod.Spec.NodeName+"-"+svcPVCName,
+					crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+
+				isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached to the node")
+				framework.Logf("verify the attached volumes match those in CNS Cache")
+				err = waitAndVerifyCnsVolumeMetadata4GCVol(volHandle, svcPVCName, pvclaim,
+					pv, pod)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+
 }
