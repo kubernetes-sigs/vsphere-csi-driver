@@ -194,6 +194,16 @@ spec:
             - containerPort: 2112
               name: prometheus
               protocol: TCP
+            - name: healthz
+              containerPort: 9808
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+            periodSeconds: 180
           env:
             - name: CSI_ENDPOINT
               value: unix:///csi/csi.sock

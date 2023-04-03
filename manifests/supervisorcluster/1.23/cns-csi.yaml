@@ -355,6 +355,9 @@ spec:
           image: localhost:5000/vmware/syncer:<syncer_ver>
           args:
             - "--leader-election"
+            - "--leader-election-lease-duration=120s"
+            - "--leader-election-renew-deadline=60s"
+            - "--leader-election-retry-period=30s"
           env:
             - name: CLUSTER_FLAVOR
               value: "WORKLOAD"
