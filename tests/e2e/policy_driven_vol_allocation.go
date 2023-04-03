@@ -1306,7 +1306,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 			framework.Logf("dest url for volume id %s is %s", volumeID, destDsUrl)
 			dsRefDest := getDsMoRefFromURL(ctx, destDsUrl)
-			err = e2eVSphere.cnsRelocateVolume(e2eVSphere, ctx, volumeID, dsRefDest)
+			_, err = e2eVSphere.cnsRelocateVolume(e2eVSphere, ctx, volumeID, dsRefDest)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			e2eVSphere.verifyDatastoreMatch(volumeID, []string{destDsUrl})
 
@@ -2208,7 +2208,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		dsRefDest := getDsMoRefFromURL(ctx, destDsUrl)
-		err = e2eVSphere.cnsRelocateVolume(e2eVSphere, ctx, volumeID, dsRefDest)
+		_, err = e2eVSphere.cnsRelocateVolume(e2eVSphere, ctx, volumeID, dsRefDest)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		e2eVSphere.verifyDatastoreMatch(volumeID, []string{destDsUrl})
 
@@ -2231,7 +2231,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		dsRefDest = getDsMoRefFromURL(ctx, srcVsandDsUrl)
-		err = e2eVSphere.cnsRelocateVolume(e2eVSphere, ctx, volumeID, dsRefDest)
+		_, err = e2eVSphere.cnsRelocateVolume(e2eVSphere, ctx, volumeID, dsRefDest)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		e2eVSphere.verifyDatastoreMatch(volumeID, []string{srcVsandDsUrl})
 
