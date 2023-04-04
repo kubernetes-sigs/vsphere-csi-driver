@@ -19,6 +19,11 @@ const (
 	// CSITaskInfoEmptyFault is the fault type when taskInfo is empty.
 	CSITaskInfoEmptyFault = "csi.fault.TaskInfoEmpty"
 
+	// CSINonStorageFaultPrefix is the prefix used for faults originating due to components other than
+	// downstream vSphere storage stack.
+	CSINonStorageFaultPrefix = "csi.fault.nonstorage."
+	// VimFaultPrefix is the prefix used for vim faults from downstream components.
+	VimFaultPrefix = "vim.fault."
 	// CSIVmUuidNotFoundFault is the fault type when Pod VMs do not have the vmware-system-vm-uuid annotation.
 	CSIVmUuidNotFoundFault = "csi.fault.nonstorage.VmUuidNotFound"
 	// CSIVmNotFoundFault is the fault type when VM object is not found in the VC
@@ -63,4 +68,13 @@ const (
 	CSIUnimplementedFault = "csi.fault.Unimplemented"
 	// CSIInvalidStoragePolicyConfigurationFault is the fault type returned when the user provides invalid storage policy.
 	CSIInvalidStoragePolicyConfigurationFault = "csi.fault.invalidconfig.InvalidStoragePolicyConfiguration"
+
+	// Below is the list of faults coming from downstream vCenter components that we want to classify
+	// as non-storage faults.
+
+	// VimFaultInvalidHostState is the fault returned from CNS when host is not in a state to perform the volume
+	// operation e.g. maintenance mode.
+	VimFaultInvalidHostState = VimFaultPrefix + "InvalidHostState"
+	// VimFaultHostNotConnected is the fault returned from CNS when host is not connected.
+	VimFaultHostNotConnected = VimFaultPrefix + "HostNotConnected"
 )

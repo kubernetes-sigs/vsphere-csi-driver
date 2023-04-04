@@ -1859,6 +1859,9 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	resp, faultType, err := createVolumeInternal()
 	log.Debugf("createVolumeInternal: returns fault %q", faultType)
 	if err != nil {
+		if csifault.IsNonStorageFault(faultType) {
+			faultType = csifault.AddCsiNonStoragePrefix(ctx, faultType)
+		}
 		log.Errorf("Operation failed, reporting failure status to Prometheus."+
 			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
 			prometheus.PrometheusCreateVolumeOpType, volumeType, faultType)
@@ -1999,6 +2002,9 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	resp, faultType, err := deleteVolumeInternal()
 	log.Debugf("deleteVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
+		if csifault.IsNonStorageFault(faultType) {
+			faultType = csifault.AddCsiNonStoragePrefix(ctx, faultType)
+		}
 		log.Errorf("Operation failed, reporting failure status to Prometheus."+
 			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
 			prometheus.PrometheusDeleteVolumeOpType, volumeType, faultType)
@@ -2148,6 +2154,9 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	resp, faultType, err := controllerPublishVolumeInternal()
 	log.Debugf("controllerPublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
+		if csifault.IsNonStorageFault(faultType) {
+			faultType = csifault.AddCsiNonStoragePrefix(ctx, faultType)
+		}
 		log.Errorf("Operation failed, reporting failure status to Prometheus."+
 			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
 			prometheus.PrometheusAttachVolumeOpType, volumeType, faultType)
@@ -2286,6 +2295,9 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	resp, faultType, err := controllerUnpublishVolumeInternal()
 	log.Debugf("controllerUnpublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
 	if err != nil {
+		if csifault.IsNonStorageFault(faultType) {
+			faultType = csifault.AddCsiNonStoragePrefix(ctx, faultType)
+		}
 		log.Errorf("Operation failed, reporting failure status to Prometheus."+
 			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
 			prometheus.PrometheusDetachVolumeOpType, volumeType, faultType)
@@ -2418,6 +2430,9 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	resp, faultType, err := controllerExpandVolumeInternal()
 	if err != nil {
 		log.Debugf("controllerExpandVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
+		if csifault.IsNonStorageFault(faultType) {
+			faultType = csifault.AddCsiNonStoragePrefix(ctx, faultType)
+		}
 		log.Errorf("Operation failed, reporting failure status to Prometheus."+
 			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
 			prometheus.PrometheusExpandVolumeOpType, volumeType, faultType)
@@ -2570,6 +2585,9 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	listVolResponse, faultType, err := listVolumesInternal()
 	log.Debugf("List volume response: %+v", listVolResponse)
 	if err != nil {
+		if csifault.IsNonStorageFault(faultType) {
+			faultType = csifault.AddCsiNonStoragePrefix(ctx, faultType)
+		}
 		log.Errorf("Operation failed, reporting failure status to Prometheus."+
 			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
 			prometheus.PrometheusListVolumeOpType, volumeType, faultType)

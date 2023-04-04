@@ -37,10 +37,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
-const (
-	vimFaultPrefix = "vim.fault."
-)
-
 func validateManager(ctx context.Context, m *defaultManager) error {
 	log := logger.GetLogger(ctx)
 	if m.virtualCenter == nil {
@@ -350,7 +346,7 @@ func ExtractFaultTypeFromErr(ctx context.Context, err error) string {
 		faultType = reflect.TypeOf(soapFault.VimFault()).String()
 		log.Infof("Extract vimfault type: +%v. SoapFault Info: +%v from err +%v", faultType, soapFault, err)
 		slice := strings.Split(faultType, ".")
-		vimFaultType := vimFaultPrefix + slice[1]
+		vimFaultType := csifault.VimFaultPrefix + slice[1]
 		return vimFaultType
 	}
 	log.Infof("err %+v is not a SoapFault\n", err)
@@ -374,7 +370,7 @@ func ExtractFaultTypeFromVolumeResponseResult(ctx context.Context,
 			log.Infof("Extract vimfault type: %+v  vimFault: %+v Fault: %+v from resp: %+v",
 				faultType, fault.Fault, fault, resp)
 			slice := strings.Split(faultType, ".")
-			vimFaultType := vimFaultPrefix + slice[1]
+			vimFaultType := csifault.VimFaultPrefix + slice[1]
 			return vimFaultType
 		} else {
 			faultType = reflect.TypeOf(fault).String()
