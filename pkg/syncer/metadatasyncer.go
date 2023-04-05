@@ -221,6 +221,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	cnsCreationMap = make(map[string]map[string]bool)
 	// Initialize volumeOperationsLock map
 	volumeOperationsLock = make(map[string]*sync.Mutex)
+	// Initialize volumeInfoCrDeletionMap used by Full Sync.
+	volumeInfoCrDeletionMap = make(map[string]map[string]bool)
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Initialize client to supervisor cluster, if metadata syncer is being
@@ -250,6 +252,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 		cnsDeletionMap[metadataSyncer.host] = make(map[string]bool)
 		cnsCreationMap[metadataSyncer.host] = make(map[string]bool)
+		volumeInfoCrDeletionMap[metadataSyncer.host] = make(map[string]bool)
 		volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
 
 		volumeManager, err := volumes.GetManager(ctx, vCenter, nil,
@@ -289,6 +292,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 			cnsDeletionMap[metadataSyncer.host] = make(map[string]bool)
 			cnsCreationMap[metadataSyncer.host] = make(map[string]bool)
+			volumeInfoCrDeletionMap[metadataSyncer.host] = make(map[string]bool)
 			volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
 
 			volumeManager, err := volumes.GetManager(ctx, vCenter, nil, false, false, false, tasksListViewEnabled)
@@ -322,6 +326,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				metadataSyncer.volumeManagers[vcconfig.Host] = volumeManager
 				cnsDeletionMap[vcconfig.Host] = make(map[string]bool)
 				cnsCreationMap[vcconfig.Host] = make(map[string]bool)
+				volumeInfoCrDeletionMap[vcconfig.Host] = make(map[string]bool)
 				volumeOperationsLock[vcconfig.Host] = &sync.Mutex{}
 			}
 			// If it is a multi VC deployment, initialize volumeInfoService
