@@ -142,6 +142,9 @@ func StartWebhookServer(ctx context.Context) error {
 		featureGateVolumeHealthEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeHealth)
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		startCNSCSIWebhookManager(ctx)
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+		startPVCSIWebhookManager(ctx)
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		if cfg == nil {
 			cfg, err = getWebHookConfig(ctx)
