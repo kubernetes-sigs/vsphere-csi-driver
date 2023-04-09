@@ -2,6 +2,8 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .PVCSINamespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged  
 ---
 kind: ServiceAccount
 apiVersion: v1
