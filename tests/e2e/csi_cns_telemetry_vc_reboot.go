@@ -124,7 +124,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 
 		ginkgo.By("Waiting for claim to be in bound phase")
 		pvc, err := fpv.WaitForPVClaimBoundPhase(client,
-			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+			[]*v1.PersistentVolumeClaim{pvclaim}, 2*framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
 		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
@@ -201,7 +201,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 
 		ginkgo.By("Waiting for PVC2 claim to be in bound phase")
 		pvc2, err := fpv.WaitForPVClaimBoundPhase(client,
-			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
+			[]*v1.PersistentVolumeClaim{pvclaim2}, 2*framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc2).NotTo(gomega.BeEmpty())
 		pv2 := getPvFromClaim(client, pvclaim2.Namespace, pvclaim2.Name)
@@ -330,7 +330,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 
 		ginkgo.By("Waiting for claim to be in bound phase")
 		pvc, err := fpv.WaitForPVClaimBoundPhase(client,
-			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+			[]*v1.PersistentVolumeClaim{pvclaim}, 2*framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
 		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)

@@ -291,7 +291,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		defer func() {
 			ginkgo.By("Perform cleanup of snapshot created")
 			performCleanUpForSnapshotCreated(ctx, snapc, namespace, volHandle, volumeSnapshot, snapshotId,
-				volumeSnapshotClass)
+				volumeSnapshotClass, pandoraSyncWaitTime)
 		}()
 
 		ginkgo.By("Create PVC from snapshot")
@@ -413,7 +413,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		defer func() {
 			ginkgo.By("Perform cleanup of snapshot created")
 			performCleanUpForSnapshotCreated(ctx, snapc, namespace, volHandle, volumeSnapshot, snapshotId,
-				volumeSnapshotClass)
+				volumeSnapshotClass, pandoraSyncWaitTime)
 		}()
 
 		ginkgo.By("Remove preferred datastore tag chosen for volume provisioning")
@@ -689,7 +689,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		defer func() {
 			ginkgo.By("Perform cleanup of snapshot created")
 			performCleanUpForSnapshotCreated(ctx, snapc, namespace, volHandle1, volumeSnapshot1, snapshotId1,
-				volumeSnapshotClass1)
+				volumeSnapshotClass1, pandoraSyncWaitTime)
 		}()
 
 		ginkgo.By("Create PVC-3 from snapshot")
@@ -839,7 +839,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 			pvclaim4, volHandle4, false)
 		defer func() {
 			performCleanUpForSnapshotCreated(ctx, snapc, namespace, pv4.Spec.CSI.VolumeHandle, volumeSnapshot2,
-				snapshotId2, volumeSnapshotClass2)
+				snapshotId2, volumeSnapshotClass2, pandoraSyncWaitTime)
 		}()
 
 		ginkgo.By("Create PVC-5 from snapshot")
@@ -1000,7 +1000,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		defer func() {
 			ginkgo.By("Perform cleanup of snapshot created")
 			performCleanUpForSnapshotCreated(ctx, snapc, namespace, volHandle3, volumeSnapshot, snapshotId,
-				volumeSnapshotClass)
+				volumeSnapshotClass, pandoraSyncWaitTime)
 		}()
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas-1))

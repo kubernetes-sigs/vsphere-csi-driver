@@ -16,6 +16,8 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -36,13 +38,14 @@ import (
 var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Test", func() {
 	f := framework.NewDefaultFramework("file-snapshot")
 	var (
-		client       clientset.Interface
-		namespace    string
-		scParameters map[string]string
-		datastoreURL string
-		pvclaims     []*v1.PersistentVolumeClaim
-		restConfig   *restclient.Config
-		snapc        *snapclient.Clientset
+		client              clientset.Interface
+		namespace           string
+		scParameters        map[string]string
+		datastoreURL        string
+		pvclaims            []*v1.PersistentVolumeClaim
+		restConfig          *restclient.Config
+		snapc               *snapclient.Clientset
+		pandoraSyncWaitTime int
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -61,6 +64,13 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 		restConfig = getRestConfigClient()
 		snapc, err = snapclient.NewForConfig(restConfig)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if os.Getenv(envPandoraSyncWaitTime) != "" {
+			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+		}
 	})
 
 	/*
@@ -127,8 +137,7 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 			defer func() {
 				if snapshotCreated {
 					framework.Logf("Deleting volume snapshot")
-					err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, volumeSnapshot.Name, metav1.DeleteOptions{})
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
 				}
 			}()
 
