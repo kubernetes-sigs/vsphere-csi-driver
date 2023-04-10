@@ -64,7 +64,7 @@ rules:
     verbs: ["get", "update", "watch", "list"]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshots" ]
-    verbs: [ "get", "list" ]
+    verbs: [ "get", "list", "patch" ]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshotclasses" ]
     verbs: [ "watch", "get", "list" ]

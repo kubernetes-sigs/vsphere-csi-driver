@@ -318,7 +318,7 @@ func IsVolumeSnapshotReady(ctx context.Context, client snapshotterClientSet.Inte
 	var svs *snap.VolumeSnapshot
 
 	waitErr := wait.PollImmediate(5*time.Second, timeout, func() (done bool, err error) {
-		svs, err := client.SnapshotV1().VolumeSnapshots(namespace).
+		svs, err = client.SnapshotV1().VolumeSnapshots(namespace).
 			Get(ctx, supervisorVolumeSnapshotName, metav1.GetOptions{})
 		if err != nil {
 			msg := fmt.Sprintf("unable to fetch volumesnapshot %q/%q "+
