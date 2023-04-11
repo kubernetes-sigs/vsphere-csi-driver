@@ -3347,6 +3347,9 @@ func VsanObjIndentities(ctx context.Context, vs *vSphere, pvName string) string 
 
 	for _, cluster := range clusterComputeResource {
 		if strings.Contains(cluster.Name(), computeCluster) {
+			// Fix for NotAuthenticated issue
+			bootstrap()
+
 			clusterConfig, err := vsanHealthClient.VsanQueryObjectIdentities(ctx, cluster.Reference())
 			framework.Logf("clusterconfig %v", clusterConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
