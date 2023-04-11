@@ -256,6 +256,12 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 				log.Errorf("Creating Kubernetes client failed. Err: %v", coInstanceErr)
 				return nil, coInstanceErr
 			}
+			serverVersion, err := k8sClient.Discovery().ServerVersion()
+			if err != nil {
+				log.Errorf("Failed to get serverVersion. Err: %+v", err)
+				return nil, err
+			}
+			log.Infof("serverVersion %v", serverVersion)
 
 			// Create a snapshotter client
 			snapshotterClient, coInstanceErr = k8s.NewSnapshotterClient(ctx)
