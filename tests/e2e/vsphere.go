@@ -808,7 +808,7 @@ func getAllHostsIP(ctx context.Context, forceRefresh ...bool) []string {
 // getHostConnectionState reads cluster, gets hosts in it and returns connection state of host
 func getHostConnectionState(ctx context.Context, addr string) (string, error) {
 	var state string
-	cluster := e2eVSphere.getVsanClusterResource(ctx)
+	cluster := e2eVSphere.getVsanClusterResource(ctx, true)
 	hosts, err := cluster.Hosts(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
