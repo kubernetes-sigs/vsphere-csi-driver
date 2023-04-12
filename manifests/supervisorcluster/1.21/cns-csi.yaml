@@ -508,7 +508,7 @@ webhooks:
         scope: "Namespaced"
       - apiGroups:   ["snapshot.storage.k8s.io"]
         apiVersions: ["v1"]
-        operations:  ["CREATE", "UPDATE", "DELETE"]
+        operations:  ["CREATE"]
         resources:   ["volumesnapshots"]
         scope:       "Namespaced"
     sideEffects: None

@@ -312,6 +312,11 @@ const (
 	// on the VolumeSnapshot CR
 	VolumeSnapshotInfoKey = "csi.vsphere.volume/snapshot"
 
+	// SupervisorVolumeSnapshotAnnotationKey represents the annotation key on VolumeSnapshot CR
+	// in Supervisor cluster which is used to indicate that snapshot operation is initiated from
+	// Guest cluster.
+	SupervisorVolumeSnapshotAnnotationKey = "csi.vsphere.guest-initiated-csi-snapshot"
+
 	// AttributeSupervisorVolumeSnapshotClass represents name of VolumeSnapshotClass
 	AttributeSupervisorVolumeSnapshotClass = "svvolumesnapshotclass"
 

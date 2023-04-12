@@ -1403,8 +1403,12 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		if err != nil {
 			if errors.IsNotFound(err) {
 				// New createSnapshot request on the guest
+				// Add "csi.vsphere.guest-initiated-csi-snapshot" annotation on VolumeSnapshot CR in
+				// the supervisor cluster to indicate that snapshot creation is initiated from Guest cluster
+				annotation := make(map[string]string)
+				annotation[common.SupervisorVolumeSnapshotAnnotationKey] = "true"
 				supVolumeSnapshot := constructVolumeSnapshotWithVolumeSnapshotClass(supervisorVolumeSnapshotName,
-					c.supervisorNamespace, supervisorVolumeSnapshotClass, supervisorPVCName)
+					c.supervisorNamespace, supervisorVolumeSnapshotClass, supervisorPVCName, annotation)
 				log.Infof("Supervisosr VolumeSnapshot Spec: %+v", supVolumeSnapshot)
 				_, err = c.supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(
 					c.supervisorNamespace).Create(ctx, supVolumeSnapshot, metav1.CreateOptions{})

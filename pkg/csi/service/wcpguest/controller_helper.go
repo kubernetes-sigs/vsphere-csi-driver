@@ -228,11 +228,12 @@ func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace stri
 }
 
 func constructVolumeSnapshotWithVolumeSnapshotClass(volumeSnapshotName string, namespace string,
-	volumeSnapshotClassName string, pvcName string) *snap.VolumeSnapshot {
+	volumeSnapshotClassName string, pvcName string, annotation map[string]string) *snap.VolumeSnapshot {
 	volumeSnapshot := &snap.VolumeSnapshot{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      volumeSnapshotName,
-			Namespace: namespace,
+			Name:        volumeSnapshotName,
+			Namespace:   namespace,
+			Annotations: annotation,
 		},
 		Spec: snap.VolumeSnapshotSpec{
 			Source: snap.VolumeSnapshotSource{
