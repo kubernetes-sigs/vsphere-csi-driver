@@ -28,6 +28,8 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/object"
 	"golang.org/x/crypto/ssh"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -53,6 +55,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                     clientset.Interface
+		defaultDatastore           *object.Datastore
 		namespace                  string
 		scParameters               map[string]string
 		allowedTopologyHAMap       map[string][]string
@@ -65,6 +68,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		svcMasterIp                string
 		clientNewGc                clientset.Interface
 		pandoraSyncWaitTime        int
+		datastoreURL               string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -113,6 +117,28 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+		}
+
+		var datacenters []string
+		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		finder := find.NewFinder(e2eVSphere.Client.Client, false)
+		cfg, err := getConfig()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		dcList := strings.Split(cfg.Global.Datacenters, ",")
+		for _, dc := range dcList {
+			dcName := strings.TrimSpace(dc)
+			if dcName != "" {
+				datacenters = append(datacenters, dcName)
+			}
+		}
+		for _, dc := range datacenters {
+			defaultDatacenter, err := finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			finder.SetDatacenter(defaultDatacenter)
+			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 	})
