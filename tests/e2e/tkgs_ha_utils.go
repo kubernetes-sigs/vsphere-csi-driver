@@ -563,22 +563,28 @@ func verifyVolumeMetadataOnDeployments(ctx context.Context,
 					pvcName, metav1.GetOptions{})
 				gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
-				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-				svcPVCName := pv.Spec.CSI.VolumeHandle
 
-				svcPVC := getPVCFromSupervisorCluster(svcPVCName)
-				gomega.Expect(*svcPVC.Spec.StorageClassName == storagePolicyName).To(
-					gomega.BeTrue(), "SV Pvc storageclass does not match with SV storageclass")
-				framework.Logf("GC PVC's storageclass matches SVC PVC's storageclass")
+				if guestCluster {
+					volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+					gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+					svcPVCName := pv.Spec.CSI.VolumeHandle
 
-				verifyAnnotationsAndNodeAffinity(allowedTopologyHAMap, categories, pod,
-					nodeList, svcPVC, pv, svcPVCName)
+					svcPVC := getPVCFromSupervisorCluster(svcPVCName)
+					gomega.Expect(*svcPVC.Spec.StorageClassName == storagePolicyName).To(
+						gomega.BeTrue(), "SV Pvc storageclass does not match with SV storageclass")
+					framework.Logf("GC PVC's storageclass matches SVC PVC's storageclass")
 
-				// Verify the attached volume match the one in CNS cache
-				err = waitAndVerifyCnsVolumeMetadata4GCVol(volHandle, svcPVCName, pvclaim,
-					pv, pod)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					verifyAnnotationsAndNodeAffinity(allowedTopologyHAMap, categories, pod,
+						nodeList, svcPVC, pv, svcPVCName)
+
+					// Verify the attached volume match the one in CNS cache
+					err = waitAndVerifyCnsVolumeMetadata4GCVol(volHandle, svcPVCName, pvclaim,
+						pv, pod)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				} else if vanillaCluster {
+					err = waitAndVerifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaim, pv, pod)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
 			}
 		}
 	}

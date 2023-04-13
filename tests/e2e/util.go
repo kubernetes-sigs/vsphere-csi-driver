@@ -948,9 +948,12 @@ func updateDeploymentReplicawithWait(client clientset.Interface, count int32, na
 	var err error
 	waitErr := wait.Poll(healthStatusPollInterval, healthStatusPollTimeout, func() (bool, error) {
 		deployment, err = client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if err != nil {
-			return false, nil
+			if count == 0 && apierrors.IsNotFound(err) {
+				return true, nil
+			} else {
+				return false, err
+			}
 		}
 		*deployment.Spec.Replicas = count
 		ginkgo.By("Waiting for update operation on deployment to take effect")
@@ -5841,14 +5844,17 @@ func startCSIPods(ctx context.Context, client clientset.Interface, csiReplicas i
 	ignoreLabels := make(map[string]string)
 	err := updateDeploymentReplicawithWait(client, csiReplicas, vSphereCSIControllerPodNamePrefix,
 		csiSystemNamespace)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		return true, err
+	}
 	// Wait for the CSI Pods to be up and Running
 	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		return true, err
+	}
 	num_csi_pods := len(list_of_pods)
 	err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
 		pollTimeout, ignoreLabels)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	isServiceStopped := false
 	return isServiceStopped, err
 }
@@ -6249,4 +6255,43 @@ func getBlockDevSizeInBytes(f *framework.Framework, ns string, pod *v1.Pod, devi
 	}
 	output = strings.TrimSuffix(output, "\n")
 	return strconv.ParseInt(output, 10, 64)
+}
+
+// checkClusterIdValueOnWorkloads checks clusterId value by querying cns metadata
+// for all k8s workloads in a particular namespace
+func checkClusterIdValueOnWorkloads(vs *vSphere, client clientset.Interface,
+	ctx context.Context, namespace string, clusterID string) error {
+	podList, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, pod := range podList.Items {
+		pvcName := pod.Spec.Volumes[0].PersistentVolumeClaim.ClaimName
+		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvName := pvc.Spec.VolumeName
+		pv, err := client.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volumeID := pv.Spec.CSI.VolumeHandle
+		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+		if err != nil {
+			return err
+		}
+		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+		if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
+			return fmt.Errorf("failed to query cns volume %s", volumeID)
+		}
+		for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
+			kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
+			if kubernetesMetadata.EntityType == "POD" && kubernetesMetadata.ClusterID != clusterID {
+				return fmt.Errorf("clusterID %s is not matching with %s ", clusterID, kubernetesMetadata.ClusterID)
+			} else if kubernetesMetadata.EntityType == "PERSISTENT_VOLUME" &&
+				kubernetesMetadata.ClusterID != clusterID {
+				return fmt.Errorf("clusterID %s is not matching with %s ", clusterID, kubernetesMetadata.ClusterID)
+			} else if kubernetesMetadata.EntityType == "PERSISTENT_VOLUME_CLAIM" &&
+				kubernetesMetadata.ClusterID != clusterID {
+				return fmt.Errorf("clusterID %s is not matching with %s ", clusterID, kubernetesMetadata.ClusterID)
+			}
+		}
+		framework.Logf("successfully verified clusterID of the volume %q", volumeID)
+	}
+	return nil
 }

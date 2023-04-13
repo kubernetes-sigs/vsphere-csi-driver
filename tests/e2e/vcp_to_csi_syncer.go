@@ -2038,7 +2038,13 @@ func scaleDownNDeleteStsDeploymentsInNamespace(ctx context.Context, c clientset.
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		deletePolicy := metav1.DeletePropagationForeground
 		err = c.AppsV1().Deployments(ns).Delete(ctx, dep.Name, metav1.DeleteOptions{PropagationPolicy: &deletePolicy})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return
+			} else {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 	}
 }
 
