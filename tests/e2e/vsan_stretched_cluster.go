@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 
-		csiNs = GetAndExpectStringEnvVar(envCSINamespace)
+		csiNs = csiSystemNamespace
 		isVsanHealthServiceStopped = false
 
 		initialiseFdsVar(ctx)

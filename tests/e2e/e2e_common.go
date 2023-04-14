@@ -42,7 +42,7 @@ const (
 	crdtriggercsifullsyncsName                 = "csifullsync"
 	crdGroup                                   = "cns.vmware.com"
 	crdVersion                                 = "v1alpha1"
-	csiSystemNamespace                         = "vmware-system-csi"
+	csiSystemDefaultNamespace                  = "vmware-system-csi"
 	csiFssCM                                   = "internal-feature-states.csi.vsphere.vmware.com"
 	csiVolAttrVolType                          = "vSphere CNS Block Volume"
 	csiDriverContainerName                     = "vsphere-csi-controller"
@@ -218,6 +218,11 @@ const (
 	vsphereClusterIdConfigMapName              = "vsphere-csi-cluster-id"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
+)
+
+// Variable to read system's csi namespace
+var (
+	csiSystemNamespace string
 )
 
 // The following variables are required to know cluster type to run common e2e

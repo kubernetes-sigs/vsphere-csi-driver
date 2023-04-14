@@ -40,6 +40,13 @@ func init() {
 	framework.AfterReadingAllFlags(&framework.TestContext)
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(envClusterFlavor))
 	setClusterFlavor(clusterFlavor)
+
+	// Read csi namespace
+	csiNamespace := os.Getenv(envCSINamespace)
+	if csiNamespace == "" {
+		csiNamespace = csiSystemDefaultNamespace
+	}
+	csiSystemNamespace = csiNamespace
 }
 
 func TestE2E(t *testing.T) {

@@ -98,7 +98,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
-		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+		csiNamespace = csiSystemNamespace
 		isSPSServiceStopped = false
 		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)

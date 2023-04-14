@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			configSecretTestUser1Password, configSecretUser2Alias, propagateVal,
 			dataCenters, clusters, hosts, vms, datastores)
 
-		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+		csiNamespace = csiSystemNamespace
 		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
 			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

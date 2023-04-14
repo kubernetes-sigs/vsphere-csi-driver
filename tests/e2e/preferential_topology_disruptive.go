@@ -123,7 +123,7 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 			topologyLength)
 		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
 
-		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+		csiNamespace = csiSystemNamespace
 		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
 			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

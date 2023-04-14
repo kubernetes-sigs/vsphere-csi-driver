@@ -73,7 +73,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		accessMode = v1.ReadWriteOnce
 		// fetching required parameters
 
-		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+		csiNamespace = csiSystemNamespace
 		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
 			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

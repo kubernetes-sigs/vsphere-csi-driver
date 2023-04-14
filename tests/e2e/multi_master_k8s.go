@@ -64,7 +64,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		client = f.ClientSet
 		if vanillaCluster {
 			namespace = f.Namespace.Name
-			controllerNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+			controllerNamespace = csiSystemNamespace
 		} else {
 			namespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
 			controllerNamespace = csiSystemNamespace

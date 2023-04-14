@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		} else {
 			fullSyncWaitTime = defaultFullSyncWaitTime
 		}
-		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+		csiNamespace = csiSystemNamespace
 		v, err := client.Discovery().ServerVersion()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		v1, err := version.NewVersion(v.GitVersion)

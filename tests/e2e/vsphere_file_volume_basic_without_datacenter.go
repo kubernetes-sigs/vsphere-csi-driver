@@ -49,7 +49,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 		defer cancel()
 
 		if vanillaCluster {
-			csiControllerNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+			csiControllerNamespace = csiSystemNamespace
 		}
 		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")

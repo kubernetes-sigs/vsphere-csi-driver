@@ -1064,7 +1064,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}
 
 		svClient, _ := getSvcClientAndNamespace()
-		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+		csiNamespace := csiSystemNamespace
 		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
 			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
