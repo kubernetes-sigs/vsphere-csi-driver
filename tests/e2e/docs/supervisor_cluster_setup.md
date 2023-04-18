@@ -98,6 +98,10 @@ datacenters should be comma separated if deployed on multi-datacenters
     export SHARED_NFS_DATASTORE_URL="<shared-NFS-datastore-url>"
     #shared VMFS datastore url
     export SHARED_VMFS_DATASTORE_URL="<shared-VMFS-datastore-url>"
+    #For vsan direct tests for spbm policy driven allocation tests, set following variables
+    export USE_VSAN_DIRECT_DATASTORE_IN_WCP="VSAN_DIRECT"
+    export SHARED_VSAND_DATASTORE_URL="<vsan-direct-datastore-url>"
+    export SHARED_VSAND_DATASTORE2_URL="<vsan-direct-datastore2-url>"
 
 ### To run full sync test, need do extra following steps
 
