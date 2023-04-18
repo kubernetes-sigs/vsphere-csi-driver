@@ -187,6 +187,7 @@ const (
 	vmUUIDLabel                               = "vmware-system-vm-uuid"
 	vsanDefaultStorageClassInSVC              = "vsan-default-storage-policy"
 	vsanDefaultStoragePolicyName              = "vSAN Default Storage Policy"
+	vsanDirectManifestPath                    = "tests/e2e/testing-manifests/vsan-direct"
 	vsanHealthServiceWaitTime                 = 15
 	vsanhealthServiceName                     = "vsan-health"
 	vsphereCloudProviderConfiguration         = "vsphere-cloud-provider.conf"

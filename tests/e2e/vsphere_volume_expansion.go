@@ -3727,7 +3727,12 @@ func getFSSizeMb(f *framework.Framework, pod *v1.Pod) (int64, error) {
 
 	if supervisorCluster {
 		namespace := getNamespaceToRunTests(f)
-		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
+		var cmd []string
+		if wcpVsanDirectCluster {
+			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /data0"}
+		} else {
+			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
+		}
 		output = framework.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, ext4FSType)).NotTo(gomega.BeFalse())
 	} else {

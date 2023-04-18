@@ -80,6 +80,10 @@ import (
 
 	snapc "github.com/kubernetes-csi/external-snapshotter/client/v6/apis/volumesnapshot/v1"
 	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/kubernetes/scheme"
+	commonutils "k8s.io/kubernetes/test/e2e/common"
+	e2etestfiles "k8s.io/kubernetes/test/e2e/framework/testfiles"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
@@ -6376,7 +6380,7 @@ func cleaupStatefulset(client clientset.Interface, ctx context.Context, namespac
 	}
 }
 
-// getVsanDPersistentVolumeClaimSpecWithStorageClass return the PersistentVolumeClaim
+/* getVsanDPersistentVolumeClaimSpecWithStorageClass return the PersistentVolumeClaim
 // spec for vsanDirect datastore with specified storage class.
 func getVsanDPersistentVolumeClaimSpecWithStorageClass(namespace string, ds string,
 	storageclass *storagev1.StorageClass, pvcName string, podName string,
@@ -6439,7 +6443,7 @@ func getVsanDPodSpec(ns string, nodeSelector map[string]string, pvclaims []*v1.P
 			Containers: []v1.Container{
 				{
 					Name:            "write-pod",
-					Image:           nginxImage,
+					Image:           "sabu-persistence-service-docker-local.artifactory.eng.vmware.com/bhavyac/nginx:latest",
 					SecurityContext: fpod.GenerateContainerSecurityContext(isPrivileged),
 				},
 			},
@@ -6479,17 +6483,78 @@ func getVsanDPodSpec(ns string, nodeSelector map[string]string, pvclaims []*v1.P
 	podSpec.Spec.Tolerations = tolerations
 	framework.Logf("pod spec: %v", podSpec)
 	return podSpec
+}*/
+
+// GetStatefulSetFromManifest gets pvc and pod spec from the sample.yaml
+// file present in the manifest path.
+func getVsanDirectPvcFromManifest(ns string) *v1.PersistentVolumeClaim {
+	vsanDManifestFilePath := filepath.Join(vsanDirectManifestPath, "pvc.yaml")
+	framework.Logf("Parsing pvc spec from %v", vsanDManifestFilePath)
+	pvc, err := pvcSpecFromManifest(vsanDManifestFilePath, ns)
+	framework.ExpectNoError(err)
+	return pvc
 }
 
-// createVsanDPvcAndPod creates pvc and pod for vsan direct as per wffc policy.
+// GetStatefulSetFromManifest gets pvc and pod spec from the sample.yaml
+// file present in the manifest path.
+func getVsanDirectPodFromManifest(ns string) *v1.Pod {
+	vsanDManifestFilePath := filepath.Join(vsanDirectManifestPath, "pod.yaml")
+	framework.Logf("Parsing pvc spec from %v", vsanDManifestFilePath)
+	pod, err := podSpecFromManifest(vsanDManifestFilePath, ns)
+	framework.ExpectNoError(err)
+	return pod
+}
+
+// StatefulSetFromManifest returns a StatefulSet from a manifest stored in fileName in the Namespace indicated by ns.
+func pvcSpecFromManifest(fileName, ns string) (*v1.PersistentVolumeClaim, error) {
+	var pvc v1.PersistentVolumeClaim
+	data, err := e2etestfiles.Read(fileName)
+	if err != nil {
+		return nil, err
+	}
+	pvcYaml := commonutils.SubstituteImageName(string(data))
+	framework.Logf("pvc yaml : %v", pvcYaml)
+	json, err := utilyaml.ToJSON([]byte(pvcYaml))
+	if err != nil {
+		return nil, err
+	}
+	framework.Logf("pvc json : %v", json)
+	if err := runtime.DecodeInto(scheme.Codecs.UniversalDecoder(), json, &pvc); err != nil {
+		return nil, err
+	}
+	framework.Logf("pvc decode : %v", pvc)
+	pvc.Namespace = ns
+	return &pvc, nil
+}
+
+// StatefulSetFromManifest returns a StatefulSet from a manifest stored in fileName in the Namespace indicated by ns.
+func podSpecFromManifest(fileName, ns string) (*v1.Pod, error) {
+	var pod v1.Pod
+	data, err := e2etestfiles.Read(fileName)
+	if err != nil {
+		return nil, err
+	}
+	pvcYaml := commonutils.SubstituteImageName(string(data))
+	json, err := utilyaml.ToJSON([]byte(pvcYaml))
+	if err != nil {
+		return nil, err
+	}
+	if err := runtime.DecodeInto(scheme.Codecs.UniversalDecoder(), json, &pod); err != nil {
+		return nil, err
+	}
+	pod.Namespace = ns
+	return &pod, nil
+}
+
+/* createVsanDPvcAndPod creates pvc and pod for vsan direct as per wffc policy.
 // It ensures that pvc and pod is in in healthy state.
 func createVsanDPvcAndPod(client clientset.Interface, ctx context.Context,
 	namespace string, sc *storagev1.StorageClass, pvcName string,
-	podName string) (*v1.PersistentVolumeClaim, *v1.Pod) {
+	podName string, ds string) (*v1.PersistentVolumeClaim, *v1.Pod) {
 	framework.Logf("Creating pvc %s with storage class %s", pvcName, sc.Name)
 	pvclaim, err := fpv.CreatePVC(client, namespace,
 		getVsanDPersistentVolumeClaimSpecWithStorageClass(namespace,
-			diskSize, sc, pvcName, podName, ""))
+			ds, sc, pvcName, podName, ""))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Expect claim status to be in Pending state")
@@ -6510,6 +6575,48 @@ func createVsanDPvcAndPod(client clientset.Interface, ctx context.Context,
 	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
 		namespace, pvclaim.Name, framework.Poll, time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume with err: %v", err)
+
+	return pvclaim, pod
+}*/
+
+// createVsanDPvcAndPod creates pvc and pod for vsan direct as per wffc policy.
+// It ensures that pvc and pod is in in healthy state.
+func createVsanDPvcAndPod(client clientset.Interface, ctx context.Context,
+	namespace string, scName string, pvcName string,
+	podName string, ds string) (*v1.PersistentVolumeClaim, *v1.Pod) {
+
+	pvcSpec := getVsanDirectPvcFromManifest(namespace)
+	pvcSpec.Name = pvcName
+	*pvcSpec.Spec.StorageClassName = scName
+	//pvcSpec.Annotations["placement.beta.vmware.com/storagepool_antiAffinityRequired"] = podName
+	//pvcSpec.Annotations["volume.beta.kubernetes.io/storage-class"] = scName
+	framework.Logf("pvc spec: %v", pvcSpec)
+
+	framework.Logf("Creating pvc %s with storage class %s", pvcName, scName)
+	pvclaim, err := fpv.CreatePVC(client, namespace, pvcSpec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	/*ginkgo.By("Expect claim status to be in Pending state")
+	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+		namespace, pvclaim.Name, framework.Poll, time.Minute)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		"Failed to find the volume: %s in pending state with err: %v", pvcName, err)*/
+
+	ginkgo.By("Creating a pod")
+	podSpec := getVsanDirectPodFromManifest(namespace)
+	podSpec.Name = podName
+	podSpec.Spec.Volumes[0].PersistentVolumeClaim.ClaimName = pvcName
+	framework.Logf("pod spec: %v", podSpec)
+
+	pod, err := client.CoreV1().Pods(namespace).Create(ctx, podSpec, metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Expect claim to be in Bound state and provisioning volume passes")
+	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+		namespace, pvclaim.Name, framework.Poll, time.Minute)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume with err: %v", err)
+
+	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return pvclaim, pod
 }
@@ -6540,6 +6647,23 @@ func writeDataToMultipleFilesOnPodInParallel(namespace string, podName string, d
 		ginkgo.By("write to a file in pod")
 		filePath := fmt.Sprintf("/mnt/volume1/file%v.txt", i)
 		writeDataOnFileFromPod(namespace, podName, filePath, data)
+	}
+}
+
+//
+func writeDataOnPodInSupervisor(sshClientConfig *ssh.ClientConfig, svcMasterIP string,
+	cmd string) {
+
+	res, err := sshExec(sshClientConfig, svcMasterIP,
+		cmd)
+	if err != nil || res.Code != 0 {
+		fssh.LogResult(res)
+		framework.Logf("contains: %v", strings.Contains(res.Stderr, "copied"))
+		if !strings.Contains(res.Stderr, "copied") {
+			framework.Failf("couldn't execute command: %s on host: %v , error: %s",
+				cmd, svcMasterIP, err)
+		}
+
 	}
 
 }
