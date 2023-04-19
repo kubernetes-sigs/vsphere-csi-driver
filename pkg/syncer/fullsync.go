@@ -49,7 +49,10 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	var err error
 	// Fetch CSI migration feature state, before performing full sync operations.
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		migrationFeatureStateForFullSync = metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) &&
+			len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
+			migrationFeatureStateForFullSync = true
+		}
 	}
 	defer func() {
 		fullSyncStatus := prometheus.PrometheusPassStatus
@@ -69,6 +72,14 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 
 	// k8sPVMap is useful for clean and quicker look up.
 	k8sPVMap := make(map[string]string)
+	// Instantiate volumeMigrationService when migration feature state is True.
+	if migrationFeatureStateForFullSync {
+		// Instantiate volumeMigrationService when migration feature state is True.
+		if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
+			log.Errorf("FullSync for VC %s: Failed to initialize migration service. Err: %v", vc, err)
+			return err
+		}
+	}
 
 	// Iterate through all the k8sPVs and use volume id as the key for k8sPVMap
 	// items. For migrated volumes, invoke GetVolumeID from migration service.
@@ -78,17 +89,8 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			k8sPVMap[pv.Spec.CSI.VolumeHandle] = ""
 		} else if migrationFeatureStateForFullSync && pv.Spec.VsphereVolume != nil {
 			// For vSphere volumes, migration service will register volumes in CNS.
-
 			// Note that we can never reach here in case of a multi VC setup
 			// as we have already filtered out in-tree volumes.
-			if volumeMigrationService == nil {
-				// Instantiate volumeMigrationService when migration feature state is True.
-				if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
-					log.Errorf("FullSync for VC %s: Failed to get migration service. Err: %v", vc, err)
-					return err
-				}
-			}
-
 			migrationVolumeSpec := &migration.VolumeSpec{
 				VolumePath:        pv.Spec.VsphereVolume.VolumePath,
 				StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
