@@ -87,6 +87,11 @@ var (
 	// static provisioning of volumes
 	// There is a separate lock for each VC.
 	volumeOperationsLock map[string]*sync.Mutex
+
+	// volumeInfoCrDeletionMap tracks CRs for volumes that exist in
+	// the cluster but the corresponding PV for that volume does not exist.
+	// A separate map is maintained for each VC.
+	volumeInfoCrDeletionMap map[string]map[string]bool
 )
 
 type (
