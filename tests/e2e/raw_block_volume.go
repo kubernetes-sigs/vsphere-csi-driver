@@ -470,10 +470,10 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Verify volume is detached from the node")
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
-			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+			volumeID, pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
-			fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			fmt.Sprintf("Volume %q is not detached from the node %q", volumeID, pod.Spec.NodeName))
 		if guestCluster {
 			ginkgo.By("Waiting for CnsNodeVMAttachment controller to reconcile resource")
 			verifyCRDInSupervisorWithWait(ctx, f, pod.Spec.NodeName+"-"+svcPVCName,
@@ -485,7 +485,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
-			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			volumeID, pod.Spec.NodeName))
 
 		if vanillaCluster {
 			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
@@ -518,10 +518,10 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		ginkgo.By("Verify volume is detached from the node")
 		isDiskDetached, err = e2eVSphere.waitForVolumeDetachedFromNode(client,
-			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+			volumeID, pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
-			fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			fmt.Sprintf("Volume %q is not detached from the node %q", volumeID, pod.Spec.NodeName))
 		if guestCluster {
 			ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
 			time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
@@ -650,7 +650,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		ginkgo.By("Deleting the Pod")
 		framework.ExpectNoError(fpod.DeletePodWithWait(client, pod), "Failed to delete pod", pod.Name)
 
-		ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", pod.Spec.NodeName))
+		ginkgo.By(fmt.Sprintf("Verify volume %q is detached from the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
@@ -775,10 +775,10 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
-				pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+				volumeID, pod.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
-				fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+				fmt.Sprintf("Volume %q is not detached from the node %q", volumeID, pod.Spec.NodeName))
 			if guestCluster {
 				ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
 				time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
@@ -898,7 +898,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var vmUUID string
-		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, pod.Spec.NodeName))
 		vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
 		if guestCluster {
 			vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
@@ -937,10 +937,10 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		ginkgo.By("Verify volume is detached from the node")
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(
-			client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+			client, volumeID, pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
-			fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			fmt.Sprintf("Volume %q is not detached from the node %q", volumeID, pod.Spec.NodeName))
 		if guestCluster {
 			ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
 			time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
@@ -1042,10 +1042,10 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume is detached from the node after expansion")
-		isDiskDetached, err = e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+		isDiskDetached, err = e2eVSphere.waitForVolumeDetachedFromNode(client, volumeID, pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
-			fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			fmt.Sprintf("Volume %q is not detached from the node %q", volumeID, pod.Spec.NodeName))
 		if guestCluster {
 			ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
 			time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
@@ -1260,12 +1260,11 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			err = fpod.DeletePodWithWait(client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By("Verify volume is detached from the node after expansion")
-			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
-				pvs[0].Spec.CSI.VolumeHandle, pod2.Spec.NodeName)
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID2, nodeName))
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volumeID2, nodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
-				fmt.Sprintf("Volume %q is not detached from the node %q", pvs[0].Spec.CSI.VolumeHandle, pod2.Spec.NodeName))
+				fmt.Sprintf("Volume %q is not detached from the node %q", volumeID2, nodeName))
 			if guestCluster {
 				ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
 				time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)

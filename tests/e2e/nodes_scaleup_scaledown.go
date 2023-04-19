@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"math/rand"
 	"strconv"
-	"strings"
 	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
@@ -168,7 +167,9 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 
 		var nodeToCordon *v1.Node
 		for _, node := range nodes.Items {
-			if strings.Contains(node.Name, "master") || strings.Contains(node.Name, "control") {
+			if _, ok := node.Labels["node-role.kubernetes.io/control-plane"]; ok {
+				continue
+			} else if _, ok := node.Labels["node-role.kubernetes.io/master"]; ok {
 				continue
 			} else {
 				nodeToCordon = &node
