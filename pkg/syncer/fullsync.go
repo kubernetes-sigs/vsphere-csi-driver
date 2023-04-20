@@ -49,7 +49,10 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	var err error
 	// Fetch CSI migration feature state, before performing full sync operations.
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		migrationFeatureStateForFullSync = metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration)
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) &&
+			len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
+			migrationFeatureStateForFullSync = true
+		}
 	}
 	defer func() {
 		fullSyncStatus := prometheus.PrometheusPassStatus
@@ -69,6 +72,14 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 
 	// k8sPVMap is useful for clean and quicker look up.
 	k8sPVMap := make(map[string]string)
+	// Instantiate volumeMigrationService when migration feature state is True.
+	if migrationFeatureStateForFullSync {
+		// Instantiate volumeMigrationService when migration feature state is True.
+		if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
+			log.Errorf("FullSync for VC %s: Failed to initialize migration service. Err: %v", vc, err)
+			return err
+		}
+	}
 
 	// Iterate through all the k8sPVs and use volume id as the key for k8sPVMap
 	// items. For migrated volumes, invoke GetVolumeID from migration service.
@@ -78,17 +89,8 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			k8sPVMap[pv.Spec.CSI.VolumeHandle] = ""
 		} else if migrationFeatureStateForFullSync && pv.Spec.VsphereVolume != nil {
 			// For vSphere volumes, migration service will register volumes in CNS.
-
 			// Note that we can never reach here in case of a multi VC setup
 			// as we have already filtered out in-tree volumes.
-			if volumeMigrationService == nil {
-				// Instantiate volumeMigrationService when migration feature state is True.
-				if err = initVolumeMigrationService(ctx, metadataSyncer); err != nil {
-					log.Errorf("FullSync for VC %s: Failed to get migration service. Err: %v", vc, err)
-					return err
-				}
-			}
-
 			migrationVolumeSpec := &migration.VolumeSpec{
 				VolumePath:        pv.Spec.VsphereVolume.VolumePath,
 				StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
@@ -278,7 +280,8 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 
 	// Sync VolumeInfo CRs
 	if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
-		volumeInfoCRFullSync(ctx, k8sPVMap, vc)
+		volumeInfoCRFullSync(ctx, metadataSyncer, vc)
+		cleanUpVolumeInfoCrDeletionMap(ctx, metadataSyncer, vc)
 	}
 
 	cleanupCnsMaps(k8sPVMap, vc)
@@ -288,21 +291,74 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	return nil
 }
 
+// cleanUpVolumeInfoCrDeletionMap removes volumes from the VolumeInfo CR deletion map
+// if the volume is present in the K8s cluster.
+// This may happen if is not yet created PV by the time full sync
+// starts. So the k8sPVMap has stale values. This means that the volumeInfo CR which
+// may have got created during the full sync, might be added to the deletion map.
+// This entry will be removed from the deletion map in the next full sync cycle.
+func cleanUpVolumeInfoCrDeletionMap(ctx context.Context, metadataSyncer *metadataSyncInformer, vc string) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Cleaning up VolumeInfo CRs.")
+
+	// Get all K8s PVs in the given VC.
+	currentK8sPV, err := getPVsInBoundAvailableOrReleasedForVc(ctx, metadataSyncer, vc)
+	if err != nil {
+		log.Errorf("FullSync for VC %s: cleanUpVolumeInfoCrDeletionMap failed to get PVs from kubernetes. Err: %v", vc, err)
+		return
+	}
+
+	currentK8sPVMap := make(map[string]bool)
+	// Create map for easy lookup.
+	for _, pv := range currentK8sPV {
+		if pv.Spec.CSI != nil {
+			currentK8sPVMap[pv.Spec.CSI.VolumeHandle] = true
+		} else {
+			log.Errorf("FullSync for VC %s: failed to find volumeHandle for volume %s", vc, pv.Name)
+		}
+	}
+
+	volumeInfoCrForVc := volumeInfoCrDeletionMap[vc]
+	for volID := range volumeInfoCrForVc {
+		if _, pvExists := currentK8sPVMap[volID]; pvExists {
+			delete(volumeInfoCrDeletionMap[vc], volID)
+		}
+	}
+	log.Debugf("Full sync for VC %s: volumeInfoCrDeletionMap after clean up: %v ",
+		vc, volumeInfoCrDeletionMap[vc])
+}
+
 // volumeInfoCRFullSync creates VolumeInfo CR if it does not already exist for a volume.
 // It also deletes VolumeInfo CR if its corresponding PV does not exist.
-func volumeInfoCRFullSync(ctx context.Context, k8sPvs map[string]string, vc string) {
+func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc string) {
 	log := logger.GetLogger(ctx)
 
 	log.Debugf("Starting volumeInfo CR full sync.")
 
-	for volumeID := range k8sPvs {
+	// Get all K8s PVs in the given VC.
+	currentK8sPV, err := getPVsInBoundAvailableOrReleasedForVc(ctx, metadataSyncer, vc)
+	if err != nil {
+		log.Errorf("FullSync for VC %s: volumeInfoCRFullSync failed to get PVs from kubernetes. Err: %v", vc, err)
+		return
+	}
+
+	currentK8sPVMap := make(map[string]bool)
+	// Create map for easy lookup.
+	for _, pv := range currentK8sPV {
+		if pv.Spec.CSI != nil {
+			currentK8sPVMap[pv.Spec.CSI.VolumeHandle] = true
+		} else {
+			log.Errorf("FullSync for VC %s: failed to find volumeHandle for volume %s", vc, pv.Name)
+		}
+	}
+
+	for volumeID := range currentK8sPVMap {
 		crExists, err := volumeInfoService.VolumeInfoCrExistsForVolume(ctx, volumeID)
 		if err != nil {
 			log.Errorf("FullSync for VC %s: failed to find VolumeInfo CR for volume %s."+
 				"Error: %+v", vc, volumeID, err)
 			continue
 		}
-
 		// Create VolumeInfo CR if not found.
 		if !crExists {
 			err := volumeInfoService.CreateVolumeInfo(ctx, volumeID, vc)
@@ -325,18 +381,24 @@ func volumeInfoCRFullSync(ctx context.Context, k8sPvs map[string]string, vc stri
 		}
 
 		if cnsvolumeinfo.Spec.VCenterServer == vc {
-			// Delete this CR if corresponding PV is not found
-			if _, exists := k8sPvs[cnsvolumeinfo.Spec.VolumeID]; !exists {
-				err := volumeInfoService.DeleteVolumeInfo(ctx, cnsvolumeinfo.Spec.VolumeID)
-				if err != nil {
-					log.Errorf("FullSync for VC %s: failed to delete VolumeInfo CR for volume %s."+
-						"Error: %+v", vc, cnsvolumeinfo.Spec.VolumeID, err)
-					continue
+			if _, exists := currentK8sPVMap[cnsvolumeinfo.Spec.VolumeID]; !exists {
+				// If a PV is not present in the cluster for two full sync cycles, delete its VolumeInfo CR.
+				if _, existsInCrDeletionMap := volumeInfoCrDeletionMap[vc][cnsvolumeinfo.Spec.VolumeID]; existsInCrDeletionMap {
+					err := volumeInfoService.DeleteVolumeInfo(ctx, cnsvolumeinfo.Spec.VolumeID)
+					if err != nil {
+						log.Errorf("FullSync for VC %s: failed to delete VolumeInfo CR for volume %s."+
+							"Error: %+v", vc, cnsvolumeinfo.Spec.VolumeID, err)
+						continue
+					}
+					delete(volumeInfoCrDeletionMap[vc], cnsvolumeinfo.Spec.VolumeID)
+				} else {
+					// Add volume to deletion map.
+					volumeInfoCrDeletionMap[vc][cnsvolumeinfo.Spec.VolumeID] = true
 				}
 			}
 		}
 	}
-
+	log.Debugf("FullSync for VC %s: volumeInfoCrDeletionMap: %v", vc, volumeInfoCrDeletionMap)
 }
 
 // fullSyncCreateVolumes creates volumes with given array of createSpec.
