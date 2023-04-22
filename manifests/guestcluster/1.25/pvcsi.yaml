@@ -223,6 +223,8 @@ spec:
               value: /etc/cloud/pvcsi-config/cns-csi.conf
             - name: PROVISION_TIMEOUT_MINUTES
               value: "4"
+            - name: SNAPSHOT_TIMEOUT_MINUTES
+              value: "4"
             - name: ATTACHER_TIMEOUT_MINUTES
               value: "4"
             - name: RESIZE_TIMEOUT_MINUTES
