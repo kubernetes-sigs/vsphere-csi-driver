@@ -547,19 +547,10 @@ func queryCreatedSnapshotByName(ctx context.Context, m *defaultManager, volumeID
 	return nil, false
 }
 
-// IsNotFoundError returns true if a given faulType is of type NotFound
-func IsNotFoundError(faultType string) bool {
-	// Extract error name from faultType
-	faultTypeErrSplitString := strings.Split(faultType, ".")
-	faultTypeErr := faultTypeErrSplitString[len(faultTypeErrSplitString)-1]
+// IsNotFoundFault returns true if a given faultType value is vim.fault.NotFound
+func IsNotFoundFault(ctx context.Context, faultType string) bool {
+	log := logger.GetLogger(ctx)
+	log.Infof("Checking fault type: %q is vim.fault.NotFound", faultType)
+	return faultType == "vim.fault.NotFound"
 
-	// Get NotFound error name from CNS vim25 types.
-	notFoundErrSplitString := strings.Split(((reflect.TypeOf(types.NotFound{})).String()), ".")
-	// vim25types gives value of format *type.XXX.
-	// In this case it will be *type.NotFound
-	// Extract Notfound from the vim25types error.
-	notFoundErr := notFoundErrSplitString[len(notFoundErrSplitString)-1]
-
-	// Check weather the faultTye is NotFound
-	return notFoundErr == faultTypeErr
 }

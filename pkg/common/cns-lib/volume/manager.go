@@ -1112,9 +1112,9 @@ func (m *defaultManager) deleteVolume(ctx context.Context, volumeID string, dele
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
 		faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
-		// If volume is not found on host, but is present in CNS DB, we will get NotFound fault.
+		// If volume is not found on host, but is present in CNS DB, we will get vim.fault.NotFound fault.
 		// Send back success as the volume is already deleted.
-		if IsNotFoundError(faultType) {
+		if IsNotFoundFault(ctx, faultType) {
 			log.Infof("DeleteVolume: VolumeID %q, not found, thus returning success", volumeID)
 			return "", nil
 		}
@@ -1279,9 +1279,9 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 	if volumeOperationRes.Fault != nil {
 		faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
 
-		// If volume is not found on host, but is present in CNS DB, we will get NotFound fault.
+		// If volume is not found on host, but is present in CNS DB, we will get vim.fault.NotFound fault.
 		// In such a case, send back success as the volume is already deleted.
-		if IsNotFoundError(faultType) {
+		if IsNotFoundFault(ctx, faultType) {
 			log.Infof("DeleteVolume: VolumeID %q, not found, thus returning success", volumeID)
 			return "", nil
 		}
