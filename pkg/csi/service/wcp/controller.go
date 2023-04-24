@@ -717,6 +717,17 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 	}
 
+	// Set the Snapshot VolumeContentSource in the CreateVolumeResponse
+	if contentSourceSnapshotID != "" {
+		resp.Volume.ContentSource = &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Snapshot{
+				Snapshot: &csi.VolumeContentSource_SnapshotSource{
+					SnapshotId: contentSourceSnapshotID,
+				},
+			},
+		}
+	}
+
 	return resp, "", nil
 }
 
