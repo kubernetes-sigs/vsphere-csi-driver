@@ -22,7 +22,6 @@ import (
 	"strconv"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	"github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -223,46 +222,4 @@ func QueryVolumeDetailsUtil(ctx context.Context, m cnsvolume.Manager, volumeIds 
 		volumeDetailsMap[volumeId.Id] = volumeDetails
 	}
 	return volumeDetailsMap, nil
-}
-
-// GetDatastoreRefByURLFromGivenDatastoreList fetches the datastore reference by datastore URL
-// from a list of datastore references.
-// If the datastore with dsURL can be found in the same datacenter as the given VC
-// and it is also found in the given datastoreList, return the reference of the datastore.
-// Otherwise, return error.
-func GetDatastoreRefByURLFromGivenDatastoreList(ctx context.Context, vc *cnsvsphere.VirtualCenter,
-	datastoreList []types.ManagedObjectReference, dsURL string) (*types.ManagedObjectReference, error) {
-	log := logger.GetLogger(ctx)
-	// Get all datacenters in the virtualcenter
-	datacenters, err := vc.GetDatacenters(ctx)
-	if err != nil {
-		log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
-		return nil, err
-	}
-	var candidateDsObj *cnsvsphere.Datastore
-	// traverse each datacenter and find the datastore with the specified dsURL
-	for _, datacenter := range datacenters {
-		candidateDsInfoObj, err := datacenter.GetDatastoreInfoByURL(ctx, dsURL)
-		if err != nil {
-			log.Errorf("failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
-				dsURL, datacenter.InventoryPath, vc.Config.Host, err)
-			continue
-		}
-		candidateDsObj = candidateDsInfoObj.Datastore
-		break
-	}
-	if candidateDsObj == nil {
-		// fail if the candidate datastore is not found in the virtualcenter
-		return nil, logger.LogNewErrorf(log,
-			"failed to find datastore with URL %q in VC %q", dsURL, vc.Config.Host)
-	}
-
-	for _, datastoreRef := range datastoreList {
-		if datastoreRef == candidateDsObj.Reference() {
-			log.Infof("compatible datastore found, dsURL = %q, dsRef = %v", dsURL, datastoreRef)
-			return &datastoreRef, nil
-		}
-	}
-	return nil, logger.LogNewErrorf(log,
-		"failed to find datastore with URL %q from the input datastore list, %v", dsURL, datastoreList)
 }

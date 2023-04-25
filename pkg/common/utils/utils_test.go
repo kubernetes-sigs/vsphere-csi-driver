@@ -9,13 +9,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/vmware/govmomi/vim25/mo"
-
 	cnssim "github.com/vmware/govmomi/cns/simulator"
 	"github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/simulator"
-	vim25types "github.com/vmware/govmomi/vim25/types"
 
 	cnsvolumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -165,101 +161,5 @@ func TestQuerySnapshotsUtil(t *testing.T) {
 	t.Log("Snapshots: ")
 	for _, entry := range queryResultEntries {
 		t.Log(entry)
-	}
-}
-
-func TestGetDatastoreRefByURLFromGivenDatastoreList(t *testing.T) {
-	type funcArgs struct {
-		ctx         context.Context
-		vc          *cnsvsphere.VirtualCenter
-		dsMoRefList []vim25types.ManagedObjectReference
-		dsURL       string
-	}
-
-	// Create context
-	commonUtilsTestInstance := getCommonUtilsTest(t)
-
-	dsReferenceList := simulator.Map.AllReference("Datastore")
-	var dsEntityList []mo.Entity
-	var dsMoRefList []vim25types.ManagedObjectReference
-	for _, dsReference := range dsReferenceList {
-		dsMoRefList = append(dsMoRefList, dsReference.Reference())
-		dsEntityList = append(dsEntityList, dsReference.(mo.Entity))
-	}
-
-	// case 2: a list of all datastore MoRef except the last one
-	dsMoRefListButLastOne := dsMoRefList[:len(dsMoRefList)-1]
-
-	// the datastore url for the last one in the list
-	dsReferenceFortheLast := dsReferenceList[len(dsReferenceList)-1].Reference()
-	dsUrl := dsEntityList[len(dsEntityList)-1].(*simulator.Datastore).Info.GetDatastoreInfo().Url
-
-	// an invalid datastore url
-	invalidDsUrl := "an-invalid-datastore-url"
-
-	tests := []struct {
-		name          string
-		args          funcArgs
-		expectedDsRef *vim25types.ManagedObjectReference
-		expectedErr   error
-	}{
-		{
-			name: "CompatibleDatastoreFound",
-			args: funcArgs{
-				ctx:         context.TODO(),
-				vc:          commonUtilsTestInstance.vcenter,
-				dsMoRefList: dsMoRefList,
-				dsURL:       dsUrl,
-			},
-			expectedDsRef: &dsReferenceFortheLast,
-			expectedErr:   nil,
-		},
-		{
-			name: "FailToFindGivenDatastoreInCompatibleList",
-			args: funcArgs{
-				ctx:         context.TODO(),
-				vc:          commonUtilsTestInstance.vcenter,
-				dsMoRefList: dsMoRefListButLastOne,
-				dsURL:       dsUrl,
-			},
-			expectedDsRef: nil,
-			expectedErr: fmt.Errorf("failed to find datastore with URL %q from "+
-				"the input datastore list, %v", dsUrl, dsMoRefListButLastOne),
-		},
-		{
-			name: "FailToFindGivenDatastoreInVC",
-			args: funcArgs{
-				ctx:         context.TODO(),
-				vc:          commonUtilsTestInstance.vcenter,
-				dsMoRefList: dsMoRefList,
-				dsURL:       invalidDsUrl,
-			},
-			expectedDsRef: nil,
-			expectedErr: fmt.Errorf("failed to find datastore with URL %q in VC %q",
-				invalidDsUrl, commonUtilsTestInstance.vcenter.Config.Host),
-		},
-		{
-			name: "EmptyDatastoreURLFromInput",
-			args: funcArgs{
-				ctx:         context.TODO(),
-				vc:          commonUtilsTestInstance.vcenter,
-				dsMoRefList: dsMoRefList,
-				dsURL:       "",
-			},
-			expectedDsRef: nil,
-			expectedErr: fmt.Errorf("failed to find datastore with URL %q in VC %q",
-				"", commonUtilsTestInstance.vcenter.Config.Host),
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			actualDsRef, actualErr := GetDatastoreRefByURLFromGivenDatastoreList(
-				test.args.ctx, test.args.vc, test.args.dsMoRefList, test.args.dsURL)
-			assert.Equal(t, test.expectedErr == nil, actualErr == nil)
-			if test.expectedErr != nil && actualErr != nil {
-				assert.Equal(t, test.expectedErr.Error(), actualErr.Error())
-			}
-			assert.Equal(t, test.expectedDsRef, actualDsRef)
-		})
 	}
 }
