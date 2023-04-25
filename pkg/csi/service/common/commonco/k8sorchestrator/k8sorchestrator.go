@@ -1067,7 +1067,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 			}
 			if !supervisorFeatureState {
 				// If FSS set to false, return.
-				log.Infof("%s feature state set to false in %s ConfigMap", featureName, c.supervisorFSS.configMapName)
+				log.Infof("%s feature state is set to false in %s ConfigMap", featureName, c.supervisorFSS.configMapName)
 				return supervisorFeatureState
 			}
 		} else {
