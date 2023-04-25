@@ -1431,7 +1431,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// Wait for VolumeSnapshot to be ready to use
 		isReady, vs, err := common.IsVolumeSnapshotReady(ctx, c.supervisorSnapshotterClient,
 			supervisorVolumeSnapshotName, c.supervisorNamespace,
-			time.Duration(getProvisionTimeoutInMin(ctx))*time.Minute)
+			time.Duration(getSnapshotTimeoutInMin(ctx))*time.Minute)
 		if !isReady {
 			msg := fmt.Sprintf("volumesnapshot: %s on namespace: %s in supervisor cluster was not Ready. "+
 				"Error: %+v", supervisorVolumeSnapshotName, c.supervisorNamespace, err)

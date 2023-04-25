@@ -327,14 +327,21 @@ func IsVolumeSnapshotReady(ctx context.Context, client snapshotterClientSet.Inte
 			log.Warnf(msg)
 			return false, logger.LogNewErrorf(log, msg)
 		}
+		if svs == nil || svs.Status == nil || svs.Status.ReadyToUse == nil {
+			log.Infof("Waiting up to %d seconds for VolumeSnapshot %v in namespace %s to be ReadyToUse, %+vs "+
+				"since the start time", timeoutSeconds, supervisorVolumeSnapshotName, namespace,
+				time.Since(startTime).Seconds())
+			return false, nil
+		}
 		isSnapshotReadyToUse := *svs.Status.ReadyToUse
 		if isSnapshotReadyToUse {
 			log.Infof("VolumeSnapshot %s/%s is in ReadyToUse state", namespace, supervisorVolumeSnapshotName)
 			isReadyToUse = true
 			return true, nil
 		} else {
-			log.Warnf("Waiting for VolumeSnapshot %s/%s to be ready since %+vs", namespace,
-				supervisorVolumeSnapshotName, time.Since(startTime).Seconds())
+			log.Infof("Waiting up to %d seconds for VolumeSnapshot %v in namespace %s to be ReadyToUse, %+vs "+
+				"since the start time", timeoutSeconds, supervisorVolumeSnapshotName, namespace,
+				time.Since(startTime).Seconds())
 		}
 		return false, nil
 	})
