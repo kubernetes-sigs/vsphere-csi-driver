@@ -61,6 +61,9 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		restConfig              *restclient.Config
 		snapc                   *snapclient.Clientset
 		nimbusGeneratedK8sVmPwd string
+		storagePolicyName       string
+		volumeSnapshotClass     *snapV1.VolumeSnapshotClass
+		snapshotId              string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -105,27 +108,36 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			c = remoteC
 		}
+
+		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
 	})
 
 	/*
-	   Create/Delete snapshot via k8s API using PVC (Dynamic Provisioning)
+		Testcase-1
+		   Create/Delete snapshot via k8s API using PVC (Dynamic Provisioning)
 
-	   1. Create a storage class (eg: vsan default) and create a pvc using this sc
-	   2. Create a VolumeSnapshot class with snapshotter as vsphere-csi-driver and set deletionPolicy to Delete
-	   3. Create a volume-snapshot with labels, using the above snapshot-class and pvc (from step-1) as source
-	   4. Ensure the snapshot is created, verify using get VolumeSnapshot
-	   5. Also verify that VolumeSnapshotContent is auto-created
-	   6. Verify the references to pvc and volume-snapshot on this object
-	   7. Verify that the VolumeSnapshot has ready-to-use set to True
-	   8. Verify that the Restore Size set on the snapshot is same as that of the source volume size
-	   9. Query the snapshot from CNS side using volume id - should pass and return the snapshot entry
-	   10. Delete the above snapshot from k8s side using kubectl delete, run a get and ensure it is removed
-	   11. Also ensure that the VolumeSnapshotContent is deleted along with the
-	       volume snapshot as the policy is delete
-	   12. Query the snapshot from CNS side - should return 0 entries
-	   13. Cleanup: Delete PVC, SC (validate they are removed)
+		   1. Create a storage class (eg: vsan default) and create a pvc using this sc
+		   2. Create a VolumeSnapshot class with snapshotter as vsphere-csi-driver and set deletionPolicy to Delete
+		   3. Create a volume-snapshot with labels, using the above snapshot-class and pvc (from step-1) as source
+		   4. Ensure the snapshot is created, verify using get VolumeSnapshot
+		   5. Also verify that VolumeSnapshotContent is auto-created
+		   6. Verify the references to pvc and volume-snapshot on this object
+		   7. Verify that the VolumeSnapshot has ready-to-use set to True
+		   8. Verify that the Restore Size set on the snapshot is same as that of the source volume size
+		   9. Query the snapshot from CNS side using volume id - should pass and return the snapshot entry
+		   10. Delete the above snapshot from k8s side using kubectl delete, run a get and ensure it is removed
+		   11. Also ensure that the VolumeSnapshotContent is deleted along with the
+		       volume snapshot as the policy is delete
+		   12. Query the snapshot from CNS side - should return 0 entries
+		   13. Cleanup: Delete PVC, SC (validate they are removed)
 	*/
-	ginkgo.It("Verify snapshot dynamic provisioning workflow", func() {
+	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Verify snapshot dynamic provisioning workflow", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -134,8 +146,13 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		var err error
 		var snapshotContentCreated = false
 
+		if vanillaCluster {
+			scParameters[scParamDatastoreURL] = datastoreURL
+		} else if guestCluster {
+			scParameters[svStorageClassName] = storagePolicyName
+		}
+
 		ginkgo.By("Create storage class and PVC")
-		scParameters[scParamDatastoreURL] = datastoreURL
 		storageclass, pvclaim, err = createPVCAndStorageClass(client,
 			namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -151,7 +168,9 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-
+		if guestCluster {
+			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
+		}
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -166,15 +185,20 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 		gomega.Expect(queryResult.Volumes[0].VolumeId.Id).To(gomega.Equal(volHandle))
 
-		ginkgo.By("Create volume snapshot class")
-		volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
-			getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil), metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		defer func() {
-			err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name, metav1.DeleteOptions{})
+		if vanillaCluster {
+			ginkgo.By("Create volume snapshot class")
+			volumeSnapshotClass, err = snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
+				getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil), metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+			defer func() {
+				err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		} else if guestCluster {
+			volumeSnapshotClassName := GetAndExpectStringEnvVar(envVolSnapClassDel)
+			volumeSnapshotClass, err = snapc.SnapshotV1().VolumeSnapshotClasses().Get(ctx, volumeSnapshotClassName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By("Create a volume snapshot")
 		volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
@@ -218,8 +242,14 @@ var _ = ginkgo.Describe("[block-vanilla-snapshot] Volume Snapshot Basic Test", f
 		gomega.Expect(*snapshotContent.Status.ReadyToUse).To(gomega.BeTrue())
 
 		framework.Logf("Get volume snapshot ID from snapshot handle")
-		snapshothandle := *snapshotContent.Status.SnapshotHandle
-		snapshotId := strings.Split(snapshothandle, "+")[1]
+		if vanillaCluster {
+			snapshothandle := *snapshotContent.Status.SnapshotHandle
+			snapshotId = strings.Split(snapshothandle, "+")[1]
+		} else if guestCluster {
+			snapshothandle := *snapshotContent.Status.SnapshotHandle
+			snapshotId = getSnapshotHandleFromSupervisorCluster(ctx, volumeSnapshotClass,
+				snapshothandle)
+		}
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
 		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
