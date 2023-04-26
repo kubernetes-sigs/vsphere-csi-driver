@@ -295,7 +295,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			volumeInfoCrDeletionMap[metadataSyncer.host] = make(map[string]bool)
 			volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
 
-			volumeManager, err := volumes.GetManager(ctx, vCenter, nil, false, false, false, tasksListViewEnabled)
+			volumeManager, err := volumes.GetManager(ctx, vCenter, nil, true, false, false, tasksListViewEnabled)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 			}
@@ -317,7 +317,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, err: %v", vcconfig.Host, err)
 				}
 				volumeManager, err := volumes.GetManager(ctx, vCenter, nil,
-					false, true,
+					true, true,
 					multivCenterTopologyDeployment, tasksListViewEnabled)
 				if err != nil {
 					return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)

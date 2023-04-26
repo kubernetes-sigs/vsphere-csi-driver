@@ -100,7 +100,7 @@ func (w *DiskDecommController) detachVolumes(ctx context.Context, storagePoolNam
 		VirtualCenterHost: vc.Config.Host,
 	}
 
-	volManager, err := volume.GetManager(ctx, &vc, nil, false, false, false, false)
+	volManager, err := volume.GetManager(ctx, &vc, nil, true, false, false, false)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}
