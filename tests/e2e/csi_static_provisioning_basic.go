@@ -281,6 +281,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			pandoraSyncWaitTime, fcdID))
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
+		time.Sleep(time.Duration(120) * time.Second)
 		// Creating label for PV.
 		// PVC will use this label as Selector to find PV.
 		staticPVLabels := make(map[string]string)
