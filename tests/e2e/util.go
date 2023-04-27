@@ -6457,3 +6457,33 @@ func createVsanDPvcAndPod(client clientset.Interface, ctx context.Context,
 
 	return pvclaim, pod
 }
+
+// createSnapshotInParallel creates snapshot for a given pvc
+// in a given namespace
+func createSnapshotInParallel(ctx context.Context, namespace string,
+	snapc *snapclient.Clientset, pvcName string, volumeSnapClassName string,
+	ch chan *snapc.VolumeSnapshot, lock *sync.Mutex, wg *sync.WaitGroup) {
+	defer wg.Done()
+	framework.Logf("Waiting for a few seconds for IO to happen to pod")
+	time.Sleep(time.Duration(10) * time.Second)
+	volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+		getVolumeSnapshotSpec(namespace, volumeSnapClassName, pvcName), metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
+	lock.Lock()
+	ch <- volumeSnapshot
+	lock.Unlock()
+}
+
+// writeDataToMultipleFilesOnPodInParallel writes data to multiple files
+// on a given pod in parallel
+func writeDataToMultipleFilesOnPodInParallel(namespace string, podName string, data string,
+	wg *sync.WaitGroup) {
+	defer wg.Done()
+	for i := 0; i < 10; i++ {
+		ginkgo.By("write to a file in pod")
+		filePath := fmt.Sprintf("/mnt/volume1/file%v.txt", i)
+		writeDataOnFileFromPod(namespace, podName, filePath, data)
+	}
+
+}

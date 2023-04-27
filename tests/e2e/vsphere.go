@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -1102,9 +1103,14 @@ func (vs *vSphere) verifyDatastoreMatch(volumeID string, dsUrls []string) {
 
 // cnsRelocateVolume relocates volume from one datastore to another using CNS relocate volume API
 func (vs *vSphere) cnsRelocateVolume(e2eVSphere vSphere, ctx context.Context, fcdID string,
-	dsRefDest vim25types.ManagedObjectReference) error {
+	dsRefDest vim25types.ManagedObjectReference,
+	waitForRelocateTaskToComplete ...bool) (*object.Task, error) {
 	var pandoraSyncWaitTime int
 	var err error
+	waitForTaskTocomplete := true
+	if len(waitForRelocateTaskToComplete) > 0 {
+		waitForTaskTocomplete = waitForRelocateTaskToComplete[0]
+	}
 	if os.Getenv(envPandoraSyncWaitTime) != "" {
 		pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1126,31 +1132,32 @@ func (vs *vSphere) cnsRelocateVolume(e2eVSphere vSphere, ctx context.Context, fc
 	res, err := cnsmethods.CnsRelocateVolume(ctx, cnsClient, &req)
 	framework.Logf("error is: %v", err)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	task := object.NewTask(e2eVSphere.Client.Client, res.Returnval)
+	if waitForTaskTocomplete {
+		taskInfo, err := task.WaitForResult(ctx, nil)
+		framework.Logf("taskInfo: %v", taskInfo)
+		framework.Logf("error: %v", err)
+		if err != nil {
+			return nil, err
+		}
+		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+		if err != nil {
+			return nil, err
+		}
 
-	task, err := object.NewTask(e2eVSphere.Client.Client, res.Returnval), nil
-	taskInfo, err := task.WaitForResult(ctx, nil)
-	framework.Logf("taskInfo: %v", taskInfo)
-	framework.Logf("error: %v", err)
-	if err != nil {
-		return err
+		framework.Logf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime)
+		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+		cnsRelocateVolumeRes := taskResult.GetCnsVolumeOperationResult()
+
+		if cnsRelocateVolumeRes.Fault != nil {
+			err = fmt.Errorf("failed to relocate volume=%+v", cnsRelocateVolumeRes.Fault)
+			return nil, err
+		}
 	}
-	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
-	if err != nil {
-		return err
-	}
-
-	framework.Logf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime)
-	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
-
-	cnsRelocateVolumeRes := taskResult.GetCnsVolumeOperationResult()
-
-	if cnsRelocateVolumeRes.Fault != nil {
-		err = fmt.Errorf("failed to relocate volume=%+v", cnsRelocateVolumeRes.Fault)
-		return err
-	}
-	return nil
+	return task, nil
 }
 
 // fetchDsUrl4CnsVol executes query CNS volume to get the datastore
@@ -1251,4 +1258,39 @@ func (vs *vSphere) reconfigPolicy(ctx context.Context, volumeID string, profileI
 	}
 	framework.Logf("reconfigpolicy on volume %v with policy %v is successful", volumeID, profileID)
 	return nil
+}
+
+// cnsRelocateVolumeInParallel relocates volume in parallel from one datastore to another
+// using CNS API
+func cnsRelocateVolumeInParallel(e2eVSphere vSphere, ctx context.Context, fcdID string,
+	dsRefDest vim25types.ManagedObjectReference, waitForRelocateTaskToComplete bool,
+	wg *sync.WaitGroup) {
+	defer wg.Done()
+	_, err := e2eVSphere.cnsRelocateVolume(e2eVSphere, ctx, fcdID, dsRefDest, waitForRelocateTaskToComplete)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+}
+
+// waitForCNSTaskToComplete wait for CNS task to complete
+// and gets the result and checks if any fault has occurred
+func waitForCNSTaskToComplete(ctx context.Context, task *object.Task) *vim25types.LocalizedMethodFault {
+	var pandoraSyncWaitTime int
+	var err error
+	if os.Getenv(envPandoraSyncWaitTime) != "" {
+		pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+	}
+
+	taskInfo, err := task.WaitForResult(ctx, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime)
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+	cnsTaskRes := taskResult.GetCnsVolumeOperationResult()
+	return cnsTaskRes.Fault
 }

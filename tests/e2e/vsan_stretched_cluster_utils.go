@@ -420,10 +420,12 @@ func updatePvLabelsInParallel(ctx context.Context, client clientset.Interface, n
 	labels map[string]string, persistentVolumes []*v1.PersistentVolume, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for _, pv := range persistentVolumes {
-		framework.Logf(fmt.Sprintf("Updating labels %+v for pv %s in namespace %s",
-			labels, pv.Name, namespace))
+		framework.Logf("Updating labels %+v for pv %s in namespace %s",
+			labels, pv.Name, namespace)
+		pv, err := client.CoreV1().PersistentVolumes().Get(ctx, pv.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pv.Labels = labels
-		_, err := client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+		_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			"Error on updating pv labels is: %v", err)
 
