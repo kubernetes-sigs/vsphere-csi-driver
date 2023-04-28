@@ -173,8 +173,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 			// The CO calls NodeGetInfo API just once during the node registration,
 			// therefore we do not support updates to the spec after the CR has
 			// been reconciled.
-			log.Debug("Ignoring CSINodeTopology reconciliation on update event")
-			return false
+			return true
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			// Instances are deleted by the garbage collector automatically after
@@ -296,10 +295,10 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	// Retrieve topology labels for nodeVM.
-	if r.shouldUpdateTopology(instance) {
+	if !r.isTopologyEnabled() {
 		// Not a topology aware setup.
 		// Set the Status to Success and return.
+		log.Infof("Skipping topology update, topolgogy feature is disabled")
 		instance.Status.TopologyLabels = make([]csinodetopologyv1alpha1.TopologyLabel, 0)
 		err = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologySuccess,
 			"Not a topology aware cluster.")
@@ -309,6 +308,15 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 	} else if r.configInfo.Cfg.Labels.TopologyCategories != "" ||
 		(r.configInfo.Cfg.Labels.Zone != "" && r.configInfo.Cfg.Labels.Region != "") {
 		log.Infof("Detected a topology aware cluster")
+
+		if len(instance.Status.TopologyLabels) > 0 {
+			log.Infof("Found existing topology")
+			err = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologySuccess,
+				"found existing topology.")
+			if err != nil {
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+		}
 
 		// Fetch topology labels for nodeVM.
 		topologyLabels, err := getNodeTopologyInfo(ctx, nodeVM, r.configInfo.Cfg, r.isMultiVCFSSEnabled)
@@ -345,13 +353,9 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 // shouldUpdateTopology checks if topology of cluster should be updated.
 // if cluster is not topology aware return false.
 // If nodeTopology is already set then also there is no need to update the topology labels of the node anymore.
-func (r *ReconcileCSINodeTopology) shouldUpdateTopology(nodeTopology *csinodetopologyv1alpha1.CSINodeTopology) bool {
+func (r *ReconcileCSINodeTopology) isTopologyEnabled() bool {
 	if r.configInfo.Cfg.Labels.TopologyCategories == "" &&
 		r.configInfo.Cfg.Labels.Zone == "" && r.configInfo.Cfg.Labels.Region == "" {
-		return false
-	}
-
-	if len(nodeTopology.Status.TopologyLabels) > 0 {
 		return false
 	}
 	return true

@@ -21,8 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"os"
 	"reflect"
 	"strconv"
@@ -31,6 +29,7 @@ import (
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	jsonpatch "github.com/evanphx/json-patch/v5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -844,21 +843,25 @@ func (volTopology *nodeVolumeTopology) updateNodeIDForTopology(
 	return csiNodeTopology
 }
 
-func (volTopology *nodeVolumeTopology) patchCSINodeTopology(ctx context.Context, oldNodeTopology, newCSINodeTopology *csinodetopologyv1alpha1.CSINodeTopology) (*csinodetopologyv1alpha1.CSINodeTopology, error) {
-	patch, err := getCSINodePatchData(oldNodeTopology, newCSINodeTopology, true)
+func (volTopology *nodeVolumeTopology) patchCSINodeTopology(
+	ctx context.Context,
+	oldTopo, newTopo *csinodetopologyv1alpha1.CSINodeTopology) (*csinodetopologyv1alpha1.CSINodeTopology, error) {
+	patch, err := getCSINodePatchData(oldTopo, newTopo, true)
 	if err != nil {
-		return oldNodeTopology, err
+		return oldTopo, err
 	}
-	err = volTopology.csiNodeTopologyK8sClient.Patch(ctx, oldNodeTopology, patch)
+	rawPatch := client.RawPatch(types.MergePatchType, patch)
+	err = volTopology.csiNodeTopologyK8sClient.Patch(ctx, oldTopo, rawPatch)
 	if err != nil {
-		return oldNodeTopology, err
+		return oldTopo, err
 	}
-	return newCSINodeTopology, nil
+	return newTopo, nil
 }
 
-func getCSINodePatchData(oldNodeTopology, newNodeTopology *csinodetopologyv1alpha1.CSINodeTopology,
-	addResourceVersionCheck bool) (client.Patch, error) {
-	patchBytes, err := GetPatchData(oldNodeTopology, newNodeTopology)
+func getCSINodePatchData(
+	oldNodeTopology, newNodeTopology *csinodetopologyv1alpha1.CSINodeTopology,
+	addResourceVersionCheck bool) ([]byte, error) {
+	patchBytes, err := getPatchData(oldNodeTopology, newNodeTopology)
 	if err != nil {
 		return nil, err
 	}
@@ -868,7 +871,7 @@ func getCSINodePatchData(oldNodeTopology, newNodeTopology *csinodetopologyv1alph
 			return nil, fmt.Errorf("apply ResourceVersion to patch data failed: %v", err)
 		}
 	}
-	return client.RawPatch(types.StrategicMergePatchType, patchBytes), nil
+	return patchBytes, nil
 }
 
 func addResourceVersion(patchBytes []byte, resourceVersion string) ([]byte, error) {
@@ -878,7 +881,7 @@ func addResourceVersion(patchBytes []byte, resourceVersion string) ([]byte, erro
 		return nil, fmt.Errorf("error unmarshalling patch with %v", err)
 	}
 	u := unstructured.Unstructured{Object: patchMap}
-	a, err := meta.Accessor(&u)
+	a, err := apiMeta.Accessor(&u)
 	if err != nil {
 		return nil, fmt.Errorf("error creating accessor with  %v", err)
 	}
@@ -890,7 +893,7 @@ func addResourceVersion(patchBytes []byte, resourceVersion string) ([]byte, erro
 	return versionBytes, nil
 }
 
-func GetPatchData(oldObj, newObj interface{}) ([]byte, error) {
+func getPatchData(oldObj, newObj interface{}) ([]byte, error) {
 	oldData, err := json.Marshal(oldObj)
 	if err != nil {
 		return nil, fmt.Errorf("marshal old object failed: %v", err)
@@ -899,9 +902,9 @@ func GetPatchData(oldObj, newObj interface{}) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal new object failed: %v", err)
 	}
-	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, oldObj)
+	patchBytes, err := jsonpatch.CreateMergePatch(oldData, newData)
 	if err != nil {
-		return nil, fmt.Errorf("CreateTwoWayMergePatch failed: %v", err)
+		return nil, fmt.Errorf("CreateMergePatch failed: %v", err)
 	}
 	return patchBytes, nil
 }
