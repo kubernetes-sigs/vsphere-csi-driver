@@ -297,8 +297,7 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 	}
 
 	// Retrieve topology labels for nodeVM.
-	if r.configInfo.Cfg.Labels.TopologyCategories == "" &&
-		r.configInfo.Cfg.Labels.Zone == "" && r.configInfo.Cfg.Labels.Region == "" {
+	if r.shouldUpdateTopology(instance) {
 		// Not a topology aware setup.
 		// Set the Status to Success and return.
 		instance.Status.TopologyLabels = make([]csinodetopologyv1alpha1.TopologyLabel, 0)
@@ -341,6 +340,21 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 	backOffDurationMapMutex.Unlock()
 	log.Infof("Successfully updated topology labels for nodeVM %q", instance.Name)
 	return reconcile.Result{}, nil
+}
+
+// shouldUpdateTopology checks if topology of cluster should be updated.
+// if cluster is not topology aware return false.
+// If nodeTopology is already set then also there is no need to update the topology labels of the node anymore.
+func (r *ReconcileCSINodeTopology) shouldUpdateTopology(nodeTopology *csinodetopologyv1alpha1.CSINodeTopology) bool {
+	if r.configInfo.Cfg.Labels.TopologyCategories == "" &&
+		r.configInfo.Cfg.Labels.Zone == "" && r.configInfo.Cfg.Labels.Region == "" {
+		return false
+	}
+
+	if len(nodeTopology.Status.TopologyLabels) > 0 {
+		return false
+	}
+	return true
 }
 
 func (r *ReconcileCSINodeTopology) reconcileForGuest(ctx context.Context, request reconcile.Request) (
