@@ -19,7 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -124,7 +123,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
-			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
 		pvclaims = append(pvclaims, pvclaim)
