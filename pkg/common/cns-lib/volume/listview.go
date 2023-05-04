@@ -87,7 +87,8 @@ func (l *ListViewImpl) createListView(ctx context.Context, tasks []types.Managed
 		return err
 	}
 	l.listView = listView
-	log.Infof("created listView object %+v for virtualCenter: %+v", l.listView.Reference(), l.virtualCenter)
+	log.Infof("created listView object %+v for virtualCenter: %+v",
+		l.listView.Reference(), l.virtualCenter.Config.Host)
 	return nil
 }
 
@@ -225,7 +226,8 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 		// we want to immediately return a fault for all the pending tasks in the map
 		// note: this is not a task error but an error from the vc
 		if err != nil {
-			log.Errorf("WaitForUpdates returned err: %v for vc: %+v", err, l.virtualCenter)
+			log.Errorf("WaitForUpdates returned err: %v for vc: %+v", err,
+				l.virtualCenter.Config.Host)
 			recreateView = true
 			l.reportErrorOnAllPendingTasks(err)
 		}
