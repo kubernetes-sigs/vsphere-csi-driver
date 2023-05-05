@@ -48,7 +48,7 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 		log.Debugf("JSON req.OldObject.Raw: %v", string(req.OldObject.Raw))
 		// req.OldObject is null for CREATE and CONNECT operations.
 		if err := json.Unmarshal(req.OldObject.Raw, &oldPVC); err != nil {
-			log.Warnf("error deserializing old pvc: %v. skipping validation.", err)
+			log.Errorf("error deserializing old pvc: %v. skipping validation.", err)
 			return &admissionv1.AdmissionResponse{
 				// skip validation if there is pvc deserialization error
 				Allowed: true,
@@ -70,7 +70,7 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 			log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
 			// req.Object is null for DELETE operations.
 			if err := json.Unmarshal(req.Object.Raw, &newPVC); err != nil {
-				log.Warnf("error deserializing old pvc: %v. skipping validation.", err)
+				log.Errorf("error deserializing old pvc: %v. skipping validation.", err)
 				return &admissionv1.AdmissionResponse{
 					// skip validation if there is pvc deserialization error
 					Allowed: true,
@@ -151,7 +151,7 @@ func getPVReclaimPolicyForPVC(ctx context.Context, pvc corev1.PersistentVolumeCl
 	pv, err := kubeClient.CoreV1().PersistentVolumes().Get(ctx, pvc.Spec.VolumeName, metav1.GetOptions{})
 	if err != nil {
 		return result, logger.LogNewErrorf(log, "failed to get PV %v with error: %v. "+
-			"Stopping getting reclaim policy for PVC, %s/%s", err, pvc.Spec.VolumeName, pvc.Namespace, pvc.Name)
+			"Stopping getting reclaim policy for PVC, %s/%s", pvc.Spec.VolumeName, err, pvc.Namespace, pvc.Name)
 	}
 
 	return pv.Spec.PersistentVolumeReclaimPolicy, nil
