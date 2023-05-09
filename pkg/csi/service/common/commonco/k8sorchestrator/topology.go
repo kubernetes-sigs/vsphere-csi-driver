@@ -759,9 +759,10 @@ func (volTopology *nodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context
 	}
 
 	// there is an already existing topology
-	if topologyFound {
+	if topologyFound && volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		newCSINodeTopology := csiNodeTopology.DeepCopy()
-		if volTopology.isCSINodeIdFeatureEnabled && volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+
+		if volTopology.isCSINodeIdFeatureEnabled {
 			newCSINodeTopology = volTopology.updateNodeIDForTopology(ctx, nodeInfo, newCSINodeTopology)
 		}
 		// reset the status so as syncer can sync the object again

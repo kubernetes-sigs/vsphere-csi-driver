@@ -350,9 +350,8 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 	return reconcile.Result{}, nil
 }
 
-// shouldUpdateTopology checks if topology of cluster should be updated.
+// isTopologyEnabled checks if topology of cluster should be updated.
 // if cluster is not topology aware return false.
-// If nodeTopology is already set then also there is no need to update the topology labels of the node anymore.
 func (r *ReconcileCSINodeTopology) isTopologyEnabled() bool {
 	if r.configInfo.Cfg.Labels.TopologyCategories == "" &&
 		r.configInfo.Cfg.Labels.Zone == "" && r.configInfo.Cfg.Labels.Region == "" {
