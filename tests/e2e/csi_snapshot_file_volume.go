@@ -45,7 +45,9 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 		pvclaims            []*v1.PersistentVolumeClaim
 		restConfig          *restclient.Config
 		snapc               *snapclient.Clientset
+		storagePolicyName   string
 		pandoraSyncWaitTime int
+		volumeSnapshotClass *snapV1.VolumeSnapshotClass
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -71,6 +73,13 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 		} else {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
+
+		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
 	})
 
 	/*
@@ -79,7 +88,7 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 		2. Try creating a snapshot on this pvc
 		3. Should fail with an appropriate error
 	*/
-	ginkgo.It("Snapshot creation on a file-share volume - expect to fail", func() {
+	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Snapshot creation on a file-share volume - expect to fail", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -88,7 +97,11 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 		var err error
 
 		ginkgo.By("Create storage class and PVC")
-		scParameters[scParamDatastoreURL] = datastoreURL
+		if vanillaCluster {
+			scParameters[scParamDatastoreURL] = datastoreURL
+		} else if guestCluster {
+			scParameters[svStorageClassName] = storagePolicyName
+		}
 
 		ginkgo.By(fmt.Sprintf("Block or file setup %v", rwxAccessMode))
 
@@ -109,6 +122,9 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+			if guestCluster {
+				volHandle = getVolumeIDFromSupervisorCluster(volHandle)
+			}
 
 			defer func() {
 				err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
@@ -118,10 +134,15 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 			}()
 
 			ginkgo.By("Create volume snapshot class")
-			volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
-				getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil), metav1.CreateOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+			if vanillaCluster {
+				volumeSnapshotClass, err = snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
+					getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil), metav1.CreateOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else if guestCluster {
+				volumeSnapshotClassName := GetAndExpectStringEnvVar(envVolSnapClassDel)
+				volumeSnapshotClass, err = snapc.SnapshotV1().VolumeSnapshotClasses().Get(ctx, volumeSnapshotClassName, metav1.GetOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 			defer func() {
 				err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name, metav1.DeleteOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())

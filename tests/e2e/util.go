@@ -4393,8 +4393,13 @@ func getRestConfigClient() *rest.Config {
 			k8senv := GetAndExpectStringEnvVar("KUBECONFIG")
 			restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
 		}
+		// if guestCluster {
+		// 	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+		// 		restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
+		// 	}
+		// }
 		if guestCluster {
-			if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+			if k8senv := GetAndExpectStringEnvVar("KUBECONFIG"); k8senv != "" {
 				restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
 			}
 		}
@@ -5221,6 +5226,27 @@ func getVolumeSnapshotClassSpec(deletionPolicy snapc.DeletionPolicy,
 		},
 		Driver:         e2evSphereCSIDriverName,
 		DeletionPolicy: deletionPolicy,
+	}
+
+	volumesnapshotclass.Parameters = parameters
+	return volumesnapshotclass
+}
+
+// getVolumeSnapshotClassSpec returns a spec for the volume snapshot class
+func getVolumeSnapshotClassSpecForGuestCluster(deletionPolicy snapc.DeletionPolicy,
+	parameters map[string]string) *snapc.VolumeSnapshotClass {
+	var param = make(map[string]string)
+	param["svVolumeSnapshotClass"] = "volumesnapshot-"
+	var volumesnapshotclass = &snapc.VolumeSnapshotClass{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshotClass",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "volumesnapshot-",
+		},
+		Driver:         e2evSphereCSIDriverName,
+		DeletionPolicy: deletionPolicy,
+		Parameters:     param,
 	}
 
 	volumesnapshotclass.Parameters = parameters
@@ -6487,3 +6513,49 @@ func writeDataToMultipleFilesOnPodInParallel(namespace string, podName string, d
 	}
 
 }
+
+// getRestConfigClient returns  rest config client.
+func getSnapshotHandleFromSupervisorCluster(ctx context.Context,
+	volumeSnapshotClass *snapc.VolumeSnapshotClass, snapshothandle string) string {
+	var snapc *snapclient.Clientset
+	var err error
+	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+		restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		snapc, err = snapclient.NewForConfig(restConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+
+	volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(svNamespace).Get(ctx, snapshothandle,
+		metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
+		*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	snapshothandle = *snapshotContent.Status.SnapshotHandle
+	snapshotId := strings.Split(snapshothandle, "+")[1]
+
+	return snapshotId
+}
+
+// func getSnapshotHandleFromGuestCluster(ctx context.Context,
+// 	volumeSnapshotClass *snapc.VolumeSnapshotClass, snapshothandle string, namespace string) string {
+// 	var snapc *snapclient.Clientset
+// 	var err error
+
+// 	volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Get(ctx, snapshothandle,
+// 		metav1.GetOptions{})
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+// 	snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
+// 		*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+// 	snapshothandle = *snapshotContent.Status.SnapshotHandle
+
+// 	return snapshothandle
+// }
