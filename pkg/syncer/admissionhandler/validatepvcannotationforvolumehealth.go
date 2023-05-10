@@ -26,8 +26,13 @@ func validatePVCAnnotationForVolumeHealth(ctx context.Context, request admission
 	username := request.UserInfo.Username
 	isCSIServiceAccount := validateCSIServiceAccount(request.UserInfo.Username)
 	log.Debugf("validatePVCAnnotationForVolumeHealth called with the request %v by user: %v", request, username)
+	if request.Operation == admissionv1.Delete {
+		// PVC volume health annotation validation is not required for delete PVC calls
+		return admission.Allowed("")
+	}
 	newPVC := corev1.PersistentVolumeClaim{}
 	if err := json.Unmarshal(request.Object.Raw, &newPVC); err != nil {
+		log.Errorf("error unmarshalling pvc: %v", err)
 		reason := "skipped validation when failed to deserialize PVC from new request object"
 		log.Warn(reason)
 		return admission.Allowed(reason)
@@ -41,6 +46,7 @@ func validatePVCAnnotationForVolumeHealth(ctx context.Context, request admission
 	} else if request.Operation == admissionv1.Update {
 		oldPVC := corev1.PersistentVolumeClaim{}
 		if err := json.Unmarshal(request.OldObject.Raw, &oldPVC); err != nil {
+			log.Errorf("error unmarshalling pvc: %v", err)
 			reason := "skipped validation when failed to deserialize PVC from old request object"
 			log.Warn(reason)
 			return admission.Allowed(reason)
