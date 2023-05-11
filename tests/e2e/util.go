@@ -4394,7 +4394,7 @@ func getRestConfigClient() *rest.Config {
 			restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
 		}
 		if guestCluster {
-			if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+			if k8senv := GetAndExpectStringEnvVar("KUBECONFIG"); k8senv != "" {
 				restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
 			}
 		}
@@ -6486,4 +6486,32 @@ func writeDataToMultipleFilesOnPodInParallel(namespace string, podName string, d
 		writeDataOnFileFromPod(namespace, podName, filePath, data)
 	}
 
+}
+
+// getRestConfigClient returns  rest config client.
+func getSnapshotHandleFromSupervisorCluster(ctx context.Context,
+	volumeSnapshotClass *snapc.VolumeSnapshotClass, snapshothandle string) string {
+	var snapc *snapclient.Clientset
+	var err error
+	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+		restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		snapc, err = snapclient.NewForConfig(restConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+
+	volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(svNamespace).Get(ctx, snapshothandle,
+		metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
+		*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	snapshothandle = *snapshotContent.Status.SnapshotHandle
+	snapshotId := strings.Split(snapshothandle, "+")[1]
+
+	return snapshotId
 }

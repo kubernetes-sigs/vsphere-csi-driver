@@ -1983,7 +1983,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		for i, pv := range pvs {
 			volumeID := pv.Spec.CSI.VolumeHandle
 			if guestCluster {
-				volumeID = getVolumeIDFromSupervisorCluster(pvs[0].Spec.CSI.VolumeHandle)
+				volumeID = getVolumeIDFromSupervisorCluster(pvs[i].Spec.CSI.VolumeHandle)
 				gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 			}
 			storagePolicyMatches, err := e2eVSphere.VerifySpbmPolicyOfVolume(volumeID, policyNames[i/2])

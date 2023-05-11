@@ -84,6 +84,9 @@ const (
 	envStoragePolicyNameForNonSharedDatastores = "STORAGE_POLICY_FOR_NONSHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores    = "STORAGE_POLICY_FOR_SHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores2   = "STORAGE_POLICY_FOR_SHARED_DATASTORES_2"
+	envStoragePolicyNameForVmfsDatastores      = "STORAGE_POLICY_FOR_VMFS_DATASTORES"
+	envStoragePolicyNameForNfsDatastores       = "STORAGE_POLICY_FOR_NFS_DATASTORES"
+	envStoragePolicyNameForVvolDatastores      = "STORAGE_POLICY_FOR_VVOL_DATASTORES"
 	envStoragePolicyNameFromInaccessibleZone   = "STORAGE_POLICY_FROM_INACCESSIBLE_ZONE"
 	envStoragePolicyNameWithThickProvision     = "STORAGE_POLICY_WITH_THICK_PROVISIONING"
 	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
@@ -181,6 +184,8 @@ const (
 	vanillaClusterDistribution                = "CSI-Vanilla"
 	vanillaClusterDistributionWithSpecialChar = "CSI-\tVanilla-#Test"
 	vcClusterAPI                              = "/api/vcenter/namespace-management/clusters"
+	volSnapClassDel                           = "volumesnapshotclass-delete"
+	volSnapClassRetain                        = "volumesnapshotclass-retain"
 	vpxdServiceName                           = "vpxd"
 	vpxdReducedTaskTimeoutSecsInt             = 90
 	vSphereCSIControllerPodNamePrefix         = "vsphere-csi-controller"
