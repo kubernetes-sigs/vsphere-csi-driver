@@ -107,8 +107,12 @@ deploy-images-staging:
 
 e2e-tests-staging:
   stage: tests-staging
-  # Image built from cd-infra//images/ci-e2e/Dockerfile from Calatrava project.
-  image: $CNS_IMAGE_E2E
+  # Image built by docker file images/ci/e2e/Dockerfile.
+  # Command to build new image is
+  # docker build -t <image-name:version> --platform=Linux/x86_64 -f Dockerfile . 
+  # docker tag <image-name:version> harbor-repo.vmware.com/csi_ci/<image-name:version>
+  # docker push harbor-repo.vmware.com/csi_ci/<image-name:version>
+  image: $CSI_FVT_GOLANG
   dependencies:
     - deploy-images-staging
   script:
