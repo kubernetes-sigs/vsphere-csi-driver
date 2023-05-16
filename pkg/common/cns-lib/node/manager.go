@@ -157,7 +157,11 @@ func (m *defaultManager) DiscoverNode(ctx context.Context, nodeUUID string) erro
 func (m *defaultManager) GetNodeByName(ctx context.Context, nodeName string) (*vsphere.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	nodeUUID, found := m.nodeNameToUUID.Load(nodeName)
-	if found && nodeUUID != nil && nodeUUID.(string) != "" {
+	if !found {
+		log.Errorf("Node not found with nodeName %s", nodeName)
+		return nil, ErrNodeNotFound
+	}
+	if nodeUUID != nil && nodeUUID.(string) != "" {
 		return m.GetNode(ctx, nodeUUID.(string), nil)
 	}
 	log.Infof("Empty nodeUUID observed in cache for the node: %q", nodeName)
