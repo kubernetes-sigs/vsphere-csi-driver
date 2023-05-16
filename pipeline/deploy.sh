@@ -29,23 +29,24 @@ then
 fi
 
 # Borrow a testbed from CSI Testbed Pool Svc.
-if ! testbed=$(curl -X 'PUT' "${CNS_TESTBEDPOOL_SVC_URL}" -H 'accept: application/json' -u "${CNS_MANAGER_USERNAME}:${CNS_MANAGER_PASSWORD}");
+if  ! testbed=$(curl -X 'PUT'  "$TESTBED_POOL_SERVICE_ENDPOINT/v1/pool/$TESTBED_POOL_ID/borrowTestbed"  -H 'accept: application/json' -u "$CNS_MANAGER_USERNAME:$CNS_MANAGER_PASSWORD"); then
+    echo "Unable to borrow a testbed"
+	exit 1
+else
+    # borrowTestbed API succeed
+    echo "Got a testbed from testbed pool service"
+fi
+
+# Get TESTBED_ID
+testbedId=$(echo "$testbed" | jq '.id' | tr -d '"')
+if [ -z "${testbedId}" ] 
 then
-	echo "Unable to borrow a testbed."
+	echo "testbedId is empty"
 	exit 1
 fi
 
-echo "TestbedInfo: $testbed ."
-
-# Extract testbed ID from borrow testbed API Response.
-if ! id=$(echo "$testbed" | jq '.id'|tr -d '"');
-then
-	echo "Error getting the id."
-	exit 1
-fi
-
-# Store the testbed ID in a local file on the workspace.
-echo "$id" > pipeline/placeholder.id
+# Store the testbed ID.
+echo "TESTBED_ID=$testbedId" >> build.env
 
 # Extract VC IP from borrow testbed API Response.
 if ! vcIp=$(echo "$testbed" | jq '.vcIp'|tr -d '"');
@@ -88,13 +89,15 @@ echo "VSPHERE_CSI_CONTROLLER_IMAGE = $VSPHERE_CSI_CONTROLLER_IMAGE"
 echo "VSPHERE_SYNCER_IMAGE = $VSPHERE_SYNCER_IMAGE"
 
 # Store all the values into Artifacts.
-{ echo "id=$id"; echo "vcIp=$vcIp"; echo "vcRootPassword=$vcRootPassword"; echo "vimPassword=$vimPassword"; echo "vimUsername=$vimUsername"; echo "externalVMGatewayIp=$externalVMGatewayIp";} >> ./env.json
+{ echo "TESTBED_ID=$testbedId"; echo "vcIp=$vcIp"; echo "vcRootPassword=$vcRootPassword"; echo "vimPassword=$vimPassword"; echo "vimUsername=$vimUsername"; echo "externalVMGatewayIp=$externalVMGatewayIp";} >> ./env.json
 
 SV_KUBECONFIG=/tmp/$$
 
 echo "$testbed" | jq '.kubeConfig'|tr -d '"'|base64 -d > $SV_KUBECONFIG
 
 export KUBECONFIG=$SV_KUBECONFIG
+
+echo "sv_kubeconfig_content=$(cat $SV_KUBECONFIG)" > ./sv_kubeconfig_content.yaml
 
 # Pod status on testbed before patching the CSI Images
 kubectl get pods -n vmware-system-csi

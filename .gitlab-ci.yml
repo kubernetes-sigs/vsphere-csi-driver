@@ -6,6 +6,7 @@ stages:
   - deploy-staging
   - tests-staging
   - prod-rollout
+  - cleanup-dev
 
 run-unit-tests:
   stage: unit-test
@@ -61,14 +62,9 @@ deploy-images-dev:
   artifacts:
     paths:
       - ./env.json
+      - ./sv_kubeconfig_content.yaml
     reports:
       dotenv: build.env
-  # Return testbed back to pool if the stage fails.
-  after_script:
-    - >
-      if [ $CI_JOB_STATUS != 'success' ]; then
-      curl -X 'PUT' "${CNS_TESTBEDPOOL_SVC_RELEASE_URL}/$(cat ./pipeline/placeholder.id)" -H 'accept: application/json' -u "${CNS_MANAGER_USERNAME}:${CNS_MANAGER_PASSWORD}";
-      fi
 
 e2e-tests-dev:
   stage: e2e-tests-dev
@@ -87,12 +83,9 @@ e2e-tests-dev:
   artifacts:
     paths:
       - ./env.json
+      - ./sv_kubeconfig_content.yaml
     reports:
       dotenv: build.env
-  # Return testbed back to pool.
-  after_script:
-    - |
-      curl -X 'PUT' "${CNS_TESTBEDPOOL_SVC_RELEASE_URL}/$(cat ./pipeline/placeholder.id)" -H 'accept: application/json' -u "${CNS_MANAGER_USERNAME}:${CNS_MANAGER_PASSWORD}"
 
 deploy-images-staging:
   stage: deploy-staging
@@ -152,3 +145,14 @@ patch-prod-images:
     - build-images
   only:
     - master
+
+cleanup-dev:
+  stage: cleanup-dev
+  image: $CNS_IMAGE_CI_DEPLOY_STAGE
+  when: always
+  artifacts:
+    reports:
+      dotenv: build.env
+  script:
+    - chmod 777 pipeline/release-testbed.sh
+    - ./pipeline/release-testbed.sh
