@@ -31,9 +31,9 @@ import (
 
 // TODO: refactor pv to backingdiskobjectid and volume health code to reduce duplicated code
 func csiGetPVtoBackingDiskObjectIdMapping(ctx context.Context, k8sclient clientset.Interface,
-	metadataSyncer *metadataSyncInformer) {
+	metadataSyncer *metadataSyncInformer, vc string) {
 	log := logger.GetLogger(ctx)
-	log.Debug("csiGetPVtoBackingDiskObjectIdMapping: start")
+	log.Debugf("csiGetPVtoBackingDiskObjectIdMapping for %s: start", vc)
 	// Call CNS QueryAll to get container volumes by cluster ID.
 	queryFilter := cnstypes.CnsQueryFilter{
 		ContainerClusterIds: []string{
@@ -47,16 +47,23 @@ func csiGetPVtoBackingDiskObjectIdMapping(ctx context.Context, k8sclient clients
 			string(cnstypes.QuerySelectionNameTypeVolumeType),
 		},
 	}
-	queryAllResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+
+	cnsVolumeMgr, err := getVolManagerForVcHost(ctx, vc, metadataSyncer)
 	if err != nil {
-		log.Errorf("csiGetPVtoBackingDiskObjectIdMapping: failed to QueryAllVolume with err=%+v", err.Error())
+		log.Errorf("csiGetPVtoBackingDiskObjectIdMapping for %s: Failed to get volume manager. Err: %v", vc, err)
+		return
+	}
+
+	queryAllResult, err := cnsVolumeMgr.QueryAllVolume(ctx, queryFilter, querySelection)
+	if err != nil {
+		log.Errorf("csiGetPVtoBackingDiskObjectIdMapping for %s: failed to QueryAllVolume with err=%+v", vc, err)
 		return
 	}
 
 	// Get K8s PVs in State "Bound".
 	k8sPVs, err := getBoundPVs(ctx, metadataSyncer)
 	if err != nil {
-		log.Errorf("csiGetPVtoBackingDiskObjectIdMapping: Failed to get PVs from kubernetes. Err: %+v", err)
+		log.Errorf("csiGetPVtoBackingDiskObjectIdMapping for %s: Failed to get PVs from kubernetes. Err: %+v", vc, err)
 		return
 	}
 
@@ -71,13 +78,13 @@ func csiGetPVtoBackingDiskObjectIdMapping(ctx context.Context, k8sclient clients
 			pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(
 				pv.Spec.ClaimRef.Namespace).Get(pv.Spec.ClaimRef.Name)
 			if err != nil {
-				log.Warnf("csiGetPVtoBackingDiskObjectIdMapping: Failed to get pvc for namespace %s and name %s. err=%+v",
-					pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name, err)
+				log.Warnf("csiGetPVtoBackingDiskObjectIdMapping for %s: Failed to get pvc for namespace %s and name %s. err=%+v",
+					vc, pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name, err)
 				continue
 			}
 			volumeHandleToPvcMap[pv.Spec.CSI.VolumeHandle] = pvc
-			log.Debugf("csiGetPVtoBackingDiskObjectIdMapping: pvc %s/%s is backed by pv %s volumeHandle %s, pv uid is %s",
-				pvc.Namespace, pvc.Name, pv.Name, pv.Spec.CSI.VolumeHandle, string(pv.UID))
+			log.Debugf("csiGetPVtoBackingDiskObjectIdMapping for %s: pvc %s/%s is backed by pv %s volumeHandle %s, pv uid is %s",
+				vc, pvc.Namespace, pvc.Name, pv.Name, pv.Spec.CSI.VolumeHandle, string(pv.UID))
 			volumeHandleToPvUidMap[pv.Spec.CSI.VolumeHandle] = string(pv.UID)
 		}
 	}
@@ -98,19 +105,27 @@ func csiGetPVtoBackingDiskObjectIdMapping(ctx context.Context, k8sclient clients
 	}
 
 	for volID, pvc := range volumeHandleToPvcMap {
+
+		if _, ok := volumeIdToBackingObjectIdMap[volID]; !ok {
+			log.Debugf("csiGetPVtoBackingDiskObjectIdMapping for %s: Skipping vol %s as it is not found on this VC.",
+				vc, volID)
+			continue
+		}
+
 		pvToBackingDiskObjectIdPair := volumeHandleToPvUidMap[volID] + ":" + volumeIdToBackingObjectIdMap[volID]
 		updated, err := updatePVtoBackingDiskObjectIdMappingStatus(ctx, k8sclient, pvc, pvToBackingDiskObjectIdPair)
 		if err != nil {
-			log.Error("csiGetPVtoBackingDiskObjectIdMapping: Failed to update pv to backingDiskObjectId mapping")
+			log.Error("csiGetPVtoBackingDiskObjectIdMapping for %s: Failed to update pv to backingDiskObjectId mapping",
+				vc)
 			return
 		}
 		if updated {
-			log.Infof("csiGetPVtoBackingDiskObjectIdMapping: pvc %s is updated with pv to backingDiskObjectId mapping %s",
-				pvc.Name, pvToBackingDiskObjectIdPair)
+			log.Infof("csiGetPVtoBackingDiskObjectIdMapping for %s: pvc %s is updated with pv to backingDiskObjectId mapping %s",
+				vc, pvc.Name, pvToBackingDiskObjectIdPair)
 		}
 	}
 
-	log.Debug("csiGetPVtoBackingDiskObjectIdMapping: end")
+	log.Debugf("csiGetPVtoBackingDiskObjectIdMapping for %s: end", vc)
 }
 
 func validatePvToBackingDiskObjectIdPair(pvToBackingDiskObjectIdPair string) bool {
