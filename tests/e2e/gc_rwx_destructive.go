@@ -170,7 +170,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
 			v1.ReadWriteMany
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = defaultNginxStorageClassName
+			Spec.StorageClassName = &sc.Name
 		*statefulset.Spec.Replicas = 2
 		CreateStatefulSet(namespace, statefulset, clientNewGc)
 		replicas := *(statefulset.Spec.Replicas)

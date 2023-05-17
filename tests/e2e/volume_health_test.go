@@ -19,7 +19,9 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
+	"strconv"
 	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
@@ -1101,7 +1103,13 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[svStorageClassName] = storagePolicyName
-		sc, err := createStorageClass(client, scParameters, nil, "", "", false, "nginx-sc")
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		scName := "nginx-sc-default-" + curtimestring + val
+		sc, err := createStorageClass(client, scParameters, nil, "", "", false, scName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -2223,7 +2231,14 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		if guestCluster {
 			scParameters[svStorageClassName] = raid0StoragePolicyName
-			sc, err := createStorageClass(client, scParameters, nil, "", "", false, "nginx-sc")
+			curtime := time.Now().Unix()
+			randomValue := rand.Int()
+			val := strconv.FormatInt(int64(randomValue), 10)
+			val = string(val[1:3])
+			curtimestring := strconv.FormatInt(curtime, 10)
+			scName := "nginx-sc-default-" + curtimestring + val
+
+			sc, err := createStorageClass(client, scParameters, nil, "", "", false, scName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			defer func() {
@@ -2860,7 +2875,13 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		if guestCluster {
 			scParameters[svStorageClassName] = raid0StoragePolicyName
-			sc, err := createStorageClass(client, scParameters, nil, "", "", false, "nginx-sc")
+			curtime := time.Now().Unix()
+			randomValue := rand.Int()
+			val := strconv.FormatInt(int64(randomValue), 10)
+			val = string(val[1:3])
+			curtimestring := strconv.FormatInt(curtime, 10)
+			scName := "nginx-sc-default-" + curtimestring + val
+			sc, err := createStorageClass(client, scParameters, nil, "", "", false, scName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			defer func() {

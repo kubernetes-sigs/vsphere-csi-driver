@@ -93,8 +93,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters[scParamDatastoreURL] = datastoreURL
+			accessMode := v1.ReadWriteOnce
+
+			// Check if it is file volumes setups
+			if rwxAccessMode {
+				accessMode = v1.ReadWriteMany
+			}
 			storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
-				namespace, nil, scParameters, diskSize, nil, "", false, "")
+				namespace, nil, scParameters, diskSize, nil, "", false, accessMode)
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)

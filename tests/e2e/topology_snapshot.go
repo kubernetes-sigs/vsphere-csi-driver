@@ -16,6 +16,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
@@ -336,8 +337,14 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 			topologyLength, leafNode, leafNodeTag1, leafNodeTag2)
 
 		scParameters["datastoreurl"] = sharedDataStoreUrlBetweenClusters
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		scName := "nginx-sc-default-" + curtimestring + val
 		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC,
-			"", "", false, "nginx-sc")
+			"", "", false, scName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,

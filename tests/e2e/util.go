@@ -5635,11 +5635,12 @@ func createParallelStatefulSetSpec(namespace string, no_of_sts int, replicas int
 	var statefulset *appsv1.StatefulSet
 
 	for i := 0; i < no_of_sts; i++ {
+		storageClassName := defaultNginxStorageClassName
 		statefulset = GetStatefulSetFromManifest(namespace)
 		statefulset.Name = "thread-" + strconv.Itoa(i) + "-" + statefulset.Name
 		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = defaultNginxStorageClassName
+			Spec.StorageClassName = &storageClassName
 		statefulset.Spec.Replicas = &replicas
 		stss = append(stss, statefulset)
 	}
@@ -6389,7 +6390,6 @@ func getVsanDPersistentVolumeClaimSpecWithStorageClass(namespace string, ds stri
 	storageclass *storagev1.StorageClass, pvcName string, podName string,
 	accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
 	pvcAnnotations := make(map[string]string)
-	pvcAnnotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
 	pvcAnnotations["placement.beta.vmware.com/storagepool_antiAffinityRequired"] = podName
 
 	pvclaimlabels := make(map[string]string)

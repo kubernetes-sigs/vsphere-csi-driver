@@ -19,9 +19,13 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"strconv"
+	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -103,7 +107,12 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
 			clusterDistributionValue = vanillaClusterDistribution
-			storageClassName = "nginx-sc-telemtery"
+			curtime := time.Now().Unix()
+			randomValue := rand.Int()
+			val := strconv.FormatInt(int64(randomValue), 10)
+			val = string(val[1:3])
+			curtimestring := strconv.FormatInt(curtime, 10)
+			storageClassName = "nginx-sc-telemtery-" + curtimestring + val
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
@@ -138,7 +147,16 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = sc.Name
+			Spec.StorageClassName = &sc.Name
+		accessMode := v1.ReadWriteOnce
+
+		// Check if it is file volumes setups
+		if rwxAccessMode {
+			accessMode = v1.ReadWriteMany
+		}
+
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Spec.AccessModes[0] = accessMode
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready.

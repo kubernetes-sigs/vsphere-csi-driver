@@ -108,7 +108,15 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		// Decide which test setup is available to run.
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for Vanilla setup")
-			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
+
+			accessMode := v1.ReadWriteOnce
+
+			// Check if it is file volumes setups
+			if rwxAccessMode {
+				accessMode = v1.ReadWriteMany
+			}
+
+			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, accessMode)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -176,7 +184,13 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		// Decide which test setup is available to run.
 		if vanillaCluster {
 			ginkgo.By("Creating another PVC for Vanilla setup")
-			storageclass2, pvclaim2, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
+			accessMode := v1.ReadWriteOnce
+
+			// Check if it is file volumes setups
+			if rwxAccessMode {
+				accessMode = v1.ReadWriteMany
+			}
+			storageclass2, pvclaim2, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, accessMode)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -319,7 +333,13 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		// Decide which test setup is available to run.
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for Vanilla setup")
-			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
+			accessMode := v1.ReadWriteOnce
+
+			// Check if it is file volumes setups
+			if rwxAccessMode {
+				accessMode = v1.ReadWriteMany
+			}
+			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, accessMode)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

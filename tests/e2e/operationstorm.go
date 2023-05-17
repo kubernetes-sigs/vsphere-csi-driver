@@ -275,8 +275,15 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		count := 0
 		for count < volumeOpsScale {
 			ginkgo.By("Creating PVCs using the Storage Class")
+			accessMode := v1.ReadWriteOnce
+
+			// Check if it is file volumes setups
+			if rwxAccessMode {
+				accessMode = v1.ReadWriteMany
+			}
+
 			pvclaims[count], err = fpv.CreatePVC(client, namespace,
-				getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, ""))
+				getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, accessMode))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			count++
 		}

@@ -699,6 +699,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 	ginkgo.By("Creating PVCs using the Storage Class")
 	framework.Logf("VOLUME_OPS_SCALE is set to %v", volumeOpsScale)
+
 	for i := 0; i < volumeOpsScale; i++ {
 		framework.Logf("Creating pvc%v", i)
 		pvclaims[i], err = fpv.CreatePVC(client, namespace,

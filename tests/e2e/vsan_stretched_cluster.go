@@ -217,7 +217,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -328,7 +333,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storageThickPolicyName
-		storageClassName = "nginx-sc-thick"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-thick-" + curtimestring + val
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -476,7 +486,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 		if os.Getenv(envFullSyncWaitTime) != "" {
 			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
 			framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
@@ -612,7 +627,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storageThickPolicyName
-		storageClassName = "nginx-sc-thick"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-thick-" + curtimestring + val
 		var pvclaims []*v1.PersistentVolumeClaim
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
@@ -731,7 +751,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -856,7 +881,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 		var pvclaims []*v1.PersistentVolumeClaim = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
@@ -960,7 +990,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 		var pods []*v1.Pod
 		var pvclaims []*v1.PersistentVolumeClaim = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 
@@ -1090,7 +1125,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storageThickPolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 		var pvclaims []*v1.PersistentVolumeClaim
 		if os.Getenv(envFullSyncWaitTime) != "" {
 			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
@@ -1235,7 +1275,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storageThickPolicyName
-		storageClassName = "nginx-sc-thick"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-thick-" + curtimestring + val
 		var pvclaims []*v1.PersistentVolumeClaim
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
@@ -1339,7 +1384,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 		var pvclaims []*v1.PersistentVolumeClaim
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
@@ -1450,7 +1500,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 		var pvclaims []*v1.PersistentVolumeClaim
 		var pods []*v1.Pod
 
@@ -1590,7 +1645,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 		var pvclaims []*v1.PersistentVolumeClaim
 		var pods []*v1.Pod
 
@@ -1726,7 +1786,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -1838,7 +1903,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -1951,7 +2021,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 		service := CreateService(namespace, client)
 		defer func() {
 			deleteService(namespace, client, service)
@@ -2046,7 +2121,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storageThickPolicyName
-		storageClassName = "nginx-sc-thick"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-thick-" + curtimestring + val
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -2202,7 +2282,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storageThickPolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 		var pvclaims []*v1.PersistentVolumeClaim
 		if os.Getenv(envFullSyncWaitTime) != "" {
 			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
@@ -2356,7 +2441,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storageThickPolicyName
-		storageClassName = "nginx-sc-thick"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-thick-" + curtimestring + val
 		csiPodOnSite, nodeName := "", ""
 		ignoreLabels := make(map[string]string)
 
@@ -2553,7 +2643,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storageThickPolicyName
-		storageClassName = "nginx-sc-thick"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-thick-" + curtimestring + val
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -2705,7 +2800,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 		var pvclaims []*v1.PersistentVolumeClaim
 		var pvcList []*v1.PersistentVolumeClaim
 
@@ -2928,7 +3028,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-default-" + curtimestring + val
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -2975,8 +3080,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("Bring down a host in secondary site")
 		rand.New(rand.NewSource(time.Now().UnixNano()))
 		max, min := 3, 0
-		randomValue := rand.Intn(max-min) + min
-		host := fds.secondarySiteHosts[randomValue]
+		randomValue1 := rand.Intn(max-min) + min
+		host := fds.secondarySiteHosts[randomValue1]
 		hostFailure(host, true)
 
 		defer func() {
@@ -3044,7 +3149,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-retain"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-retain-" + curtimestring + val
 		var pvclaims, pvcs []*v1.PersistentVolumeClaim
 		var pvs []*v1.PersistentVolume
 
@@ -3191,7 +3301,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storageThickPolicyName
-		storageClassName = "nginx-sc-thick"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-thick-" + curtimestring + val
 		var pvclaims []*v1.PersistentVolumeClaim
 		//var persistentVolumes []*v1.PersistentVolume
 		var fcdIDs []string
@@ -3339,7 +3454,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-delete"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-delete-" + curtimestring + val
 		var pods []*v1.Pod
 		var pvclaimsWithDelete, pvclaimsWithRetain []*v1.PersistentVolumeClaim
 		var volHandles []string
@@ -3670,7 +3790,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters = map[string]string{}
 		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-delete"
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		storageClassName = "nginx-sc-delete-" + curtimestring + val
 		var pods []*v1.Pod
 		var pvclaimsWithDelete, pvclaimsWithRetain []*v1.PersistentVolumeClaim
 		var volHandles []string

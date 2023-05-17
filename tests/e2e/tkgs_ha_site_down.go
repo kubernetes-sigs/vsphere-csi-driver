@@ -157,7 +157,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			statefulset.Spec.Template.Labels["app"] = statefulset.Name
 			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+				Spec.StorageClassName = &storageclass.Name
 			*statefulset.Spec.Replicas = replicas
 			CreateStatefulSet(namespace, statefulset, client)
 			stsList = append(stsList, statefulset)
@@ -301,7 +301,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			statefulset.Spec.Template.Labels["app"] = statefulset.Name
 			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+				Spec.StorageClassName = &storageclass.Name
 			*statefulset.Spec.Replicas = replicas
 			CreateStatefulSet(namespace, statefulset, client)
 			stsList = append(stsList, statefulset)
@@ -472,7 +472,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			statefulset.Spec.Template.Labels["app"] = statefulset.Name
 			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+				Spec.StorageClassName = &storageclass.Name
 			*statefulset.Spec.Replicas = replicas
 			CreateStatefulSet(namespace, statefulset, client)
 			stsList = append(stsList, statefulset)
@@ -601,7 +601,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			statefulset.Spec.Template.Labels["app"] = statefulset.Name
 			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+				Spec.StorageClassName = &storageclass.Name
 			*statefulset.Spec.Replicas = replicas
 			CreateStatefulSet(namespace, statefulset, client)
 			stsList = append(stsList, statefulset)
@@ -722,7 +722,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			statefulset.Spec.Template.Labels["app"] = statefulset.Name
 			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+				Spec.StorageClassName = &storageclass.Name
 			*statefulset.Spec.Replicas = replicas
 			CreateStatefulSet(namespace, statefulset, client)
 			stsList = append(stsList, statefulset)
@@ -851,7 +851,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			statefulset.Spec.Template.Labels["app"] = statefulset.Name
 			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+				Spec.StorageClassName = &storageclass.Name
 			*statefulset.Spec.Replicas = replicas
 			CreateStatefulSet(namespace, statefulset, client)
 			stsList = append(stsList, statefulset)

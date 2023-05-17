@@ -102,8 +102,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 
 		ginkgo.By("Creating a PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
+		accessMode := v1.ReadWriteOnce
+
+		// Check if it is file volumes setups
+		if rwxAccessMode {
+			accessMode = v1.ReadWriteMany
+		}
 		storageclasspvc1, pvclaim1, err = createPVCAndStorageClass(client,
-			namespace, nil, scParameters, diskSize, nil, "", false, "")
+			namespace, nil, scParameters, diskSize, nil, "", false, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -146,8 +152,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 
 		ginkgo.By("Creating Second PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
+		accessMode = v1.ReadWriteOnce
+
+		// Check if it is file volumes setups
+		if rwxAccessMode {
+			accessMode = v1.ReadWriteMany
+		}
 		storageclasspvc2, pvclaim2, err = createPVCAndStorageClass(client,
-			namespace, nil, scParameters, diskSize, nil, "", false, "")
+			namespace, nil, scParameters, diskSize, nil, "", false, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {

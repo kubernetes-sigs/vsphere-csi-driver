@@ -19,6 +19,8 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"strconv"
 	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
@@ -122,7 +124,12 @@ var _ = ginkgo.Describe("statefulset", func() {
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
-			storageClassName = "nginx-sc-default"
+			curtime := time.Now().Unix()
+			randomValue := rand.Int()
+			val := strconv.FormatInt(int64(randomValue), 10)
+			val = string(val[1:3])
+			curtimestring := strconv.FormatInt(curtime, 10)
+			storageClassName = "nginx-sc-default-" + curtimestring + val
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
@@ -148,7 +155,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
+			Spec.StorageClassName = &storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
@@ -318,7 +325,12 @@ var _ = ginkgo.Describe("statefulset", func() {
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
-			storageClassName = "nginx-sc-parallel"
+			curtime := time.Now().Unix()
+			randomValue := rand.Int()
+			val := strconv.FormatInt(int64(randomValue), 10)
+			val = string(val[1:3])
+			curtimestring := strconv.FormatInt(curtime, 10)
+			storageClassName = "nginx-sc-parallel-" + curtimestring + val
 		} else {
 			storageClassName = defaultNginxStorageClassName
 			ginkgo.By("Running for WCP setup")
@@ -346,7 +358,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		*(statefulset.Spec.Replicas) = 8
 		statefulset.Spec.PodManagementPolicy = apps.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
+			Spec.StorageClassName = &storageClassName
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
@@ -515,7 +527,12 @@ var _ = ginkgo.Describe("statefulset", func() {
 		scParameters[scParamFsType] = ext4FSType
 
 		if vanillaCluster {
-			storageClassName = "nginx-sc-expansion"
+			curtime := time.Now().Unix()
+			randomValue := rand.Int()
+			val := strconv.FormatInt(int64(randomValue), 10)
+			val = string(val[1:3])
+			curtimestring := strconv.FormatInt(curtime, 10)
+			storageClassName = "nginx-sc-expansion-" + curtimestring + val
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 			scParameters[scParamDatastoreURL] = sharedVSANDatastoreURL
@@ -544,7 +561,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
+			Spec.StorageClassName = &storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
@@ -603,7 +620,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		statefulset = GetResizedStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
+			Spec.StorageClassName = &storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas = *(statefulset.Spec.Replicas)
 
@@ -686,7 +703,12 @@ var _ = ginkgo.Describe("statefulset", func() {
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
-			storageClassName = "nginx-sc-default"
+			curtime := time.Now().Unix()
+			randomValue := rand.Int()
+			val := strconv.FormatInt(int64(randomValue), 10)
+			val = string(val[1:3])
+			curtimestring := strconv.FormatInt(curtime, 10)
+			storageClassName = "nginx-sc-default-" + curtimestring + val
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
@@ -725,7 +747,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
+			Spec.StorageClassName = &storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready

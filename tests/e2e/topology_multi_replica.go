@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
@@ -235,8 +236,14 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Create SC with WFC BindingMode
 			ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
+			curtime := time.Now().Unix()
+			randomValue := rand.Int()
+			val := strconv.FormatInt(int64(randomValue), 10)
+			val = string(val[1:3])
+			curtimestring := strconv.FormatInt(curtime, 10)
+			scName := "nginx-sc-default-" + curtimestring + val
 			storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
-				bindingMode, false, "nginx-sc")
+				bindingMode, false, scName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -433,8 +440,14 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Create SC with WFC Binding mode
 			ginkgo.By("Creating Storage Class with WFC Binding mode")
+			curtime := time.Now().Unix()
+			randomValue := rand.Int()
+			val := strconv.FormatInt(int64(randomValue), 10)
+			val = string(val[1:3])
+			curtimestring := strconv.FormatInt(curtime, 10)
+			scName := "nginx-sc-default-" + curtimestring + val
 			storageclass, err := createStorageClass(client, nil, allowedTopologyForSC,
-				"", bindingMode, false, "nginx-sc")
+				"", bindingMode, false, scName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
@@ -612,8 +625,14 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Create SC with WFC Binding mode
 			ginkgo.By("Creating Storage Class with WFC Binding mode")
+			curtime := time.Now().Unix()
+			randomValue := rand.Int()
+			val := strconv.FormatInt(int64(randomValue), 10)
+			val = string(val[1:3])
+			curtimestring := strconv.FormatInt(curtime, 10)
+			scName := "nginx-sc-default-" + curtimestring + val
 			storageclass, err := createStorageClass(client, nil, allowedTopologyForSC,
-				"", bindingMode, false, "nginx-sc")
+				"", bindingMode, false, scName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1326,8 +1345,14 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Create SC with Immediate Binding mode
 			ginkgo.By("Creating Storage Class with Immediate Binding mode")
+			curtime := time.Now().Unix()
+			randomValue := rand.Int()
+			val := strconv.FormatInt(int64(randomValue), 10)
+			val = string(val[1:3])
+			curtimestring := strconv.FormatInt(curtime, 10)
+			scName := "nginx-sc-default-" + curtimestring + val
 			storageclass, err := createStorageClass(client, nil, allowedTopologyForSC,
-				"", "", false, "nginx-sc")
+				"", "", false, scName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
