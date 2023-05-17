@@ -528,7 +528,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 	// CR is not registered yet.
 	if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload ||
 		(controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest &&
-			!getSvFssCRAvailability() && serviceMode != "node") {
+			!getSvFssCRAvailability()) {
 		if k8sOrchestratorInstance.supervisorFSS.configMapName != "" &&
 			k8sOrchestratorInstance.supervisorFSS.configMapNamespace != "" {
 			// Retrieve configmap.
@@ -1013,7 +1013,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 			return internalFeatureState
 		}
 		c.internalFSS.featureStatesLock.RUnlock()
-		log.Debugf("Could not find the %s feature state in ConfigMap %s. "+
+		log.Infof("Could not find the %s feature state in ConfigMap %s. "+
 			"Setting the feature state to false", featureName, c.internalFSS.configMapName)
 		return false
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
@@ -1030,7 +1030,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 			return supervisorFeatureState
 		}
 		c.supervisorFSS.featureStatesLock.RUnlock()
-		log.Debugf("Could not find the %s feature state in ConfigMap %s. "+
+		log.Infof("Could not find the %s feature state in ConfigMap %s. "+
 			"Setting the feature state to false", featureName, c.supervisorFSS.configMapName)
 		return false
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
@@ -1051,7 +1051,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 			}
 		} else {
 			c.internalFSS.featureStatesLock.RUnlock()
-			log.Debugf("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false",
+			log.Infof("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false",
 				featureName, c.internalFSS.configMapName)
 			return false
 		}
@@ -1072,7 +1072,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 			}
 		} else {
 			c.supervisorFSS.featureStatesLock.RUnlock()
-			log.Debugf("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false",
+			log.Infof("Could not find the %s feature state in ConfigMap %s. Setting the feature state to false",
 				featureName, c.supervisorFSS.configMapName)
 			return false
 		}
