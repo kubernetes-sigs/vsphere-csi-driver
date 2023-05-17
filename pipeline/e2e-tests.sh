@@ -16,14 +16,14 @@
 
 set +x
 
-id=$(grep id ./env.json | cut -d = -f2)
-# Store the testbed ID in a local file on the workspace.
-echo "$id" > pipeline/placeholder.id
-
 vcIp=$(grep vcIp ./env.json | cut -d = -f2)
 vimUsername=$(grep vimUsername ./env.json | cut -d = -f2)
 vimPassword=$(grep vimPassword ./env.json | cut -d = -f2)
 vcRootPassword=$(grep vcRootPassword ./env.json | cut -d = -f2)
+
+kubeconfigContent=$(cat ./sv_kubeconfig_content.yaml)
+echo "$kubeconfigContent" > sv_kubeconfig_content.yaml
+kubeconfigPath="$(pwd)/sv_kubeconfig_content.yaml"
 
 echo "$vcIp"
 echo "$vcRootPassword" > vc_pwd
@@ -54,24 +54,12 @@ port = "443"
 datacenters = "$DATACENTER"
 EOF
 
-mkdir -p ~/.kube
-ssh-keygen -R "$vcIp"
-sshpass -f vc_pwd ssh root@"$vcIp" -o "StrictHostKeyChecking no" "/usr/lib/vmware-wcp/decryptK8Pwd.py" > master.txt
-K8S_MASTER_IP=$(awk 'FNR == 6 {print $2}' master.txt)
-K8S_MASTER_TKN=$(awk 'FNR == 7 {print $2}' master.txt)
-export KUBECONFIG=~/.kube/config
-ssh-keygen -R "$K8S_MASTER_IP"
-echo "$K8S_MASTER_TKN" > token
-sshpass -f token scp -o "StrictHostKeyChecking no" root@"$K8S_MASTER_IP":~/.kube/config $KUBECONFIG
-export master_ip="server: https://$K8S_MASTER_IP:6443"
-sed -i "/server: https:\\/\\/127.0.0.1/c\\ \\ \\ \\ ${master_ip}" $KUBECONFIG
-
 echo "*******"
 govc datacenter.info | grep -i path | awk '{print $2}'
 govc namespace.cluster.ls | awk -F'/' '{print $5}'
 echo "*******"
 
-echo $KUBECONFIG
+export KUBECONFIG="$kubeconfigPath"
 export E2E_TEST_CONF_FILE="$E2E_TEST_CONF_FILE"
 export VC_REBOOT_WAIT_TIME=1020
 export USER=root
