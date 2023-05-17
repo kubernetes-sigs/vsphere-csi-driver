@@ -190,6 +190,13 @@ func (nodes *Nodes) GetNodeByName(ctx context.Context, nodeName string) (
 	return nodes.cnsNodeManager.GetNodeByName(ctx, nodeName)
 }
 
+// GetNodeByNameOrUUID returns VirtualMachine object for given nodeName
+// This function can be called either using nodeName or nodeUID.
+func (nodes *Nodes) GetNodeByNameOrUUID(
+	ctx context.Context, nodeNameOrUUID string) (*cnsvsphere.VirtualMachine, error) {
+	return nodes.cnsNodeManager.GetNodeByNameOrUUID(ctx, nodeNameOrUUID)
+}
+
 // GetNodeNameByUUID fetches the name of the node given the VM UUID.
 func (nodes *Nodes) GetNodeNameByUUID(ctx context.Context, nodeUUID string) (
 	string, error) {
