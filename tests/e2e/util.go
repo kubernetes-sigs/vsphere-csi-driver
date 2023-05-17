@@ -483,6 +483,49 @@ type GetTaskTstatus struct {
 	OrgID           string      `json:"org_id"`
 }
 
+type TanzuCluster struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Name      string `yaml:"name"`
+		Namespace string `yaml:"namespace"`
+	} `yaml:"metadata"`
+	Spec struct {
+		Topology struct {
+			ControlPlane struct {
+				TKR struct {
+					Reference struct {
+						Name string `yaml:"name"`
+					} `yaml:"reference"`
+				} `yaml:"tkr"`
+				Replicas     int    `yaml:"replicas"`
+				VMClass      string `yaml:"vmClass"`
+				StorageClass string `yaml:"storageClass"`
+			} `yaml:"controlPlane"`
+			NodePools []struct {
+				Replicas     int    `yaml:"replicas"`
+				Name         string `yaml:"name"`
+				VMClass      string `yaml:"vmClass"`
+				StorageClass string `yaml:"storageClass"`
+			} `yaml:"nodePools"`
+		} `yaml:"topology"`
+		Settings struct {
+			Network struct {
+				CNI struct {
+					Name string `yaml:"name"`
+				} `yaml:"cni"`
+				Services struct {
+					CIDRBlocks []string `yaml:"cidrBlocks"`
+				} `yaml:"services"`
+				Pods struct {
+					CIDRBlocks []string `yaml:"cidrBlocks"`
+				} `yaml:"pods"`
+				ServiceDomain string `yaml:"serviceDomain"`
+			} `yaml:"network"`
+		} `yaml:"settings"`
+	} `yaml:"spec"`
+}
+
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage
 // class parameters.
 func getVSphereStorageClassSpec(scName string, scParameters map[string]string,
@@ -1599,7 +1642,7 @@ func upgradeTKG(wcpHost string, wcpToken string, tkgCluster string, tkgImage str
 }
 
 // createGC method creates GC and takes WCP host and bearer token as input param
-func createGC(wcpHost string, wcpToken string) {
+func createGC(wcpHost string, wcpToken string, tkgImageName string, clusterName string) {
 
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
@@ -1614,7 +1657,26 @@ func createGC(wcpHost string, wcpToken string) {
 	gcBytes, err := os.ReadFile(tkg_yaml)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	req, err := http.NewRequest("POST", createGCURL, bytes.NewBuffer(gcBytes))
+	var tkg TanzuCluster
+	err = yaml.Unmarshal([]byte(gcBytes), &tkg)
+	if err != nil {
+		framework.Logf("Error: %v", err)
+	}
+
+	// Change the value of the replaceImage field
+	tkg.Spec.Topology.ControlPlane.TKR.Reference.Name = tkgImageName
+	tkg.Metadata.Name = clusterName
+
+	// Marshal the updated struct back to YAML
+	updatedYAML, err := yaml.Marshal(&tkg)
+	if err != nil {
+		framework.Logf("Error: %v", err)
+	}
+
+	// Convert the marshalled YAML to []byte
+	updatedYAMLBytes := []byte(updatedYAML)
+
+	req, err := http.NewRequest("POST", createGCURL, bytes.NewBuffer(updatedYAMLBytes))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	req.Header.Add("Authorization", "Bearer "+wcpToken)
 	req.Header.Add("Accept", "application/yaml")
