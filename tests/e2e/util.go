@@ -483,6 +483,7 @@ type GetTaskTstatus struct {
 	OrgID           string      `json:"org_id"`
 }
 
+// This Struct is used for Creating tanzu cluster
 type TanzuCluster struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
