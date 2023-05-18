@@ -96,6 +96,7 @@ const (
 	envVmdkDiskURL                             = "DISK_URL_PATH"
 	envVolumeOperationsScale                   = "VOLUME_OPS_SCALE"
 	envComputeClusterName                      = "COMPUTE_CLUSTER_NAME"
+	envTKGImage                                = "TKG_IMAGE_NAME"
 	execCommand                                = "/bin/df -T /mnt/volume1 | " +
 		"/bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
 	execRWXCommandPod1 = "echo 'Hello message from Pod1' > /mnt/volume1/Pod1.html  && " +
@@ -196,8 +197,8 @@ const (
 	waitTimeForCNSNodeVMAttachmentReconciler  = 30 * time.Second
 	wcpServiceName                            = "wcp"
 	vmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant
-	devopsTKG                                 = "test-cluster-e2e-script"
-	cloudadminTKG                             = "test-cluster-e2e-script-1"
+	devopsTKG                                 = "test-cluster-e2e-script-2"
+	cloudadminTKG                             = "test-cluster-e2e-script-3"
 	vmOperatorAPI                             = "/apis/vmoperator.vmware.com/v1alpha1/"
 	devopsUser                                = "testuser"
 	zoneKey                                   = "failure-domain.beta.kubernetes.io/zone"
