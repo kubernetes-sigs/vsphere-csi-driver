@@ -330,9 +330,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 				pv.Spec.CSI.VolumeHandle, podArray[podCount].Spec.NodeName))
 			isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
-				fmt.Sprintf("Volume: %s is not attached to the node: %s",
-					pv.Spec.CSI.VolumeHandle, podArray[podCount].Spec.NodeName))
+			if !rwxAccessMode {
+				gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
+					fmt.Sprintf("Volume: %s is not attached to the node: %s",
+						pv.Spec.CSI.VolumeHandle, podArray[podCount].Spec.NodeName))
+			}
 			podCount++
 		}
 
