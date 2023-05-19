@@ -573,7 +573,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		framework.Logf("wcphost %s", wcpHost)
 		wcpToken = getWCPSessionId(wcpHost, e2eVSphere.Config.Global.User, e2eVSphere.Config.Global.Password)
 
-		err = deleteTKG(wcpHost, wcpToken, tkg_cluster)
+		err = deleteTKG(wcpHost, wcpToken, tkg_cluster, wcpNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isTKGDeleted = true
 

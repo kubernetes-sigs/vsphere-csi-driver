@@ -57,9 +57,9 @@ var _ = ginkgo.Describe("Create GC", func() {
 		framework.Logf("vmcWcpHost %s", vmcWcpHost)
 
 		ginkgo.By("Creating Guest Cluster with Devops User")
-		createGC(vmcWcpHost, wcpToken, tkgImageName, devopsTKG)
+		createGC(vmcWcpHost, wcpToken, tkgImageName, devopsTKG, wcpNamespace)
 		ginkgo.By("Validate the Guest Cluster is up and running")
-		err := getGC(vmcWcpHost, wcpToken, devopsTKG)
+		err := getGC(vmcWcpHost, wcpToken, devopsTKG, wcpNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -86,9 +86,9 @@ var _ = ginkgo.Describe("Create GC", func() {
 		framework.Logf("vmcWcpHost %s", vmcWcpHost)
 
 		ginkgo.By("Creating Guest Cluster with cloudadmin User")
-		createGC(vmcWcpHost, wcpToken, tkgImageName, cloudadminTKG)
+		createGC(vmcWcpHost, wcpToken, tkgImageName, cloudadminTKG, wcpNamespace)
 		ginkgo.By("Validate the Guest Cluster is up and running")
-		err := getGC(vmcWcpHost, wcpToken, cloudadminTKG)
+		err := getGC(vmcWcpHost, wcpToken, cloudadminTKG, wcpNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})

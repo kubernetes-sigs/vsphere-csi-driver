@@ -197,9 +197,9 @@ var _ = ginkgo.Describe("Upgrade TKG", func() {
 		}
 
 		ginkgo.By("Upgrade TKG")
-		upgradeTKG(vmcWcpHost, wcpToken, tkg_cluster, tkg_image)
+		upgradeTKG(vmcWcpHost, wcpToken, tkg_cluster, tkg_image, wcpNamespace)
 
-		err = getGC(vmcWcpHost, wcpToken, tkg_cluster)
+		err = getGC(vmcWcpHost, wcpToken, tkg_cluster, wcpNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas+5))

@@ -177,7 +177,7 @@ var _ = ginkgo.Describe("Scale TKG Worker nodes", func() {
 				e2eVSphere.Config.Global.VmcCloudPassword)
 		}
 
-		scaleTKGWorker(vmcWcpHost, wcpToken, "test-cluster-e2e-script", 5)
+		scaleTKGWorker(vmcWcpHost, wcpToken, "test-cluster-e2e-script", 5, wcpNamespace)
 		defer func() {
 			if vmcUser == "testuser" {
 				ginkgo.By("Get WCP session id")
@@ -194,10 +194,10 @@ var _ = ginkgo.Describe("Scale TKG Worker nodes", func() {
 				wcpToken = getWCPSessionId(vmcWcpHost, e2eVSphere.Config.Global.VmcCloudUser,
 					e2eVSphere.Config.Global.VmcCloudPassword)
 			}
-			scaleTKGWorker(vmcWcpHost, wcpToken, "test-cluster-e2e-script", 2)
+			scaleTKGWorker(vmcWcpHost, wcpToken, "test-cluster-e2e-script", 2, wcpNamespace)
 		}()
 
-		err = getGC(vmcWcpHost, wcpToken, "test-cluster-e2e-script")
+		err = getGC(vmcWcpHost, wcpToken, "test-cluster-e2e-script", wcpNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas+5))
@@ -247,9 +247,9 @@ var _ = ginkgo.Describe("Scale TKG Worker nodes", func() {
 		}
 
 		ginkgo.By("scaling down TKG worker node")
-		scaleTKGWorker(vmcWcpHost, wcpToken, "test-cluster-e2e-script", 2)
+		scaleTKGWorker(vmcWcpHost, wcpToken, "test-cluster-e2e-script", 2, wcpNamespace)
 
-		err = getGC(vmcWcpHost, wcpToken, "test-cluster-e2e-script")
+		err = getGC(vmcWcpHost, wcpToken, "test-cluster-e2e-script", wcpNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas+5)

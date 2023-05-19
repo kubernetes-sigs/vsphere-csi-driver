@@ -1,0 +1,25 @@
+{
+	"cluster": "cluster-id",
+	"namespace": "nsamespace_name",
+    "storage_specs": [
+		{
+			"limit": 0,
+			"policy": "profile-id"
+		}
+	],
+    "vm_service_spec": {
+		"vm_classes": [
+			"best-effort-xsmall"
+		],
+        "content_libraries": [ "library_id" ]
+	},
+    "access_list": [
+		{
+			"domain": "vsphere.local",
+			"role": "OWNER",
+			"subject": "Administrator",
+			"subject_type": "USER"
+            
+		}
+	]
+}

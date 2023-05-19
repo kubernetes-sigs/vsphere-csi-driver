@@ -527,6 +527,26 @@ type TanzuCluster struct {
 	} `yaml:"spec"`
 }
 
+// This Struct is used for Creating WCP namesapce via VC Rest API
+type WcpNamespace struct {
+	Cluster      string `json:"cluster"`
+	Namespace    string `json:"namespace"`
+	StorageSpecs []struct {
+		Limit  int    `json:"limit"`
+		Policy string `json:"policy"`
+	} `json:"storage_specs"`
+	VmServiceSpec struct {
+		VMClasses        []string `json:"vm_classes"`
+		ContentLibraries []string `json:"content_libraries"`
+	} `json:"vm_service_spec"`
+	AccessList []struct {
+		Domain      string `json:"domain"`
+		Role        string `json:"role"`
+		Subject     string `json:"subject"`
+		SubjectType string `json:"subject_type"`
+	} `json:"access_list"`
+}
+
 // getVSphereStorageClassSpec returns Storage Class Spec with supplied storage
 // class parameters.
 func getVSphereStorageClassSpec(scName string, scParameters map[string]string,
@@ -1543,14 +1563,14 @@ func getVMImages(wcpHost string, wcpToken string) VMImages {
 }
 
 // deleteTKG method deletes the TKG Cluster
-func deleteTKG(wcpHost string, wcpToken string, tkgCluster string) error {
+func deleteTKG(wcpHost string, wcpToken string, tkgCluster string, namespace string) error {
 	ginkgo.By("Delete TKG")
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
 	}
 
 	client := &http.Client{Transport: transCfg}
-	getGCURL := "https://" + wcpHost + tkgAPI + tkgCluster
+	getGCURL := "https://" + wcpHost + tkgAPI + namespace + "/tanzukubernetesclusters/" + tkgCluster
 	framework.Logf("URL %v", getGCURL)
 	wcpToken = "Bearer " + wcpToken
 
@@ -1594,14 +1614,14 @@ func waitForDeleteToComplete(client *http.Client, req *http.Request) error {
 }
 
 // upgradeTKG method updates the TKG Cluster with the tkgImage
-func upgradeTKG(wcpHost string, wcpToken string, tkgCluster string, tkgImage string) {
+func upgradeTKG(wcpHost string, wcpToken string, tkgCluster string, tkgImage string, namespace string) {
 	ginkgo.By("Upgrade TKG")
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
 	}
 
 	client := &http.Client{Transport: transCfg}
-	getGCURL := "https://" + wcpHost + tkgAPI + tkgCluster
+	getGCURL := "https://" + wcpHost + tkgAPI + namespace + "/tanzukubernetesclusters/" + tkgCluster
 	framework.Logf("URL %v", getGCURL)
 	wcpToken = "Bearer " + wcpToken
 
@@ -1643,14 +1663,14 @@ func upgradeTKG(wcpHost string, wcpToken string, tkgCluster string, tkgImage str
 }
 
 // createGC method creates GC and takes WCP host and bearer token as input param
-func createGC(wcpHost string, wcpToken string, tkgImageName string, clusterName string) {
+func createGC(wcpHost string, wcpToken string, tkgImageName string, clusterName string, namespace string) {
 
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
 	}
 
 	client := &http.Client{Transport: transCfg}
-	createGCURL := "https://" + wcpHost + tkgAPI
+	createGCURL := "https://" + wcpHost + tkgAPI + namespace + "/tanzukubernetesclusters/"
 	framework.Logf("URL %v", createGCURL)
 	tkg_yaml, err := filepath.Abs(gcManifestPath + "tkg.yaml")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1667,6 +1687,7 @@ func createGC(wcpHost string, wcpToken string, tkgImageName string, clusterName 
 	// Change the value of the replaceImage field
 	tkg.Spec.Topology.ControlPlane.TKR.Reference.Name = tkgImageName
 	tkg.Metadata.Name = clusterName
+	tkg.Metadata.Namespace = namespace
 
 	// Marshal the updated struct back to YAML
 	updatedYAML, err := yaml.Marshal(&tkg)
@@ -1776,14 +1797,14 @@ func getTaskStatus(authToken string, orgID string, taskID string) error {
 }
 
 // scaleTKGWorker scales the TKG worker nodes on given tkgCluster based on the tkgworker count
-func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworker int) {
+func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworker int, namespace string) {
 
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
 	}
 
 	client := &http.Client{Transport: transCfg}
-	getGCURL := "https://" + wcpHost + tkgAPI + tkgCluster
+	getGCURL := "https://" + wcpHost + tkgAPI + namespace + "/tanzukubernetesclusters/" + tkgCluster
 	framework.Logf("URL %v", getGCURL)
 	wcpToken = "Bearer " + wcpToken
 	req, err := http.NewRequest("GET", getGCURL, nil)
@@ -1815,14 +1836,14 @@ func scaleTKGWorker(wcpHost string, wcpToken string, tkgCluster string, tkgworke
 }
 
 // getGC polls for the GC status, returns error if its not in running phase
-func getGC(wcpHost string, wcpToken string, gcName string) error {
+func getGC(wcpHost string, wcpToken string, gcName string, namespace string) error {
 	var response string
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
 	}
 
 	client := &http.Client{Transport: transCfg}
-	getGCURL := "https://" + wcpHost + tkgAPI + gcName
+	getGCURL := "https://" + wcpHost + tkgAPI + namespace + "/tanzukubernetesclusters/" + gcName
 	framework.Logf("URL %v", getGCURL)
 	wcpToken = "Bearer " + wcpToken
 	req, err := http.NewRequest("GET", getGCURL, nil)
@@ -1926,6 +1947,81 @@ func getVCentreSessionId(hostname string, username string, password string) stri
 	framework.Logf("SessionID: %s", sessionID)
 
 	return sessionID
+}
+
+// getWCPCluster get the wcp cluster details
+func createWcpNamespace(sessionID string, hostIP string, storagePolicyName string, contentLibrary []string) {
+
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+
+	client := &http.Client{Transport: transCfg}
+	namespaceURL := "https://" + hostIP + vcNamespaceAPI
+	framework.Logf("URL %v", namespaceURL)
+
+	profileuID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+	namesapce_json, err := filepath.Abs(nsManifestPath + "namespace.json")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Taking json from %v", namesapce_json)
+	nsBytes, err := os.ReadFile(namesapce_json)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	var wcpNs WcpNamespace
+	err = json.Unmarshal([]byte(nsBytes), &wcpNs)
+	if err != nil {
+		framework.Logf("Error: %v", err)
+	}
+
+	// Change the value of policy uuid, contentlibrary uuid,
+	wcpNs.StorageSpecs[0].Policy = profileuID
+	wcpNs.Cluster = e2eVSphere.Config.Global.ClusterID
+	wcpNs.VmServiceSpec.ContentLibraries = contentLibrary
+
+	// Marshal the updated struct back to YAML
+	updatedJson, err := yaml.Marshal(&wcpNs)
+	if err != nil {
+		framework.Logf("Error: %v", err)
+	}
+
+	// Convert the marshalled YAML to []byte
+	updatedJsonBytes := []byte(updatedJson)
+
+	req, err := http.NewRequest("POST", namespaceURL, bytes.NewBuffer(updatedJsonBytes))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add("vmware-api-session-id", sessionID)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Content-Type", "application/json")
+
+	statusCode, _ := httpRequest(client, req)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
+
+}
+
+// getContentLibraryId
+func getContentLibraryId(sessionID string, hostIP string) []string {
+
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+	client := &http.Client{Transport: transCfg}
+	clusterURL := "https://" + hostIP + vcContentLibraryAPI
+	framework.Logf("URL %v", clusterURL)
+
+	req, err := http.NewRequest("GET", clusterURL, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	req.Header.Add("vmware-api-session-id", sessionID)
+
+	bodyBytes, statusCode := httpRequest(client, req)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	var response []string
+	err = json.Unmarshal([]byte(bodyBytes), &response)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return response
 }
 
 // getWCPCluster get the wcp cluster details

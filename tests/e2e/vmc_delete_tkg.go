@@ -190,10 +190,9 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 			wcpToken = getWCPSessionId(vmcWcpHost, e2eVSphere.Config.Global.VmcCloudUser,
 				e2eVSphere.Config.Global.VmcCloudPassword)
 		}
-		err = deleteTKG(vmcWcpHost, wcpToken, tkg_cluster)
+		err = deleteTKG(vmcWcpHost, wcpToken, tkg_cluster, wcpNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		deleteGC = true
-
 		//validating static volume provisioning after GC2 deletion
 		volHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())

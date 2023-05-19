@@ -226,19 +226,19 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		wcpHost := getWCPHost(wcpCluster, e2eVSphere.Config.Global.VCenterHostname, sessionID)
 		framework.Logf("wcphost %s", wcpHost)
 		wcpToken := getWCPSessionId(wcpHost, e2eVSphere.Config.Global.User, e2eVSphere.Config.Global.Password)
-		scaleTKGWorker(wcpHost, wcpToken, devopsTKG, 5)
+		scaleTKGWorker(wcpHost, wcpToken, devopsTKG, 5, wcpNamespace)
 
 		defer func() {
 			ginkgo.By("In defer function to reset the TKGs worker nodes")
-			scaleTKGWorker(wcpHost, wcpToken, devopsTKG, 3)
+			scaleTKGWorker(wcpHost, wcpToken, devopsTKG, 3, wcpNamespace)
 
 			ginkgo.By("Wait for the TKG to be Ready")
-			err = getGC(wcpHost, wcpToken, devopsTKG)
+			err = getGC(wcpHost, wcpToken, devopsTKG, wcpNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Wait for the TKG to be Ready")
-		err = getGC(wcpHost, wcpToken, devopsTKG)
+		err = getGC(wcpHost, wcpToken, devopsTKG, wcpNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		replicas += 2
@@ -470,19 +470,19 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		wcpHost := getWCPHost(wcpCluster, e2eVSphere.Config.Global.VCenterHostname, sessionID)
 		framework.Logf("wcphost %s", wcpHost)
 		wcpToken := getWCPSessionId(wcpHost, e2eVSphere.Config.Global.User, e2eVSphere.Config.Global.Password)
-		scaleTKGWorker(wcpHost, wcpToken, devopsTKG, 2)
+		scaleTKGWorker(wcpHost, wcpToken, devopsTKG, 2, wcpNamespace)
 
 		defer func() {
 			ginkgo.By("In defer function to reset the TKGs worker nodes")
-			scaleTKGWorker(wcpHost, wcpToken, devopsTKG, 3)
+			scaleTKGWorker(wcpHost, wcpToken, devopsTKG, 3, wcpNamespace)
 
 			ginkgo.By("Wait for the TKG to be Ready")
-			err = getGC(wcpHost, wcpToken, devopsTKG)
+			err = getGC(wcpHost, wcpToken, devopsTKG, wcpNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Wait for the TKG to be Ready")
-		err = getGC(wcpHost, wcpToken, devopsTKG)
+		err = getGC(wcpHost, wcpToken, devopsTKG, wcpNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		replicas += 2
