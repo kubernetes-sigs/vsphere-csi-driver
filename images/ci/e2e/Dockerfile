@@ -15,8 +15,8 @@
 # To build an image from this docker file follow the below steps
 # cd to images/ci/e2e folder
 # docker build -t <image-name:version> --platform=Linux/x86_64 -f Dockerfile . 
-# docker tag <image-name:version> harbor-repo.vmware.com/csi_ci/<image-name:version>
-# docker push harbor-repo.vmware.com/csi_ci/<image-name:version>
+# docker tag <image-name:version> <repo>/<image-name:version>
+# docker push <repo>/<image-name:version>
 
 FROM --platform=linux/amd64 golang:1.19
 
