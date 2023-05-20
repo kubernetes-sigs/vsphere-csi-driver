@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	nsManifestPath = "testing-manifests/namesapce/"
+	nsManifestPath = "testing-manifests/namespace/"
 )
 
 var _ = ginkgo.Describe("Create GC", func() {
@@ -43,12 +43,10 @@ var _ = ginkgo.Describe("Create GC", func() {
 			2.	Create TKC with the session id from step 1
 			3.	Verify newly created TKC is up and running
 			4.  Create SC
-			5.	Create PVC with the above created SC and validate PVC is in bound phase
 			6.  Create POD with the above-created PVC and validate pod is in running state
 
 	*/
 	ginkgo.It("[csi-guest] Create GC onprem with Root user", func() {
-
 		tkgImageName := os.Getenv(envTKGImage)
 		if tkgImageName == "" {
 			ginkgo.Skip(fmt.Sprintf("Env %v is missing", envTKGImage))
@@ -63,7 +61,6 @@ var _ = ginkgo.Describe("Create GC", func() {
 		if storagePolicyName == "" {
 			ginkgo.Skip(fmt.Sprintf("Env %v is missing", envwcpNamespace))
 		}
-
 		ginkgo.By("Get WCP session id")
 		sessionID := getVCentreSessionId(e2eVSphere.Config.Global.VCenterHostname, e2eVSphere.Config.Global.User,
 			e2eVSphere.Config.Global.Password)
@@ -74,15 +71,18 @@ var _ = ginkgo.Describe("Create GC", func() {
 
 		//featch content library uuid
 		contentLibraryId := getContentLibraryId(sessionID, e2eVSphere.Config.Global.VCenterHostname)
+		framework.Logf("The content library available is %v", contentLibraryId)
+		framework.Logf("The cluster id  is %v", wcpCluster)
 
-		ginkgo.By("Creating WCP Namespace via vc rest api")
-		createWcpNamespace(sessionID, e2eVSphere.Config.Global.VCenterHostname, storagePolicyName, contentLibraryId)
+		createWcpNamespace(sessionID, e2eVSphere.Config.Global.VCenterHostname, storagePolicyName, contentLibraryId, namespace, wcpCluster)
 
 		ginkgo.By("Creating Guest Cluster with root User")
 		createGC(wcpHost, wcpToken, tkgImageName, devopsTKG, namespace)
 		ginkgo.By("Validate the Guest Cluster is up and running")
+
 		err := getGC(wcpHost, wcpToken, devopsTKG, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	})
 
 })

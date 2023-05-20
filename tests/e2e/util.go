@@ -1950,7 +1950,7 @@ func getVCentreSessionId(hostname string, username string, password string) stri
 }
 
 // getWCPCluster get the wcp cluster details
-func createWcpNamespace(sessionID string, hostIP string, storagePolicyName string, contentLibrary []string) {
+func createWcpNamespace(sessionID string, hostIP string, storagePolicyName string, contentLibrary []string, namespace string, clusterId string) {
 
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
@@ -1972,20 +1972,21 @@ func createWcpNamespace(sessionID string, hostIP string, storagePolicyName strin
 	if err != nil {
 		framework.Logf("Error: %v", err)
 	}
-
 	// Change the value of policy uuid, contentlibrary uuid,
 	wcpNs.StorageSpecs[0].Policy = profileuID
-	wcpNs.Cluster = e2eVSphere.Config.Global.ClusterID
+	wcpNs.Cluster = clusterId
 	wcpNs.VmServiceSpec.ContentLibraries = contentLibrary
+	wcpNs.Namespace = namespace
 
-	// Marshal the updated struct back to YAML
-	updatedJson, err := yaml.Marshal(&wcpNs)
+	// Marshal the updated struct back to json
+	updatedJson, err := json.Marshal(&wcpNs)
 	if err != nil {
 		framework.Logf("Error: %v", err)
 	}
 
-	// Convert the marshalled YAML to []byte
+	// Convert the marshalled json to []byte
 	updatedJsonBytes := []byte(updatedJson)
+	framework.Logf("The Namespace Yaml used to setup wcp namespace is: %v", wcpNs)
 
 	req, err := http.NewRequest("POST", namespaceURL, bytes.NewBuffer(updatedJsonBytes))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1993,7 +1994,7 @@ func createWcpNamespace(sessionID string, hostIP string, storagePolicyName strin
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/json")
 
-	statusCode, _ := httpRequest(client, req)
+	_, statusCode := httpRequest(client, req)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
 
 }

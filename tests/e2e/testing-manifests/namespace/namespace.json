@@ -1,6 +1,6 @@
 {
 	"cluster": "cluster-id",
-	"namespace": "nsamespace_name",
+	"namespace": "namespace_name",
     "storage_specs": [
 		{
 			"limit": 0,
@@ -11,7 +11,7 @@
 		"vm_classes": [
 			"best-effort-xsmall"
 		],
-        "content_libraries": [ "library_id" ]
+        "content_libraries": ["library_id"]
 	},
     "access_list": [
 		{
