@@ -56,7 +56,7 @@ BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
 
 # CUSTOM_REPO_FOR_GOLANG can be used to pass custom repository for golang builder image.
 # Please ensure it ends with a '/'.
-# Example: CUSTOM_REPO_FOR_GOLANG=harbor-repo.vmware.com/dockerhub-proxy-cache/library/
+# Example: CUSTOM_REPO_FOR_GOLANG=<docker-registry>/dockerhub-proxy-cache/library/
 GOLANG_IMAGE=${CUSTOM_REPO_FOR_GOLANG:-}golang:1.20
 
 ARCH=amd64

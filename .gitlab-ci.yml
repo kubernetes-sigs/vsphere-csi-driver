@@ -53,7 +53,7 @@ deploy-images-dev:
   stage: deploy-dev
   # This resource group is configured with process_mode=oldest_first to make sure the pipelines are run serially.
   resource_group: production
-  # Image built from cd-infra/images/ci-deploy/Dockerfile from Calatrava project.
+  # Image built from cd-infra/images/ci-deploy/Dockerfile.
   image: $CNS_IMAGE_CI_DEPLOY_STAGE
   script:
     - ./pipeline/deploy.sh
@@ -73,8 +73,8 @@ e2e-tests-dev:
   # Image built by docker file images/ci/e2e/Dockerfile.
   # Command to build new image is
   # docker build -t <image-name:version> --platform=Linux/x86_64 -f Dockerfile . 
-  # docker tag <image-name:version> harbor-repo.vmware.com/csi_ci/<image-name:version>
-  # docker push harbor-repo.vmware.com/csi_ci/<image-name:version>
+  # docker tag <image-name:version> <repo>/<image-name:version>
+  # docker push <repo>/<image-name:version>
   image: $CSI_FVT_GOLANG
   dependencies:
     - deploy-images-dev
@@ -89,7 +89,7 @@ e2e-tests-dev:
 
 deploy-images-staging:
   stage: deploy-staging
-  # Image built from cd-infra/images/ci-deploy/Dockerfile from Calatrava project.
+  # Image built from cd-infra/images/ci-deploy/Dockerfile.
   image: $CNS_IMAGE_CI_DEPLOY_STAGE
   script:
     - ./pipeline/deploy-staging.sh
@@ -103,8 +103,8 @@ e2e-tests-staging:
   # Image built by docker file images/ci/e2e/Dockerfile.
   # Command to build new image is
   # docker build -t <image-name:version> --platform=Linux/x86_64 -f Dockerfile . 
-  # docker tag <image-name:version> harbor-repo.vmware.com/csi_ci/<image-name:version>
-  # docker push harbor-repo.vmware.com/csi_ci/<image-name:version>
+  # docker tag <image-name:version> <repo>/<image-name:version>
+  # docker push <repo>/<image-name:version>
   image: $CSI_FVT_GOLANG
   dependencies:
     - deploy-images-staging
@@ -115,7 +115,7 @@ e2e-tests-staging:
 
 system-tests-staging:
   stage: tests-staging
-  # Image built from cd-infra//images/ci-e2e/Dockerfile from Calatrava project.
+  # Image built from cd-infra//images/ci-e2e/Dockerfile.
   image: $CNS_IMAGE_E2E
   dependencies:
     - deploy-images-staging
@@ -126,7 +126,7 @@ system-tests-staging:
 
 perf-tests-staging:
   stage: tests-staging
-  # Image built from cd-infra//images/ci-e2e/Dockerfile from Calatrava project.
+  # Image built from cd-infra//images/ci-e2e/Dockerfile.
   image: $CNS_IMAGE_E2E
   dependencies:
     - deploy-images-staging
