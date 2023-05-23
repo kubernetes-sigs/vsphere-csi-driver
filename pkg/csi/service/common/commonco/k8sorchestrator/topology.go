@@ -745,13 +745,13 @@ func (volTopology *nodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context
 		Name: nodeInfo.NodeName,
 	}
 	err = volTopology.csiNodeTopologyK8sClient.Get(ctx, csiNodeTopologyKey, csiNodeTopology)
-	topologyFound := true
+	csiNodeTopologyFound := true
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			msg := fmt.Sprintf("failed to get CsiNodeTopology for the node: %q. Error: %+v", nodeInfo.NodeName, err)
 			return nil, logger.LogNewErrorCodef(log, codes.Internal, msg)
 		}
-		topologyFound = false
+		csiNodeTopologyFound = false
 		err = createCSINodeTopologyInstance(ctx, volTopology, nodeInfo)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal, err.Error())
@@ -759,7 +759,7 @@ func (volTopology *nodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context
 	}
 
 	// there is an already existing topology
-	if topologyFound && volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+	if csiNodeTopologyFound && volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		newCSINodeTopology := csiNodeTopology.DeepCopy()
 
 		if volTopology.isCSINodeIdFeatureEnabled {
