@@ -182,6 +182,9 @@ func getBlockVolumeIDToNodeUUIDMap(ctx context.Context, c *controller,
 		pc := property.DefaultCollector(vc.Client.Client)
 		// Obtain host MoID and virtual disk ID
 		var vmMoList []mo.VirtualMachine
+		if len(vmRefsPervCenter[vc.Config.Host]) == 0 {
+			continue
+		}
 		err = pc.Retrieve(ctx, vmRefsPervCenter[vc.Config.Host], properties, &vmMoList)
 		if err != nil {
 			log.Errorf("failed to get VM managed objects from VM objects, err: %v", err)
