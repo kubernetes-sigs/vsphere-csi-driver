@@ -193,8 +193,8 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 
 	// Steps
 	// 1. Create StorageClass with allowVolumeExpansion set to true.
-	// 2. Create PVC-1, PVC-2, PVC-3, PVC-4, PVC-5 which uses the StorageClass created in step 1.
-	// 3. Wait for PV-1, PV-2, PV-3  PV-4 PV-5 to be provisioned.
+	// 2. Create PVC-1, PVC-2, PVC-3 which uses the StorageClass created in step 1.
+	// 3. Wait for PV-1, PV-2, PV-3  to be provisioned.
 	// 4. Wait for PVC's status to become Bound.
 
 	ginkgo.It("[csi-block-vanilla-preupgradedata] Verify creation of standalone pvcs", func() {
@@ -205,6 +205,7 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		// Create Storage class and PVC
 		ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 		var err error
+		var pvclaimsarray = make([]*v1.PersistentVolumeClaim, 5)
 		storageClassName = "preupgrade-sc-pvcs"
 
 		namespace, err := framework.CreateTestingNS(f.BaseName, client, nil)
@@ -215,16 +216,15 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("storage class created is : %s", sc.Name)
 
-		count := 0
-		for count < 5 {
+		for count := 0; count < 5; count++ {
 			ginkgo.By("Creating PVCs using the Storage Class")
-			pvclaims[count], err = fpv.CreatePVC(client, namespace.Name,
+			pvclaimsarray[count], err = fpv.CreatePVC(client, namespace.Name,
 				getPersistentVolumeClaimSpecWithStorageClass(namespace.Name, diskSize, sc, nil, ""))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			count++
+
 		}
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaimsarray, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
