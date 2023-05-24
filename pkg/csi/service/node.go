@@ -349,15 +349,12 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 		return nil, logger.LogNewErrorCode(log, codes.Internal,
 			"ENV NODE_NAME is not set")
 	}
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
-		// Get VM UUID
-		nodeID, err = driver.osUtils.GetSystemUUID(ctx)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get system uuid for node VM with error: %v", err)
-		}
-	} else {
-		nodeID = nodeName
+
+	// Get VM UUID
+	nodeID, err = driver.osUtils.GetSystemUUID(ctx)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get system uuid for node VM with error: %v", err)
 	}
 
 	var maxVolumesPerNode int64

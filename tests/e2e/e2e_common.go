@@ -262,11 +262,6 @@ var (
 	configSecretTestUser2         = "testuser2"
 )
 
-// CSI Internal FSSs
-var (
-	useCsiNodeID = "use-csinode-id"
-)
-
 // Nimbus generated passwords
 var (
 	nimbusK8sVmPwd = "NIMBUS_K8S_VM_PWD"

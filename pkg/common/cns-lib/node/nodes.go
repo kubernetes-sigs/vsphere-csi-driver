@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -35,11 +34,8 @@ type Nodes struct {
 }
 
 // Initialize helps initialize node manager and node informer manager.
-// If useNodeUuid is set, an informer on K8s CSINode is created.
-// if not, an informer on K8s Node API object is created.
-func (nodes *Nodes) Initialize(ctx context.Context, useNodeUuid bool) error {
+func (nodes *Nodes) Initialize(ctx context.Context) error {
 	nodes.cnsNodeManager = GetManager(ctx)
-	nodes.cnsNodeManager.SetUseNodeUuid(useNodeUuid)
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
 		log := logger.GetLogger(ctx)
@@ -48,66 +44,10 @@ func (nodes *Nodes) Initialize(ctx context.Context, useNodeUuid bool) error {
 	}
 	nodes.cnsNodeManager.SetKubernetesClient(k8sclient)
 	nodes.informMgr = k8s.NewInformer(ctx, k8sclient, true)
-	if useNodeUuid {
-		nodes.informMgr.AddCSINodeListener(nodes.csiNodeAdd,
-			nodes.csiNodeUpdate, nodes.csiNodeDelete)
-	} else {
-		nodes.informMgr.AddNodeListener(nodes.nodeAdd,
-			nodes.nodeUpdate, nodes.nodeDelete)
-	}
+	nodes.informMgr.AddCSINodeListener(nodes.csiNodeAdd,
+		nodes.csiNodeUpdate, nodes.csiNodeDelete)
 	nodes.informMgr.Listen()
 	return nil
-}
-
-func (nodes *Nodes) nodeAdd(obj interface{}) {
-	ctx, log := logger.GetNewContextWithLogger()
-	node, ok := obj.(*v1.Node)
-	if node == nil || !ok {
-		log.Warnf("nodeAdd: unrecognized object %+v", obj)
-		return
-	}
-	err := nodes.cnsNodeManager.RegisterNode(ctx,
-		cnsvsphere.GetUUIDFromProviderID(node.Spec.ProviderID), node.Name)
-	if err != nil {
-		log.Warnf("failed to register node:%q. err=%v", node.Name, err)
-	}
-}
-
-func (nodes *Nodes) nodeUpdate(oldObj interface{}, newObj interface{}) {
-	ctx, log := logger.GetNewContextWithLogger()
-	newNode, ok := newObj.(*v1.Node)
-	if !ok {
-		log.Warnf("nodeUpdate: unrecognized object newObj %[1]T%+[1]v", newObj)
-		return
-	}
-	oldNode, ok := oldObj.(*v1.Node)
-	if !ok {
-		log.Warnf("nodeUpdate: unrecognized object oldObj %[1]T%+[1]v", oldObj)
-		return
-	}
-	if oldNode.Spec.ProviderID != newNode.Spec.ProviderID {
-		log.Infof("nodeUpdate: Observed ProviderID change from %q to %q for the node: %q",
-			oldNode.Spec.ProviderID, newNode.Spec.ProviderID, newNode.Name)
-
-		err := nodes.cnsNodeManager.RegisterNode(ctx,
-			cnsvsphere.GetUUIDFromProviderID(newNode.Spec.ProviderID), newNode.Name)
-		if err != nil {
-			log.Warnf("nodeUpdate: Failed to register node:%q. err=%v", newNode.Name, err)
-		}
-	}
-}
-
-func (nodes *Nodes) nodeDelete(obj interface{}) {
-	ctx, log := logger.GetNewContextWithLogger()
-	node, ok := obj.(*v1.Node)
-	if node == nil || !ok {
-		log.Warnf("nodeDelete: unrecognized object %+v", obj)
-		return
-	}
-	err := nodes.cnsNodeManager.UnregisterNode(ctx, node.Name)
-	if err != nil {
-		log.Warnf("failed to unregister node:%q. err=%v", node.Name, err)
-	}
 }
 
 func (nodes *Nodes) csiNodeAdd(obj interface{}) {

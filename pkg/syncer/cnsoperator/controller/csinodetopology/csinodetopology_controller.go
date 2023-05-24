@@ -110,7 +110,6 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		}
 	}
 
-	useNodeUuid := coCommonInterface.IsFSSEnabled(ctx, common.UseCSINodeId)
 	isMultiVCFSSEnabled := coCommonInterface.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
 	// Initialize kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
@@ -128,20 +127,19 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	)
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme,
 		corev1.EventSource{Component: csinodetopologyv1alpha1.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, recorder, useNodeUuid,
+	return add(mgr, newReconciler(mgr, configInfo, recorder,
 		enableTKGsHAinGuest, isMultiVCFSSEnabled, vmOperatorClient, supervisorNamespace))
 }
 
 // newReconciler returns a new `reconcile.Reconciler`.
 func newReconciler(mgr manager.Manager, configInfo *cnsconfig.ConfigurationInfo, recorder record.EventRecorder,
-	useNodeUuid bool, enableTKGsHAinGuest bool, isMultiVCFSSEnabled bool, vmOperatorClient client.Client,
+	enableTKGsHAinGuest bool, isMultiVCFSSEnabled bool, vmOperatorClient client.Client,
 	supervisorNamespace string) reconcile.Reconciler {
 	return &ReconcileCSINodeTopology{
 		client:              mgr.GetClient(),
 		scheme:              mgr.GetScheme(),
 		configInfo:          configInfo,
 		recorder:            recorder,
-		useNodeUuid:         useNodeUuid,
 		enableTKGsHAinGuest: enableTKGsHAinGuest,
 		isMultiVCFSSEnabled: isMultiVCFSSEnabled,
 		vmOperatorClient:    vmOperatorClient,
@@ -207,7 +205,6 @@ type ReconcileCSINodeTopology struct {
 	scheme              *runtime.Scheme
 	configInfo          *cnsconfig.ConfigurationInfo
 	recorder            record.EventRecorder
-	useNodeUuid         bool
 	enableTKGsHAinGuest bool
 	isMultiVCFSSEnabled bool
 	vmOperatorClient    client.Client
@@ -272,7 +269,7 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	if r.useNodeUuid && clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		nodeID = instance.Spec.NodeUUID
 		if nodeID != "" {
 			nodeVM, err = nodeManager.GetNode(ctx, nodeID, nil)
