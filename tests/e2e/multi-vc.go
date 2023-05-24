@@ -58,6 +58,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		topValEndIndex              int
 		topkeyStartIndex            int
 		datastoreURL                string
+		otherdatastoreURL           string
 	)
 	ginkgo.BeforeEach(func() {
 		var cancel context.CancelFunc
@@ -92,6 +93,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		storagePolicyName2 = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores2)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
+		otherdatastoreURL = GetAndExpectStringEnvVar(envNonSharedStorageClassDatastoreURL)
 
 	})
 
@@ -862,11 +864,95 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		storagePolicyName = "shared-ds-polic"
 		scParameters[scParamStoragePolicyName] = storagePolicyName
 
-		ginkgo.By("Create StorageClass with wrong storage policy name")
-		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, allowedTopologies, "",
+		storageclass, pvclaim, err := createPVCAndStorageClass(client,
+			namespace, nil, scParameters, "", nil, "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+		ginkgo.By("Expect claim to fail provisioning volume within the topology")
+		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
+			client, pvclaim.Namespace, pvclaim.Name, framework.PollShortTimeout, pollTimeoutShort))
+		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(ctx, metav1.ListOptions{})
+		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
+		expectedErrMsg := "failed to create volume."
+		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
+
+	})
+
+	/*
+		TESTCASE-13
+		Deploy workload With allowed topology of VC1 and datastore url which is in VC2
+
+		Steps:
+		1. Create SC with allowed topology which matches VC1 details and datastore url which is in VC2
+		2. PVC should not go to bound, appropriate error should be shown
+	*/
+
+	ginkgo.It("TC-13", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		allowedTopologyLen = 2
+		topValStartIndex = 0
+		topValEndIndex = 1
+		scParameters[scParamDatastoreURL] = otherdatastoreURL
+
+		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
+			topValEndIndex)
+
+		storageclass, pvclaim, err := createPVCAndStorageClass(client,
+			namespace, nil, scParameters, "", allowedTopologies, "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+		ginkgo.By("Expect claim to fail provisioning volume within the topology")
+		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
+			client, pvclaim.Namespace, pvclaim.Name, framework.PollShortTimeout, pollTimeoutShort))
+		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(ctx, metav1.ListOptions{})
+		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
+		expectedErrMsg := "failed to create volume."
+		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
+	})
+
+	/*
+		TESTCASE-14
+		Create storage policy in VC1 and VC2 and create storage class with the same and delete Storage policy
+		in VC1, expected to go to VC2
+
+		Steps:
+		1. Create Storage policy in VC1 and VC2
+		2. Create Storage class with above policy
+		3. Delete storage policy from VC1
+		4. Create statefulSet
+		5. Expected to provision volume on VC2
+		6. Make sure common validation points are met
+		7. Clear data
+	*/
+
+	ginkgo.It("TC-14", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		parallelPodPolicy = true
+		nodeAffinityToSet = true
+		allowedTopologyLen = 3
+		topValStartIndex = 0
+		topValEndIndex = 3
+
+		ginkgo.By("Create StorageClass with no allowed topolgies specified and with WFC binding mode")
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, nil, "",
 			bindingMode, false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -875,21 +961,23 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		pvclaim, err := createPVC(client, namespace, nil, "", sc, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Expect claim status to be in Pending state")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+		ginkgo.By("Create service")
+		service := CreateService(namespace, client)
 		defer func() {
-			ginkgo.By("Deleting the PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			deleteService(namespace, client, service)
 		}()
 
-	})
+		ginkgo.By("Create StatefulSet with parallel pod management policy")
+		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
+			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen)
+		defer func() {
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
 
+		allowedTopologies := setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex, topValEndIndex)
+
+		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+			namespace, allowedTopologies, parallelStatefulSetCreation)
+	})
 })
