@@ -275,6 +275,15 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 		volumeSource := req.GetVolumeContentSource()
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) &&
+			volumeSource != nil {
+			sourceSnapshot := volumeSource.GetSnapshot()
+			if sourceSnapshot == nil {
+				return nil, csifault.CSIInvalidArgumentFault,
+					logger.LogNewErrorCode(log, codes.InvalidArgument, "unsupported VolumeContentSource type")
+			}
+			volumeSnapshotName = sourceSnapshot.GetSnapshotId()
+		}
 
 		// Get supervisorStorageClass and accessMode
 		var supervisorStorageClass string
@@ -303,10 +312,6 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 						return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 					}
 					annotations[common.AnnGuestClusterRequestedTopology] = topologyAnnotation
-				}
-				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) &&
-					volumeSource != nil {
-					volumeSnapshotName = volumeSource.GetSnapshot().GetSnapshotId()
 				}
 				claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace,
 					diskSize, supervisorStorageClass, getAccessMode(accessMode), annotations, volumeSnapshotName)
