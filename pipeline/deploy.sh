@@ -102,33 +102,19 @@ echo "sv_kubeconfig_content=$(cat $SV_KUBECONFIG)" > ./sv_kubeconfig_content.yam
 # Pod status on testbed before patching the CSI Images
 kubectl get pods -n vmware-system-csi
 
-K8S_MAJOR_VERSION=$(kubectl version -o json | jq .serverVersion.major | tr -d '"')
-K8S_MINOR_VERSION=$(kubectl version -o json | jq .serverVersion.minor | tr -d '"')
-
-echo "K8S_MAJOR_VERSION=$K8S_MAJOR_VERSION" >> build.env
-echo "K8S_MINOR_VERSION=$K8S_MINOR_VERSION" >> build.env
-
-# Replace the kubernetes version in kustomization.yaml
-sed -i "s#- ../../manifests/supervisorcluster/1.22#- ../../manifests/supervisorcluster/$K8S_MAJOR_VERSION.$K8S_MINOR_VERSION#g" pipeline/dev/kustomization.yaml
-
-echo "cat pipeline/dev/kustomization.yaml"
-cat pipeline/dev/kustomization.yaml
- 
-if ! kustomize build pipeline/dev | envsubst | kubectl apply -f -;
-then
-	echo "Error patching the CSI images in the testbed."
-	exit 1
-fi
+kubectl set env deployment/vsphere-csi-controller -n vmware-system-csi --containers=vsphere-syncer FULL_SYNC_INTERVAL_MINUTES=2 VOLUME_HEALTH_INTERVAL_MINUTES=2
+kubectl set image deployment/vsphere-csi-controller -n vmware-system-csi vsphere-syncer="$VSPHERE_SYNCER_IMAGE" vsphere-csi-controller="$VSPHERE_CSI_CONTROLLER_IMAGE"
+kubectl set image deployment/vsphere-csi-webhook -n vmware-system-csi vsphere-webhook="$VSPHERE_SYNCER_IMAGE"
 
 # Sleep for 60 seconds so that k8s can act on the applied changes.
 echo "Sleeping for 60 seconds..."
 sleep 60
 
 # Wait for 2 mins for the CSI deployment to be ready.
-if ! kubectl wait deployment -n vmware-system-csi vsphere-csi-controller --for=jsonpath="{.status.readyReplicas}"=3 --timeout=120s;
+if ! kubectl rollout status deployment/vsphere-csi-controller -n vmware-system-csi --timeout=120s;
 then
-	echo "CSI deployment is not ready within 120s."
-	exit 1
+    echo "CSI deployment is not ready within 120s."
+    exit 1
 fi
 
 # Pod status on testbed after patching the CSI Images
