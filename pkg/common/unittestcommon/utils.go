@@ -54,6 +54,16 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"tkgs-ha":                           "true",
 				"list-volumes":                      "true",
 				"csi-internal-generated-cluster-id": "true",
+				"online-volume-extend":              "true",
+				"async-query-volume":                "true",
+				"csi-windows-support":               "true",
+				"use-csinode-id":                    "true",
+				"pv-to-backingdiskobjectid-mapping": "false",
+				"cnsmgr-suspend-create-volume":      "true",
+				"topology-preferential-datastores":  "true",
+				"max-pvscsi-targets-per-vm":         "true",
+				"multi-vcenter-csi-topology":        "true",
+				"listview-tasks":                    "false",
 			},
 		}
 		return fakeCO, nil
