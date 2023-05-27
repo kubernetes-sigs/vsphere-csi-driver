@@ -67,6 +67,7 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     export VC_ADMIN_PWD=<vc-ui-password>
     export CLUSTER_FLAVOR="VANILLA"
     export CSI_NAMESPACE="vmware-system-csi"
+    export BUSYBOX_IMAGE="<image-used-to-deploy-pods>"
     # To run e2e test for block volume, need to set the following env variable
     export GINKGO_FOCUS="csi-block-vanilla"
     # To run e2e test for file volume, need to set the following env variable

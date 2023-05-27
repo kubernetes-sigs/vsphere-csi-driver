@@ -50,6 +50,7 @@ SSH keys need to be configured properley for all three master nodes of K8S clust
     export STORAGE_POLICY_FOR_SHARED_DATASTORES="vSAN Default Storage Policy"
     export USER=root
     export GINKGO_FOCUS="csi-multi-master-block-e2e"
+    export BUSYBOX_IMAGE="<image-used-to-deploy-pods>"
 
 ## Requirements
 
