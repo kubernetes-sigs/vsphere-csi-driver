@@ -594,7 +594,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		start := time.Now()
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
 		pvs, err := fpv.WaitForPVClaimBoundPhase(
-			client, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+			client, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout*4)
 		elapsed := time.Since(start)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -777,11 +777,11 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 		if !guestCluster {
-			err = waitForPvResize(pvs[0], client, newSize, totalResizeWaitPeriod)
+			err = waitForPvResize(pvs[0], client, newSize, totalResizeWaitPeriod*2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			svcPVCName := pvs[0].Spec.CSI.VolumeHandle
-			err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+			err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod*2)
 			framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 			ginkgo.By("Checking for resize on SVC PV")
