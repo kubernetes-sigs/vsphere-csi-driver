@@ -22,11 +22,14 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -211,6 +214,46 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			if err != nil {
 				log.Errorf("failed to initialize nodeManager. Error: %+v", err)
 				os.Exit(1)
+			}
+			if configInfo.Cfg.Global.ClusterDistribution == "" {
+				config, err := rest.InClusterConfig()
+				if err != nil {
+					log.Errorf("failed to get InClusterConfig: %v", err)
+				}
+				clientset, err := kubernetes.NewForConfig(config)
+				if err != nil {
+					log.Errorf("failed to create kubernetes client with err: %v", err)
+				}
+
+				// Get the version info for the Kubernetes API server
+				versionInfo, err := clientset.Discovery().ServerVersion()
+				if err != nil {
+					log.Errorf("failed to fetch versionInfo with err: %v", err)
+				}
+
+				// Extract the version string from the version info
+				version := versionInfo.GitVersion
+				var ClusterDistNameToServerVersion = map[string]string{
+					"gke":       "Anthos",
+					"racher":    "Rancher",
+					"rke":       "Rancher",
+					"docker":    "DockerEE",
+					"dockeree":  "DockerEE",
+					"openshift": "Openshift",
+					"wcp":       "Supervisor",
+					"vmware":    "TanzuKubernetesCluster",
+					"unknown":   "VanillaK8S",
+				}
+				distributionUnknown := true
+				for distServerVersion, distName := range ClusterDistNameToServerVersion {
+					if strings.Contains(version, distServerVersion) {
+						configInfo.Cfg.Global.ClusterDistribution = distName
+						distributionUnknown = false
+					}
+				}
+				if distributionUnknown {
+					configInfo.Cfg.Global.ClusterDistribution = ClusterDistNameToServerVersion["unknown"]
+				}
 			}
 		}
 		go func() {
