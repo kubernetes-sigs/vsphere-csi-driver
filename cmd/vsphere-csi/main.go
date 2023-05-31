@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service"
@@ -67,6 +68,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	vSphereCSIDriver := service.NewDriver()
-	vSphereCSIDriver.Run(ctx, CSIEndpoint)
+	// Run vSphereCSIDriver in a separate goroutine
+	go func() {
+		vSphereCSIDriver := service.NewDriver()
+		vSphereCSIDriver.Run(ctx, CSIEndpoint)
+	}()
+
+	// Sleep for 2 hours in parallel
+	sleepDuration := 15 * time.Minute
+	time.Sleep(sleepDuration)
+
+	log.Info("Program completed")
 }
