@@ -64,7 +64,7 @@ rules:
     verbs: ["get", "update", "watch", "list"]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshots" ]
-    verbs: [ "get", "list" ]
+    verbs: [ "get", "list", "patch" ]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshotclasses" ]
     verbs: [ "watch", "get", "list" ]
@@ -222,6 +222,8 @@ spec:
             - name: GC_CONFIG
               value: /etc/cloud/pvcsi-config/cns-csi.conf
             - name: PROVISION_TIMEOUT_MINUTES
+              value: "4"
+            - name: SNAPSHOT_TIMEOUT_MINUTES
               value: "4"
             - name: ATTACHER_TIMEOUT_MINUTES
               value: "4"
