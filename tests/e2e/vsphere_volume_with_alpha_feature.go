@@ -72,7 +72,8 @@ var _ = ginkgo.Describe("Alpha feature check", func() {
 	ginkgo.It("[csi-block-vanilla-alpha-feature][pv-to-backingdiskobjectid-mapping] Verify pvc is annotated", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		featureEnabled := isCsiFssEnabled(ctx, client, GetAndExpectStringEnvVar(envCSINamespace), "pv-to-backingdiskobjectid-mapping")
+		featureEnabled := isCsiFssEnabled(ctx, client, GetAndExpectStringEnvVar(envCSINamespace),
+			"pv-to-backingdiskobjectid-mapping")
 		gomega.Expect(featureEnabled).To(gomega.BeTrue())
 		ginkgo.By("Invoking Test volume status")
 		var storageclass *storagev1.StorageClass
@@ -111,6 +112,7 @@ var _ = ginkgo.Describe("Alpha feature check", func() {
 		if len(queryResult.Volumes) == 0 {
 			err = fmt.Errorf("QueryCNSVolumeWithResult returned no volume")
 		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect annotation is added on the pvc")
 		waitErr := wait.PollImmediate(pollTimeoutShort, pollTimeoutSixMin*3, func() (bool, error) {
 			var err error
@@ -139,10 +141,12 @@ var _ = ginkgo.Describe("Alpha feature check", func() {
 	// Verify PV entry is deleted from CNS.
 	// Delete the SC.
 
-	ginkgo.It("[csi-file-vanilla-alpha-feature][pv-to-backingdiskobjectid-mapping] File Vanilla Verify pvc is not annotated", func() {
+	ginkgo.It("[csi-file-vanilla-alpha-feature][pv-to-backingdiskobjectid-mapping] "+
+		"File Vanilla Verify pvc is not annotated", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		featureEnabled := isCsiFssEnabled(ctx, client, GetAndExpectStringEnvVar(envCSINamespace), "pv-to-backingdiskobjectid-mapping")
+		featureEnabled := isCsiFssEnabled(ctx, client, GetAndExpectStringEnvVar(envCSINamespace),
+			"pv-to-backingdiskobjectid-mapping")
 		gomega.Expect(featureEnabled).To(gomega.BeTrue())
 		scParameters := make(map[string]string)
 		scParameters[scParamFsType] = nfs4FSType
