@@ -243,6 +243,8 @@ func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client) erro
 func (vc *VirtualCenter) Connect(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	// Set up the vc connection.
+	clientMutex.Lock()
+	defer clientMutex.Unlock()
 	err := vc.connect(ctx, false)
 	if err != nil {
 		log.Errorf("Cannot connect to vCenter with err: %v", err)
@@ -263,8 +265,6 @@ func (vc *VirtualCenter) Connect(ctx context.Context) error {
 // connect creates a connection to the virtual center host.
 func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) error {
 	log := logger.GetLogger(ctx)
-	clientMutex.Lock()
-	defer clientMutex.Unlock()
 	// If client was never initialized, initialize one.
 	var err error
 	if vc.Client == nil {
