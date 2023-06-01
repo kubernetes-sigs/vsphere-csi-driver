@@ -73,7 +73,7 @@ then
     OPTS+=(-p)
     ginkgo -mod=mod "${OPTS[@]}" --focus="csi-block-vanilla-parallelized" tests/e2e
 else
-    ginkgo -mod=mod "${OPTS[@]}" --focus="$FOCUS" tests/e2e
+    ginkgo -r -v -race --trace --coverpkg=sigs.k8s.io/vsphere-csi-driver/v3/... --coverprofile=.coverage-report.out -mod=mod "${OPTS[@]}" --focus="$FOCUS" tests/e2e
 fi
 
 # Checking for test status
