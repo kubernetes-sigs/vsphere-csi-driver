@@ -61,6 +61,7 @@ type NodeManagerInterface interface {
 	Initialize(ctx context.Context, useNodeUuid bool) error
 	GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error)
 	GetNodeByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error)
+	GetNodeByNameOrUUID(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error)
 	GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error)
 	GetNodeByUuid(ctx context.Context, nodeUuid string) (*cnsvsphere.VirtualMachine, error)
 	GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error)
@@ -2115,7 +2116,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
 				// if node is not yet updated to run the release of the driver publishing Node VM UUID as Node ID
 				// look up Node by name
-				nodevm, err = c.nodeMgr.GetNodeByName(ctx, req.NodeId)
+				nodevm, err = c.nodeMgr.GetNodeByNameOrUUID(ctx, req.NodeId)
 				if err == node.ErrNodeNotFound {
 					log.Infof("Performing node VM lookup using node VM UUID: %q", req.NodeId)
 					nodevm, err = c.nodeMgr.GetNodeByUuid(ctx, req.NodeId)
@@ -2256,7 +2257,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
 			// if node is not yet updated to run the release of the driver publishing Node VM UUID as Node ID
 			// look up Node by name
-			nodevm, err = c.nodeMgr.GetNodeByName(ctx, req.NodeId)
+			nodevm, err = c.nodeMgr.GetNodeByNameOrUUID(ctx, req.NodeId)
 			if err == node.ErrNodeNotFound {
 				log.Infof("Performing node VM lookup using node VM UUID: %q", req.NodeId)
 				nodevm, err = c.nodeMgr.GetNodeByUuid(ctx, req.NodeId)

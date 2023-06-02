@@ -246,6 +246,11 @@ func (f *FakeNodeManager) GetNodeByName(ctx context.Context, nodeName string) (*
 	return vm, nil
 }
 
+func (f *FakeNodeManager) GetNodeByNameOrUUID(
+	ctx context.Context, nodeNameOrUUID string) (*cnsvsphere.VirtualMachine, error) {
+	return f.GetNodeByName(ctx, nodeNameOrUUID)
+}
+
 func (f *FakeNodeManager) GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error) {
 	return "", nil
 }
