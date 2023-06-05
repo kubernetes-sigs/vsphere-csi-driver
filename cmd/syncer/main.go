@@ -206,12 +206,8 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 			// Initialize node manager so that syncer components can
 			// retrieve NodeVM using the NodeID.
-			useNodeUuid := false
-			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
-				useNodeUuid = true
-			}
 			nodeMgr := &node.Nodes{}
-			err = nodeMgr.Initialize(ctx, useNodeUuid)
+			err = nodeMgr.Initialize(ctx)
 			if err != nil {
 				log.Errorf("failed to initialize nodeManager. Error: %+v", err)
 				os.Exit(1)

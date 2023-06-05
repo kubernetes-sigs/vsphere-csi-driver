@@ -155,7 +155,6 @@ data:
   "async-query-volume": "true"
   "block-volume-snapshot": "true"
   "csi-windows-support": "true"
-  "use-csinode-id": "true"
   "list-volumes": "true"
   "pv-to-backingdiskobjectid-mapping": "false"
   "cnsmgr-suspend-create-volume": "true"

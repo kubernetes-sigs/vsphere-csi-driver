@@ -590,23 +590,16 @@ func getPvFromClaim(client clientset.Interface, namespace string, claimName stri
 // getNodeUUID returns Node VM UUID for requested node.
 func getNodeUUID(ctx context.Context, client clientset.Interface, nodeName string) string {
 	vmUUID := ""
-	if isCsiFssEnabled(ctx, client, GetAndExpectStringEnvVar(envCSINamespace), useCsiNodeID) {
-		csiNode, err := client.StorageV1().CSINodes().Get(ctx, nodeName, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		csiDriverFound := false
-		for _, driver := range csiNode.Spec.Drivers {
-			if driver.Name == e2evSphereCSIDriverName {
-				csiDriverFound = true
-				vmUUID = driver.NodeID
-			}
+	csiNode, err := client.StorageV1().CSINodes().Get(ctx, nodeName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	csiDriverFound := false
+	for _, driver := range csiNode.Spec.Drivers {
+		if driver.Name == e2evSphereCSIDriverName {
+			csiDriverFound = true
+			vmUUID = driver.NodeID
 		}
-		gomega.Expect(csiDriverFound).To(gomega.BeTrue(), "CSI driver not found in CSI node %s", nodeName)
-	} else {
-		node, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		vmUUID = strings.TrimPrefix(node.Spec.ProviderID, providerPrefix)
-		gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
 	}
+	gomega.Expect(csiDriverFound).To(gomega.BeTrue(), "CSI driver not found in CSI node %s", nodeName)
 	ginkgo.By(fmt.Sprintf("VM UUID is: %s for node: %s", vmUUID, nodeName))
 	return vmUUID
 }

@@ -50,7 +50,6 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
@@ -328,21 +327,9 @@ func CreateKubernetesClientFromConfig(kubeConfigPath string) (clientset.Interfac
 // If not set, returns node UUID from K8s CSINode API
 // object.
 func GetNodeUUID(ctx context.Context,
-	k8sclient clientset.Interface, nodeName string,
-	useK8sCSINodeObj bool) (string, error) {
+	k8sclient clientset.Interface, nodeName string) (string, error) {
 	log := logger.GetLogger(ctx)
-	log.Infof("GetNodeUUID called for the node: %q with useK8sCSINodeObj: %t",
-		nodeName, useK8sCSINodeObj)
-	if !useK8sCSINodeObj {
-		node, err := k8sclient.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
-		if err != nil {
-			log.Errorf("failed to get kubernetes node with the name: %q. Err: %v", nodeName, err)
-			return "", err
-		}
-		k8sNodeUUID := cnsvsphere.GetUUIDFromProviderID(node.Spec.ProviderID)
-		log.Infof("Retrieved node UUID: %q for the node: %q", k8sNodeUUID, nodeName)
-		return k8sNodeUUID, nil
-	}
+	log.Infof("GetNodeUUID called for the node: %q", nodeName)
 	node, err := k8sclient.StorageV1().CSINodes().Get(ctx, nodeName, metav1.GetOptions{})
 	if err != nil {
 		log.Errorf("failed to get K8s CSINode with the name: %q. "+

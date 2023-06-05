@@ -128,9 +128,6 @@ type nodeVolumeTopology struct {
 	k8sConfig *restclient.Config
 	// clusterFlavor is the cluster flavor.
 	clusterFlavor cnstypes.CnsClusterFlavor
-	// isCSINodeIdFeatureEnabled indicates whether the
-	// use-csinode-id feature is enabled or not.
-	isCSINodeIdFeatureEnabled bool
 }
 
 // controllerVolumeTopology implements the commoncotypes.ControllerTopologyService interface
@@ -145,9 +142,6 @@ type controllerVolumeTopology struct {
 	nodeMgr node.Manager
 	// clusterFlavor is the cluster flavor.
 	clusterFlavor cnstypes.CnsClusterFlavor
-	// isCSINodeIdFeatureEnabled indicates whether the
-	// use-csinode-id feature is enabled or not.
-	isCSINodeIdFeatureEnabled bool
 	// isAcceptPreferredDatastoresFSSEnabled indicates whether the
 	// accept-preferred-datastores feature is enabled or not.
 	isTopologyPreferentialDatastoresFSSEnabled bool
@@ -214,11 +208,10 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 				}
 
 				controllerVolumeTopologyInstance = &controllerVolumeTopology{
-					k8sConfig:                 config,
-					nodeMgr:                   nodeManager,
-					csiNodeTopologyInformer:   *csiNodeTopologyInformer,
-					clusterFlavor:             clusterFlavor,
-					isCSINodeIdFeatureEnabled: c.IsFSSEnabled(ctx, common.UseCSINodeId),
+					k8sConfig:               config,
+					nodeMgr:                 nodeManager,
+					csiNodeTopologyInformer: *csiNodeTopologyInformer,
+					clusterFlavor:           clusterFlavor,
 					isTopologyPreferentialDatastoresFSSEnabled: c.IsFSSEnabled(ctx,
 						common.TopologyPreferentialDatastores),
 				}
@@ -719,12 +712,11 @@ func (c *K8sOrchestrator) InitTopologyServiceInNode(ctx context.Context) (
 			}
 
 			nodeVolumeTopologyInstance = &nodeVolumeTopology{
-				csiNodeTopologyK8sClient:  crClient,
-				csiNodeTopologyWatcher:    crWatcher,
-				k8sClient:                 k8sClient,
-				k8sConfig:                 config,
-				clusterFlavor:             clusterFlavor,
-				isCSINodeIdFeatureEnabled: c.IsFSSEnabled(ctx, common.UseCSINodeId),
+				csiNodeTopologyK8sClient: crClient,
+				csiNodeTopologyWatcher:   crWatcher,
+				k8sClient:                k8sClient,
+				k8sConfig:                config,
+				clusterFlavor:            clusterFlavor,
 			}
 			log.Infof("Topology service initiated successfully")
 		}
@@ -761,10 +753,7 @@ func (volTopology *nodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context
 	// there is an already existing topology
 	if csiNodeTopologyFound && volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		newCSINodeTopology := csiNodeTopology.DeepCopy()
-
-		if volTopology.isCSINodeIdFeatureEnabled {
-			newCSINodeTopology = volTopology.updateNodeIDForTopology(ctx, nodeInfo, newCSINodeTopology)
-		}
+		newCSINodeTopology = volTopology.updateNodeIDForTopology(ctx, nodeInfo, newCSINodeTopology)
 		// reset the status so as syncer can sync the object again
 		newCSINodeTopology.Status.Status = ""
 		_, err = volTopology.patchCSINodeTopology(ctx, csiNodeTopology, newCSINodeTopology)
@@ -912,7 +901,7 @@ func getPatchData(oldObj, newObj interface{}) ([]byte, error) {
 
 // Create new CSINodeTopology instance if it doesn't exist
 // Create CSINodeTopology instance with spec.nodeID and spec.nodeUUID
-// if cluster flavor is Vanilla and UseCSINodeId feature is enabled
+// if cluster flavor is Vanilla
 // else create with spec.nodeID only.
 func createCSINodeTopologyInstance(ctx context.Context,
 	volTopology *nodeVolumeTopology,
@@ -942,7 +931,7 @@ func createCSINodeTopologyInstance(ctx context.Context,
 	// If both useCnsNodeId feature is enabled and clusterFlavor is Vanilla,
 	// create the CsiNodeTopology instance with nodeID set to node name and
 	// nodeUUID set to node uuid.
-	if volTopology.isCSINodeIdFeatureEnabled && volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+	if volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		csiNodeTopologySpec.Spec = csinodetopologyv1alpha1.CSINodeTopologySpec{
 			NodeID:   nodeInfo.NodeName,
 			NodeUUID: nodeInfo.NodeID,
@@ -1250,8 +1239,7 @@ func (volTopology *controllerVolumeTopology) getTopologySegmentsWithMatchingNode
 		// If there is a match, fetch the nodeVM object and add it to matchingNodeVMs.
 		if isMatch {
 			var nodeVM *cnsvsphere.VirtualMachine
-			if volTopology.isCSINodeIdFeatureEnabled &&
-				volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+			if volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 				nodeVM, err = volTopology.nodeMgr.GetNode(ctx,
 					nodeTopologyInstance.Spec.NodeUUID, nil)
 			} else {
@@ -1321,8 +1309,7 @@ func (volTopology *controllerVolumeTopology) getNodesMatchingTopologySegment(ctx
 		}
 		if isMatch {
 			var nodeVM *cnsvsphere.VirtualMachine
-			if volTopology.isCSINodeIdFeatureEnabled &&
-				volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+			if volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 				nodeVM, err = volTopology.nodeMgr.GetNode(ctx,
 					nodeTopologyInstance.Spec.NodeUUID, nil)
 			} else {
