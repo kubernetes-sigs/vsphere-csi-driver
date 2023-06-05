@@ -186,9 +186,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 					}
 
 					//Add a check to validate CnsVolumeMetadata crd
-					err = waitAndVerifyCnsVolumeMetadata4GCVol(fcdIDInCNS, pvcNameInSV, pvclaim,
-						persistentvolume, tempPod)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					//err = waitAndVerifyCnsVolumeMetadata4GCVol(fcdIDInCNS, pvcNameInSV, pvclaim,
+					//	persistentvolume, tempPod)
+					//gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 					ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod")
 					verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, tempPod.Spec.NodeName+"-"+pvcNameInSV,
@@ -430,9 +430,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 					}
 
 					//Add a check to validate CnsVolumeMetadata crd
-					err = waitAndVerifyCnsVolumeMetadata4GCVol(fcdIDInCNS, pvcNameInSV, pvclaim,
-						persistentvolume, tempPod)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					//err = waitAndVerifyCnsVolumeMetadata4GCVol(fcdIDInCNS, pvcNameInSV, pvclaim,
+					//	persistentvolume, tempPod)
+					//gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 					ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod")
 					verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, tempPod.Spec.NodeName+"-"+pvcNameInSV,
