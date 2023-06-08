@@ -102,6 +102,7 @@ datacenters should be comma separated if deployed on multi-datacenters
     export USE_VSAN_DIRECT_DATASTORE_IN_WCP="VSAN_DIRECT"
     export SHARED_VSAND_DATASTORE_URL="<vsan-direct-datastore-url>"
     export SHARED_VSAND_DATASTORE2_URL="<vsan-direct-datastore2-url>"
+    export BUSYBOX_IMAGE="<image-used-to-deploy-pods>"
 
 ### To run full sync test, need do extra following steps
 
