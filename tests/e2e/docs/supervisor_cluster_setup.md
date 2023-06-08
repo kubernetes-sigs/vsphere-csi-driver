@@ -98,6 +98,7 @@ datacenters should be comma separated if deployed on multi-datacenters
     export SHARED_NFS_DATASTORE_URL="<shared-NFS-datastore-url>"
     #shared VMFS datastore url
     export SHARED_VMFS_DATASTORE_URL="<shared-VMFS-datastore-url>"
+    export BUSYBOX_IMAGE="<image-used-to-deploy-pods>"
 
 ### To run full sync test, need do extra following steps
 
