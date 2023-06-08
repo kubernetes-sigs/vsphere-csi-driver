@@ -29,6 +29,7 @@ import (
 )
 
 const kubeconfigEnvVar = "KUBECONFIG"
+const busyBoxImageEnvVar = "BUSYBOX_IMAGE"
 
 func init() {
 	// k8s.io/kubernetes/tests/e2e/framework requires env KUBECONFIG to be set
@@ -37,9 +38,14 @@ func init() {
 		kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
 		os.Setenv(kubeconfigEnvVar, kubeconfig)
 	}
+
 	framework.AfterReadingAllFlags(&framework.TestContext)
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(envClusterFlavor))
 	setClusterFlavor(clusterFlavor)
+
+	if os.Getenv(busyBoxImageEnvVar) != "" {
+		busyBoxImageOnGcr = os.Getenv(busyBoxImageEnvVar)
+	}
 }
 
 func TestE2E(t *testing.T) {
