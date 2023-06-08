@@ -30,8 +30,8 @@ import (
 const (
 	adminPassword                              = "Admin!23"
 	attacherContainerName                      = "csi-attacher"
-	busyBoxImageOnGcr                          = "gcr.io/google_containers/busybox:1.27"
-	nginxImage                                 = "k8s.gcr.io/nginx-slim:0.8"
+	nginxImage                                 = "registry.k8s.io/nginx-slim:0.26"
+	nginxImage4upg                             = "registry.k8s.io/nginx-slim:0.27"
 	configSecret                               = "vsphere-config-secret"
 	contollerClusterKubeConfig                 = "CONTROLLER_CLUSTER_KUBECONFIG"
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
@@ -216,6 +216,11 @@ var (
 	supervisorCluster bool
 	guestCluster      bool
 	rwxAccessMode     bool
+)
+
+// For busybox pod image
+var (
+	busyBoxImageOnGcr = "busybox"
 )
 
 // For VCP to CSI migration tests.
