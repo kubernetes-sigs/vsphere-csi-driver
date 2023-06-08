@@ -103,6 +103,7 @@ datacenters should be comma separated if deployed on multi-datacenters
     export STORAGE_POLICY_FROM_INACCESSIBLE_ZONE="Region-2-shared-datastore-storage-policy"
     # Datastore URL from the region/zone where worker node VMs do not have a shared datastore
     export INACCESSIBLE_ZONE_VSPHERE_DATASTORE_URL="Region-2-shared-datastore-storage-url"
+    export BUSYBOX_IMAGE="<image-used-to-deploy-pods>"
 
 ## Requirements
 

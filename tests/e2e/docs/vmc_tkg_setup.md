@@ -70,6 +70,7 @@ The section outlines how to set the env variable for running the e2e test.
     export SHARED_VMFS_DATASTORE_URL="<shared-VMFS-datastore-url>"
     #management datastore url
     export MANAGEMENT_DATASTORE_URL="<mgmt-datastore-url>"
+    export BUSYBOX_IMAGE="<image-used-to-deploy-pods>"
 
     # `STORAGE_POLICY_FOR_SHARED_DATASTORES` need to be
     # added to `SVC_NAMESPACE` with storage limit >=20GiB each
