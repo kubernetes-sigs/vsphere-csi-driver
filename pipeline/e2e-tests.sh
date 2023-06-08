@@ -88,6 +88,7 @@ export PATH=$PATH:$GOPATH/bin
 export GINKGO_OPTS="--no-color --always-emit-ginkgo-writer --progress --trace -p"
 echo "GINKGO_FOCUS=${CNS_CSI_GINKGO_FOCUS}"
 export GINKGO_FOCUS="${CNS_CSI_GINKGO_FOCUS}"
+export BUSYBOX_IMAGE="${BUSYBOX_IMAGE}"
 
 echo "Running E2E tests."
 make test-e2e
