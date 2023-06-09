@@ -78,10 +78,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		//Get snapshot client using the rest config
 		if !guestCluster {
+			snapc = nil
 			restConfig = getRestConfigClient()
 			snapc, err = snapclient.NewForConfig(restConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
+			snapc = nil
 			restConfig = getRestConfigClientForGuestCluster()
 			snapc, err = snapclient.NewForConfig(restConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
