@@ -33,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
-	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
@@ -50,15 +49,15 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	f := framework.NewDefaultFramework("volume-snapshot")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client                  clientset.Interface
-		c                       clientset.Interface
-		namespace               string
-		scParameters            map[string]string
-		datastoreURL            string
-		pandoraSyncWaitTime     int
-		pvclaims                []*v1.PersistentVolumeClaim
-		volumeOpsScale          int
-		restConfig              *restclient.Config
+		client              clientset.Interface
+		c                   clientset.Interface
+		namespace           string
+		scParameters        map[string]string
+		datastoreURL        string
+		pandoraSyncWaitTime int
+		pvclaims            []*v1.PersistentVolumeClaim
+		volumeOpsScale      int
+		//restConfig              *restclient.Config
 		snapc                   *snapclient.Clientset
 		nimbusGeneratedK8sVmPwd string
 		storagePolicyName       string
@@ -80,11 +79,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		//Get snapshot client using the rest config
 		if !guestCluster {
 			restConfig = getRestConfigClient()
+			snapc, err = snapclient.NewForConfig(restConfig)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			restConfig = getRestConfigClientForGuestCluster()
+			snapc, err = snapclient.NewForConfig(restConfig)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		snapc, err = snapclient.NewForConfig(restConfig)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if os.Getenv(envPandoraSyncWaitTime) != "" {
 			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
