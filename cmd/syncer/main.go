@@ -22,7 +22,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
@@ -34,6 +36,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -97,6 +100,27 @@ func main() {
 		*internalFSSName, *internalFSSNamespace, "", *operationMode)
 	admissionhandler.COInitParams = &syncer.COInitParams
 
+	// Disconnect VC session on restart
+	defer func() {
+		log.Info("Cleaning up vc sessions")
+		if r := recover(); r != nil {
+			cleanupSessions(ctx, r)
+		}
+	}()
+
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGTERM)
+	go func() {
+		for {
+			sig := <-ch
+			if sig == syscall.SIGTERM {
+				log.Info("SIGTERM signal received")
+				utils.LogoutAllvCenterSessions(ctx)
+				os.Exit(0)
+			}
+		}
+	}()
+
 	if *operationMode == operationModeWebHookServer {
 		log.Infof("Starting container with operation mode: %v", operationModeWebHookServer)
 		if webHookStartError := admissionhandler.StartWebhookServer(ctx); webHookStartError != nil {
@@ -115,6 +139,12 @@ func main() {
 		// K8sCloudOperator should run on every node where csi controller can run.
 		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 			go func() {
+				defer func() {
+					log.Info("Cleaning up vc sessions cloud operator service")
+					if r := recover(); r != nil {
+						cleanupSessions(ctx, r)
+					}
+				}()
 				if err := k8scloudoperator.InitK8sCloudOperatorService(ctx); err != nil {
 					log.Fatalf("Error initializing K8s Cloud Operator gRPC sever. Error: %+v", err)
 				}
@@ -123,6 +153,12 @@ func main() {
 
 		// Go module to keep the metrics http server running all the time.
 		go func() {
+			defer func() {
+				log.Info("Cleaning up vc sessions prometheus metrics")
+				if r := recover(); r != nil {
+					cleanupSessions(ctx, r)
+				}
+			}()
 			prometheus.SyncerInfo.WithLabelValues(syncer.Version).Set(1)
 			for {
 				log.Info("Starting the http server to expose Prometheus metrics..")
@@ -175,7 +211,13 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	coInitParams *interface{}) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		log := logger.GetLogger(ctx)
-
+		// Disconnect vCenter sessions on restart
+		defer func() {
+			log.Info("Cleaning up vc sessions syncer components")
+			if r := recover(); r != nil {
+				cleanupSessions(ctx, r)
+			}
+		}()
 		if err := manager.InitCommonModules(ctx, clusterFlavor, coInitParams); err != nil {
 			log.Errorf("Error initializing common modules for all flavors. Error: %+v", err)
 			os.Exit(1)
@@ -200,9 +242,16 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		// Initialize CNS Operator for Supervisor clusters.
 		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 			go func() {
+				defer func() {
+					log.Info("Cleaning up vc sessions storage pool service")
+					if r := recover(); r != nil {
+						cleanupSessions(ctx, r)
+					}
+				}()
 				if err := storagepool.InitStoragePoolService(ctx, configInfo, coInitParams); err != nil {
 					log.Errorf("Error initializing StoragePool Service. Error: %+v", err)
-					os.Exit(1)
+					utils.LogoutAllvCenterSessions(ctx)
+					os.Exit(0)
 				}
 			}()
 		}
@@ -261,14 +310,30 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}
 		}
 		go func() {
+			defer func() {
+				log.Info("Cleaning up vc sessions cns operator")
+				if r := recover(); r != nil {
+					cleanupSessions(ctx, r)
+				}
+			}()
 			if err := manager.InitCnsOperator(ctx, clusterFlavor, configInfo, coInitParams); err != nil {
 				log.Errorf("Error initializing Cns Operator. Error: %+v", err)
-				os.Exit(1)
+				utils.LogoutAllvCenterSessions(ctx)
+				os.Exit(0)
 			}
 		}()
 		if err := syncer.InitMetadataSyncer(ctx, clusterFlavor, configInfo); err != nil {
 			log.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
-			os.Exit(1)
+			utils.LogoutAllvCenterSessions(ctx)
+			os.Exit(0)
 		}
 	}
+}
+
+func cleanupSessions(ctx context.Context, r interface{}) {
+	log := logger.GetLogger(ctx)
+	log.Errorf("Observed a panic and a restart was invoked, panic: %+v", r)
+	log.Info("Recovered from panic. Disconnecting the existing vc sessions.")
+	utils.LogoutAllvCenterSessions(ctx)
+	os.Exit(0)
 }

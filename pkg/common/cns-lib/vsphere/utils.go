@@ -382,10 +382,12 @@ func signer(ctx context.Context, client *vim25.Client, username string, password
 
 // GetTagManager returns tagManager connected to given VirtualCenter.
 func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error) {
+	log := logger.GetLogger(ctx)
 	// Validate input.
 	if vc == nil || vc.Client == nil || vc.Client.Client == nil {
 		return nil, fmt.Errorf("vCenter not initialized")
 	}
+
 	restClient := rest.NewClient(vc.Client.Client)
 	signer, err := signer(ctx, vc.Client.Client, vc.Config.Username, vc.Config.Password)
 	if err != nil {
@@ -404,6 +406,7 @@ func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error
 	if tagManager == nil {
 		return nil, fmt.Errorf("failed to create a tagManager")
 	}
+	log.Infof("New tag manager with useragent '%s'", tagManager.UserAgent)
 	return tagManager, nil
 }
 
