@@ -219,16 +219,19 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 				config, err := rest.InClusterConfig()
 				if err != nil {
 					log.Errorf("failed to get InClusterConfig: %v", err)
+					os.Exit(1)
 				}
 				clientset, err := kubernetes.NewForConfig(config)
 				if err != nil {
 					log.Errorf("failed to create kubernetes client with err: %v", err)
+					os.Exit(1)
 				}
 
 				// Get the version info for the Kubernetes API server
 				versionInfo, err := clientset.Discovery().ServerVersion()
 				if err != nil {
 					log.Errorf("failed to fetch versionInfo with err: %v", err)
+					os.Exit(1)
 				}
 
 				// Extract the version string from the version info
@@ -242,7 +245,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 					"openshift": "Openshift",
 					"wcp":       "Supervisor",
 					"vmware":    "TanzuKubernetesCluster",
-					"unknown":   "VanillaK8S",
+					"nativek8s": "VanillaK8S",
 				}
 				distributionUnknown := true
 				for distServerVersion, distName := range ClusterDistNameToServerVersion {
@@ -252,7 +255,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 					}
 				}
 				if distributionUnknown {
-					configInfo.Cfg.Global.ClusterDistribution = ClusterDistNameToServerVersion["unknown"]
+					configInfo.Cfg.Global.ClusterDistribution = ClusterDistNameToServerVersion["nativek8s"]
 				}
 			}
 		}
