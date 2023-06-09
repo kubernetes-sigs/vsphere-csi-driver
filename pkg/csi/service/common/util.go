@@ -184,7 +184,7 @@ func validateVolumeCapabilities(volCaps []*csi.VolumeCapability,
 			// ext3, ext4, xfs for Linux and ntfs for Windows.
 			if volCap.GetMount() != nil && !(volCap.GetMount().FsType == Ext4FsType ||
 				volCap.GetMount().FsType == Ext3FsType || volCap.GetMount().FsType == XFSType ||
-				volCap.GetMount().FsType == NTFSFsType || volCap.GetMount().FsType == "") {
+				strings.ToLower(volCap.GetMount().FsType) == NTFSFsType || volCap.GetMount().FsType == "") {
 				return fmt.Errorf("fstype %s not supported for ReadWriteOnce volume creation",
 					volCap.GetMount().FsType)
 			}
