@@ -1075,7 +1075,8 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		15. Query the snapshot from CNS side - should return 0 entries
 		16. Cleanup: Delete PVC, SC (validate they are removed)
 	*/
-	ginkgo.It("[block-vanilla-snapshot] Verify snapshot dynamic provisioning workflow with raw block volume", func() {
+	//ginkgo.It("[block-vanilla-snapshot] Verify snapshot dynamic provisioning workflow with raw block volume", func() {
+	ginkgo.It("[block-vanilla-snapshot] raw block volume", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
