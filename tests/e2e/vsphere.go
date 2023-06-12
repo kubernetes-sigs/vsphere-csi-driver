@@ -155,25 +155,6 @@ func verifySnapshotIsDeletedInCNS(volumeId string, snapshotId string) error {
 	return nil
 }
 
-// verifySnapshotIsDeletedInCNSWithPandoraWait verifies the snapshotId's presence on CNS
-func verifySnapshotIsDeletedInCNSWithPandoraWait(volumeId string, snapshotId string, pandoraSyncWaitTime int) error {
-	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",
-		volumeId, snapshotId))
-	querySnapshotResult, err := e2eVSphere.queryCNSVolumeSnapshotWithResult(volumeId, snapshotId)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ginkgo.By(fmt.Sprintf("Task result is %+v", querySnapshotResult))
-	gomega.Expect(querySnapshotResult.Entries).ShouldNot(gomega.BeEmpty())
-	if querySnapshotResult.Entries[0].Snapshot.SnapshotId.Id != "" {
-		return fmt.Errorf("snapshot entry is still present in CNS %s",
-			querySnapshotResult.Entries[0].Snapshot.SnapshotId.Id)
-	}
-
-	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
-	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
-
-	return nil
-}
-
 // verifySnapshotIsCreatedInCNS verifies the snapshotId's presence on CNS
 func verifySnapshotIsCreatedInCNS(volumeId string, snapshotId string) error {
 	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",

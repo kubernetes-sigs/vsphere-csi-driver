@@ -293,6 +293,12 @@ var (
 	datastoreClusterMap                   = "DATASTORE_CLUSTER_MAP"
 )
 
+// VolumeSnapshotClass env variables for tkg-snapshot
+var (
+	envVolSnapClassDel = "VOLUME_SNAPSHOT_CLASS_DELETE"
+	deletionPolicy     = "Delete"
+)
+
 // GetAndExpectStringEnvVar parses a string from env variable.
 func GetAndExpectStringEnvVar(varName string) string {
 	varValue := os.Getenv(varName)
