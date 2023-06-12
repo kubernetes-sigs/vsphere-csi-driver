@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
@@ -49,15 +50,16 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	f := framework.NewDefaultFramework("volume-snapshot")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client              clientset.Interface
-		c                   clientset.Interface
-		namespace           string
-		scParameters        map[string]string
-		datastoreURL        string
-		pandoraSyncWaitTime int
-		pvclaims            []*v1.PersistentVolumeClaim
-		volumeOpsScale      int
-		//restConfig              *restclient.Config
+		client                  clientset.Interface
+		c                       clientset.Interface
+		namespace               string
+		scParameters            map[string]string
+		datastoreURL            string
+		pandoraSyncWaitTime     int
+		pvclaims                []*v1.PersistentVolumeClaim
+		volumeOpsScale          int
+		restConfig              *restclient.Config
+		guestClusterRestConfig  *restclient.Config
 		snapc                   *snapclient.Clientset
 		nimbusGeneratedK8sVmPwd string
 		storagePolicyName       string
@@ -78,14 +80,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		//Get snapshot client using the rest config
 		if !guestCluster {
-			snapc = nil
 			restConfig = getRestConfigClient()
 			snapc, err = snapclient.NewForConfig(restConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
-			snapc = nil
-			restConfig = getRestConfigClientForGuestCluster()
-			snapc, err = snapclient.NewForConfig(restConfig)
+			guestClusterRestConfig = getRestConfigClientForGuestCluster(guestClusterRestConfig)
+			snapc, err = snapclient.NewForConfig(guestClusterRestConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 

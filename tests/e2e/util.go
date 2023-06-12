@@ -6573,14 +6573,14 @@ func getSnapshotHandleFromSupervisorCluster(ctx context.Context,
 }
 
 // getRestConfigClient returns  rest config client for Guest Cluster
-func getRestConfigClientForGuestCluster() *rest.Config {
+func getRestConfigClientForGuestCluster(guestClusterRestConfig *rest.Config) *rest.Config {
 	var err error
-	if restConfig == nil {
+	if guestClusterRestConfig == nil {
 		if k8senv := GetAndExpectStringEnvVar("KUBECONFIG"); k8senv != "" {
-			restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
+			guestClusterRestConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	}
-	return restConfig
+	return guestClusterRestConfig
 }
