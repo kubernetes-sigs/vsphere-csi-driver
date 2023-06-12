@@ -63,7 +63,7 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"topology-preferential-datastores":  "true",
 				"max-pvscsi-targets-per-vm":         "true",
 				"multi-vcenter-csi-topology":        "true",
-				"listview-tasks":                    "false",
+				"listview-tasks":                    "true",
 			},
 		}
 		return fakeCO, nil
