@@ -252,6 +252,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 					if strings.Contains(version, distServerVersion) {
 						configInfo.Cfg.Global.ClusterDistribution = distName
 						distributionUnknown = false
+						break
 					}
 				}
 				if distributionUnknown {
