@@ -22,14 +22,18 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 
 	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common/commonco"
@@ -189,6 +193,60 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 					os.Exit(1)
 				}
 			}()
+		}
+		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+			// Initialize node manager so that syncer components can
+			// retrieve NodeVM using the NodeID.
+			nodeMgr := &node.Nodes{}
+			err = nodeMgr.Initialize(ctx)
+			if err != nil {
+				log.Errorf("failed to initialize nodeManager. Error: %+v", err)
+				os.Exit(1)
+			}
+			if configInfo.Cfg.Global.ClusterDistribution == "" {
+				config, err := rest.InClusterConfig()
+				if err != nil {
+					log.Errorf("failed to get InClusterConfig: %v", err)
+					os.Exit(1)
+				}
+				clientset, err := kubernetes.NewForConfig(config)
+				if err != nil {
+					log.Errorf("failed to create kubernetes client with err: %v", err)
+					os.Exit(1)
+				}
+
+				// Get the version info for the Kubernetes API server
+				versionInfo, err := clientset.Discovery().ServerVersion()
+				if err != nil {
+					log.Errorf("failed to fetch versionInfo with err: %v", err)
+					os.Exit(1)
+				}
+
+				// Extract the version string from the version info
+				version := versionInfo.GitVersion
+				var ClusterDistNameToServerVersion = map[string]string{
+					"gke":       "Anthos",
+					"racher":    "Rancher",
+					"rke":       "Rancher",
+					"docker":    "DockerEE",
+					"dockeree":  "DockerEE",
+					"openshift": "Openshift",
+					"wcp":       "Supervisor",
+					"vmware":    "TanzuKubernetesCluster",
+					"nativek8s": "VanillaK8S",
+				}
+				distributionUnknown := true
+				for distServerVersion, distName := range ClusterDistNameToServerVersion {
+					if strings.Contains(version, distServerVersion) {
+						configInfo.Cfg.Global.ClusterDistribution = distName
+						distributionUnknown = false
+						break
+					}
+				}
+				if distributionUnknown {
+					configInfo.Cfg.Global.ClusterDistribution = ClusterDistNameToServerVersion["nativek8s"]
+				}
+			}
 		}
 		go func() {
 			if err := manager.InitCnsOperator(ctx, clusterFlavor, configInfo, coInitParams); err != nil {
