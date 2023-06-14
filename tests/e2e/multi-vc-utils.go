@@ -163,7 +163,7 @@ func deleteAllStatefulSetAndPVs(c clientset.Interface, ns string) {
 		return true, nil
 	})
 	if pvcPollErr != nil {
-		errList = append(errList, fmt.Sprintf("Timeout waiting for pvc deletion."))
+		errList = append(errList, "Timeout waiting for pvc deletion.")
 	}
 
 	pollErr := wait.PollImmediate(StatefulSetPoll, StatefulSetTimeout, func() (bool, error) {
@@ -194,10 +194,10 @@ func deleteAllStatefulSetAndPVs(c clientset.Interface, ns string) {
 
 // verifyVolumeMetadataInCNS verifies container volume metadata is matching the
 // one is CNS cache.
-func verifyVolumeMetadataInCNSForMultiVC(vs *vSphere, volumeID string,
+func verifyVolumeMetadataInCNSForMultiVC(vs *multiVCvSphere, volumeID string,
 	PersistentVolumeClaimName string, PersistentVolumeName string,
 	PodName string, Labels ...vim25types.KeyValue) error {
-	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+	queryResult, err := vs.queryCNSVolumeWithResultForMultiVC(volumeID)
 	if err != nil {
 		return err
 	}

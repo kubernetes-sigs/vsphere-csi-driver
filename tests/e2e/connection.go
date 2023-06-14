@@ -160,6 +160,21 @@ func connectCns(ctx context.Context, vs *vSphere) error {
 	return nil
 }
 
+// connectCns creates a CNS client for the virtual center.
+func connectMultiVcCns(ctx context.Context, vs *multiVCvSphere) error {
+	var err error
+	clientMutex.Lock()
+	defer clientMutex.Unlock()
+	if vs.multiVcCnsClient == nil {
+		vs.multiVcCnsClient = make([]*cnsClient, len(vs.multiVcClient))
+		for i := 0; i < len(vs.multiVcClient); i++ {
+			vs.multiVcCnsClient[i], err = newCnsClient(ctx, vs.multiVcClient[i].Client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	}
+	return nil
+}
+
 // newVsanHealthSvcClient returns vSANhealth client.
 func newVsanHealthSvcClient(ctx context.Context, c *vim25.Client) (*VsanClient, error) {
 	sc := c.Client.NewServiceClient(vsanHealthPath, vsanNamespace)

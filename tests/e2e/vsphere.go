@@ -97,6 +97,43 @@ func (vs *vSphere) queryCNSVolumeWithResult(fcdID string) (*cnstypes.CnsQueryRes
 	return &res.Returnval, nil
 }
 
+// queryCNSVolumeWithResult Call CnsQueryVolume and returns CnsQueryResult to client
+func (vs *multiVCvSphere) queryCNSVolumeWithResultForMultiVC(fcdID string) (*cnstypes.CnsQueryResult, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var res *cnstypes.CnsQueryVolumeResponse
+	// Connect to VC
+	connectMultiVC(ctx, vs)
+	var volumeIds []cnstypes.CnsVolumeId
+	volumeIds = append(volumeIds, cnstypes.CnsVolumeId{
+		Id: fcdID,
+	})
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: volumeIds,
+		Cursor: &cnstypes.CnsCursor{
+			Offset: 0,
+			Limit:  100,
+		},
+	}
+	req := cnstypes.CnsQueryVolume{
+		This:   cnsVolumeManagerInstance,
+		Filter: queryFilter,
+	}
+
+	err := connectMultiVcCns(ctx, vs)
+	if err != nil {
+		return nil, err
+	}
+	for i := 0; i < len(vs.multiVcCnsClient); i++ {
+		res, err = cnsmethods.CnsQueryVolume(ctx, vs.multiVcCnsClient[i].Client, &req)
+
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &res.Returnval, nil
+}
+
 // queryCNSVolumeSnapshotWithResult Call CnsQuerySnapshots
 // and returns CnsSnapshotQueryResult to client
 func (vs *vSphere) queryCNSVolumeSnapshotWithResult(fcdID string,
@@ -180,6 +217,23 @@ func (vs *vSphere) getAllDatacenters(ctx context.Context) ([]*object.Datacenter,
 	return finder.DatacenterList(ctx, "*")
 }
 
+func (vs *multiVCvSphere) getAllDatacentersForMultiVC(ctx context.Context) ([]*object.Datacenter, error) {
+	connectMultiVC(ctx, vs)
+	var findersList []*object.Datacenter
+
+	for i := 0; i < len(vs.multiVcClient); i++ {
+		soapClient := vs.multiVcClient[i].Client.Client
+		vimClient := &vim25.Client{Client: soapClient}
+		finder := find.NewFinder(vimClient, false)
+		datacenters, err := finder.DatacenterList(ctx, "*")
+		if err != nil {
+			// Handle the error appropriately
+		}
+		findersList = append(findersList, datacenters...)
+	}
+	return findersList, nil
+}
+
 // getDatacenter returns the DataCenter Object for the given datacenterPath
 func (vs *vSphere) getDatacenter(ctx context.Context, datacenterPath string) (*object.Datacenter, error) {
 	connect(ctx, vs)
@@ -213,6 +267,35 @@ func (vs *vSphere) getVMByUUID(ctx context.Context, vmUUID string) (object.Refer
 			continue
 		}
 		return vmMoRef, nil
+	}
+	framework.Logf("err in getVMByUUID is %+v for vmuuid: %s", err, vmUUID)
+	return nil, fmt.Errorf("node VM with UUID:%s is not found", vmUUID)
+}
+
+// getVMByUUID gets the VM object Reference from the given vmUUID
+func (vs *multiVCvSphere) getVMByUUIDForMultiVC(ctx context.Context, vmUUID string) (object.Reference, error) {
+	connectMultiVC(ctx, vs)
+	dcList, err := vs.getAllDatacentersForMultiVC(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, dc := range dcList {
+		for i := 0; i < len(vs.multiVcClient); i++ {
+			soapClient := vs.multiVcClient[i].Client.Client
+			vimClient, err := vim25.NewClient(ctx, soapClient)
+			if err != nil {
+				// Handle the error appropriately
+				continue
+			}
+			datacenter := object.NewDatacenter(vimClient, dc.Reference())
+			s := object.NewSearchIndex(vimClient)
+			vmUUID = strings.ToLower(strings.TrimSpace(vmUUID))
+			instanceUUID := !(vanillaCluster || guestCluster)
+			vmMoRef, err := s.FindByUuid(ctx, datacenter, vmUUID, true, &instanceUUID)
+
+			if err != nil || vmMoRef == nil {
+				continue
+			}
+			return vmMoRef, nil
+		}
 	}
 	framework.Logf("err in getVMByUUID is %+v for vmuuid: %s", err, vmUUID)
 	return nil, fmt.Errorf("node VM with UUID:%s is not found", vmUUID)
@@ -283,6 +366,38 @@ func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID str
 	}
 	framework.Logf("Found the disk %q is attached to the VM with UUID: %q", volumeID, vmUUID)
 	return true, nil
+}
+
+// isVolumeAttachedToVM checks volume is attached to the VM by vmUUID.
+// This function returns true if volume is attached to the VM, else returns false
+func (vs *multiVCvSphere) isVolumeAttachedToVMForMultiVC(client clientset.Interface, volumeID string, vmUUID string) (bool, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vmRef, err := vs.getVMByUUIDForMultiVC(ctx, vmUUID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
+	gomega.Expect(vmRef).NotTo(gomega.BeNil(), "vmRef should not be nil")
+
+	for i := 0; i < len(vs.multiVcClient); i++ {
+		soapClient := vs.multiVcClient[i].Client.Client
+		vimClient, err := vim25.NewClient(ctx, soapClient)
+		if err != nil {
+			// Handle the error appropriately
+			return false, err
+		}
+		vm := object.NewVirtualMachine(vimClient, vmRef.Reference())
+		device, err := getVirtualDeviceByDiskID(ctx, vm, volumeID)
+		if err != nil {
+			framework.Logf("failed to determine whether disk %q is still attached to the VM with UUID: %q", volumeID, vmUUID)
+			return false, err
+		}
+		if device != nil {
+			framework.Logf("Found the disk %q is attached to the VM with UUID: %q", volumeID, vmUUID)
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // waitForVolumeDetachedFromNode checks volume is detached from the node

@@ -236,7 +236,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		// Scale up statefulSets replicas count
 		ginkgo.By("Scale up statefulset replica and verify the replica count")
 		statefulSetReplicaCount = 35
-		scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
+		scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true, false)
 		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
@@ -292,7 +292,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		// Scale up statefulSets replica count
 		statefulSetReplicaCount = 35
 		ginkgo.By("Scale up statefulset replica and verify the replica count")
-		scaleUpStatefulSetPod(ctx, client, statefulSets[1], namespace, statefulSetReplicaCount, true)
+		scaleUpStatefulSetPod(ctx, client, statefulSets[1], namespace, statefulSetReplicaCount, true, false)
 		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulSets[1])
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
@@ -625,7 +625,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 			// Scale up statefulSets replicas count
 			statefulSetReplicaCount = 20
 			ginkgo.By("Scale up statefulset replica and verify the replica count")
-			scaleUpStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
+			scaleUpStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
 			ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
 			gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 				"Number of Pods in the statefulset should match with number of replicas")

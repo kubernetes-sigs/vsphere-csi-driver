@@ -712,7 +712,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Scale up StaefulSets replicas in parallel")
 			statefulSetReplicaCount = 5
 			for i := 0; i < len(statefulSets); i++ {
-				scaleUpStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
+				scaleUpStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
 			}
 
 			/* Verify PV nde affinity and that the pods are running on appropriate nodes

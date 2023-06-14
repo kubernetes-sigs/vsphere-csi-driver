@@ -4804,10 +4804,17 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
-				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-				err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				if !isMultiVCSetup {
+					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				} else {
+					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					err := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
 			}
 		}
 	}
@@ -4817,7 +4824,8 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 scaleUpStatefulSetPod is a utility method which is used to scale up the count of StatefulSet replicas.
 */
 func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
-	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool) {
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32,
+	parallelStatefulSetCreation bool, isMultiVCSetup bool) {
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleUp *v1.PodList
 	if parallelStatefulSetCreation {
@@ -4866,16 +4874,32 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 					annotations := pod.Annotations
 					vmUUID, exists = annotations[vmUUIDLabel]
 					gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
-					_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+					if !isMultiVCSetup {
+						_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					} else {
+						_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
+				}
+				if !isMultiVCSetup {
+					isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
+					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
+					ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
+					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				} else {
+					isDiskAttached, err := multiVCe2eVSphere.isVolumeAttachedToVMForMultiVC(client,
+						pv.Spec.CSI.VolumeHandle, vmUUID)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
+					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
+					ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
+					err = verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
-				isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
-				gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
-				ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
-				err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
 	}
