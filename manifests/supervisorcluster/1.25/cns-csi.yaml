@@ -395,6 +395,23 @@ spec:
               readOnly: true
             - mountPath: /etc/vmware/wcp/tls/
               name: host-vmca
+        - name: csi-snapshotter
+          image: localhost:5000/vmware.io/csi-snapshotter:v6.1.0_vmware.1
+          args:
+            - "--v=4"
+            - "--timeout=300s"
+            - "--csi-address=$(ADDRESS)"
+            - "--leader-election"
+            - "--kube-api-qps=100"
+            - "--kube-api-burst=100"
+            - "--extra-create-metadata"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          imagePullPolicy: "IfNotPresent"
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
       volumes:
         - name: vsphere-config-volume
           secret:
@@ -426,7 +443,7 @@ data:
   "fake-attach": "true"
   "async-query-volume": "true"
   "improved-csi-idempotency": "true"
-  "block-volume-snapshot": "false"
+  "block-volume-snapshot": "true"
   "sibling-replica-bound-pvc-check": "true"
   "tkgs-ha": "true"
   "list-volumes": "true"
