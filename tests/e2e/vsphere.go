@@ -39,6 +39,12 @@ type vSphere struct {
 	CnsClient *cnsClient
 }
 
+type multiVCvSphere struct {
+	multivcConfig    *multiVCe2eTestConfig
+	multiVcClient    []*govmomi.Client
+	multiVcCnsClient []*cnsClient
+}
+
 // VsanClient struct holds vim and soap client
 type VsanClient struct {
 	vim25Client   *vim25.Client

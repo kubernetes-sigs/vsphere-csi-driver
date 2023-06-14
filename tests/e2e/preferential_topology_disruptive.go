@@ -409,7 +409,7 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		// Scale down statefulSets replica count
 		replicas = 5
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, true)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, true, false)
 		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")

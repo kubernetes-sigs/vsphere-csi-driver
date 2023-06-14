@@ -22,7 +22,10 @@ import (
 	"strings"
 	"time"
 
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+	vim25types "github.com/vmware/govmomi/vim25/types"
 	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -187,4 +190,58 @@ func deleteAllStatefulSetAndPVs(c clientset.Interface, ns string) {
 	if len(errList) != 0 {
 		framework.ExpectNoError(fmt.Errorf("%v", strings.Join(errList, "\n")))
 	}
+}
+
+// verifyVolumeMetadataInCNS verifies container volume metadata is matching the
+// one is CNS cache.
+func verifyVolumeMetadataInCNSForMultiVC(vs *vSphere, volumeID string,
+	PersistentVolumeClaimName string, PersistentVolumeName string,
+	PodName string, Labels ...vim25types.KeyValue) error {
+	queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+	if err != nil {
+		return err
+	}
+	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+	if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
+		return fmt.Errorf("failed to query cns volume %s", volumeID)
+	}
+	for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
+		kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
+		if kubernetesMetadata.EntityType == "POD" && kubernetesMetadata.EntityName != PodName {
+			return fmt.Errorf("entity Pod with name %s not found for volume %s", PodName, volumeID)
+		} else if kubernetesMetadata.EntityType == "PERSISTENT_VOLUME" &&
+			kubernetesMetadata.EntityName != PersistentVolumeName {
+			return fmt.Errorf("entity PV with name %s not found for volume %s", PersistentVolumeName, volumeID)
+		} else if kubernetesMetadata.EntityType == "PERSISTENT_VOLUME_CLAIM" &&
+			kubernetesMetadata.EntityName != PersistentVolumeClaimName {
+			return fmt.Errorf("entity PVC with name %s not found for volume %s", PersistentVolumeClaimName, volumeID)
+		}
+	}
+	labelMap := make(map[string]string)
+	for _, e := range queryResult.Volumes[0].Metadata.EntityMetadata {
+		if e == nil {
+			continue
+		}
+		if e.GetCnsEntityMetadata().Labels == nil {
+			continue
+		}
+		for _, al := range e.GetCnsEntityMetadata().Labels {
+			// These are the actual labels in the provisioned PV. Populate them
+			// in the label map.
+			labelMap[al.Key] = al.Value
+		}
+		for _, el := range Labels {
+			// Traverse through the slice of expected labels and see if all of them
+			// are present in the label map.
+			if val, ok := labelMap[el.Key]; ok {
+				gomega.Expect(el.Value == val).To(gomega.BeTrue(),
+					fmt.Sprintf("Actual label Value of the statically provisioned PV is %s but expected is %s",
+						val, el.Value))
+			} else {
+				return fmt.Errorf("label(%s:%s) is expected in the provisioned PV but its not found", el.Key, el.Value)
+			}
+		}
+	}
+	ginkgo.By(fmt.Sprintf("successfully verified metadata of the volume %q", volumeID))
+	return nil
 }

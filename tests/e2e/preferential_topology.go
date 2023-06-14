@@ -614,7 +614,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaledown
 		replicas = 5
 		ginkgo.By("Scale down statefulset replica count from 10 to 5")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 	})
 
 	/*
@@ -1467,7 +1467,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaledown
 		sts1Replicas = 6
 		ginkgo.By("Scale down statefulset replica count from 13 to 6")
-		scaleDownStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleDownStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		ginkgo.By("Remove preferred datastore tag chosen for volume provisioning")
 		err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[1],

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	neturl "net/url"
+	"strings"
 	"sync"
 
 	gomega "github.com/onsi/gomega"
@@ -79,6 +80,31 @@ func connect(ctx context.Context, vs *vSphere) {
 	vs.Client = newClient(ctx, vs)
 }
 
+func connectMultiVC(ctx context.Context, vs *multiVCvSphere) {
+	clientLock.Lock()
+	defer clientLock.Unlock()
+	if vs.multiVcClient == nil {
+		framework.Logf("Creating new VC session")
+		vs.multiVcClient = newClientForMultiVC(ctx, vs)
+	}
+	for i := 0; i < len(vs.multiVcClient); i++ {
+		manager := session.NewManager(vs.multiVcClient[i].Client)
+		userSession, err := manager.UserSession(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if userSession != nil {
+			framework.Logf("Current session is valid")
+		} else {
+			framework.Logf("Current session is not valid or not authenticated, trying to logout from it")
+			err = vs.multiVcClient[i].Logout(ctx)
+			if err != nil {
+				framework.Logf("Ignoring the log out error: %v", err)
+			}
+			framework.Logf("Creating new client session after attempting to logout from existing session")
+			vs.multiVcClient = newClientForMultiVC(ctx, vs)
+		}
+	}
+}
+
 // newClient creates a new client for vSphere connection.
 func newClient(ctx context.Context, vs *vSphere) *govmomi.Client {
 	url, err := neturl.Parse(fmt.Sprintf("https://%s:%s/sdk",
@@ -91,6 +117,29 @@ func newClient(ctx context.Context, vs *vSphere) *govmomi.Client {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	client.RoundTripper = vim25.Retry(client.RoundTripper, vim25.TemporaryNetworkError(roundTripperDefaultCount))
 	return client
+}
+
+// newClient creates a new client for vSphere connection.
+func newClientForMultiVC(ctx context.Context, vs *multiVCvSphere) []*govmomi.Client {
+	var clients []*govmomi.Client
+	configUser := strings.Split(vs.multivcConfig.Global.User[0], ",")
+	configPwd := strings.Split(vs.multivcConfig.Global.Password[0], ",")
+	configvCenterHostname := strings.Split(vs.multivcConfig.Global.VCenterHostname[0], ",")
+	configvCenterPort := strings.Split(vs.multivcConfig.Global.VCenterPort[0], ",")
+	for i := 0; i < len(configvCenterHostname); i++ {
+		framework.Logf("https://%s:%s/sdk", configvCenterHostname[i], configvCenterPort[i])
+		url, err := neturl.Parse(fmt.Sprintf("https://%s:%s/sdk",
+			configvCenterHostname[i], configvCenterPort[i]))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		url.User = neturl.UserPassword(configUser[i], configPwd[i])
+		client, err := govmomi.NewClient(ctx, url, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = client.UseServiceVersion(vsanNamespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		client.RoundTripper = vim25.Retry(client.RoundTripper, vim25.TemporaryNetworkError(roundTripperDefaultCount))
+		clients = append(clients, client)
+	}
+	return clients
 }
 
 // newCnsClient creates a new CNS client.

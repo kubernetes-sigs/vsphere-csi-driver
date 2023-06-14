@@ -26,7 +26,7 @@ import (
 )
 
 // ENV variable to specify path of the multi-vc E2E test config file
-const multiVCe2eTestConfFileEnvVar = "MULTI_VC_E2E_TEST_CONF_FILE"
+const multiVCe2eTestConfFileEnvVar = "E2E_TEST_CONF_FILE"
 
 // multiVCe2eTestConfig contains vSphere connection detail and kubernetes cluster-id
 type multiVCe2eTestConfig struct {
@@ -108,8 +108,8 @@ type TopologyLevel5Config1 struct {
 }
 
 // getConfig returns e2eTestConfig struct for e2e tests to help establish vSphere connection.
-func multiVCgetConfig() (*e2eTestConfig, error) {
-	var confFileLocation = os.Getenv(e2eTestConfFileEnvVar)
+func getMultiVCConfig() (*multiVCe2eTestConfig, error) {
+	var confFileLocation = os.Getenv(multiVCe2eTestConfFileEnvVar)
 	if confFileLocation == "" {
 		return nil, fmt.Errorf("environment variable 'E2E_TEST_CONF_FILE' is not set")
 	}
@@ -118,7 +118,7 @@ func multiVCgetConfig() (*e2eTestConfig, error) {
 		return nil, err
 	}
 	defer confFile.Close()
-	cfg, err := readConfig(confFile)
+	cfg, err := readmultiVCConfig(confFile)
 	if err != nil {
 		return nil, err
 	}
@@ -126,12 +126,12 @@ func multiVCgetConfig() (*e2eTestConfig, error) {
 }
 
 // readConfig parses e2e tests config file into Config struct.
-func multiVCreadConfig(config io.Reader) (e2eTestConfig, error) {
+func readmultiVCConfig(config io.Reader) (multiVCe2eTestConfig, error) {
 	if config == nil {
 		err := fmt.Errorf("no config file given")
-		return e2eTestConfig{}, err
+		return multiVCe2eTestConfig{}, err
 	}
-	var cfg e2eTestConfig
+	var cfg multiVCe2eTestConfig
 	err := gcfg.ReadInto(&cfg, config)
 	return cfg, err
 }

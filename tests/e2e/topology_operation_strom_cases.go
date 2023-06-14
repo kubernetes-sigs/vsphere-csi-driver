@@ -244,7 +244,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		// Scale down statefulSets replica count
 		statefulSetReplicaCount = 5
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
-		scaleDownStatefulSetPod(ctx, client, statefulSets[1], namespace, statefulSetReplicaCount, true)
+		scaleDownStatefulSetPod(ctx, client, statefulSets[1], namespace, statefulSetReplicaCount, true, false)
 		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulSets[1])
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
@@ -284,7 +284,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		// Scale down statefulSets replicas count
 		statefulSetReplicaCount = 10
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
-		scaleDownStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
+		scaleDownStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true, false)
 		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulSets[0])
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
@@ -350,7 +350,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		statefulSetReplicaCount = 0
 		ginkgo.By("Scale down statefulset replica count")
 		for i := 0; i < len(statefulSets); i++ {
-			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
+			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
 			ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
 			gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 				"Number of Pods in the statefulset should match with number of replicas")
@@ -599,7 +599,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		statefulSetReplicaCount = 5
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
 		for i := 0; i < len(statefulSets); i++ {
-			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
+			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
 			ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
 			gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 				"Number of Pods in the statefulset should match with number of replicas")
@@ -643,7 +643,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		statefulSetReplicaCount = 0
 		ginkgo.By("Scale down statefulset replica count")
 		for i := 0; i < len(statefulSets); i++ {
-			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
+			scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
 			ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
 			gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
 				"Number of Pods in the statefulset should match with number of replicas")

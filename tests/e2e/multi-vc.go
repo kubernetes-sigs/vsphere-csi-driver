@@ -59,6 +59,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		topkeyStartIndex            int
 		datastoreURL                string
 		otherdatastoreURL           string
+		//clients                     []clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		var cancel context.CancelFunc
@@ -66,7 +67,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		defer cancel()
 		client = f.ClientSet
 		namespace = f.Namespace.Name
-		bootstrap()
+		//bootstrap()
+		multiVCbootstrap()
 
 		topologyLength = 5
 		nodeAffinityToSet = false
@@ -168,17 +170,17 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
 			namespace, allowedTopologies, parallelStatefulSetCreation)
 
-		// stsReplicas = 1
-		// ginkgo.By("Scale down statefulset replica count to 1")
-		// scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation)
+		stsReplicas = 1
+		ginkgo.By("Scale down statefulset replica count to 1")
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, false)
 
-		// stsReplicas = 8
-		// ginkgo.By("Scale up statefulset replica count to 8")
-		// scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation)
+		stsReplicas = 8
+		ginkgo.By("Scale up statefulset replica count to 8")
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation)
 
-		// ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
-		// verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-		// 	namespace, allowedTopologies, parallelStatefulSetCreation)
+		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+			namespace, allowedTopologies, parallelStatefulSetCreation)
 	})
 
 	/*

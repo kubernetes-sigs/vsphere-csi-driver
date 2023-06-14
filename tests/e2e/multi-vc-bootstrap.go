@@ -24,25 +24,26 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework/testfiles"
 )
 
-var e2eVSphere1 vSphere
-var testConfig1 *e2eTestConfig
+var multiVCe2eVSphere multiVCvSphere
+var multiVCtestConfig *multiVCe2eTestConfig
 
 // bootstrap function takes care of initializing necessary tests context for e2e tests
-func bootstrap1(withoutDc ...bool) {
+func multiVCbootstrap(withoutDc ...bool) {
 	var err error
-	testConfig, err = getConfig()
+	multiVCtestConfig, err = getMultiVCConfig()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	if len(withoutDc) > 0 {
 		if withoutDc[0] {
-			(*testConfig).Global.Datacenters = ""
+			(*multiVCtestConfig).Global.Datacenters = nil
 		}
 	}
-	e2eVSphere = vSphere{
-		Config: testConfig,
+	multiVCe2eVSphere = multiVCvSphere{
+		multivcConfig: multiVCtestConfig,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	connect(ctx, &e2eVSphere)
+	connectMultiVC(ctx, &multiVCe2eVSphere)
+
 	if framework.TestContext.RepoRoot != "" {
 		testfiles.AddFileSource(testfiles.RootFileSource{Root: framework.TestContext.RepoRoot})
 	}

@@ -4763,7 +4763,8 @@ func scaleStatefulSetPods(c clientset.Interface, ss *appsv1.StatefulSet, count i
 scaleDownStatefulSetPod is a utility method which is used to scale down the count of StatefulSet replicas.
 */
 func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
-	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool) {
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool,
+	isMultiVCSetup bool) {
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleDown *v1.PodList
 	if parallelStatefulSetCreation {
