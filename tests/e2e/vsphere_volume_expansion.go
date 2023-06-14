@@ -57,6 +57,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 	f := framework.NewDefaultFramework("volume-expansion")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	framework.TestContext.DeleteNamespace = true
+
 	var (
 		client                     clientset.Interface
 		namespace                  string

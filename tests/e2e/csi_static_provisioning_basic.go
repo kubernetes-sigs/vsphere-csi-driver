@@ -52,6 +52,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 	f := framework.NewDefaultFramework("e2e-csistaticprovision")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	framework.TestContext.DeleteNamespace = true
 
 	var (
 		client                     clientset.Interface
