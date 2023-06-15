@@ -4898,7 +4898,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				} else {
-					isDiskAttached, err := multiVCe2eVSphere.isVolumeAttachedToVMForMultiVC(client,
+					isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(client,
 						pv.Spec.CSI.VolumeHandle, vmUUID)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
 					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")

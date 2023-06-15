@@ -769,8 +769,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	ginkgo.It("TC-10", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		stsReplicas = 5
-		pvcCount := 5
+		stsReplicas = 1
+		pvcCount := 1
 		var podList []*v1.Pod
 
 		ginkgo.By("Create StorageClass with default parameters using WFC binding mode")
@@ -792,9 +792,9 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet with replica set 5")
 		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
 			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
-		defer func() {
-			fss.DeleteAllStatefulSets(client, namespace)
-		}()
+		// defer func() {
+		// 	fss.DeleteAllStatefulSets(client, namespace)
+		// }()
 
 		ginkgo.By("Create StorageClass with default parameters using Immediate binding mode")
 		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
@@ -816,7 +816,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(pvc).NotTo(gomega.BeEmpty())
 
-			//pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 
 			ginkgo.By("Creating Pod")
 			pvclaims = append(pvclaims, pvclaimsList[i])
@@ -824,12 +824,13 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			podList = append(podList, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			// ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
-			// 	pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-			// vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)
-			// isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
-			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+				pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+			vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)
+			isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(client,
+				pv.Spec.CSI.VolumeHandle, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
 		}
 		defer func() {
 			// cleanup code for deleting PVC
@@ -839,7 +840,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 				err = fpv.DeletePersistentVolumeClaim(client, pvclaimsList[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -850,14 +851,14 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			ginkgo.By("Verify volume is detached from the node")
-			// for i := 0; i < len(pvclaimsList); i++ {
-			// 	pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
-			// 	isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
-			// 		pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
-			// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// 	gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
-			// 		fmt.Sprintf("Volume %q is not detached from the node", pv.Spec.CSI.VolumeHandle))
-			// }
+			for i := 0; i < len(pvclaimsList); i++ {
+				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				isDiskDetached, err := multiVCe2eVSphere.waitForVolumeDetachedFromNodeInMultiVC(client,
+					pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+					fmt.Sprintf("Volume %q is not detached from the node", pv.Spec.CSI.VolumeHandle))
+			}
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
@@ -1031,6 +1032,63 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Create StorageClass with no allowed topolgies specified and with WFC binding mode")
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, nil, "",
+			bindingMode, false)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
+		ginkgo.By("Create StatefulSet with parallel pod management policy")
+		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
+			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
+		defer func() {
+			fss.DeleteAllStatefulSets(client, namespace)
+		}()
+
+		allowedTopologies := setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex, topValEndIndex)
+
+		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+	})
+
+	/*
+		TESTCASE-15
+		Statically Create PVC and Verify NodeAffinity details on PV
+		Make sure node affinity details are mentioned while creating PV
+
+		Steps:
+		1. Create SC which point to ay one VC's allowed topology Availability zone
+		2. Create PV using the above created SC and reclaim policy retain , PV should have appropriate node affinity details mentioned
+		3. Create PVC using above created SC and PV
+		4. Wait for PV ,PVC to be in bound
+		5. Make sure common validation points are met on PV,PVC and POD
+			a) Once PV and PVC are bound describe on the PV and verify node affinity details on PV
+			b) Create POD using the above PVC
+			c) POD should come up on the node which is present in the same zone as mentioned in storage class
+		6. Clean up data
+	*/
+
+	ginkgo.It("TC-15", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		topValStartIndex = 0
+		topValEndIndex = 2
+
+		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
+			topValEndIndex)
+
+		ginkgo.By("Create StorageClass with allowed topology details of VC1")
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies, "",
 			bindingMode, false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

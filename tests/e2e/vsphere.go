@@ -217,22 +217,69 @@ func (vs *vSphere) getAllDatacenters(ctx context.Context) ([]*object.Datacenter,
 	return finder.DatacenterList(ctx, "*")
 }
 
+// func (vs *multiVCvSphere) getAllDatacentersForMultiVC(ctx context.Context) ([]*object.Datacenter, error) {
+//     connectMultiVC(ctx, vs)
+//     var finder *find.Finder
+//     for i := 0; i < len(vs.multiVcClient); i++ {
+//         soapClient := vs.multiVcClient[i].Client.Client
+//         if soapClient == nil {
+//             return nil, fmt.Errorf("soapClient is nil")
+//         }
+//         vimClient := &vim25.Client{
+//             Client: soapClient,
+//         }
+//         currentFinder := find.NewFinder(vimClient, false)
+//         finder = currentFinder
+//         // Use the currentFinder if needed within the loop
+//     }
+//     if finder == nil {
+//         return nil, fmt.Errorf("failed to create a valid Finder")
+//     }
+//     return finder.DatacenterList(ctx, "*")
+// }
+
 func (vs *multiVCvSphere) getAllDatacentersForMultiVC(ctx context.Context) ([]*object.Datacenter, error) {
 	connectMultiVC(ctx, vs)
-	var findersList []*object.Datacenter
-
+	var finder *find.Finder
 	for i := 0; i < len(vs.multiVcClient); i++ {
 		soapClient := vs.multiVcClient[i].Client.Client
-		vimClient := &vim25.Client{Client: soapClient}
-		finder := find.NewFinder(vimClient, false)
-		datacenters, err := finder.DatacenterList(ctx, "*")
-		if err != nil {
-			// Handle the error appropriately
+		if soapClient == nil {
+			return nil, fmt.Errorf("soapClient is nil")
 		}
-		findersList = append(findersList, datacenters...)
+		vimClient, err := convertToVimClient(ctx, soapClient)
+		if err != nil {
+			return nil, err
+		}
+		finder = find.NewFinder(vimClient, false)
 	}
-	return findersList, nil
+	return finder.DatacenterList(ctx, "*")
 }
+
+func convertToVimClient(ctx context.Context, soapClient *soap.Client) (*vim25.Client, error) {
+	// Create a new *vim25.Client using the *soap.Client, context, and a RoundTripper
+	vimClient, err := vim25.NewClient(ctx, soapClient)
+	if err != nil {
+		return nil, err
+	}
+
+	return vimClient, nil
+}
+
+// var findersList []*object.Datacenter
+
+// for i := 0; i < len(vs.multiVcClient); i++ {
+// 	soapClient := vs.multiVcClient[i].Client.Client
+// 	vimClient := vim25.Client{Client: soapClient}
+// 	finder := find.NewFinder(&vimClient, false)
+// 	datacenters, err := finder.DatacenterList(ctx, "*")
+// 	if err != nil {
+// 		// Handle the error appropriately
+// 	}
+// 	findersList = append(findersList, datacenters...)
+// }
+// return findersList, nil
+
+//}
 
 // getDatacenter returns the DataCenter Object for the given datacenterPath
 func (vs *vSphere) getDatacenter(ctx context.Context, datacenterPath string) (*object.Datacenter, error) {
@@ -346,6 +393,46 @@ func (vs *vSphere) getVMByUUIDWithWait(ctx context.Context,
 	return vmMoRefForvmUUID, nil
 }
 
+// getVMByUUIDWithWait gets the VM object Reference from the given vmUUID with a given wait timeout
+func (vs *multiVCvSphere) getVMByUUIDWithWaitInMultiVC(ctx context.Context,
+	vmUUID string, timeout time.Duration) (object.Reference, error) {
+	connectMultiVC(ctx, vs)
+	dcList, err := vs.getAllDatacentersForMultiVC(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var vmMoRefForvmUUID object.Reference
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(poll) {
+		var vmMoRefFound bool
+		for _, dc := range dcList {
+			for i := 0; i < len(vs.multiVcClient); i++ {
+				soapClient := vs.multiVcClient[i].Client.Client
+				vimClient, err := vim25.NewClient(ctx, soapClient)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				datacenter := object.NewDatacenter(vimClient, dc.Reference())
+				s := object.NewSearchIndex(vimClient)
+				vmUUID = strings.ToLower(strings.TrimSpace(vmUUID))
+				instanceUUID := !(vanillaCluster || guestCluster)
+				vmMoRef, err := s.FindByUuid(ctx, datacenter, vmUUID, true, &instanceUUID)
+
+				if err != nil || vmMoRef == nil {
+					continue
+				}
+				if vmMoRef != nil {
+					vmMoRefFound = true
+					vmMoRefForvmUUID = vmMoRef
+				}
+			}
+		}
+
+		if vmMoRefFound {
+			framework.Logf("vmuuid: %s still exists", vmMoRefForvmUUID)
+			continue
+		} else {
+			return nil, fmt.Errorf("node VM with UUID:%s is not found", vmUUID)
+		}
+	}
+	return vmMoRefForvmUUID, nil
+}
+
 // isVolumeAttachedToVM checks volume is attached to the VM by vmUUID.
 // This function returns true if volume is attached to the VM, else returns false
 func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID string, vmUUID string) (bool, error) {
@@ -370,7 +457,7 @@ func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID str
 
 // isVolumeAttachedToVM checks volume is attached to the VM by vmUUID.
 // This function returns true if volume is attached to the VM, else returns false
-func (vs *multiVCvSphere) isVolumeAttachedToVMForMultiVC(client clientset.Interface, volumeID string, vmUUID string) (bool, error) {
+func (vs *multiVCvSphere) verifyVolumeIsAttachedToVMInMultiVC(client clientset.Interface, volumeID string, vmUUID string) (bool, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	vmRef, err := vs.getVMByUUIDForMultiVC(ctx, vmUUID)
@@ -425,6 +512,45 @@ func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface,
 			vmUUID, _ = getVMUUIDFromNodeName(nodeName)
 		}
 		diskAttached, err := vs.isVolumeAttachedToVM(client, volumeID, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if !diskAttached {
+			framework.Logf("Disk: %s successfully detached", volumeID)
+			return true, nil
+		}
+		framework.Logf("Waiting for disk: %q to be detached from the node :%q", volumeID, nodeName)
+		return false, nil
+	})
+	if err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
+// waitForVolumeDetachedFromNode checks volume is detached from the node
+// This function checks disks status every 3 seconds until detachTimeout, which is set to 360 seconds
+func (vs *multiVCvSphere) waitForVolumeDetachedFromNodeInMultiVC(client clientset.Interface,
+	volumeID string, nodeName string) (bool, error) {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if supervisorCluster {
+		_, err := e2eVSphere.getVMByUUIDWithWait(ctx, nodeName, supervisorClusterOperationsTimeout)
+		if err == nil {
+			return false, fmt.Errorf(
+				"PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", nodeName, volumeID)
+		} else if strings.Contains(err.Error(), "is not found") {
+			return true, nil
+		}
+		return false, err
+	}
+	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+		var vmUUID string
+		if vanillaCluster {
+			vmUUID = getNodeUUID(ctx, client, nodeName)
+		} else {
+			vmUUID, _ = getVMUUIDFromNodeName(nodeName)
+		}
+		diskAttached, err := vs.verifyVolumeIsAttachedToVMInMultiVC(client, volumeID, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if !diskAttached {
 			framework.Logf("Disk: %s successfully detached", volumeID)
@@ -571,6 +697,28 @@ func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string
 func (vs *vSphere) waitForCNSVolumeToBeDeleted(volumeID string) error {
 	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
 		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+		if err != nil {
+			return true, err
+		}
+
+		if len(queryResult.Volumes) == 0 {
+			framework.Logf("volume %q has successfully deleted", volumeID)
+			return true, nil
+		}
+		framework.Logf("waiting for Volume %q to be deleted.", volumeID)
+		return false, nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// waitForCNSVolumeToBeDeleted executes QueryVolume API on vCenter and verifies
+// volume entries are deleted from vCenter Database
+func (vs *multiVCvSphere) waitForCNSVolumeToBeDeletedInMultiVC(volumeID string) error {
+	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+		queryResult, err := vs.queryCNSVolumeWithResultForMultiVC(volumeID)
 		if err != nil {
 			return true, err
 		}
