@@ -308,7 +308,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(statefulSets); i++ {
 				verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-					statefulSets[i], namespace, allowedTopologies, true)
+					statefulSets[i], namespace, allowedTopologies, true, false)
 			}
 
 			/* Get current leader Csi-Controller-Pod where CSI Attacher is running" +
@@ -506,7 +506,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(statefulSets); i++ {
 				verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-					statefulSets[i], namespace, allowedTopologies, true)
+					statefulSets[i], namespace, allowedTopologies, true, false)
 			}
 
 			// Scale down StatefulSets replicas count
@@ -684,7 +684,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(statefulSets); i++ {
 				verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-					statefulSets[i], namespace, allowedTopologies, true)
+					statefulSets[i], namespace, allowedTopologies, true, false)
 			}
 
 			// Fetch the number of CSI pods running before restart
@@ -720,7 +720,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(statefulSets); i++ {
 				verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-					statefulSets[i], namespace, allowedTopologies, true)
+					statefulSets[i], namespace, allowedTopologies, true, false)
 			}
 
 			// Scale down statefulset to 0 replicas
@@ -935,7 +935,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(podList); i++ {
 				verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i],
-					namespace, allowedTopologies)
+					namespace, allowedTopologies, false)
 			}
 		})
 
@@ -1140,7 +1140,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(podList); i++ {
 				verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i],
-					namespace, allowedTopologies)
+					namespace, allowedTopologies, false)
 			}
 		})
 
@@ -1224,7 +1224,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				/* Verify PV nde affinity and that the pods are running on appropriate nodes
 				for each StatefulSet pod */
 				verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx, client, deployment,
-					namespace, allowedTopologies, true)
+					namespace, allowedTopologies, true, false)
 				deploymentList = append(deploymentList, deployment)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				// Delete elected leader Csi-Controller-Pod where CSi-Attacher is running
@@ -1414,7 +1414,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(statefulSets); i++ {
 				verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-					statefulSets[i], namespace, allowedTopologies, true)
+					statefulSets[i], namespace, allowedTopologies, true, false)
 			}
 
 			/* Get elected current leader Csi-Controller-Pod where CSI Attacher is running" +
@@ -1638,7 +1638,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(podList); i++ {
 				verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i],
-					namespace, allowedTopologies)
+					namespace, allowedTopologies, false)
 			}
 		})
 
@@ -1875,7 +1875,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(podList); i++ {
 				verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i],
-					namespace, allowedTopologies)
+					namespace, allowedTopologies, false)
 			}
 		})
 		// TESTCASE-6
@@ -2041,7 +2041,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				"appropriate node as specified in the allowed topologies of SC")
 			for i := 0; i < len(podList); i++ {
 				verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i], namespace,
-					allowedTopologies)
+					allowedTopologies, false)
 			}
 
 			// Deleting Pod's

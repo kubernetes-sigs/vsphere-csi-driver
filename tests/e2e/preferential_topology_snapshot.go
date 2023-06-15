@@ -337,7 +337,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace,
-			allowedTopologyForRack1)
+			allowedTopologyForRack1, false)
 	})
 
 	/*
@@ -679,7 +679,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 			"appropriate node as specified in the allowed topologies of SC")
 		for i := 0; i < len(podList); i++ {
 			verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i],
-				namespace, allowedTopologies)
+				namespace, allowedTopologies, false)
 		}
 
 		ginkgo.By("Create volume snapshot class, volume snapshot")
@@ -738,7 +738,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod3, namespace,
-			allowedTopologies)
+			allowedTopologies, false)
 
 		ginkgo.By("Remove preferred datastore tag chosen for volume provisioning")
 		for i := 0; i < len(allowedTopologyRacks); i++ {
@@ -832,7 +832,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod4, namespace,
-			allowedTopologies)
+			allowedTopologies, false)
 
 		volumeSnapshot2, volumeSnapshotClass2, snapshotId2 := createSnapshotClassAndVolSnapshot(ctx, snapc, namespace,
 			pvclaim4, volHandle4, false)
@@ -884,7 +884,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod5, namespace,
-			allowedTopologies)
+			allowedTopologies, false)
 	})
 
 	/*
@@ -975,7 +975,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologyForRack3, false)
+			namespace, allowedTopologyForRack3, false, false)
 
 		framework.Logf("Fetching pod 3, pvc3 and pv3 details")
 		pod3, err := client.CoreV1().Pods(namespace).Get(ctx,
@@ -1049,6 +1049,6 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologyForRack3, false)
+			namespace, allowedTopologyForRack3, false, false)
 	})
 })

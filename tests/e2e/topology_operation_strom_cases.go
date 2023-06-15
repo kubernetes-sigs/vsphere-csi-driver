@@ -205,7 +205,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-				statefulSets[i], namespace, allowedTopologies, true)
+				statefulSets[i], namespace, allowedTopologies, true, false)
 		}
 
 		// Bring down few esxi hosts that belongs to zone3
@@ -302,7 +302,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-				statefulSets[i], namespace, allowedTopologies, true)
+				statefulSets[i], namespace, allowedTopologies, true, false)
 		}
 
 		// Bring up all ESXi host which were powered off in zone2
@@ -566,7 +566,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-				statefulSets[i], namespace, allowedTopologies, true)
+				statefulSets[i], namespace, allowedTopologies, true, false)
 		}
 
 		/* Get current leader Csi-Controller-Pod where CSI Attacher is running and " +
@@ -636,7 +636,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-				statefulSets[i], namespace, allowedTopologies, true)
+				statefulSets[i], namespace, allowedTopologies, true, false)
 		}
 
 		// Scale down statefulSets replica count

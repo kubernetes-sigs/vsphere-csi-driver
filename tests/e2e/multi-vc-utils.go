@@ -40,7 +40,8 @@ import (
 // deletePVCInParallel deletes PVC in a given namespace in parallel
 func createCustomisedStatefulSets(client clientset.Interface, namespace string,
 	isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
-	allowedTopologies []v1.TopologySelectorLabelRequirement, allowedTopologyLen int) *apps.StatefulSet {
+	allowedTopologies []v1.TopologySelectorLabelRequirement, allowedTopologyLen int,
+	podAntiAffinityToSet bool) *apps.StatefulSet {
 	framework.Logf("Preparing StatefulSet Spec")
 	statefulset := GetStatefulSetFromManifest(namespace)
 
@@ -53,12 +54,23 @@ func createCustomisedStatefulSets(client clientset.Interface, namespace string,
 		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
 			RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = nodeSelectorTerms
 	}
-	// if podAntiAffinityToSet {
-	// 	statefulset.Spec.Template.Spec.Affinity = new(v1.Affinity)
-	// 	statefulset.Spec.Template.Spec.Affinity.PodAntiAffinity = new(v1.PodAntiAffinity)
-	// 	statefulset.Spec.Template.Spec.Affinity.PodAntiAffinity.
-	// 		RequiredDuringSchedulingIgnoredDuringExecution.podAntiAffinitySelectorTerm
-	// }
+	if podAntiAffinityToSet {
+		statefulset.Spec.Template.Spec.Affinity = &v1.Affinity{
+			PodAntiAffinity: &v1.PodAntiAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"key": "app",
+							},
+						},
+						TopologyKey: "topology.kubernetes.io/zone",
+					},
+				},
+			},
+		}
+
+	}
 	if isParallelPodMgmtPolicy {
 		statefulset.Spec.PodManagementPolicy = apps.ParallelPodManagement
 	}
@@ -185,7 +197,8 @@ func deleteAllStatefulSetAndPVs(c clientset.Interface, ns string) {
 		return false, nil
 	})
 	if pollErr != nil {
-		errList = append(errList, fmt.Sprintf("Timeout waiting for pv provisioner to delete pvs, this might mean the test leaked pvs."))
+		errList = append(errList, "Timeout waiting for pv provisioner to delete pvs, this might mean the test leaked pvs.")
+
 	}
 	if len(errList) != 0 {
 		framework.ExpectNoError(fmt.Errorf("%v", strings.Join(errList, "\n")))

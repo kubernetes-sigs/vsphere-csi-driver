@@ -59,7 +59,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		topkeyStartIndex            int
 		datastoreURL                string
 		otherdatastoreURL           string
-		//clients                     []clientset.Interface
+		podAntiAffinityToSet        bool
 	)
 	ginkgo.BeforeEach(func() {
 		var cancel context.CancelFunc
@@ -67,7 +67,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		defer cancel()
 		client = f.ClientSet
 		namespace = f.Namespace.Name
-		//bootstrap()
+
 		multiVCbootstrap()
 
 		topologyLength = 5
@@ -157,9 +157,9 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			deleteService(namespace, client, service)
 		}()
 
-		ginkgo.By("Create StatefulSet with parallel pod management policy")
+		ginkgo.By("Create StatefulSet with parallel pod management policy and node affinity set")
 		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
-			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen)
+			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
 		defer func() {
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
@@ -168,19 +168,19 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation)
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
 
-		stsReplicas = 1
-		ginkgo.By("Scale down statefulset replica count to 1")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+		// stsReplicas = 1
+		// ginkgo.By("Scale down statefulset replica count to 1")
+		// scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
 
-		stsReplicas = 8
-		ginkgo.By("Scale up statefulset replica count to 8")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+		// stsReplicas = 6
+		// ginkgo.By("Scale up statefulset replica count to 6")
+		// scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
 
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
-		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation)
+		// ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		// verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+		// 	namespace, allowedTopologies, parallelStatefulSetCreation)
 	})
 
 	/*
@@ -232,14 +232,26 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Create StatefulSet with 5 replicas")
 		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
-			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen)
+			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
 		defer func() {
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation)
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+
+		// stsReplicas = 1
+		// ginkgo.By("Scale down statefulset replica count to 1")
+		// scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// stsReplicas = 6
+		// ginkgo.By("Scale up statefulset replica count to 6")
+		// scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		// verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+		// 	namespace, allowedTopologies, parallelStatefulSetCreation)
 	})
 
 	/*
@@ -286,7 +298,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Create StatefulSet with default pod management policy")
 		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
-			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen)
+			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
 		defer func() {
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
@@ -295,7 +307,19 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation)
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+
+		// stsReplicas = 1
+		// ginkgo.By("Scale down statefulset replica count to 1")
+		// scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// stsReplicas = 6
+		// ginkgo.By("Scale up statefulset replica count to 6")
+		// scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		// verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+		// 	namespace, allowedTopologies, parallelStatefulSetCreation)
 	})
 
 	/*
@@ -353,7 +377,6 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		}
 		wg.Wait()
 
-		// Waiting for StatefulSets Pods to be in Ready State
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
 		time.Sleep(60 * time.Second)
 
@@ -380,8 +403,20 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulSets[i],
-				namespace, allowedTopologies, parallelStatefulSetCreation)
+				namespace, allowedTopologies, parallelStatefulSetCreation, true)
 		}
+
+		// stsReplicas = 1
+		// ginkgo.By("Scale down statefulset replica count to 1")
+		// scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// stsReplicas = 6
+		// ginkgo.By("Scale up statefulset replica count to 6")
+		// scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		// verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+		// 	namespace, allowedTopologies, parallelStatefulSetCreation)
 	})
 
 	/*
@@ -409,6 +444,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		stsReplicas = 5
 		nodeAffinityToSet = true
 		allowedTopologyLen = 5
+		podAntiAffinityToSet = true
 
 		ginkgo.By("Create StorageClass with storage policy specified")
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, nil, "",
@@ -428,14 +464,26 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Create StatefulSet with default pod management policy")
 		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
-			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen)
+			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
 		defer func() {
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation)
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+
+		// stsReplicas = 1
+		// ginkgo.By("Scale down statefulset replica count to 1")
+		// scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// stsReplicas = 6
+		// ginkgo.By("Scale up statefulset replica count to 6")
+		// scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		// verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+		// 	namespace, allowedTopologies, parallelStatefulSetCreation)
 	})
 
 	/*
@@ -458,13 +506,10 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	ginkgo.It("TC-6", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		stsReplicas = 5
-		allowedTopologyLen = 2
-		scParameters[scParamStoragePolicyName] = storagePolicyName
 		scParameters[scParamDatastoreURL] = datastoreURL
 		topValStartIndex = 0
-		topValEndIndex = 2
+		topValEndIndex = 1
 
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
@@ -487,14 +532,26 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Create StatefulSet with replica set 5")
 		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
-			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen)
+			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
 		defer func() {
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation)
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+
+		// stsReplicas = 1
+		// ginkgo.By("Scale down statefulset replica count to 1")
+		// scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// stsReplicas = 6
+		// ginkgo.By("Scale up statefulset replica count to 6")
+		// scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		// verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+		// 	namespace, allowedTopologies, parallelStatefulSetCreation)
 	})
 
 	/*
@@ -517,9 +574,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	ginkgo.It("TC-7", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		stsReplicas = 3
-		allowedTopologyLen = 1
 		topValStartIndex = 0
 		topValEndIndex = 1
 
@@ -544,14 +599,26 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Create StatefulSet with replica set 3")
 		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
-			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen)
+			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
 		defer func() {
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation)
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+
+		// stsReplicas = 1
+		// ginkgo.By("Scale down statefulset replica count to 1")
+		// scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// stsReplicas = 6
+		// ginkgo.By("Scale up statefulset replica count to 6")
+		// scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		// verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+		// 	namespace, allowedTopologies, parallelStatefulSetCreation)
 	})
 
 	/*
@@ -576,9 +643,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	ginkgo.It("TC-8", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		stsReplicas = 3
-		allowedTopologyLen = 1
 		topValStartIndex = 4
 		topValEndIndex = 5
 
@@ -603,14 +668,26 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Create StatefulSet with replica set 3")
 		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
-			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen)
+			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
 		defer func() {
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation)
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+
+		// stsReplicas = 1
+		// ginkgo.By("Scale down statefulset replica count to 1")
+		// scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// stsReplicas = 6
+		// ginkgo.By("Scale up statefulset replica count to 6")
+		// scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		// ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		// verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+		// 	namespace, allowedTopologies, parallelStatefulSetCreation)
 	})
 
 	/*
@@ -630,7 +707,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		7. Clean up the data
 	*/
 
-	ginkgo.It("TC-9", func() {
+	ginkgo.It("TC-9 -------> to be tested on type-2 setup", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -660,14 +737,14 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Create StatefulSet with replica set 3")
 		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
-			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen)
+			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
 		defer func() {
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation)
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
 	})
 
 	/*
@@ -692,7 +769,6 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	ginkgo.It("TC-10", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		stsReplicas = 5
 		pvcCount := 5
 		var podList []*v1.Pod
@@ -713,9 +789,9 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			deleteService(namespace, client, service)
 		}()
 
-		ginkgo.By("Create StatefulSet with replica set 3")
+		ginkgo.By("Create StatefulSet with replica set 5")
 		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
-			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen)
+			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
 		defer func() {
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
@@ -786,12 +862,12 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation)
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(podList); i++ {
 			verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i],
-				namespace, allowedTopologies)
+				namespace, allowedTopologies, true)
 		}
 	})
 
@@ -842,14 +918,14 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Create StatefulSet with replica set 5")
 		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
-			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen)
+			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
 		defer func() {
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation)
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
 	})
 
 	/*
@@ -971,7 +1047,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Create StatefulSet with parallel pod management policy")
 		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
-			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen)
+			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
 		defer func() {
 			fss.DeleteAllStatefulSets(client, namespace)
 		}()
@@ -980,6 +1056,6 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation)
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
 	})
 })

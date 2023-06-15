@@ -4633,7 +4633,8 @@ which PV is provisioned.
 */
 func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Context,
 	client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string,
-	allowedTopologies []v1.TopologySelectorLabelRequirement, parallelStatefulSetCreation bool) {
+	allowedTopologies []v1.TopologySelectorLabelRequirement,
+	parallelStatefulSetCreation bool, isMultiVCSetup bool) {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	var ssPodsBeforeScaleDown *v1.PodList
 	if parallelStatefulSetCreation {
@@ -4676,10 +4677,16 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 					"as specified in allowed topolgies of Storage Class", sspod.Name)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				// // Verify the attached volume match the one in CNS cache
-				// error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-				// 	volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-				// gomega.Expect(error).NotTo(gomega.HaveOccurred())
+				// Verify the attached volume match the one in CNS cache
+				if !isMultiVCSetup {
+					error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(error).NotTo(gomega.HaveOccurred())
+				} else {
+					error := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(error).NotTo(gomega.HaveOccurred())
+				}
 			}
 		}
 	}
@@ -5007,7 +5014,8 @@ PV is provisioned.
 */
 func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Context,
 	client clientset.Interface, deployment *appsv1.Deployment, namespace string,
-	allowedTopologies []v1.TopologySelectorLabelRequirement, parallelDeplCreation bool) {
+	allowedTopologies []v1.TopologySelectorLabelRequirement,
+	parallelDeplCreation bool, isMultiVCSetup bool) {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	var pods *v1.PodList
 	var err error
@@ -5054,9 +5062,15 @@ func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Co
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// Verify the attached volume match the one in CNS cache
-				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+				if !isMultiVCSetup {
+					error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(error).NotTo(gomega.HaveOccurred())
+				} else {
+					error := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(error).NotTo(gomega.HaveOccurred())
+				}
 			}
 		}
 	}
@@ -5071,7 +5085,7 @@ is provisioned.
 */
 func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Context,
 	client clientset.Interface, pod *v1.Pod, namespace string,
-	allowedTopologies []v1.TopologySelectorLabelRequirement) {
+	allowedTopologies []v1.TopologySelectorLabelRequirement, isMultiVCSetup bool) {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	for _, volumespec := range pod.Spec.Volumes {
 		if volumespec.PersistentVolumeClaim != nil {
@@ -5105,10 +5119,16 @@ func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Cont
 				"specified in allowed topolgies of Storage Class", pod.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			// Verify the attached volume match the one in CNS cache
-			// error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-			// 	volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
-			// gomega.Expect(error).NotTo(gomega.HaveOccurred())
+			//Verify the attached volume match the one in CNS cache
+			if !isMultiVCSetup {
+				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+			} else {
+				error := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+			}
 		}
 	}
 }
