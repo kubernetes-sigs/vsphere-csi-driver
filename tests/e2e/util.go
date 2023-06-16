@@ -659,7 +659,11 @@ func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string,
 func getVirtualDeviceByDiskID(ctx context.Context, vm *object.VirtualMachine,
 	diskID string) (vim25types.BaseVirtualDevice, error) {
 	vmname, err := vm.Common.ObjectName(ctx)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	//gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		framework.Logf("failed to get the devices for VM: %q. err: %+v", vmname, err)
+		return nil, err
+	}
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
 		framework.Logf("failed to get the devices for VM: %q. err: %+v", vmname, err)
@@ -4885,7 +4889,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 						_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					} else {
-						_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+						_, err := multiVCe2eVSphere.getVMByUUIDForMultiVC(ctx, vmUUID)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
 				}

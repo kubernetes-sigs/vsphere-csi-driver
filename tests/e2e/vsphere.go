@@ -97,7 +97,7 @@ func (vs *vSphere) queryCNSVolumeWithResult(fcdID string) (*cnstypes.CnsQueryRes
 	return &res.Returnval, nil
 }
 
-// queryCNSVolumeWithResult Call CnsQueryVolume and returns CnsQueryResult to client
+// queryCNSVolumeWithResultForMultiVC Call CnsQueryVolume and returns CnsQueryResult to client for multiVC setup
 func (vs *multiVCvSphere) queryCNSVolumeWithResultForMultiVC(fcdID string) (*cnstypes.CnsQueryResult, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -126,6 +126,13 @@ func (vs *multiVCvSphere) queryCNSVolumeWithResultForMultiVC(fcdID string) (*cns
 	}
 	for i := 0; i < len(vs.multiVcCnsClient); i++ {
 		res, err = cnsmethods.CnsQueryVolume(ctx, vs.multiVcCnsClient[i].Client, &req)
+		if res.Returnval.Volumes == nil {
+			continue
+		}
+
+		if res.Returnval.Volumes != nil && err == nil {
+			return &res.Returnval, nil
+		}
 
 		if err != nil {
 			return nil, err
@@ -329,7 +336,6 @@ func (vs *multiVCvSphere) getVMByUUIDForMultiVC(ctx context.Context, vmUUID stri
 			soapClient := vs.multiVcClient[i].Client.Client
 			vimClient, err := vim25.NewClient(ctx, soapClient)
 			if err != nil {
-				// Handle the error appropriately
 				continue
 			}
 			datacenter := object.NewDatacenter(vimClient, dc.Reference())
@@ -476,7 +482,8 @@ func (vs *multiVCvSphere) verifyVolumeIsAttachedToVMInMultiVC(client clientset.I
 		device, err := getVirtualDeviceByDiskID(ctx, vm, volumeID)
 		if err != nil {
 			framework.Logf("failed to determine whether disk %q is still attached to the VM with UUID: %q", volumeID, vmUUID)
-			return false, err
+			continue
+			//return false, err
 		}
 		if device != nil {
 			framework.Logf("Found the disk %q is attached to the VM with UUID: %q", volumeID, vmUUID)

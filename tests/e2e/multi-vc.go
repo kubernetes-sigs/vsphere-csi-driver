@@ -131,7 +131,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		7. Clean up the data
 	*/
 
-	ginkgo.It("TC-1", func() {
+	ginkgo.It("TC-1111", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -170,17 +170,19 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
 			namespace, allowedTopologies, parallelStatefulSetCreation, true)
 
-		// stsReplicas = 1
-		// ginkgo.By("Scale down statefulset replica count to 1")
-		// scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+		stsReplicas = 1
+		ginkgo.By("Scale down statefulset replica count to 1")
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas,
+			parallelStatefulSetCreation, true)
 
-		// stsReplicas = 6
-		// ginkgo.By("Scale up statefulset replica count to 6")
-		// scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+		stsReplicas = 4
+		ginkgo.By("Scale up statefulset replica count to 6")
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas,
+			parallelStatefulSetCreation, true)
 
-		// ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
-		// verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-		// 	namespace, allowedTopologies, parallelStatefulSetCreation)
+		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
 	})
 
 	/*
@@ -769,7 +771,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	ginkgo.It("TC-10", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		stsReplicas = 1
+		stsReplicas = 2
 		pvcCount := 1
 		var podList []*v1.Pod
 
@@ -792,9 +794,13 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet with replica set 5")
 		statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
 			stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
-		// defer func() {
-		// 	fss.DeleteAllStatefulSets(client, namespace)
-		// }()
+		defer func() {
+			deleteAllStatefulSetAndPVs(client, namespace)
+		}()
+
+		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
 
 		ginkgo.By("Create StorageClass with default parameters using Immediate binding mode")
 		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
@@ -862,14 +868,22 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
-		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation, true)
-
-		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(podList); i++ {
 			verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i],
 				namespace, allowedTopologies, true)
 		}
+
+		stsReplicas = 1
+		ginkgo.By("Scale down statefulset replica count to 1")
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		stsReplicas = 3
+		ginkgo.By("Scale up statefulset replica count to 6")
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, stsReplicas, parallelStatefulSetCreation, true)
+
+		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
 	})
 
 	/*
