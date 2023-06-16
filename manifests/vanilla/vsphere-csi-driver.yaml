@@ -243,7 +243,7 @@ spec:
       dnsPolicy: "Default"
       containers:
         - name: csi-attacher
-          image: registry.k8s.io/sig-storage/csi-attacher:v4.2.0
+          image: registry.k8s.io/sig-storage/csi-attacher:v4.3.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -261,7 +261,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-resizer
-          image: registry.k8s.io/sig-storage/csi-resizer:v1.7.0
+          image: registry.k8s.io/sig-storage/csi-resizer:v1.8.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -328,7 +328,7 @@ spec:
             periodSeconds: 180
             failureThreshold: 3
         - name: liveness-probe
-          image: registry.k8s.io/sig-storage/livenessprobe:v2.9.0
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.10.0
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"
@@ -371,7 +371,7 @@ spec:
               name: vsphere-config-volume
               readOnly: true
         - name: csi-provisioner
-          image: registry.k8s.io/sig-storage/csi-provisioner:v3.4.0
+          image: registry.k8s.io/sig-storage/csi-provisioner:v3.5.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -393,7 +393,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-snapshotter
-          image: registry.k8s.io/sig-storage/csi-snapshotter:v6.2.1
+          image: registry.k8s.io/sig-storage/csi-snapshotter:v6.2.2
           args:
             - "--v=4"
             - "--kube-api-qps=100"
@@ -444,7 +444,7 @@ spec:
       dnsPolicy: "ClusterFirstWithHostNet"
       containers:
         - name: node-driver-registrar
-          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.7.0
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.8.0
           args:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
@@ -529,7 +529,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
         - name: liveness-probe
-          image: registry.k8s.io/sig-storage/livenessprobe:v2.9.0
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.10.0
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"
@@ -591,7 +591,7 @@ spec:
       serviceAccountName: vsphere-csi-node
       containers:
         - name: node-driver-registrar
-          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.7.0
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.8.0
           args:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
@@ -671,7 +671,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
         - name: liveness-probe
-          image: registry.k8s.io/sig-storage/livenessprobe:v2.9.0
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.10.0
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"
