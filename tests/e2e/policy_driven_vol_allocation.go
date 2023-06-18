@@ -3163,7 +3163,7 @@ func verifyKnownDataInPod(f *framework.Framework, pod *v1.Pod, testdataFile stri
 			"/bin/sh", "-c", "dd if=/mnt/volume1/f1 of=/mnt/volume1/testdata bs=1M count=100 skip=" + skip}
 		_ = framework.RunKubectlOrDie(pod.Namespace, cmd...)
 		_ = framework.RunKubectlOrDie(pod.Namespace, "cp",
-			fmt.Sprintf("%v/%v:/mnt/volume1/testdata", pod.Namespace, pod.Name),
+			fmt.Sprintf("%v/%v:mnt/volume1/testdata", pod.Namespace, pod.Name),
 			testdataFile+pod.Name)
 		framework.Logf("Running diff with source file and file from pod %v for 100M starting %vM", pod.Name, skip)
 		op, err := exec.Command("diff", testdataFile, testdataFile+pod.Name).Output()
