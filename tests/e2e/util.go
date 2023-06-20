@@ -659,9 +659,8 @@ func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string,
 func getVirtualDeviceByDiskID(ctx context.Context, vm *object.VirtualMachine,
 	diskID string) (vim25types.BaseVirtualDevice, error) {
 	vmname, err := vm.Common.ObjectName(ctx)
-	//gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	if err != nil {
-		framework.Logf("failed to get the devices for VM: %q. err: %+v", vmname, err)
+		framework.Logf("failed to get the device name: %q. err: %+v", vmname, err)
 		return nil, err
 	}
 	vmDevices, err := vm.Device(ctx)

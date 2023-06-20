@@ -1,5 +1,5 @@
 /*
-Copyright 2019 The Kubernetes Authors.
+Copyright 2023 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,7 +27,9 @@ import (
 var multiVCe2eVSphere multiVCvSphere
 var multiVCtestConfig *multiVCe2eTestConfig
 
-// bootstrap function takes care of initializing necessary tests context for e2e tests
+/*
+multiVCbootstrap function takes care of initializing necessary tests context for e2e tests
+*/
 func multiVCbootstrap(withoutDc ...bool) {
 	var err error
 	multiVCtestConfig, err = getMultiVCConfig()

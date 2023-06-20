@@ -107,7 +107,9 @@ type TopologyLevel5Config1 struct {
 	TopologyCategories string `gcfg:"topology-categories"`
 }
 
-// getConfig returns e2eTestConfig struct for e2e tests to help establish vSphere connection.
+/*
+getMultiVCConfig returns e2eTestConfig struct for e2e tests to help establish vSphere connection.
+*/
 func getMultiVCConfig() (*multiVCe2eTestConfig, error) {
 	var confFileLocation = os.Getenv(multiVCe2eTestConfFileEnvVar)
 	if confFileLocation == "" {
@@ -125,7 +127,7 @@ func getMultiVCConfig() (*multiVCe2eTestConfig, error) {
 	return &cfg, nil
 }
 
-// readConfig parses e2e tests config file into Config struct.
+/* readmultiVCConfig parses e2e tests config file into Config struct. */
 func readmultiVCConfig(config io.Reader) (multiVCe2eTestConfig, error) {
 	if config == nil {
 		err := fmt.Errorf("no config file given")

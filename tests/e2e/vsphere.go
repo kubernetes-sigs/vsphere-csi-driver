@@ -97,7 +97,10 @@ func (vs *vSphere) queryCNSVolumeWithResult(fcdID string) (*cnstypes.CnsQueryRes
 	return &res.Returnval, nil
 }
 
-// queryCNSVolumeWithResultForMultiVC Call CnsQueryVolume and returns CnsQueryResult to client for multiVC setup
+/*
+queryCNSVolumeWithResultForMultiVC Call CnsQueryVolume and returns CnsQueryResult to client for
+a multiVC setup
+*/
 func (vs *multiVCvSphere) queryCNSVolumeWithResultForMultiVC(fcdID string) (*cnstypes.CnsQueryResult, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -224,27 +227,7 @@ func (vs *vSphere) getAllDatacenters(ctx context.Context) ([]*object.Datacenter,
 	return finder.DatacenterList(ctx, "*")
 }
 
-// func (vs *multiVCvSphere) getAllDatacentersForMultiVC(ctx context.Context) ([]*object.Datacenter, error) {
-//     connectMultiVC(ctx, vs)
-//     var finder *find.Finder
-//     for i := 0; i < len(vs.multiVcClient); i++ {
-//         soapClient := vs.multiVcClient[i].Client.Client
-//         if soapClient == nil {
-//             return nil, fmt.Errorf("soapClient is nil")
-//         }
-//         vimClient := &vim25.Client{
-//             Client: soapClient,
-//         }
-//         currentFinder := find.NewFinder(vimClient, false)
-//         finder = currentFinder
-//         // Use the currentFinder if needed within the loop
-//     }
-//     if finder == nil {
-//         return nil, fmt.Errorf("failed to create a valid Finder")
-//     }
-//     return finder.DatacenterList(ctx, "*")
-// }
-
+/* getAllDatacentersForMultiVC returns all the DataCenter Objects for a multivc environment */
 func (vs *multiVCvSphere) getAllDatacentersForMultiVC(ctx context.Context) ([]*object.Datacenter, error) {
 	connectMultiVC(ctx, vs)
 	var finder *find.Finder
@@ -262,6 +245,9 @@ func (vs *multiVCvSphere) getAllDatacentersForMultiVC(ctx context.Context) ([]*o
 	return finder.DatacenterList(ctx, "*")
 }
 
+/*
+convertToVimClient converts soap client to vim client
+*/
 func convertToVimClient(ctx context.Context, soapClient *soap.Client) (*vim25.Client, error) {
 	// Create a new *vim25.Client using the *soap.Client, context, and a RoundTripper
 	vimClient, err := vim25.NewClient(ctx, soapClient)
@@ -271,22 +257,6 @@ func convertToVimClient(ctx context.Context, soapClient *soap.Client) (*vim25.Cl
 
 	return vimClient, nil
 }
-
-// var findersList []*object.Datacenter
-
-// for i := 0; i < len(vs.multiVcClient); i++ {
-// 	soapClient := vs.multiVcClient[i].Client.Client
-// 	vimClient := vim25.Client{Client: soapClient}
-// 	finder := find.NewFinder(&vimClient, false)
-// 	datacenters, err := finder.DatacenterList(ctx, "*")
-// 	if err != nil {
-// 		// Handle the error appropriately
-// 	}
-// 	findersList = append(findersList, datacenters...)
-// }
-// return findersList, nil
-
-//}
 
 // getDatacenter returns the DataCenter Object for the given datacenterPath
 func (vs *vSphere) getDatacenter(ctx context.Context, datacenterPath string) (*object.Datacenter, error) {
@@ -326,7 +296,10 @@ func (vs *vSphere) getVMByUUID(ctx context.Context, vmUUID string) (object.Refer
 	return nil, fmt.Errorf("node VM with UUID:%s is not found", vmUUID)
 }
 
-// getVMByUUID gets the VM object Reference from the given vmUUID
+/*
+getVMByUUIDForMultiVC gets the VM object Reference from the given vmUUID
+for a multivc environment
+*/
 func (vs *multiVCvSphere) getVMByUUIDForMultiVC(ctx context.Context, vmUUID string) (object.Reference, error) {
 	connectMultiVC(ctx, vs)
 	dcList, err := vs.getAllDatacentersForMultiVC(ctx)
@@ -399,8 +372,11 @@ func (vs *vSphere) getVMByUUIDWithWait(ctx context.Context,
 	return vmMoRefForvmUUID, nil
 }
 
-// getVMByUUIDWithWait gets the VM object Reference from the given vmUUID with a given wait timeout
-func (vs *multiVCvSphere) getVMByUUIDWithWaitInMultiVC(ctx context.Context,
+/*
+getVMByUUIDWithWaitForMultiVC gets the VM object Reference from the given vmUUID with a given
+wait timeout on a multivc environment
+*/
+func (vs *multiVCvSphere) getVMByUUIDWithWaitForMultiVC(ctx context.Context,
 	vmUUID string, timeout time.Duration) (object.Reference, error) {
 	connectMultiVC(ctx, vs)
 	dcList, err := vs.getAllDatacentersForMultiVC(ctx)
@@ -461,8 +437,11 @@ func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID str
 	return true, nil
 }
 
-// isVolumeAttachedToVM checks volume is attached to the VM by vmUUID.
-// This function returns true if volume is attached to the VM, else returns false
+/*
+verifyVolumeIsAttachedToVMInMultiVC checks volume is attached to the VM by vmUUID on a
+multivc environment. This function returns true if volume is attached to the VM, else returns
+false
+*/
 func (vs *multiVCvSphere) verifyVolumeIsAttachedToVMInMultiVC(client clientset.Interface, volumeID string, vmUUID string) (bool, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -533,15 +512,17 @@ func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface,
 	return true, nil
 }
 
-// waitForVolumeDetachedFromNode checks volume is detached from the node
-// This function checks disks status every 3 seconds until detachTimeout, which is set to 360 seconds
+/*
+waitForVolumeDetachedFromNodeInMultiVC checks volume is detached from the node on a multivc environment.
+This function checks disks status every 3 seconds until detachTimeout, which is set to 360 seconds
+*/
 func (vs *multiVCvSphere) waitForVolumeDetachedFromNodeInMultiVC(client clientset.Interface,
 	volumeID string, nodeName string) (bool, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if supervisorCluster {
-		_, err := e2eVSphere.getVMByUUIDWithWait(ctx, nodeName, supervisorClusterOperationsTimeout)
+		_, err := multiVCe2eVSphere.getVMByUUIDWithWaitForMultiVC(ctx, nodeName, supervisorClusterOperationsTimeout)
 		if err == nil {
 			return false, fmt.Errorf(
 				"PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", nodeName, volumeID)

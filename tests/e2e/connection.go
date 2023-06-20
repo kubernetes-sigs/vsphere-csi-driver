@@ -80,6 +80,10 @@ func connect(ctx context.Context, vs *vSphere) {
 	vs.Client = newClient(ctx, vs)
 }
 
+/*
+connectMultiVC helps make a connection to a multiple vCenter Server. No actions are taken if a connection
+exists and alive. Otherwise, a new client will be created.
+*/
 func connectMultiVC(ctx context.Context, vs *multiVCvSphere) {
 	clientLock.Lock()
 	defer clientLock.Unlock()
@@ -119,7 +123,9 @@ func newClient(ctx context.Context, vs *vSphere) *govmomi.Client {
 	return client
 }
 
-// newClient creates a new client for vSphere connection.
+/*
+newClientForMultiVC creates a new client for vSphere connection on a multivc environment
+*/
 func newClientForMultiVC(ctx context.Context, vs *multiVCvSphere) []*govmomi.Client {
 	var clients []*govmomi.Client
 	configUser := strings.Split(vs.multivcConfig.Global.User[0], ",")
@@ -160,7 +166,9 @@ func connectCns(ctx context.Context, vs *vSphere) error {
 	return nil
 }
 
-// connectCns creates a CNS client for the virtual center.
+/*
+connectMultiVcCns creates a CNS client for the virtual center for a multivc environment
+*/
 func connectMultiVcCns(ctx context.Context, vs *multiVCvSphere) error {
 	var err error
 	clientMutex.Lock()

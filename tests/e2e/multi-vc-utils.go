@@ -28,6 +28,7 @@ import (
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -37,7 +38,10 @@ import (
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
-// deletePVCInParallel deletes PVC in a given namespace in parallel
+/*
+createCustomisedStatefulSets util methods creates statefulset as per the user's
+specific requirement and returns the customised statefulset
+*/
 func createCustomisedStatefulSets(client clientset.Interface, namespace string,
 	isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
 	allowedTopologies []v1.TopologySelectorLabelRequirement, allowedTopologyLen int,
@@ -91,6 +95,7 @@ func createCustomisedStatefulSets(client clientset.Interface, namespace string,
 	return statefulset
 }
 
+/*setNodeAffinitiesForStatefulSet creates and returns nodeSelectorTerms for a statefulSet*/
 func setNodeAffinitiesForStatefulSet(allowedTopologies []v1.TopologySelectorLabelRequirement,
 	allowedTopologyLen int) []v1.NodeSelectorTerm {
 	var nodeSelectorRequirements []v1.NodeSelectorRequirement
@@ -110,15 +115,7 @@ func setNodeAffinitiesForStatefulSet(allowedTopologies []v1.TopologySelectorLabe
 	return nodeSelectorTerms
 }
 
-// func setPodAffinitiesForStatefulSet(allowedTopologies []v1.TopologySelectorLabelRequirement,
-// 	allowedTopologyLen int) []v1.PodAntiAffinityTerm {
-// 		var podAntiAffinitySelectorTerm v1.PodAntiAffinity
-// 		podAntiAffinitySelectorTerm.RequiredDuringSchedulingIgnoredDuringExecution = append(podAntiAffinitySelectorTerm.RequiredDuringSchedulingIgnoredDuringExecution, )
-// 		var nodeSelectorRequirement v1.NodeSelectorRequiremen
-
-// 	return podSelectorTerms
-// }
-
+/* setSpecificAllowedTopology returns allowedTopology map with specific topology fields and values */
 func setSpecificAllowedTopology(allowedTopologies []v1.TopologySelectorLabelRequirement,
 	topkeyStartIndex int, startIndex int, endIndex int) []v1.TopologySelectorLabelRequirement {
 	var allowedTopologiesMap []v1.TopologySelectorLabelRequirement
@@ -131,6 +128,10 @@ func setSpecificAllowedTopology(allowedTopologies []v1.TopologySelectorLabelRequ
 	return allowedTopologiesMap
 }
 
+/*
+If we have multiple statefulsets and PVCs/PVs created on a given namespace and for performing
+cleanup of these multiple sts creation, deleteAllStatefulSetAndPVs is used
+*/
 func deleteAllStatefulSetAndPVs(c clientset.Interface, ns string) {
 	StatefulSetPoll := 10 * time.Second
 	StatefulSetTimeout := 10 * time.Minute
@@ -205,8 +206,10 @@ func deleteAllStatefulSetAndPVs(c clientset.Interface, ns string) {
 	}
 }
 
-// verifyVolumeMetadataInCNS verifies container volume metadata is matching the
-// one is CNS cache.
+/*
+verifyVolumeMetadataInCNSForMultiVC verifies container volume metadata is matching the
+one is CNS cache on a multivc environment.
+*/
 func verifyVolumeMetadataInCNSForMultiVC(vs *multiVCvSphere, volumeID string,
 	PersistentVolumeClaimName string, PersistentVolumeName string,
 	PodName string, Labels ...vim25types.KeyValue) error {
@@ -257,4 +260,99 @@ func verifyVolumeMetadataInCNSForMultiVC(vs *multiVCvSphere, volumeID string,
 	}
 	ginkgo.By(fmt.Sprintf("successfully verified metadata of the volume %q", volumeID))
 	return nil
+}
+
+/*
+performOfflineAndOnlineVolumeExpansionOnPVC verifies and checks offline and online
+volume expansion on a multivc setup
+*/
+func performOfflineAndOnlineVolumeExpansionOnPVC(f *framework.Framework, client clientset.Interface,
+	pvclaim *v1.PersistentVolumeClaim, pv []*v1.PersistentVolume,
+	volHandle string, namespace string) *v1.Pod {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var err error
+
+	ginkgo.By("Invoking Test for Volume Expansion")
+
+	// Modify PVC spec to trigger volume expansion
+	// We expand the PVC while no pod is using it to ensure offline expansion
+	ginkgo.By("Expanding current pvc")
+	currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+	newSize := currentPvcSize.DeepCopy()
+	newSize.Add(resource.MustParse("1Gi"))
+	framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+	pvclaim, err = expandPVCSize(pvclaim, newSize, client)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+
+	pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+	if pvcSize.Cmp(newSize) != 0 {
+		framework.Failf("error updating pvc size %q", pvclaim.Name)
+	}
+
+	ginkgo.By("Waiting for controller volume resize to finish")
+	err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Checking for conditions on pvc")
+	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+	queryResult, err := multiVCe2eVSphere.queryCNSVolumeWithResultForMultiVC(volHandle)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	if len(queryResult.Volumes) == 0 {
+		err = fmt.Errorf("queryCNSVolumeWithResult returned no volume")
+	}
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By("Verifying disk size requested in volume expansion is honored")
+	newSizeInMb := int64(3072)
+	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
+		err = fmt.Errorf("got wrong disk size after volume expansion")
+	}
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Create a Pod to use this PVC, and verify volume has been attached
+	ginkgo.By("Creating pod to attach PV to the node")
+	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, pod.Spec.NodeName))
+	vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)
+	framework.Logf("VMUUID : %s", vmUUID)
+	isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(client, volHandle, vmUUID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+
+	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
+	_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+		[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Waiting for file system resize to finish")
+	pvclaim, err = waitForFSResize(pvclaim, client)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	pvcConditions := pvclaim.Status.Conditions
+	expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
+
+	var fsSize int64
+
+	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
+	fsSize, err = getFSSizeMb(f, pod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("File system size after expansion : %s", fsSize)
+
+	// Filesystem size may be smaller than the size of the block volume
+	// so here we are checking if the new filesystem size is greater than
+	// the original volume size as the filesystem is formatted for the
+	// first time after pod creation
+	if fsSize < diskSizeInMb {
+		framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize)
+	}
+	ginkgo.By("File system resize finished successfully")
+
+	return pod
 }
