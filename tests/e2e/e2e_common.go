@@ -268,6 +268,11 @@ var (
 	nimbusVcPwd    = "VC_PWD"
 	vcUIPwd        = "VC_ADMIN_PWD"
 )
+var (
+	envSharedDatastoreURLVC1                 = "SHARED_VSPHERE_DATASTORE_URL_VC1"
+	envSharedDatastoreURLVC2                 = "SHARED_VSPHERE_DATASTORE_URL_VC2"
+	envStoragePolicyNameForSharedDatastores3 = "STORAGE_POLICY_FOR_SHARED_DATASTORES_3"
+)
 
 // volume allocation types for cns volumes
 var (

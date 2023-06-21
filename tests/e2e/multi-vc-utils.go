@@ -26,6 +26,7 @@ import (
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	"golang.org/x/crypto/ssh"
 	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -35,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
@@ -355,4 +357,30 @@ func performOfflineAndOnlineVolumeExpansionOnPVC(f *framework.Framework, client 
 	ginkgo.By("File system resize finished successfully")
 
 	return pod
+}
+
+// govc login cmd
+func govcLoginCmdForMultiVC() string {
+	configUser := strings.Split(multiVCe2eVSphere.multivcConfig.Global.User[0], ",")
+	configPwd := strings.Split(multiVCe2eVSphere.multivcConfig.Global.Password[0], ",")
+	configvCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname[0], ",")
+	configvCenterPort := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterPort[0], ",")
+
+	loginCmd := "export GOVC_INSECURE=1;"
+	loginCmd += fmt.Sprintf("export GOVC_URL='https://%s:%s@%s:%s';",
+		configUser[0], configPwd[0], configvCenterHostname[0], configvCenterPort[0])
+	return loginCmd
+}
+
+func deleteStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig, storagePolicyName string) error {
+	removeStoragePolicy := govcLoginCmdForMultiVC() +
+		"govc storage.policy.rm " + storagePolicyName
+	framework.Logf("Remove storage policy: %s ", removeStoragePolicy)
+	removeStoragePolicytRes, err := sshExec(sshClientConfig, masterIp, removeStoragePolicy)
+	if err != nil && removeStoragePolicytRes.Code != 0 {
+		fssh.LogResult(removeStoragePolicytRes)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			removeStoragePolicy, masterIp, err)
+	}
+	return nil
 }
