@@ -242,6 +242,10 @@ func GenerateDatastoreMapForBlockVolumes(ctx context.Context,
 		}
 	}
 
+	if len(entities) == 0 {
+		return map[string]*cnsvsphere.DatastoreInfo{}, nil
+	}
+
 	dsURLToInfoMap, err := getDatastoresWithBlockVolumePrivs(ctx, vc, dsURLs, dsInfos, entities)
 	if err != nil {
 		log.Errorf("failed to get datastores with required priv for vCenter %q. Error: %+v", vc.Config.Host, err)
@@ -372,7 +376,7 @@ func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *cnsvsphere.Virtu
 
 	userName := vc.Config.Username
 	// Invoke authMgr function HasUserPrivilegeOnEntities.
-	result, err := authMgr.HasUserPrivilegeOnEntities(ctx, entities, userName, privIds)
+	result, err := authMgr.HasUserPrivilegeOnEntities(ctx, entities, userName, privIds) // entities empty -> error
 	if err != nil {
 		log.Errorf("auth manager: failed to check privilege %v on entities %v for user %s and for vCenter %q",
 			privIds, entities, userName, vc.Config.Host)
