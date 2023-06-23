@@ -97,18 +97,11 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 
 		// Expect claim to fail provisioning volume within the topology
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
-		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
-			client, pvclaim.Namespace, pvclaim.Name, pollTimeoutShort, framework.PollShortTimeout))
-
-		// Get the event list and verify if it contains expected error message
-		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(ctx, metav1.ListOptions{})
-		gomega.Expect(eventList.Items).NotTo(gomega.BeEmpty())
-		actualErrMsg := eventList.Items[len(eventList.Items)-1].Message
-		framework.Logf(fmt.Sprintf("Actual failure message: %+q", actualErrMsg))
 		expectedErrMsg := "failed to get shared datastores for topology requirement"
-		framework.Logf(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
-		gomega.Expect(strings.Contains(actualErrMsg, expectedErrMsg)).To(gomega.BeTrue(),
-			fmt.Sprintf("actualErrMsg: %q does not contain expectedErrMsg: %q", actualErrMsg, expectedErrMsg))
+		isFailureFound, err := waitForEventWithReason(client, namespace, pvclaim.Name, expectedErrMsg)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isFailureFound).To(
+			gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
 	})
 
 	/*
@@ -154,8 +147,8 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 
 		ginkgo.By("Expect claim to pass provisioning volume")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
-			pvclaim.Namespace, pvclaim.Name, framework.Poll, pollTimeoutShort)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume with err: "+err.Error())
 
 		ginkgo.By("Verify if volume is provisioned in specified region")
 		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)

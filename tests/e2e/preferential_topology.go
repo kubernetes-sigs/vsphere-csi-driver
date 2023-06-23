@@ -1847,11 +1847,12 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		}()
 
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
-		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
-			client, pvclaim.Namespace, pvclaim.Name, pollTimeoutShort, framework.PollShortTimeout))
 		expectedErrMsg := "failed to create volume"
-		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
+		isFailureFound, err := waitForEventWithReason(client, namespace, pvclaim.Name, expectedErrMsg)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isFailureFound).To(
+			gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
+
 	})
 
 	/*
@@ -2378,11 +2379,12 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		}()
 
 		ginkgo.By("Expect claim to fail provisioning volume")
-		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
-			client, pvclaim.Namespace, pvclaim.Name, pollTimeoutShort, framework.PollShortTimeout))
 		expectedErrMsg := "failed to create volume"
-		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
+		isFailureFound, err := waitForEventWithReason(client, namespace, pvclaim.Name, expectedErrMsg)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isFailureFound).To(
+			gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
+
 	})
 
 	/*
@@ -2483,9 +2485,9 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 
 		ginkgo.By("Expect claim status to be in Pending state since sps service is down")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvc.Namespace, pvc.Name, framework.Poll, time.Minute)
+			pvc.Namespace, pvc.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+			"Failed to find the volume in pending state with err: "+err.Error())
 
 		ginkgo.By("Bringup SPS service")
 		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)

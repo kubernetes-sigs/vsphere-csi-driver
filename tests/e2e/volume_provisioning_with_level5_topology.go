@@ -817,7 +817,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		expectedErrMsg := "volume topology feature for file volumes is not supported."
 		framework.Logf("Expected failure message: %+q", expectedErrMsg)
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvc.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Expected error: "+expectedErrMsg)
 	})
 
 	/*

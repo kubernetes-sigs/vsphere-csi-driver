@@ -448,7 +448,8 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		expectedErrMsg := "failed to get the compatible shared datastore for create volume from snapshot"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim2.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Expected error: "+expectedErrMsg)
+
 		defer func() {
 			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
