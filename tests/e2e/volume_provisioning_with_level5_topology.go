@@ -251,7 +251,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		*(statefulset.Spec.Replicas) = 3
 		statefulset.Spec.PodManagementPolicy = apps.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = sc.Name
+			Spec.StorageClassName = &sc.Name
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 
@@ -339,7 +339,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		*(statefulset.Spec.Replicas) = 3
 		statefulset.Spec.PodManagementPolicy = apps.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = sc.Name
+			Spec.StorageClassName = &sc.Name
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
@@ -529,7 +529,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		*(statefulset.Spec.Replicas) = 3
 		statefulset.Spec.PodManagementPolicy = apps.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+			Spec.StorageClassName = &storageclass.Name
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)

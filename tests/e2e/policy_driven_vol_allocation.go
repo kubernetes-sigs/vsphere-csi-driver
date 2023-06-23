@@ -53,9 +53,6 @@ var spareSpace int64 = 200
 
 var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation tests", func() {
 	f := framework.NewDefaultFramework("e2e-spbm-policy")
-	if supervisorCluster {
-		framework.TestContext.DeleteNamespace = false
-	}
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client          clientset.Interface
@@ -90,9 +87,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		if vsanDirectSetup == "VSAN_DIRECT" {
 			wcpVsanDirectCluster = true
 		}
-		if supervisorCluster {
-			f.Namespace.Name = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-		}
 		labelKey = "app"
 		labelValue = "e2e-labels"
 	})
@@ -101,6 +95,17 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		setVpxdTaskTimeout(ctx, 0) // reset vpxd timeout to default
+
+		if supervisorCluster {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			framework.Logf("Collecting supervisor PVC events before performing PV/PVC cleanup")
+			eventList, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, item := range eventList.Items {
+				framework.Logf(fmt.Sprintf(item.Message))
+			}
+		}
 	})
 
 	/*
@@ -124,7 +129,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		defer cancel()
 		sharedvmfsURL, vsanDDatstoreURL := "", ""
 		var allocationTypes []string
-
 		scParameters := make(map[string]string)
 		policyNames := []string{}
 		pvcs := []*v1.PersistentVolumeClaim{}

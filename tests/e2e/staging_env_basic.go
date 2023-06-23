@@ -190,7 +190,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		statefulset.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort = port
 		statefulset.Spec.Template.Spec.Containers[0].Ports[0].Name = "web" + val + strconv.Itoa(min)
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storagePolicyName
+			Spec.StorageClassName = &storagePolicyName
 
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
@@ -423,7 +423,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		statefulset.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort = port
 		statefulset.Spec.Template.Spec.Containers[0].Ports[0].Name = "web" + val + strconv.Itoa(min)
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storagePolicyName
+			Spec.StorageClassName = &storagePolicyName
 
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
@@ -662,7 +662,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		statefulset.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort = port
 		statefulset.Spec.Template.Spec.Containers[0].Ports[0].Name = "web" + val + strconv.Itoa(min)
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storagePolicyName
+			Spec.StorageClassName = &storagePolicyName
 
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
@@ -733,7 +733,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		statefulset = GetResizedStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storagePolicyName
+			Spec.StorageClassName = &storagePolicyName
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas = *(statefulset.Spec.Replicas)
 

@@ -182,7 +182,7 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 	statefulset := GetStatefulSetFromManifest(namespace)
 	ginkgo.By("Creating statefulset")
 	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-		Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+		Spec.StorageClassName = &storageclass.Name
 	*statefulset.Spec.Replicas = 3
 	_, err = client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
 	framework.ExpectNoError(err)

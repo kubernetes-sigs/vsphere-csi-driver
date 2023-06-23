@@ -25,10 +25,9 @@ spec:
   volumeClaimTemplates:
   - metadata:
       name: www
-      annotations:
-        volume.beta.kubernetes.io/storage-class: nginx-sc
     spec:
       accessModes: [ "ReadWriteOnce" ]
+      storageClassName: nginx-sc
       resources:
         requests:
           storage: 1Gi
