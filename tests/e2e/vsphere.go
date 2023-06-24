@@ -3,11 +3,13 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -37,12 +39,6 @@ type vSphere struct {
 	Config    *e2eTestConfig
 	Client    *govmomi.Client
 	CnsClient *cnsClient
-}
-
-type multiVCvSphere struct {
-	multivcConfig    *multiVCe2eTestConfig
-	multiVcClient    []*govmomi.Client
-	multiVcCnsClient []*cnsClient
 }
 
 // VsanClient struct holds vim and soap client
@@ -93,53 +89,6 @@ func (vs *vSphere) queryCNSVolumeWithResult(fcdID string) (*cnstypes.CnsQueryRes
 	res, err := cnsmethods.CnsQueryVolume(ctx, vs.CnsClient.Client, &req)
 	if err != nil {
 		return nil, err
-	}
-	return &res.Returnval, nil
-}
-
-/*
-queryCNSVolumeWithResultForMultiVC Call CnsQueryVolume and returns CnsQueryResult to client for
-a multiVC setup
-*/
-func (vs *multiVCvSphere) queryCNSVolumeWithResultForMultiVC(fcdID string) (*cnstypes.CnsQueryResult, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var res *cnstypes.CnsQueryVolumeResponse
-	// Connect to VC
-	connectMultiVC(ctx, vs)
-	var volumeIds []cnstypes.CnsVolumeId
-	volumeIds = append(volumeIds, cnstypes.CnsVolumeId{
-		Id: fcdID,
-	})
-	queryFilter := cnstypes.CnsQueryFilter{
-		VolumeIds: volumeIds,
-		Cursor: &cnstypes.CnsCursor{
-			Offset: 0,
-			Limit:  100,
-		},
-	}
-	req := cnstypes.CnsQueryVolume{
-		This:   cnsVolumeManagerInstance,
-		Filter: queryFilter,
-	}
-
-	err := connectMultiVcCns(ctx, vs)
-	if err != nil {
-		return nil, err
-	}
-	for i := 0; i < len(vs.multiVcCnsClient); i++ {
-		res, err = cnsmethods.CnsQueryVolume(ctx, vs.multiVcCnsClient[i].Client, &req)
-		if res.Returnval.Volumes == nil {
-			continue
-		}
-
-		if res.Returnval.Volumes != nil && err == nil {
-			return &res.Returnval, nil
-		}
-
-		if err != nil {
-			return nil, err
-		}
 	}
 	return &res.Returnval, nil
 }
@@ -206,6 +155,25 @@ func verifySnapshotIsDeletedInCNS(volumeId string, snapshotId string) error {
 	return nil
 }
 
+// verifySnapshotIsDeletedInCNSWithPandoraWait verifies the snapshotId's presence on CNS
+func verifySnapshotIsDeletedInCNSWithPandoraWait(volumeId string, snapshotId string, pandoraSyncWaitTime int) error {
+	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",
+		volumeId, snapshotId))
+	querySnapshotResult, err := e2eVSphere.queryCNSVolumeSnapshotWithResult(volumeId, snapshotId)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("Task result is %+v", querySnapshotResult))
+	gomega.Expect(querySnapshotResult.Entries).ShouldNot(gomega.BeEmpty())
+	if querySnapshotResult.Entries[0].Snapshot.SnapshotId.Id != "" {
+		return fmt.Errorf("snapshot entry is still present in CNS %s",
+			querySnapshotResult.Entries[0].Snapshot.SnapshotId.Id)
+	}
+
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+	return nil
+}
+
 // verifySnapshotIsCreatedInCNS verifies the snapshotId's presence on CNS
 func verifySnapshotIsCreatedInCNS(volumeId string, snapshotId string) error {
 	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",
@@ -225,37 +193,6 @@ func (vs *vSphere) getAllDatacenters(ctx context.Context) ([]*object.Datacenter,
 	connect(ctx, vs)
 	finder := find.NewFinder(vs.Client.Client, false)
 	return finder.DatacenterList(ctx, "*")
-}
-
-/* getAllDatacentersForMultiVC returns all the DataCenter Objects for a multivc environment */
-func (vs *multiVCvSphere) getAllDatacentersForMultiVC(ctx context.Context) ([]*object.Datacenter, error) {
-	connectMultiVC(ctx, vs)
-	var finder *find.Finder
-	for i := 0; i < len(vs.multiVcClient); i++ {
-		soapClient := vs.multiVcClient[i].Client.Client
-		if soapClient == nil {
-			return nil, fmt.Errorf("soapClient is nil")
-		}
-		vimClient, err := convertToVimClient(ctx, soapClient)
-		if err != nil {
-			return nil, err
-		}
-		finder = find.NewFinder(vimClient, false)
-	}
-	return finder.DatacenterList(ctx, "*")
-}
-
-/*
-convertToVimClient converts soap client to vim client
-*/
-func convertToVimClient(ctx context.Context, soapClient *soap.Client) (*vim25.Client, error) {
-	// Create a new *vim25.Client using the *soap.Client, context, and a RoundTripper
-	vimClient, err := vim25.NewClient(ctx, soapClient)
-	if err != nil {
-		return nil, err
-	}
-
-	return vimClient, nil
 }
 
 // getDatacenter returns the DataCenter Object for the given datacenterPath
@@ -291,37 +228,6 @@ func (vs *vSphere) getVMByUUID(ctx context.Context, vmUUID string) (object.Refer
 			continue
 		}
 		return vmMoRef, nil
-	}
-	framework.Logf("err in getVMByUUID is %+v for vmuuid: %s", err, vmUUID)
-	return nil, fmt.Errorf("node VM with UUID:%s is not found", vmUUID)
-}
-
-/*
-getVMByUUIDForMultiVC gets the VM object Reference from the given vmUUID
-for a multivc environment
-*/
-func (vs *multiVCvSphere) getVMByUUIDForMultiVC(ctx context.Context, vmUUID string) (object.Reference, error) {
-	connectMultiVC(ctx, vs)
-	dcList, err := vs.getAllDatacentersForMultiVC(ctx)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	for _, dc := range dcList {
-		for i := 0; i < len(vs.multiVcClient); i++ {
-			soapClient := vs.multiVcClient[i].Client.Client
-			vimClient, err := vim25.NewClient(ctx, soapClient)
-			if err != nil {
-				continue
-			}
-			datacenter := object.NewDatacenter(vimClient, dc.Reference())
-			s := object.NewSearchIndex(vimClient)
-			vmUUID = strings.ToLower(strings.TrimSpace(vmUUID))
-			instanceUUID := !(vanillaCluster || guestCluster)
-			vmMoRef, err := s.FindByUuid(ctx, datacenter, vmUUID, true, &instanceUUID)
-
-			if err != nil || vmMoRef == nil {
-				continue
-			}
-			return vmMoRef, nil
-		}
 	}
 	framework.Logf("err in getVMByUUID is %+v for vmuuid: %s", err, vmUUID)
 	return nil, fmt.Errorf("node VM with UUID:%s is not found", vmUUID)
@@ -372,49 +278,6 @@ func (vs *vSphere) getVMByUUIDWithWait(ctx context.Context,
 	return vmMoRefForvmUUID, nil
 }
 
-/*
-getVMByUUIDWithWaitForMultiVC gets the VM object Reference from the given vmUUID with a given
-wait timeout on a multivc environment
-*/
-func (vs *multiVCvSphere) getVMByUUIDWithWaitForMultiVC(ctx context.Context,
-	vmUUID string, timeout time.Duration) (object.Reference, error) {
-	connectMultiVC(ctx, vs)
-	dcList, err := vs.getAllDatacentersForMultiVC(ctx)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	var vmMoRefForvmUUID object.Reference
-	for start := time.Now(); time.Since(start) < timeout; time.Sleep(poll) {
-		var vmMoRefFound bool
-		for _, dc := range dcList {
-			for i := 0; i < len(vs.multiVcClient); i++ {
-				soapClient := vs.multiVcClient[i].Client.Client
-				vimClient, err := vim25.NewClient(ctx, soapClient)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				datacenter := object.NewDatacenter(vimClient, dc.Reference())
-				s := object.NewSearchIndex(vimClient)
-				vmUUID = strings.ToLower(strings.TrimSpace(vmUUID))
-				instanceUUID := !(vanillaCluster || guestCluster)
-				vmMoRef, err := s.FindByUuid(ctx, datacenter, vmUUID, true, &instanceUUID)
-
-				if err != nil || vmMoRef == nil {
-					continue
-				}
-				if vmMoRef != nil {
-					vmMoRefFound = true
-					vmMoRefForvmUUID = vmMoRef
-				}
-			}
-		}
-
-		if vmMoRefFound {
-			framework.Logf("vmuuid: %s still exists", vmMoRefForvmUUID)
-			continue
-		} else {
-			return nil, fmt.Errorf("node VM with UUID:%s is not found", vmUUID)
-		}
-	}
-	return vmMoRefForvmUUID, nil
-}
-
 // isVolumeAttachedToVM checks volume is attached to the VM by vmUUID.
 // This function returns true if volume is attached to the VM, else returns false
 func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID string, vmUUID string) (bool, error) {
@@ -435,42 +298,6 @@ func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID str
 	}
 	framework.Logf("Found the disk %q is attached to the VM with UUID: %q", volumeID, vmUUID)
 	return true, nil
-}
-
-/*
-verifyVolumeIsAttachedToVMInMultiVC checks volume is attached to the VM by vmUUID on a
-multivc environment. This function returns true if volume is attached to the VM, else returns
-false
-*/
-func (vs *multiVCvSphere) verifyVolumeIsAttachedToVMInMultiVC(client clientset.Interface, volumeID string, vmUUID string) (bool, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	vmRef, err := vs.getVMByUUIDForMultiVC(ctx, vmUUID)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
-	gomega.Expect(vmRef).NotTo(gomega.BeNil(), "vmRef should not be nil")
-
-	for i := 0; i < len(vs.multiVcClient); i++ {
-		soapClient := vs.multiVcClient[i].Client.Client
-		vimClient, err := vim25.NewClient(ctx, soapClient)
-		if err != nil {
-			// Handle the error appropriately
-			return false, err
-		}
-		vm := object.NewVirtualMachine(vimClient, vmRef.Reference())
-		device, err := getVirtualDeviceByDiskID(ctx, vm, volumeID)
-		if err != nil {
-			framework.Logf("failed to determine whether disk %q is still attached to the VM with UUID: %q", volumeID, vmUUID)
-			continue
-			//return false, err
-		}
-		if device != nil {
-			framework.Logf("Found the disk %q is attached to the VM with UUID: %q", volumeID, vmUUID)
-			return true, nil
-		}
-	}
-
-	return false, nil
 }
 
 // waitForVolumeDetachedFromNode checks volume is detached from the node
@@ -498,47 +325,6 @@ func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface,
 			vmUUID, _ = getVMUUIDFromNodeName(nodeName)
 		}
 		diskAttached, err := vs.isVolumeAttachedToVM(client, volumeID, vmUUID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		if !diskAttached {
-			framework.Logf("Disk: %s successfully detached", volumeID)
-			return true, nil
-		}
-		framework.Logf("Waiting for disk: %q to be detached from the node :%q", volumeID, nodeName)
-		return false, nil
-	})
-	if err != nil {
-		return false, nil
-	}
-	return true, nil
-}
-
-/*
-waitForVolumeDetachedFromNodeInMultiVC checks volume is detached from the node on a multivc environment.
-This function checks disks status every 3 seconds until detachTimeout, which is set to 360 seconds
-*/
-func (vs *multiVCvSphere) waitForVolumeDetachedFromNodeInMultiVC(client clientset.Interface,
-	volumeID string, nodeName string) (bool, error) {
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if supervisorCluster {
-		_, err := multiVCe2eVSphere.getVMByUUIDWithWaitForMultiVC(ctx, nodeName, supervisorClusterOperationsTimeout)
-		if err == nil {
-			return false, fmt.Errorf(
-				"PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM", nodeName, volumeID)
-		} else if strings.Contains(err.Error(), "is not found") {
-			return true, nil
-		}
-		return false, err
-	}
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
-		var vmUUID string
-		if vanillaCluster {
-			vmUUID = getNodeUUID(ctx, client, nodeName)
-		} else {
-			vmUUID, _ = getVMUUIDFromNodeName(nodeName)
-		}
-		diskAttached, err := vs.verifyVolumeIsAttachedToVMInMultiVC(client, volumeID, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if !diskAttached {
 			framework.Logf("Disk: %s successfully detached", volumeID)
@@ -683,30 +469,8 @@ func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string
 // waitForCNSVolumeToBeDeleted executes QueryVolume API on vCenter and verifies
 // volume entries are deleted from vCenter Database
 func (vs *vSphere) waitForCNSVolumeToBeDeleted(volumeID string) error {
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+	err := wait.Poll(poll, 2*pollTimeout, func() (bool, error) {
 		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
-		if err != nil {
-			return true, err
-		}
-
-		if len(queryResult.Volumes) == 0 {
-			framework.Logf("volume %q has successfully deleted", volumeID)
-			return true, nil
-		}
-		framework.Logf("waiting for Volume %q to be deleted.", volumeID)
-		return false, nil
-	})
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// waitForCNSVolumeToBeDeleted executes QueryVolume API on vCenter and verifies
-// volume entries are deleted from vCenter Database
-func (vs *multiVCvSphere) waitForCNSVolumeToBeDeletedInMultiVC(volumeID string) error {
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
-		queryResult, err := vs.queryCNSVolumeWithResultForMultiVC(volumeID)
 		if err != nil {
 			return true, err
 		}
@@ -1025,9 +789,14 @@ func (vs *vSphere) getVsanClusterResource(ctx context.Context, forceRefresh ...b
 }
 
 // getAllHostsIP reads cluster, gets hosts in it and returns IP array
-func getAllHostsIP(ctx context.Context) []string {
+func getAllHostsIP(ctx context.Context, forceRefresh ...bool) []string {
 	var result []string
-	cluster := e2eVSphere.getVsanClusterResource(ctx)
+	refresh := false
+	if len(forceRefresh) > 0 {
+		refresh = forceRefresh[0]
+	}
+
+	cluster := e2eVSphere.getVsanClusterResource(ctx, refresh)
 	hosts, err := cluster.Hosts(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1040,7 +809,7 @@ func getAllHostsIP(ctx context.Context) []string {
 // getHostConnectionState reads cluster, gets hosts in it and returns connection state of host
 func getHostConnectionState(ctx context.Context, addr string) (string, error) {
 	var state string
-	cluster := e2eVSphere.getVsanClusterResource(ctx)
+	cluster := e2eVSphere.getVsanClusterResource(ctx, true)
 	hosts, err := cluster.Hosts(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1334,9 +1103,14 @@ func (vs *vSphere) verifyDatastoreMatch(volumeID string, dsUrls []string) {
 
 // cnsRelocateVolume relocates volume from one datastore to another using CNS relocate volume API
 func (vs *vSphere) cnsRelocateVolume(e2eVSphere vSphere, ctx context.Context, fcdID string,
-	dsRefDest vim25types.ManagedObjectReference) error {
+	dsRefDest vim25types.ManagedObjectReference,
+	waitForRelocateTaskToComplete ...bool) (*object.Task, error) {
 	var pandoraSyncWaitTime int
 	var err error
+	waitForTaskTocomplete := true
+	if len(waitForRelocateTaskToComplete) > 0 {
+		waitForTaskTocomplete = waitForRelocateTaskToComplete[0]
+	}
 	if os.Getenv(envPandoraSyncWaitTime) != "" {
 		pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1358,31 +1132,32 @@ func (vs *vSphere) cnsRelocateVolume(e2eVSphere vSphere, ctx context.Context, fc
 	res, err := cnsmethods.CnsRelocateVolume(ctx, cnsClient, &req)
 	framework.Logf("error is: %v", err)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	task := object.NewTask(e2eVSphere.Client.Client, res.Returnval)
+	if waitForTaskTocomplete {
+		taskInfo, err := task.WaitForResult(ctx, nil)
+		framework.Logf("taskInfo: %v", taskInfo)
+		framework.Logf("error: %v", err)
+		if err != nil {
+			return nil, err
+		}
+		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+		if err != nil {
+			return nil, err
+		}
 
-	task, err := object.NewTask(e2eVSphere.Client.Client, res.Returnval), nil
-	taskInfo, err := task.WaitForResult(ctx, nil)
-	framework.Logf("taskInfo: %v", taskInfo)
-	framework.Logf("error: %v", err)
-	if err != nil {
-		return err
+		framework.Logf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime)
+		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+		cnsRelocateVolumeRes := taskResult.GetCnsVolumeOperationResult()
+
+		if cnsRelocateVolumeRes.Fault != nil {
+			err = fmt.Errorf("failed to relocate volume=%+v", cnsRelocateVolumeRes.Fault)
+			return nil, err
+		}
 	}
-	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
-	if err != nil {
-		return err
-	}
-
-	framework.Logf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime)
-	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
-
-	cnsRelocateVolumeRes := taskResult.GetCnsVolumeOperationResult()
-
-	if cnsRelocateVolumeRes.Fault != nil {
-		err = fmt.Errorf("failed to relocate volume=%+v", cnsRelocateVolumeRes.Fault)
-		return err
-	}
-	return nil
+	return task, nil
 }
 
 // fetchDsUrl4CnsVol executes query CNS volume to get the datastore
@@ -1435,4 +1210,87 @@ func (vs *vSphere) deleteCNSvolume(volumeID string, isDeleteDisk bool) (*cnstype
 		return nil, err
 	}
 	return res, nil
+}
+
+// reconfigPolicy reconfigures given policy on the given volume
+func (vs *vSphere) reconfigPolicy(ctx context.Context, volumeID string, profileID string) error {
+	cnsClient, err := newCnsClient(ctx, vs.Client.Client)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	CnsVolumeManagerInstance := vim25types.ManagedObjectReference{
+		Type:  "CnsVolumeManager",
+		Value: "cns-volume-manager",
+	}
+	req := cnstypes.CnsReconfigVolumePolicy{
+		This: CnsVolumeManagerInstance,
+		VolumePolicyReconfigSpecs: []cnstypes.CnsVolumePolicyReconfigSpec{
+			{
+				VolumeId: cnstypes.CnsVolumeId{Id: volumeID},
+				Profile: []vim25types.BaseVirtualMachineProfileSpec{
+					&vim25types.VirtualMachineDefinedProfileSpec{
+						ProfileId: profileID,
+					},
+				},
+			},
+		},
+	}
+	res, err := cnsmethods.CnsReconfigVolumePolicy(ctx, cnsClient, &req)
+	if err != nil {
+		return err
+	}
+	task := object.NewTask(vs.Client.Client, res.Returnval)
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	if err != nil {
+		return err
+	}
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+	if err != nil {
+		return err
+	}
+	if taskResult == nil {
+		return errors.New("TaskInfo result is empty")
+	}
+	reconfigVolumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+	if reconfigVolumeOperationRes == nil {
+		return errors.New("cnsreconfigpolicy operation result is empty")
+	}
+	if reconfigVolumeOperationRes.Fault != nil {
+		return errors.New("cnsreconfigpolicy operation fault: " + reconfigVolumeOperationRes.Fault.LocalizedMessage)
+	}
+	framework.Logf("reconfigpolicy on volume %v with policy %v is successful", volumeID, profileID)
+	return nil
+}
+
+// cnsRelocateVolumeInParallel relocates volume in parallel from one datastore to another
+// using CNS API
+func cnsRelocateVolumeInParallel(e2eVSphere vSphere, ctx context.Context, fcdID string,
+	dsRefDest vim25types.ManagedObjectReference, waitForRelocateTaskToComplete bool,
+	wg *sync.WaitGroup) {
+	defer wg.Done()
+	_, err := e2eVSphere.cnsRelocateVolume(e2eVSphere, ctx, fcdID, dsRefDest, waitForRelocateTaskToComplete)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+}
+
+// waitForCNSTaskToComplete wait for CNS task to complete
+// and gets the result and checks if any fault has occurred
+func waitForCNSTaskToComplete(ctx context.Context, task *object.Task) *vim25types.LocalizedMethodFault {
+	var pandoraSyncWaitTime int
+	var err error
+	if os.Getenv(envPandoraSyncWaitTime) != "" {
+		pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+	}
+
+	taskInfo, err := task.WaitForResult(ctx, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime)
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+	cnsTaskRes := taskResult.GetCnsVolumeOperationResult()
+	return cnsTaskRes.Fault
 }

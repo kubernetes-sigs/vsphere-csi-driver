@@ -31,7 +31,6 @@ const (
 	adminUser                                  = "Administrator@vsphere.local"
 	apiServerIPs                               = "API_SERVER_IPS"
 	attacherContainerName                      = "csi-attacher"
-	busyBoxImageOnGcr                          = "harbor-repo.vmware.com/csi/busybox:1.35"
 	nginxImage                                 = "registry.k8s.io/nginx-slim:0.26"
 	nginxImage4upg                             = "registry.k8s.io/nginx-slim:0.27"
 	configSecret                               = "vsphere-config-secret"
@@ -78,6 +77,9 @@ const (
 	envSharedNFSDatastoreURL                   = "SHARED_NFS_DATASTORE_URL"
 	envSharedVMFSDatastoreURL                  = "SHARED_VMFS_DATASTORE_URL"
 	envSharedVMFSDatastore2URL                 = "SHARED_VMFS_DATASTORE2_URL"
+	envVsanDirectSetup                         = "USE_VSAN_DIRECT_DATASTORE_IN_WCP"
+	envVsanDDatastoreURL                       = "SHARED_VSAND_DATASTORE_URL"
+	envVsanDDatastore2URL                      = "SHARED_VSAND_DATASTORE2_URL"
 	envStoragePolicyNameForNonSharedDatastores = "STORAGE_POLICY_FOR_NONSHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores    = "STORAGE_POLICY_FOR_SHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores2   = "STORAGE_POLICY_FOR_SHARED_DATASTORES_2"
@@ -93,6 +95,7 @@ const (
 	envVmdkDiskURL                             = "DISK_URL_PATH"
 	envVolumeOperationsScale                   = "VOLUME_OPS_SCALE"
 	envComputeClusterName                      = "COMPUTE_CLUSTER_NAME"
+	envTKGImage                                = "TKG_IMAGE_NAME"
 	execCommand                                = "/bin/df -T /mnt/volume1 | " +
 		"/bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
 	execRWXCommandPod1 = "echo 'Hello message from Pod1' > /mnt/volume1/Pod1.html  && " +
@@ -193,8 +196,8 @@ const (
 	waitTimeForCNSNodeVMAttachmentReconciler  = 30 * time.Second
 	wcpServiceName                            = "wcp"
 	vmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant
-	devopsTKG                                 = "test-cluster-e2e-script"
-	cloudadminTKG                             = "test-cluster-e2e-script-1"
+	devopsTKG                                 = "test-cluster-e2e-script-2"
+	cloudadminTKG                             = "test-cluster-e2e-script-3"
 	vmOperatorAPI                             = "/apis/vmoperator.vmware.com/v1alpha1/"
 	devopsUser                                = "testuser"
 	zoneKey                                   = "failure-domain.beta.kubernetes.io/zone"
@@ -215,6 +218,7 @@ const (
 	topologyLength                             = 5
 	tkgshaTopologyLevels                       = 1
 	vmcPrdEndpoint                             = "https://vmc.vmware.com/vmc/api/orgs/"
+	vsphereClusterIdConfigMapName              = "vsphere-csi-cluster-id"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
 )
@@ -222,10 +226,16 @@ const (
 // The following variables are required to know cluster type to run common e2e
 // tests. These variables will be set once during test suites initialization.
 var (
-	vanillaCluster    bool
-	supervisorCluster bool
-	guestCluster      bool
-	rwxAccessMode     bool
+	vanillaCluster       bool
+	supervisorCluster    bool
+	guestCluster         bool
+	rwxAccessMode        bool
+	wcpVsanDirectCluster bool
+)
+
+// For busybox pod image
+var (
+	busyBoxImageOnGcr = "busybox"
 )
 
 // For VCP to CSI migration tests.
@@ -256,22 +266,12 @@ var (
 	configSecretTestUser2         = "testuser2"
 )
 
-// CSI Internal FSSs
-var (
-	useCsiNodeID = "use-csinode-id"
-)
-
 // Nimbus generated passwords
 var (
 	nimbusK8sVmPwd = "NIMBUS_K8S_VM_PWD"
 	nimbusEsxPwd   = "ESX_PWD"
 	nimbusVcPwd    = "VC_PWD"
 	vcUIPwd        = "VC_ADMIN_PWD"
-)
-var (
-	envSharedDatastoreURLVC1                 = "SHARED_VSPHERE_DATASTORE_URL_VC1"
-	envSharedDatastoreURLVC2                 = "SHARED_VSPHERE_DATASTORE_URL_VC2"
-	envStoragePolicyNameForSharedDatastores3 = "STORAGE_POLICY_FOR_SHARED_DATASTORES_3"
 )
 
 // volume allocation types for cns volumes
@@ -291,6 +291,13 @@ var (
 	nfstoragePolicyDatastoreUrl           = "NFS_STORAGE_POLICY_DATASTORE_URL"
 	workerClusterMap                      = "WORKER_CLUSTER_MAP"
 	datastoreClusterMap                   = "DATASTORE_CLUSTER_MAP"
+)
+
+// For multivc
+var (
+	envSharedDatastoreURLVC1                 = "SHARED_VSPHERE_DATASTORE_URL_VC1"
+	envSharedDatastoreURLVC2                 = "SHARED_VSPHERE_DATASTORE_URL_VC2"
+	envStoragePolicyNameForSharedDatastores3 = "STORAGE_POLICY_FOR_SHARED_DATASTORES_3"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.

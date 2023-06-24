@@ -27,7 +27,8 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
-	apps "k8s.io/api/apps/v1"
+
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,7 +48,7 @@ specific requirement and returns the customised statefulset
 func createCustomisedStatefulSets(client clientset.Interface, namespace string,
 	isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
 	allowedTopologies []v1.TopologySelectorLabelRequirement, allowedTopologyLen int,
-	podAntiAffinityToSet bool) *apps.StatefulSet {
+	podAntiAffinityToSet bool) *appsv1.StatefulSet {
 	framework.Logf("Preparing StatefulSet Spec")
 	statefulset := GetStatefulSetFromManifest(namespace)
 
@@ -78,7 +79,7 @@ func createCustomisedStatefulSets(client clientset.Interface, namespace string,
 
 	}
 	if isParallelPodMgmtPolicy {
-		statefulset.Spec.PodManagementPolicy = apps.ParallelPodManagement
+		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 	}
 	statefulset.Spec.Replicas = &replicas
 
@@ -215,7 +216,7 @@ one is CNS cache on a multivc environment.
 func verifyVolumeMetadataInCNSForMultiVC(vs *multiVCvSphere, volumeID string,
 	PersistentVolumeClaimName string, PersistentVolumeName string,
 	PodName string, Labels ...vim25types.KeyValue) error {
-	queryResult, err := vs.queryCNSVolumeWithResultForMultiVC(volumeID)
+	queryResult, err := vs.queryCNSVolumeWithResultInMultiVC(volumeID)
 	if err != nil {
 		return err
 	}
@@ -302,7 +303,7 @@ func performOfflineAndOnlineVolumeExpansionOnPVC(f *framework.Framework, client 
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
-	queryResult, err := multiVCe2eVSphere.queryCNSVolumeWithResultForMultiVC(volHandle)
+	queryResult, err := multiVCe2eVSphere.queryCNSVolumeWithResultInMultiVC(volHandle)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	if len(queryResult.Volumes) == 0 {
@@ -361,10 +362,14 @@ func performOfflineAndOnlineVolumeExpansionOnPVC(f *framework.Framework, client 
 
 // govc login cmd
 func govcLoginCmdForMultiVC() string {
-	configUser := strings.Split(multiVCe2eVSphere.multivcConfig.Global.User[0], ",")
-	configPwd := strings.Split(multiVCe2eVSphere.multivcConfig.Global.Password[0], ",")
-	configvCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname[0], ",")
-	configvCenterPort := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterPort[0], ",")
+	// configUser := strings.Split(multiVCe2eVSphere.multivcConfig.Global.User[0], ",")
+	// configPwd := strings.Split(multiVCe2eVSphere.multivcConfig.Global.Password[0], ",")
+	// configvCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname[0], ",")
+	// configvCenterPort := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterPort[0], ",")
+	configUser := strings.Split(multiVCe2eVSphere.multivcConfig.Global.User, ",")
+	configPwd := strings.Split(multiVCe2eVSphere.multivcConfig.Global.Password, ",")
+	configvCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
+	configvCenterPort := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterPort, ",")
 
 	loginCmd := "export GOVC_INSECURE=1;"
 	loginCmd += fmt.Sprintf("export GOVC_URL='https://%s:%s@%s:%s';",
@@ -383,4 +388,41 @@ func deleteStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig, st
 			removeStoragePolicy, masterIp, err)
 	}
 	return nil
+}
+
+func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, client clientset.Interface,
+	scaleUpReplicaCount int32, scaleDownReplicaCount int32, statefulset *appsv1.StatefulSet,
+	parallelStatefulSetCreation bool, namespace string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement) {
+
+	framework.Logf("Scale down statefulset replica count to 1")
+	scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
+		parallelStatefulSetCreation, true)
+
+	framework.Logf("Scale up statefulset replica count to 4")
+	scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
+		parallelStatefulSetCreation, true)
+
+	framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
+	verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+		namespace, allowedTopologies, parallelStatefulSetCreation, true)
+}
+
+func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client clientset.Interface,
+	namespace string, parallelPodPolicy bool, replicas int32, nodeAffinityToSet bool,
+	allowedTopologies []v1.TopologySelectorLabelRequirement, allowedTopologyLen int,
+	podAntiAffinityToSet bool, parallelStatefulSetCreation bool) (*v1.Service, *appsv1.StatefulSet) {
+
+	ginkgo.By("Create service")
+	service := CreateService(namespace, client)
+
+	framework.Logf("Create StatefulSet")
+	statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
+		replicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet)
+
+	framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
+	verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+		namespace, allowedTopologies, parallelStatefulSetCreation, true)
+
+	return service, statefulset
 }

@@ -25,18 +25,21 @@ import (
 )
 
 var multiVCe2eVSphere multiVCvSphere
-var multiVCtestConfig *multiVCe2eTestConfig
+
+// var multiVCtestConfig *multiVCe2eTestConfig
+var multiVCtestConfig *e2eTestConfig
 
 /*
 multiVCbootstrap function takes care of initializing necessary tests context for e2e tests
 */
 func multiVCbootstrap(withoutDc ...bool) {
 	var err error
-	multiVCtestConfig, err = getMultiVCConfig()
+	//multiVCtestConfig, err = getMultiVCConfig()
+	multiVCtestConfig, err = getConfig()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	if len(withoutDc) > 0 {
 		if withoutDc[0] {
-			(*multiVCtestConfig).Global.Datacenters = nil
+			(*multiVCtestConfig).Global.Datacenters = ""
 		}
 	}
 	multiVCe2eVSphere = multiVCvSphere{
