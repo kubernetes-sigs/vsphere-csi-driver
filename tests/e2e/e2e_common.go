@@ -266,6 +266,11 @@ var (
 	configSecretTestUser2         = "testuser2"
 )
 
+// For multivc
+var (
+	envSharedDatastoreURLVC1 = "SHARED_VSPHERE_DATASTORE_URL_VC1"
+)
+
 // Nimbus generated passwords
 var (
 	nimbusK8sVmPwd = "NIMBUS_K8S_VM_PWD"

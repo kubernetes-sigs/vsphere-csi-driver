@@ -4703,7 +4703,8 @@ which PV is provisioned.
 */
 func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Context,
 	client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string,
-	allowedTopologies []v1.TopologySelectorLabelRequirement, parallelStatefulSetCreation bool) {
+	allowedTopologies []v1.TopologySelectorLabelRequirement,
+	parallelStatefulSetCreation bool, isMultiVCSetup bool) {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	var ssPodsBeforeScaleDown *v1.PodList
 	if parallelStatefulSetCreation {
@@ -4747,9 +4748,15 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// Verify the attached volume match the one in CNS cache
-				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+				if !isMultiVCSetup {
+					error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(error).NotTo(gomega.HaveOccurred())
+				} else {
+					error := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(error).NotTo(gomega.HaveOccurred())
+				}
 			}
 		}
 	}
@@ -4833,7 +4840,8 @@ func scaleStatefulSetPods(c clientset.Interface, ss *appsv1.StatefulSet, count i
 scaleDownStatefulSetPod is a utility method which is used to scale down the count of StatefulSet replicas.
 */
 func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
-	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool) {
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool,
+	isMultiVCSetup bool) {
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleDown *v1.PodList
 	if parallelStatefulSetCreation {
@@ -4873,10 +4881,17 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
-				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-				err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				if !isMultiVCSetup {
+					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				} else {
+					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					err := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
 			}
 		}
 	}
@@ -4886,7 +4901,8 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 scaleUpStatefulSetPod is a utility method which is used to scale up the count of StatefulSet replicas.
 */
 func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
-	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool) {
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32,
+	parallelStatefulSetCreation bool, isMultiVCSetup bool) {
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleUp *v1.PodList
 	if parallelStatefulSetCreation {
@@ -4935,16 +4951,32 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 					annotations := pod.Annotations
 					vmUUID, exists = annotations[vmUUIDLabel]
 					gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
-					_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+					if !isMultiVCSetup {
+						_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					} else {
+						_, err := multiVCe2eVSphere.getVMByUUIDForMultiVC(ctx, vmUUID)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
+				}
+				if !isMultiVCSetup {
+					isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
+					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
+					ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
+					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				} else {
+					isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(client,
+						pv.Spec.CSI.VolumeHandle, vmUUID)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
+					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
+					ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
+					err = verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
-				isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
-				gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
-				ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
-				err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
 	}
@@ -5116,7 +5148,7 @@ is provisioned.
 */
 func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Context,
 	client clientset.Interface, pod *v1.Pod, namespace string,
-	allowedTopologies []v1.TopologySelectorLabelRequirement) {
+	allowedTopologies []v1.TopologySelectorLabelRequirement, isMultiVCSetup bool) {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	for _, volumespec := range pod.Spec.Volumes {
 		if volumespec.PersistentVolumeClaim != nil {
@@ -5150,10 +5182,16 @@ func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Cont
 				"specified in allowed topolgies of Storage Class", pod.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			// Verify the attached volume match the one in CNS cache
-			error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-				volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
-			gomega.Expect(error).NotTo(gomega.HaveOccurred())
+			//Verify the attached volume match the one in CNS cache
+			if !isMultiVCSetup {
+				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+			} else {
+				error := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+			}
 		}
 	}
 }

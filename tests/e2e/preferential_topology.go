@@ -298,7 +298,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologyForRack2, false)
+			namespace, allowedTopologyForRack2, false, false)
 
 		// choose preferred datastore in rack-1
 		ginkgo.By("Tag preferred datatstore for volume provisioning in rack-1(cluster-1))")
@@ -370,7 +370,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace,
-			allowedTopologyForRack1)
+			allowedTopologyForRack1, false)
 	})
 
 	/*
@@ -471,12 +471,12 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologyForRack3, false)
+			namespace, allowedTopologyForRack3, false, false)
 
 		// perform statefulset scaleup
 		replicas = 10
 		ginkgo.By("Scale up statefulset replica count from 3 to 10")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
@@ -487,7 +487,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologyForRack3, false)
+			namespace, allowedTopologyForRack3, false, false)
 	})
 
 	/*
@@ -593,12 +593,12 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologyForRack2, false)
+			namespace, allowedTopologyForRack2, false, false)
 
 		// perform statefulset scaleup
 		replicas = 10
 		ginkgo.By("Scale up statefulset replica count from 3 to 10")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
@@ -609,12 +609,12 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologyForRack2, false)
+			namespace, allowedTopologyForRack2, false, false)
 
 		// perform statefulset scaledown
 		replicas = 5
 		ginkgo.By("Scale down statefulset replica count from 10 to 5")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
 	})
 
 	/*
@@ -704,7 +704,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, false)
+			namespace, allowedTopologies, false, false)
 	})
 
 	/*
@@ -798,7 +798,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologyForRack2, false)
+			namespace, allowedTopologyForRack2, false, false)
 	})
 
 	/*
@@ -895,7 +895,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, false)
+			namespace, allowedTopologies, false, false)
 	})
 
 	/*
@@ -981,7 +981,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, false)
+			namespace, allowedTopologies, false, false)
 	})
 
 	/*
@@ -1070,7 +1070,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, sts1,
-			namespace, allowedTopologyForRack1, true)
+			namespace, allowedTopologyForRack1, true, false)
 
 		ginkgo.By("Remove preferred datatsore tag which is chosen for volume provisioning")
 		err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
@@ -1142,7 +1142,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace,
-			allowedTopologyForRack1)
+			allowedTopologyForRack1, false)
 
 	})
 
@@ -1239,7 +1239,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, sts1,
-			namespace, allowedTopologyForRack3, false)
+			namespace, allowedTopologyForRack3, false, false)
 
 		ginkgo.By("Remove preferred datatsore tag chosen for volume provisioning")
 		err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
@@ -1313,13 +1313,13 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace,
-			allowedTopologyForRack3)
+			allowedTopologyForRack3, false)
 
 		// perform statefulset scaleup
 		sts1Replicas = 10
 		ginkgo.By("Scale up statefulset replica count from 3 to 10")
 		preferredDatastorePaths = append(preferredDatastorePaths, preferredDatastore...)
-		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		//verifying volume is provisioned on the preferred datastore
 		ginkgo.By("Verify volume is provisioned on the specified datatsore")
@@ -1330,7 +1330,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, sts1,
-			namespace, allowedTopologyForRack3, true)
+			namespace, allowedTopologyForRack3, true, false)
 	})
 
 	/*
@@ -1431,7 +1431,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, sts1,
-			namespace, allowedTopologyForRack1, false)
+			namespace, allowedTopologyForRack1, false, false)
 
 		ginkgo.By("Remove preferred datastore tag chosen for volume provisioning")
 		err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
@@ -1451,7 +1451,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaleup
 		sts1Replicas = 13
 		ginkgo.By("Scale up statefulset replica count from 3 to 13")
-		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the specified datatsore")
@@ -1462,12 +1462,12 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, sts1,
-			namespace, allowedTopologyForRack1, false)
+			namespace, allowedTopologyForRack1, false, false)
 
 		// perform statefulset scaledown
 		sts1Replicas = 6
 		ginkgo.By("Scale down statefulset replica count from 13 to 6")
-		scaleDownStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleDownStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		ginkgo.By("Remove preferred datastore tag chosen for volume provisioning")
 		err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[1],
@@ -1495,7 +1495,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaleup
 		sts1Replicas = 20
 		ginkgo.By("Scale up statefulset replica count from 6 to 20")
-		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the specified datatsore")
@@ -1506,7 +1506,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, sts1,
-			namespace, allowedTopologyForRack1, false)
+			namespace, allowedTopologyForRack1, false, false)
 	})
 
 	/*
@@ -1616,7 +1616,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, sts1,
-			namespace, allowedTopologies, false)
+			namespace, allowedTopologies, false, false)
 
 		ginkgo.By("Remove preferred datatsore tag which was chosen for volume provisioning in rack-1")
 		err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
@@ -1635,7 +1635,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaleup
 		sts1Replicas = 7
 		ginkgo.By("Scale up statefulset replica count from 3 to 7")
-		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		//verify volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
@@ -1646,7 +1646,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, sts1,
-			namespace, allowedTopologies, false)
+			namespace, allowedTopologies, false, false)
 
 		ginkgo.By("Remove the datastore preference chosen for volume provisioning")
 		err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
@@ -1672,7 +1672,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// perform statefulset scaleup
 		sts1Replicas = 13
 		ginkgo.By("Scale up statefulset replica count from 7 to 13")
-		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		// verify volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
@@ -1683,7 +1683,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, sts1,
-			namespace, allowedTopologies, false)
+			namespace, allowedTopologies, false, false)
 	})
 
 	/*
@@ -1783,7 +1783,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// Verify affinity details
 		ginkgo.By("Verify node and pv topology affinity details")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, sts1,
-			namespace, allowedTopologyForRack2, false)
+			namespace, allowedTopologyForRack2, false, false)
 	})
 
 	/*
@@ -1961,7 +1961,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace,
-			allowedTopologyForRack2)
+			allowedTopologyForRack2, false)
 	})
 
 	/*
@@ -2085,12 +2085,12 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// Verify affinity details
 		ginkgo.By("Verify node and pv topology affinity details")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, sts1,
-			namespace, allowedTopologies, false)
+			namespace, allowedTopologies, false, false)
 
 		// perform statefulset scaleup
 		sts1Replicas = 13
 		ginkgo.By("Scale up statefulset replica count from 7 to 13")
-		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false)
+		scaleUpStatefulSetPod(ctx, client, sts1, namespace, sts1Replicas, false, false)
 
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
@@ -2101,7 +2101,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// Verify affinity details
 		ginkgo.By("Verify node and pv topology affinity details")
 		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, sts1,
-			namespace, allowedTopologies, false)
+			namespace, allowedTopologies, false, false)
 	})
 
 	/*
@@ -2208,7 +2208,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace,
-			allowedTopologies)
+			allowedTopologies, false)
 	})
 
 	/*
@@ -2325,7 +2325,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace,
-			allowedTopologyForRack2)
+			allowedTopologyForRack2, false)
 	})
 
 	/*
@@ -2558,7 +2558,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify pv and pod node affinity details for pv-1/pod-1 and pv-2/pod-2")
 		for i := 0; i < len(podList); i++ {
 			verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i],
-				namespace, allowedTopologyForRack2)
+				namespace, allowedTopologyForRack2, false)
 		}
 	})
 
