@@ -92,7 +92,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
 		expectedErrMsg := "No compatible datastores found for accessibility requirements"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Expected error: "+expectedErrMsg)
 	})
 
 	/*
@@ -128,7 +128,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
 		expectedErrMsg := "No compatible datastores found for accessibility requirements"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Expected error: "+expectedErrMsg)
 
 	})
 
@@ -164,7 +164,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
 		expectedErrMsg := "No compatible datastores found for accessibility requirements"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Expected error: "+expectedErrMsg)
 
 	})
 })
