@@ -1848,10 +1848,8 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
 		expectedErrMsg := "failed to create volume"
-		isFailureFound, err := waitForEventWithReason(client, namespace, pvclaim.Name, expectedErrMsg)
+		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isFailureFound).To(
-			gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
 
 	})
 
@@ -2380,10 +2378,8 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 
 		ginkgo.By("Expect claim to fail provisioning volume")
 		expectedErrMsg := "failed to create volume"
-		isFailureFound, err := waitForEventWithReason(client, namespace, pvclaim.Name, expectedErrMsg)
+		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isFailureFound).To(
-			gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
 
 	})
 

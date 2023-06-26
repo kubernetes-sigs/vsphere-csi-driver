@@ -98,10 +98,8 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 		// Expect claim to fail provisioning volume within the topology
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
 		expectedErrMsg := "failed to get shared datastores for topology requirement"
-		isFailureFound, err := waitForEventWithReason(client, namespace, pvclaim.Name, expectedErrMsg)
+		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isFailureFound).To(
-			gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
 	})
 
 	/*
