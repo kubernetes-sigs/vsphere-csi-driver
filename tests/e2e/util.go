@@ -6547,17 +6547,17 @@ func writeDataToMultipleFilesOnPodInParallel(namespace string, podName string, d
 
 // getSnapshotHandleFromSupervisorCluster fetches the SnapshotHandle from Supervisor Cluster
 func getSnapshotHandleFromSupervisorCluster(ctx context.Context,
-	volumeSnapshotClass *snapV1.VolumeSnapshotClass, snapshothandle string) (string, error) {
+	volumeSnapshotClass *snapV1.VolumeSnapshotClass, snapshothandle string) (string, string, string, error) {
 	var snapc *snapclient.Clientset
 	var err error
 	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
 		restConfig, err := clientcmd.BuildConfigFromFlags("", k8senv)
 		if err != nil {
-			return "", err
+			return "", "", "", err
 		}
 		snapc, err = snapclient.NewForConfig(restConfig)
 		if err != nil {
-			return "", err
+			return "", "", "", err
 		}
 	}
 
@@ -6566,19 +6566,21 @@ func getSnapshotHandleFromSupervisorCluster(ctx context.Context,
 	volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(svNamespace).Get(ctx, snapshothandle,
 		metav1.GetOptions{})
 	if err != nil {
-		return "", err
+		return "", "", "", err
 	}
 
 	snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
 		*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
 	if err != nil {
-		return "", err
+		return "", "", "", err
 	}
 
-	snapshothandle = *snapshotContent.Status.SnapshotHandle
-	snapshotID := strings.Split(snapshothandle, "+")[1]
+	svcSnapshotHandle := *snapshotContent.Status.SnapshotHandle
+	snapshotID := strings.Split(svcSnapshotHandle, "+")[1]
 
-	return snapshotID, nil
+	svcVolumeSnapshotName := volumeSnapshot.Name
+
+	return snapshotID, svcSnapshotHandle, svcVolumeSnapshotName, nil
 }
 
 // getRestConfigClient returns  rest config client for Guest Cluster
@@ -6597,7 +6599,7 @@ func getRestConfigClientForGuestCluster(guestClusterRestConfig *rest.Config) *re
 // createDynamicVolumeSnapshot util creates dynamic volume snapshot for a volume
 func createDynamicVolumeSnapshot(ctx context.Context, namespace string,
 	snapc *snapclient.Clientset, volumeSnapshotClass *snapV1.VolumeSnapshotClass,
-	pvclaim *v1.PersistentVolumeClaim) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotContent, bool, bool, error) {
+	pvclaim *v1.PersistentVolumeClaim, diskSize string) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotContent, bool, bool, error) {
 
 	volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
 		getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
@@ -6635,16 +6637,27 @@ func getVolumeSnapshotIdFromSnapshotHandle(ctx context.Context, snapshotContent 
 	volumeSnapshotClass *snapV1.VolumeSnapshotClass, volHandle string) (string, error) {
 	var snapshotID string
 	var err error
+	var pandoraSyncWaitTime int
 	if vanillaCluster {
 		snapshotHandle := *snapshotContent.Status.SnapshotHandle
 		snapshotID = strings.Split(snapshotHandle, "+")[1]
 	} else if guestCluster {
 		snapshotHandle := *snapshotContent.Status.SnapshotHandle
-		snapshotID, err = getSnapshotHandleFromSupervisorCluster(ctx, volumeSnapshotClass, snapshotHandle)
+		snapshotID, _, _, err = getSnapshotHandleFromSupervisorCluster(ctx, volumeSnapshotClass, snapshotHandle)
 		if err != nil {
 			return "", err
 		}
 	}
+
+	if os.Getenv(envPandoraSyncWaitTime) != "" {
+		pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+	}
+
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
 	ginkgo.By("Query CNS and check the volume snapshot entry")
 	err = verifySnapshotIsCreatedInCNS(volHandle, snapshotID)
