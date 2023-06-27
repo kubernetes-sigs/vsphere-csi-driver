@@ -243,6 +243,10 @@ spec:
               value: {{ .PVCSINamespace }}
             - name: X_CSI_SERIAL_VOL_ACCESS_TIMEOUT
               value: 3m
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
           volumeMounts:
             - mountPath: /etc/cloud/pvcsi-provider
               name: pvcsi-provider-volume
@@ -279,6 +283,10 @@ spec:
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
             - name: CSI_NAMESPACE
               value: {{ .PVCSINamespace }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
           volumeMounts:
           - mountPath: /etc/cloud/pvcsi-provider
             name: pvcsi-provider-volume
