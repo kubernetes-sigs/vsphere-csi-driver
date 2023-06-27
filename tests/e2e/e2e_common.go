@@ -298,6 +298,7 @@ var (
 	envSharedDatastoreURLVC1                 = "SHARED_VSPHERE_DATASTORE_URL_VC1"
 	envSharedDatastoreURLVC2                 = "SHARED_VSPHERE_DATASTORE_URL_VC2"
 	envStoragePolicyNameForSharedDatastores3 = "STORAGE_POLICY_FOR_SHARED_DATASTORES_3"
+	envMultiVCSetupType                      = "MULTI_VC_SETUP_TYPE"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.

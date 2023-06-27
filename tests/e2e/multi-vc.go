@@ -77,6 +77,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		pandoraSyncWaitTime         int
 		scaleUpReplicaCount         int32
 		scaleDownReplicaCount       int32
+		multiVCSetupType            string
 	)
 	ginkgo.BeforeEach(func() {
 		var cancel context.CancelFunc
@@ -110,6 +111,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		datastoreURLVC1 = GetAndExpectStringEnvVar(envSharedDatastoreURLVC1)
 		datastoreURLVC2 = GetAndExpectStringEnvVar(envSharedDatastoreURLVC2)
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+		multiVCSetupType = GetAndExpectStringEnvVar(envMultiVCSetupType)
 
 		sshClientConfig = &ssh.ClientConfig{
 			User: "root",
@@ -165,20 +167,33 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	7. Clean up the data
 	*/
 
-	ginkgo.It("Workload creation on a multivc environment with sts specified with node affinity "+
+	ginkgo.It("TC1Workload creation on a multivc environment with sts specified with node affinity "+
 		"and SC with no allowed topology", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		parallelPodPolicy = true
 		nodeAffinityToSet = true
-		allowedTopologyLen = 3
 		stsReplicas = 3
 		scaleUpReplicaCount = 5
 		scaleDownReplicaCount = 2
-		topkeyStartIndex = 0
-		topValStartIndex = 0
-		topValEndIndex = 3
+
+		if multiVCSetupType == "type-1" {
+			/* here in 2-VC setup statefulset node affinity is taken as k8s-zone -> zone-1,zone-2,zone-3
+			i.e VC1 allowed topology and VC2 partial allowed topology
+			*/
+			allowedTopologyLen = 3
+			topValStartIndex = 0
+			topValEndIndex = 3
+			allowedTopologyLen = 3
+		} else if multiVCSetupType == "type-2" {
+			/* here in 3-VC setup, statefulset node affinity is taken as  k8s-zone -> zone-3
+			i.e only VC3 allowed topology
+			*/
+			allowedTopologyLen = 1
+			topValStartIndex = 2
+			topValEndIndex = 3
+		}
 
 		ginkgo.By("Set specific allowed topology")
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
@@ -217,22 +232,29 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 	Steps:
 	1. Create SC with allowedTopology details contains more than one Availability zone details
-	2. Create statefull set with replica-5
+	2. Create statefulset with replica-5
 	3. Wait for PVC to reach bound state and POD to reach Running state
 	4. Volumes should get distributed among all the Availability zones
 	5. Make sure common validation points are met
 	a) Verify the PV node affinity details should have appropriate Node details
 	b) The Pods should be running on the appropriate nodes
 	c) CNS metadata
-	6. Scale up / scale down the statefulset and verify the common validation points on newly
+	6. Scale-up/Scale-down the statefulset and verify the common validation points on newly
 	created statefullset
 	7. Clean up the data
 	*/
 
-	ginkgo.It("Workload creation when all allowed topology specified in SC on a "+
+	ginkgo.It("TC2Workload creation when all allowed topology specified in SC on a "+
 		"multivc environment", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		/* here we are considering all the allowed topologies of VC1 and VC2 in case of 2-VC setup.
+		i.e. k8s-zone -> zone-1,zone-2,zone-3,zone-4,zone-5
+
+		And, all the allowed topologies of VC1, VC2 and VC3 are considered in case of 3-VC setup
+		i.e k8s-zone -> zone-1,zone-2,zone-3
+		*/
 
 		stsReplicas = 5
 		scaleUpReplicaCount = 7
@@ -281,9 +303,13 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		7. Clean up the data
 	*/
 
-	ginkgo.It("Workload creation when specific storage policy of any single VC is given in SC", func() {
+	ginkgo.It("TC3Workload creation when specific storage policy of any single VC is given in SC", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		/* here we are considering storage policy of VC1 and the allowed topology is k8s-zone -> zone-1
+		in case of 2-VC setup and 3-VC setup
+		*/
 
 		stsReplicas = 5
 		scParameters[scParamStoragePolicyName] = storagePolicyName
@@ -335,15 +361,23 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	a) Verify the PV node affinity details should have appropriate Node details
 	b) The POD's should be running on the appropriate nodes
 	c) CNS metadata
-	6. Scale up / scale down the statefulset and verify the common validation points on newly
+	6. Scale-up/scale-down the statefulset and verify the common validation points on newly
 	created statefullset
 	7. Clean up the data
 	*/
 
-	ginkgo.It("Workload creation when specific storage policy available in multivc setup "+
+	ginkgo.It("TC4Workload creation when specific storage policy available in multivc setup "+
 		"is given in SC", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		/* In case of 2-VC setup, we are considering storage policy of VC1 and VC2 and the allowed
+				topology is k8s-zone -> zone-1, zone-2 i.e VC1 allowed topology and partial allowed topology
+				of VC2
+
+		In case of 3-VC setup, we are considering storage policy of VC1 and VC2 and the allowed
+				topology is k8s-zone -> zone-1, zone-2 i.e VC1 and VC2 allowed topologies.
+		*/
 
 		stsReplicas = 3
 		scParameters[scParamStoragePolicyName] = storagePolicyName2
@@ -354,6 +388,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		scaleUpReplicaCount = 7
 		scaleDownReplicaCount = 2
 
+		ginkgo.By("Set specific allowed topology")
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 
@@ -417,7 +452,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 	Steps:
 	1. Create SC default values so all the AZ's should be considered for provisioning.
-	2. Create statefullset with Pod affinity rules such a way that each AZ should get atleast 1 statefulset
+	2. Create statefulset with Pod affinity rules such a way that each AZ should get atleast 1 statefulset
 	3. Wait for PVC to bound and POD to reach running state
 	4. Verify the stateful set distribution
 	5. Make sure common verification Points met in PVC, PV ad POD
@@ -429,7 +464,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	7. Clean up data
 	*/
 
-	ginkgo.It("Workload creation on a multivc environment with sts specified with pod affinity "+
+	ginkgo.It("TC5Workload creation on a multivc environment with sts specified with pod affinity "+
 		"and SC with no allowed topology", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -481,9 +516,13 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	10. Clean up the data
 	*/
 
-	ginkgo.It("Deploy workload with allowed topology and datastore url on a multivc environment", func() {
+	ginkgo.It("TC6Deploy workload with allowed topology and datastore url on a multivc environment", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		/* here, we are considering datastore url of VC1 in case of both 2-VC and 3-VC multi setup
+		so the allowed topology will be considered as - k8s-zone -> zone-1
+		*/
 
 		stsReplicas = 5
 		scParameters[scParamDatastoreURL] = datastoreURLVC1
@@ -492,6 +531,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		scaleDownReplicaCount = 3
 		scaleUpReplicaCount = 6
 
+		ginkgo.By("Set specific allowed topology")
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 
@@ -531,16 +571,20 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	4. Make sure common validation points are met
 	a) Verify the PV node affinity details should have appropriate Node details
 	b) The POD's should be running on the appropriate nodes which are present in VC1
-	5. Scale up / scale down the statefulset
+	5. Scale-up/scale-down the statefulset
 	6. Verify the node affinity details. Verify the POD details. All the pods should come up on the
 	nodes of VC1
 	7. Clean up the data
 	*/
 
-	ginkgo.It("Deploy workload with allowed topology details in SC specific "+
+	ginkgo.It("TC7Deploy workload with allowed topology details in SC specific "+
 		"to VC1 with Immediate Binding", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		/* here, we are considering allowed topology of VC1 in case of both 2-VC and 3-VC multi setup
+		so the allowed topology will be considered as - k8s-zone -> zone-1
+		*/
 
 		stsReplicas = 3
 		topValStartIndex = 0
@@ -548,6 +592,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		scaleDownReplicaCount = 0
 		scaleUpReplicaCount = 6
 
+		ginkgo.By("Set specific allowed topology")
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 
@@ -583,7 +628,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 	Steps:
 	1. Create SC with allowedTopology details set to VC2's Availability Zone
-	2. Create statefull set with replica-3
+	2. Create statefulset with replica-3
 	3. Wait for PVC to reach bound state and Pod to reach running state
 	4. Make sure common validation points are met
 	a) Verify the PV node affinity details should have appropriate node details
@@ -595,17 +640,26 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	8. Clean up the data
 	*/
 
-	ginkgo.It("Deploy workload with allowed topology details in SC specific to VC2 with WFC "+
+	ginkgo.It("TC8Deploy workload with allowed topology details in SC specific to VC2 with WFC "+
 		"binding mode and with default pod management policy", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		stsReplicas = 3
-		topValStartIndex = 2
-		topValEndIndex = 5
 		scaleDownReplicaCount = 2
 		scaleUpReplicaCount = 5
 
+		if multiVCSetupType == "type-1" {
+			// here, we are considering partial allowed topology of VC2 i.e k8s-zone -> zone-3,zone-4, zone-5
+			topValStartIndex = 2
+			topValEndIndex = 5
+		} else if multiVCSetupType == "type-2" {
+			// here, we are considering  allowed topology of VC2 i.e k8s-zone -> zone-2
+			topValStartIndex = 1
+			topValEndIndex = 2
+		}
+
+		ginkgo.By("Set specific allowed topology")
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 
@@ -636,36 +690,48 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	})
 
 	/* TESTCASE-9
-	Deploy workload with  allowed topology details in SC specific to VC3 + parallel pod management policy
+	Deploy workload with allowed topology details in SC specific to VC3 + parallel pod management policy
 
 	Steps:
 	1. Create SC with allowedTopology details set to VC3 availability zone
-	2. Create statefull set with replica-3
+	2. Create statefulset with replica-3
 	3. Wait for PVC to reach bound state and POD to reach Running state
 	4. Make sure common validation points are met
 	a) Verify the PV node affinity details should have appropriate Node details
 	b) The Pod should be running on the appropriate nodes which are present in VC3
-	5. Scale up / scale down the statefulset
+	5. Scale-up /scale-down the statefulset
 	6. Verify the node affinity details and also verify the pod details. All the pods should come up on the nodes of
 	VC3
 	7. Clean up the data
 	*/
 
-	ginkgo.It("[type-2-3VC-topology-setup] Deploy workload with allowed topology details in SC "+
-		"specific to VC3 with parallel pod management policy", func() {
+	ginkgo.It("TC9Deploy workload with allowed topology details in SC specific to VC3 with "+
+		"parallel pod management policy", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		stsReplicas = 3
-
-		topValStartIndex = 0
-		topValEndIndex = 5
 		parallelPodPolicy = true
+		scaleDownReplicaCount = 1
+		scaleUpReplicaCount = 6
 
+		if multiVCSetupType == "type-1" {
+			/* here, For 2-VC setup we will consider all allowed topology of VC1 and VC2
+			i.e. k8s-zone -> zone-1,zone-2,zone-3,zone-4,zone-5 */
+			topValStartIndex = 0
+			topValEndIndex = 5
+		} else if multiVCSetupType == "type-2" {
+			/* here, For 3-VC setup we will consider allowed topology of VC3
+			i.e. k8s-zone ->zone-3 */
+			topValStartIndex = 2
+			topValEndIndex = 3
+		}
+
+		ginkgo.By("Set specific allowed topology")
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 
-		ginkgo.By("Create StorageClass with allowed topology details of VC2")
+		ginkgo.By("Create StorageClass with allowed topology details of VC3")
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies, "",
 			bindingMode, false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -706,11 +772,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		a) Volumes should get distributed among all the availability zones
 		b) Verify the PV node affinity details should have appropriate Node details
 		c) The Pods should be running on the appropriate nodes
-		6. Scale up / scale down the statefulset
+		6. Scale-up/scale-down the statefulset
 		7. Clean up the data
 	*/
 
-	ginkgo.It("Deploy workload with default SC parameters with WaitForFirstConsumer", func() {
+	ginkgo.It("TC10Deploy workload with default SC parameters with WaitForFirstConsumer", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -719,6 +785,15 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		var podList []*v1.Pod
 		scaleDownReplicaCount = 3
 		scaleUpReplicaCount = 7
+		parallelPodPolicy = true
+		parallelStatefulSetCreation = true
+
+		/* here, For 2-VC setup, we are considering all the allowed topologies of VC1 and VC2
+		i.e. k8s-zone -> zone-1,zone-2,zone-3,zone-4,zone-5
+
+		For 3-VC setup, we are considering all the allowed topologies of VC1, VC2 and VC3
+		i.e. k8s-zone -> zone-1,zone-2,zone-3
+		*/
 
 		ginkgo.By("Create StorageClass with default parameters using WFC binding mode")
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, nil, "",
@@ -735,7 +810,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen,
 			podAntiAffinityToSet, parallelStatefulSetCreation)
 		defer func() {
-			fss.DeleteAllStatefulSets(client, namespace)
+			deleteAllStatefulSetAndPVs(client, namespace)
 			deleteService(namespace, client, service)
 		}()
 
@@ -832,11 +907,14 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	7. Clean up the data
 	*/
 
-	ginkgo.It("Create SC with single allowed topology label on a multivc environment", func() {
+	ginkgo.It("TC11Create SC with single allowed topology label on a multivc environment", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		stsReplicas = 5
+		/* Considering partial allowed topology of VC2 in case of type-1 setup i.e. k8s-zone -> zone-2
+		And, allowed topology of VC2 in case of type-2 setup i.e. k8s-zone -> zone-2
+		*/
 		topValStartIndex = 1
 		topValEndIndex = 2
 		parallelPodPolicy = true
@@ -882,7 +960,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	3. Perform cleanup
 	*/
 
-	ginkgo.It("PVC creation failure when wrong storage policy name is specified in SC", func() {
+	ginkgo.It("TC12PVC creation failure when wrong storage policy name is specified in SC", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -916,7 +994,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		2. PVC should not go to bound, appropriate error should be shown
 	*/
 
-	ginkgo.It("Deploy workload with allowed topology of VC1 and datastore url of VC2", func() {
+	ginkgo.It("TC13Deploy workload with allowed topology of VC1 and datastore url of VC2", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -961,7 +1039,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		7. Clear data
 	*/
 
-	ginkgo.It("Create storage policy in multivc and later delete storage policy from one of the VC", func() {
+	ginkgo.It("TC14Create storage policy in multivc and later delete storage policy from one of the VC", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1018,7 +1096,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		6. Clean up data
 	*/
 
-	ginkgo.It("Static provisioning and verify node affinity details on PV on a multivc setup", func() {
+	ginkgo.It("TC15Static provisioning and verify node affinity details on PV on a multivc setup", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1186,7 +1264,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		6. Clean up the data
 	*/
 
-	ginkgo.It("Create Deployment pod using SC with allowed topology set to specific VC", func() {
+	ginkgo.It("TC16Create Deployment pod using SC with allowed topology set to specific VC", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1195,6 +1273,10 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		var lables = make(map[string]string)
 		lables["app"] = "nginx"
 		replica := 1
+
+		/* here considering partial allowed topology of VC2 in case of 2VC setup i.e k8s-zone -> zone-3
+		here considering allowed topology of VC2 in case of 3VC setup i.e k8s-zone -> zone-3
+		*/
 
 		ginkgo.By("Set specific allowed topology")
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
