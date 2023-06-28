@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -271,7 +272,7 @@ volume expansion on a multivc setup
 */
 func performOfflineAndOnlineVolumeExpansionOnPVC(f *framework.Framework, client clientset.Interface,
 	pvclaim *v1.PersistentVolumeClaim, pv []*v1.PersistentVolume,
-	volHandle string, namespace string) *v1.Pod {
+	volHandle string, namespace string) (*v1.Pod, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var err error
@@ -286,78 +287,102 @@ func performOfflineAndOnlineVolumeExpansionOnPVC(f *framework.Framework, client 
 	newSize.Add(resource.MustParse("1Gi"))
 	framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
 	pvclaim, err = expandPVCSize(pvclaim, newSize, client)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+	if err != nil {
+		return nil, fmt.Errorf("error expanding PVC size: %v", err)
+	}
+	if pvclaim == nil {
+		return nil, fmt.Errorf("expanded PVC is nil")
+	}
 
 	pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 	if pvcSize.Cmp(newSize) != 0 {
-		framework.Failf("error updating pvc size %q", pvclaim.Name)
+		return nil, fmt.Errorf("error updating PVC size: %q", pvclaim.Name)
 	}
 
 	ginkgo.By("Waiting for controller volume resize to finish")
 	err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		return nil, fmt.Errorf("error waiting for controller volume resize: %v", err)
+	}
 
-	ginkgo.By("Checking for conditions on pvc")
+	ginkgo.By("Checking for conditions on PVC")
 	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		return nil, fmt.Errorf("error waiting for PVC conditions: %v", err)
+	}
 
 	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
 	queryResult, err := multiVCe2eVSphere.queryCNSVolumeWithResultInMultiVC(volHandle)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		return nil, fmt.Errorf("error querying CNS volume: %v", err)
+	}
 
 	if len(queryResult.Volumes) == 0 {
-		err = fmt.Errorf("queryCNSVolumeWithResult returned no volume")
+		return nil, fmt.Errorf("queryCNSVolumeWithResult returned no volume")
 	}
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	ginkgo.By("Verifying disk size requested in volume expansion is honored")
 	newSizeInMb := int64(3072)
 	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-		err = fmt.Errorf("got wrong disk size after volume expansion")
+		return nil, fmt.Errorf("wrong disk size after volume expansion")
 	}
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
 	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		return nil, fmt.Errorf("error creating pod: %v", err)
+	}
 
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, pod.Spec.NodeName))
 	vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)
 	framework.Logf("VMUUID : %s", vmUUID)
 	isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(client, volHandle, vmUUID)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+	if err != nil {
+		return nil, fmt.Errorf("error verifying volume attachment: %v", err)
+	}
+	if !isDiskAttached {
+		return nil, fmt.Errorf("volume is not attached to the node")
+	}
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 	_, err = framework.LookForStringInPodExec(namespace, pod.Name,
 		[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		return nil, fmt.Errorf("error verifying volume accessibility and filesystem type: %v", err)
+	}
 
 	ginkgo.By("Waiting for file system resize to finish")
 	pvclaim, err = waitForFSResize(pvclaim, client)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		return nil, fmt.Errorf("error waiting for file system resize: %v", err)
+	}
 
 	pvcConditions := pvclaim.Status.Conditions
-	expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
+	if len(pvcConditions) != 0 {
+		return nil, fmt.Errorf("PVC has conditions")
+	}
 
 	var fsSize int64
 
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 	fsSize, err = getFSSizeMb(f, pod)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("File system size after expansion : %s", fsSize)
+	if err != nil {
+		return nil, fmt.Errorf("error getting filesystem size: %v", err)
+	}
+	framework.Logf("File system size after expansion: %s", fsSize)
 
 	// Filesystem size may be smaller than the size of the block volume
 	// so here we are checking if the new filesystem size is greater than
 	// the original volume size as the filesystem is formatted for the
 	// first time after pod creation
 	if fsSize < diskSizeInMb {
-		framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize)
+		return nil, fmt.Errorf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize)
 	}
+
 	ginkgo.By("File system resize finished successfully")
 
-	return pod
+	return pod, nil
 }
 
 // govc login cmd
@@ -393,19 +418,26 @@ func deleteStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig, st
 func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, client clientset.Interface,
 	scaleUpReplicaCount int32, scaleDownReplicaCount int32, statefulset *appsv1.StatefulSet,
 	parallelStatefulSetCreation bool, namespace string,
-	allowedTopologies []v1.TopologySelectorLabelRequirement) {
+	allowedTopologies []v1.TopologySelectorLabelRequirement, stsScaleUp bool, stsScaleDown bool,
+	verifyTopologyAffinity bool) {
 
-	framework.Logf("Scale down statefulset replica count to 1")
-	scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
-		parallelStatefulSetCreation, true)
+	if stsScaleUp {
+		framework.Logf("Scale down statefulset replica count to 1")
+		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
+			parallelStatefulSetCreation, true)
+	}
 
-	framework.Logf("Scale up statefulset replica count to 4")
-	scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
-		parallelStatefulSetCreation, true)
+	if stsScaleDown {
+		framework.Logf("Scale up statefulset replica count to 4")
+		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
+			parallelStatefulSetCreation, true)
+	}
 
-	framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
-	verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-		namespace, allowedTopologies, parallelStatefulSetCreation, true)
+	if verifyTopologyAffinity {
+		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
+		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+	}
 }
 
 func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client clientset.Interface,
@@ -425,4 +457,76 @@ func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 		namespace, allowedTopologies, parallelStatefulSetCreation, true)
 
 	return service, statefulset
+}
+
+type VirtualCenterConfig struct {
+	InsecureFlag bool   `gcfg:"insecure-flag"`
+	User         string `gcfg:"user"`
+	Password     string `gcfg:"password"`
+	Port         string `gcfg:"port"`
+	Datacenters  string `gcfg:"datacenters"`
+}
+
+func readConfigFromSecretStringT(cfg string) (e2eTestConfig, error) {
+	var config e2eTestConfig
+	var currentVC *VirtualCenterConfig
+	var vcFound bool
+
+	lines := strings.Split(cfg, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if strings.HasPrefix(line, "[Global]") {
+			currentVC = nil
+			vcFound = false
+			continue
+		}
+
+		if strings.HasPrefix(line, "[VirtualCenter") {
+			vcFound = true
+			currentVC = &VirtualCenterConfig{}
+			config.VirtualCenters = append(config.VirtualCenters, currentVC)
+			continue
+		}
+
+		if vcFound {
+			words := strings.Split(line, "=")
+			if len(words) != 2 {
+				return config, fmt.Errorf("invalid line format: %s", line)
+			}
+			key := strings.TrimSpace(words[0])
+			value := strings.TrimSpace(trimQuotesT(words[1]))
+
+			switch key {
+			case "insecure-flag":
+				insecureFlag, err := strconv.ParseBool(value)
+				if err != nil {
+					return config, fmt.Errorf("failed to parse insecure-flag: %v", err)
+				}
+				currentVC.InsecureFlag = insecureFlag
+			case "user":
+				currentVC.User = value
+			case "password":
+				currentVC.Password = value
+			case "port":
+				currentVC.Port = value
+			case "datacenters":
+				currentVC.Datacenters = value
+			default:
+				return config, fmt.Errorf("unknown key %s in the input string", key)
+			}
+		}
+	}
+
+	return config, nil
+}
+
+func trimQuotesT(s string) string {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return s[1 : len(s)-1]
+	}
+	return s
 }

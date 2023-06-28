@@ -790,7 +790,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Creating multiple PVCs
 			ginkgo.By("Trigger multiple PVCs")
-			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount)
+			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount, nil)
 
 			// Verify PVC claim to be in bound phase and create POD for each PVC
 			ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
@@ -990,7 +990,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Creating multiple PVCs
 			ginkgo.By("Trigger multiple PVCs")
-			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount)
+			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount, nil)
 
 			// Verify PVC claim to be in bound phase and create POD for each PVC
 			ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
@@ -1199,7 +1199,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Creating multiple PVCs
 			ginkgo.By("Trigger multiple PVCs")
-			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount)
+			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount, nil)
 
 			/* Verifying if all PVCs are in Bound phase and trigger Deployment Pods
 			for each created PVC.
@@ -2216,7 +2216,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Creating multiple PVCs
 			ginkgo.By("Trigger multiple PVCs")
-			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount)
+			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount, nil)
 			defer func() {
 				// cleanup code for deleting PVC
 				ginkgo.By("Deleting PVC's and PV's")

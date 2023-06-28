@@ -213,3 +213,12 @@ func connectMultiVcCns(ctx context.Context, vs *multiVCvSphere) error {
 	}
 	return nil
 }
+
+func newVsanHealthSvcClientForMultiVC(ctx context.Context, c *govmomi.Client) (*multiVcVsanClient, error) {
+	sc := c.Client.NewServiceClient(vsanHealthPath, vsanNamespace)
+	vimClient := c.Client
+	return &multiVcVsanClient{
+		multiVCvim25Client:   []*vim25.Client{vimClient},
+		multiVCserviceClient: []*soap.Client{sc},
+	}, nil
+}

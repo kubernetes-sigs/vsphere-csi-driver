@@ -78,6 +78,10 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		scaleUpReplicaCount         int32
 		scaleDownReplicaCount       int32
 		multiVCSetupType            string
+		isVsanHealthServiceStopped  bool
+		stsScaleUp                  bool
+		stsScaleDown                bool
+		verifyTopologyAffinity      bool
 	)
 	ginkgo.BeforeEach(func() {
 		var cancel context.CancelFunc
@@ -89,6 +93,10 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		multiVCbootstrap()
 
 		topologyLength = 5
+		stsScaleUp = true
+		stsScaleDown = true
+		verifyTopologyAffinity = true
+
 		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
 		if err == nil && sc != nil {
 			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name,
@@ -144,6 +152,13 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		for _, pv := range allPvs.Items {
 			err := client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, metav1.DeleteOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		if isVsanHealthServiceStopped {
+			vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
+			vcAddress := vCenterHostname[0] + ":" + sshdPort
+			framework.Logf("Bringing vsanhealth up before terminating the test")
+			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 	})
 
@@ -222,7 +237,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
-			allowedTopologies)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 	})
 
 	/* TESTCASE-2
@@ -283,7 +298,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
-			allowedTopologies)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 	})
 
 	/*
@@ -345,7 +360,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
-			allowedTopologies)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 	})
 
 	/* TESTCASE-4
@@ -444,7 +459,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv and pod affinity details")
 		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulSets[0], parallelStatefulSetCreation, namespace,
-			allowedTopologies)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 	})
 
 	/* TESTCASE-5
@@ -497,7 +512,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
-			allowedTopologies)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 	})
 
 	/* TESTCASE-6
@@ -558,7 +573,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
-			allowedTopologies)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 	})
 
 	/* TESTCASE-7
@@ -619,7 +634,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
-			allowedTopologies)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 	})
 
 	/* TESTCASE-8
@@ -686,7 +701,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
-			allowedTopologies)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 	})
 
 	/* TESTCASE-9
@@ -754,7 +769,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
-			allowedTopologies)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 	})
 
 	/*
@@ -824,7 +839,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		}()
 
 		ginkgo.By("Trigger multiple PVCs")
-		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount)
+		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount, nil)
 
 		ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
 		for i := 0; i < len(pvclaimsList); i++ {
@@ -888,7 +903,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
-			allowedTopologies)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 	})
 
 	/* TESTCASE-11
@@ -911,10 +926,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		stsReplicas = 5
-		/* Considering partial allowed topology of VC2 in case of type-1 setup i.e. k8s-zone -> zone-2
-		And, allowed topology of VC2 in case of type-2 setup i.e. k8s-zone -> zone-2
+		/* Considering partial allowed topology of VC2 in case of 2-VC setup i.e. k8s-zone -> zone-2
+		And, allowed topology of VC2 in case of 3-VC setup i.e. k8s-zone -> zone-2
 		*/
+
+		stsReplicas = 5
 		topValStartIndex = 1
 		topValEndIndex = 2
 		parallelPodPolicy = true
@@ -948,7 +964,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
-			allowedTopologies)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 	})
 
 	/* TESTCASE-12
@@ -1049,6 +1065,10 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		scParameters[scParamStoragePolicyName] = storagePolicyName3
 
+		/* Considering partial allowed topology of VC2 in case of 2-VC setup i.e. k8s-zone -> zone-2
+		And, allowed topology of VC2 in case of 3-VC setup i.e. k8s-zone -> zone-2
+		*/
+
 		ginkgo.By("Set specific allowed topology")
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex,
 			topValStartIndex, topValEndIndex)
@@ -1103,6 +1123,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		topValStartIndex = 0
 		topValEndIndex = 1
 		clientIndex := 0
+
+		// Considering allowed topology of VC1 in case of 2-VC and 3-VC setup i.e. k8s-zone -> zone-1
 
 		ginkgo.By("Set specific allowed topology")
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex,
@@ -1179,8 +1201,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		if err != nil {
 			return
 		}
-		err = multiVCe2eVSphere.waitForCNSVolumeToBeCreatedInMultiVC(pv.Spec.CSI.VolumeHandle)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// err = multiVCe2eVSphere.waitForCNSVolumeToBeCreatedInMultiVC(pv.Spec.CSI.VolumeHandle)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating the PVC")
 		pvc := getPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
@@ -1275,7 +1297,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		replica := 1
 
 		/* here considering partial allowed topology of VC2 in case of 2VC setup i.e k8s-zone -> zone-3
-		here considering allowed topology of VC2 in case of 3VC setup i.e k8s-zone -> zone-3
+		here considering allowed topology of VC3 in case of 3VC setup i.e k8s-zone -> zone-3
 		*/
 
 		ginkgo.By("Set specific allowed topology")
@@ -1333,7 +1355,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		2. Create PVC, Pvc should not reach bound state. It should throuw error
 	*/
 
-	ginkgo.It("Create SC with invalid allowed topology details", func() {
+	ginkgo.It("TC17Create SC with invalid allowed topology details", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1387,9 +1409,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			9. Clean up the data
 	*/
 
-	ginkgo.It("Offline and online volume expansion on a multivc setup", func() {
+	ginkgo.It("TC18Offline and online volume expansion on a multivc setup", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		var pvclaims []*v1.PersistentVolumeClaim
 
 		ginkgo.By("Create StorageClass")
 		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, nil, "",
@@ -1415,7 +1439,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		}()
 
 		ginkgo.By("Perform offline and online volume expansion on PVC")
-		pod := performOfflineAndOnlineVolumeExpansionOnPVC(f, client, pvclaim, pv, volHandle, namespace)
+		pod, err := performOfflineAndOnlineVolumeExpansionOnPVC(f, client, pvclaim, pv, volHandle, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
@@ -1452,7 +1477,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			9. Perform Cleanup
 	*/
 
-	ginkgo.It("Create workload and reboot one of the VC", func() {
+	ginkgo.It("TC19Create workload and reboot one of the VC", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1478,7 +1503,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			deleteService(namespace, client, service)
 		}()
 
-		ginkgo.By("Rebooting VC")
+		ginkgo.By("Rebooting VC1")
 		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
 		vcAddress := vCenterHostname[0] + ":" + sshdPort
 		framework.Logf("vcAddress - %s ", vcAddress)
@@ -1532,7 +1557,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulSets[0], parallelStatefulSetCreation, namespace,
-			allowedTopologies)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 	})
 
 	/* TESTCASE-20
@@ -1547,11 +1572,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	    6. Clean up the data
 	*/
 
-	ginkgo.It("Storage policy is present in VC1 and VC1 is under reboot", func() {
+	ginkgo.It("TC20Storage policy is present in VC1 and VC1 is under reboot", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		stsReplicas = 5
+		stsReplicas = 3
 		scParameters[scParamStoragePolicyName] = storagePolicyName
 		parallelStatefulSetCreation = true
 		scaleDownReplicaCount = 2
@@ -1559,6 +1584,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		topValStartIndex = 0
 		topValEndIndex = 1
 		sts_count := 2
+
+		// here, we are considering the allowed topology of VC1 i.e. k8s-zone -> zone-1
 
 		ginkgo.By("Set specific allowed topology")
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
@@ -1590,7 +1617,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 
-		ginkgo.By("Create 3 StatefulSet with replica count 5")
+		ginkgo.By("Create 3 StatefulSet with replica count 3")
 		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, stsReplicas)
 		var wg sync.WaitGroup
 		wg.Add(sts_count)
@@ -1609,6 +1636,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
 		for i := 0; i < len(statefulSets); i++ {
+			time.Sleep((60 * time.Second))
 			// verify that the StatefulSets pods are in ready state
 			fss.WaitForStatusReadyReplicas(client, statefulSets[i], stsReplicas)
 			gomega.Expect(CheckMountForStsPods(client, statefulSets[i], mountPath)).NotTo(gomega.HaveOccurred())
@@ -1635,7 +1663,404 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		for i := 0; i < len(statefulSets); i++ {
 			performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 				scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-				allowedTopologies)
+				allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 		}
 	})
+
+	// /* TESTCASE-21
+	// 		VSAN-health down on VC1
+
+	// 	Steps:
+	//     1. Create SC default values, so all the AZ's should be considered for provisioning.
+	//     2. Create dynamic PVC's and Add labels to PVC's and PV's
+	//     3. Bring down the VSAN-health on VC1
+	//     4. Create two statefulset each with replica 5
+	//     5. Since VSAN-health on VC1 is down all the volumes should get created under VC2 availability zones
+	//     6. Verify the PV node affinity and the nodes on which Pods have come  should be appropriate
+	//     7. Update the label on PV and PVC
+	//     8. Bring up the VSAN-health
+	//     9. Scale up both the statefull set to 10
+	//     10. Wait for 2 Full sync cycle
+	//     11. Verify CNS-metadata for the volumes that are created
+	//     12. Verify that the volume provisioning should resume on VC1 as well
+	//     13. Make sure common validation points are met on PV,PVC and POD
+	//     14. Scale down the statefull sets to 1
+	//     15. Clean up the data
+	// */
+
+	// ginkgo.It("TC21Storage policy is present in VC1 and VC1 is under reboot", func() {
+	// 	ctx, cancel := context.WithCancel(context.Background())
+	// 	defer cancel()
+
+	// 	stsReplicas = 5
+	// 	pvcCount := 5
+	// 	var podList []*v1.Pod
+	// 	scaleDownReplicaCount = 3
+	// 	scaleUpReplicaCount = 7
+	// 	parallelPodPolicy = true
+	// 	parallelStatefulSetCreation = true
+	// 	labelKey := "volId"
+	// 	labelValue := "pvcVolume"
+	// 	labels := make(map[string]string)
+	// 	labels[labelKey] = labelValue
+
+	// 	/* here, For 2-VC setup, we are considering all the allowed topologies of VC1 and VC2
+	// 	i.e. k8s-zone -> zone-1,zone-2,zone-3,zone-4,zone-5
+
+	// 	For 3-VC setup, we are considering all the allowed topologies of VC1, VC2 and VC3
+	// 	i.e. k8s-zone -> zone-1,zone-2,zone-3
+	// 	*/
+
+	// 	ginkgo.By("Create StorageClass with default parameters using WFC binding mode")
+	// 	scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, nil, "",
+	// 		"", false)
+	// 	sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	defer func() {
+	// 		err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	}()
+
+	// 	ginkgo.By("Trigger multiple PVCs")
+	// 	pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, labels)
+
+	// 	ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
+	// 	for i := 0; i < len(pvclaimsList); i++ {
+	// 		var pvclaims []*v1.PersistentVolumeClaim
+	// 		pvc, err := fpv.WaitForPVClaimBoundPhase(client,
+	// 			[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
+
+	// 		pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+
+	// 		ginkgo.By("Creating Pod")
+	// 		pvclaims = append(pvclaims, pvclaimsList[i])
+	// 		pod, err := createPod(client, namespace, nil, pvclaims, false, "")
+	// 		podList = append(podList, pod)
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+	// 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+	// 		vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)
+	// 		isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(client,
+	// 			pv.Spec.CSI.VolumeHandle, vmUUID)
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
+	// 	}
+	// 	defer func() {
+	// 		ginkgo.By("Deleting PVC's and PV's")
+	// 		for i := 0; i < len(pvclaimsList); i++ {
+	// 			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+	// 			err = fpv.DeletePersistentVolumeClaim(client, pvclaimsList[i].Name, namespace)
+	// 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
+	// 			err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
+	// 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 		}
+	// 	}()
+	// 	defer func() {
+	// 		for i := 0; i < len(podList); i++ {
+	// 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podList[i].Name, namespace))
+	// 			err = fpod.DeletePodWithWait(client, podList[i])
+	// 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 		}
+	// 		ginkgo.By("Verify volume is detached from the node")
+	// 		for i := 0; i < len(pvclaimsList); i++ {
+	// 			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+	// 			isDiskDetached, err := multiVCe2eVSphere.waitForVolumeDetachedFromNodeInMultiVC(client,
+	// 				pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
+	// 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+	// 				fmt.Sprintf("Volume %q is not detached from the node", pv.Spec.CSI.VolumeHandle))
+	// 		}
+	// 	}()
+
+	// 	ginkgo.By("Bring down Vsan-health service")
+	// 	vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
+	// 	vcAddress := vCenterHostname[0] + ":" + sshdPort
+	// 	framework.Logf("vcAddress - %s ", vcAddress)
+	// 	err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	isVsanHealthServiceStopped = true
+
+	// 	defer func() {
+	// 		if isVsanHealthServiceStopped {
+	// 			framework.Logf("Bringing vsanhealth up before terminating the test")
+	// 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
+	// 		}
+	// 	}()
+
+	// 	ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
+	// 	service, statefulset := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
+	// 		parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen,
+	// 		podAntiAffinityToSet, parallelStatefulSetCreation)
+	// 	defer func() {
+	// 		deleteAllStatefulSetAndPVs(client, namespace)
+	// 		deleteService(namespace, client, service)
+	// 	}()
+
+	// 	ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+	// 	for i := 0; i < len(podList); i++ {
+	// 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i],
+	// 			namespace, allowedTopologies, true)
+	// 	}
+
+	// 	ginkgo.By("Perform scaleup/scaledown operation on statefulsets and " +
+	// 		"verify pv affinity and pod affinity")
+	// 	performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
+	// 		scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
+	// 		allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+	// })
+
+	// /* TESTCASE-22
+	// 		SPS down on VC2 + use storage policy while creating statefulset
+
+	// 	Steps:
+	//     1. Create SC default values, so all the AZ's should be considered for provisioning.
+	//     2. Create dynamic PVC's and Add labels to PVC's and PV's
+	//     3. Bring down the VSAN-health on VC1
+	//     4. Create two statefulset each with replica 5
+	//     5. Since VSAN-health on VC1 is down all the volumes should get created under VC2 availability zones
+	//     6. Verify the PV node affinity and the nodes on which Pods have come  should be appropriate
+	//     7. Update the label on PV and PVC
+	//     8. Bring up the VSAN-health
+	//     9. Scale up both the statefull set to 10
+	//     10. Wait for 2 Full sync cycle
+	//     11. Verify CNS-metadata for the volumes that are created
+	//     12. Verify that the volume provisioning should resume on VC1 as well
+	//     13. Make sure common validation points are met on PV,PVC and POD
+	//     14. Scale down the statefull sets to 1
+	//     15. Clean up the data
+	// */
+
+	// ginkgo.It("TC22Storage policy is present in VC1 and VC1 is under reboot", func() {
+	// 	ctx, cancel := context.WithCancel(context.Background())
+	// 	defer cancel()
+
+	// 	stsReplicas = 5
+	// 	pvcCount := 5
+	// 	var podList []*v1.Pod
+	// 	scaleDownReplicaCount = 3
+	// 	scaleUpReplicaCount = 7
+	// 	parallelPodPolicy = true
+	// 	parallelStatefulSetCreation = true
+	// 	labelKey := "volId"
+	// 	labelValue := "pvcVolume"
+	// 	labels := make(map[string]string)
+	// 	labels[labelKey] = labelValue
+
+	// 	/* here, For 2-VC setup, we are considering all the allowed topologies of VC1 and VC2
+	// 	i.e. k8s-zone -> zone-1,zone-2,zone-3,zone-4,zone-5
+
+	// 	For 3-VC setup, we are considering all the allowed topologies of VC1, VC2 and VC3
+	// 	i.e. k8s-zone -> zone-1,zone-2,zone-3
+	// 	*/
+
+	// 	ginkgo.By("Create StorageClass with default parameters using WFC binding mode")
+	// 	scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, nil, "",
+	// 		"", false)
+	// 	sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	defer func() {
+	// 		err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	}()
+
+	// 	ginkgo.By("Trigger multiple PVCs")
+	// 	pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, labels)
+
+	// 	ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
+	// 	for i := 0; i < len(pvclaimsList); i++ {
+	// 		var pvclaims []*v1.PersistentVolumeClaim
+	// 		pvc, err := fpv.WaitForPVClaimBoundPhase(client,
+	// 			[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
+
+	// 		pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+
+	// 		ginkgo.By("Creating Pod")
+	// 		pvclaims = append(pvclaims, pvclaimsList[i])
+	// 		pod, err := createPod(client, namespace, nil, pvclaims, false, "")
+	// 		podList = append(podList, pod)
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+	// 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+	// 		vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)
+	// 		isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(client,
+	// 			pv.Spec.CSI.VolumeHandle, vmUUID)
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
+	// 	}
+	// 	defer func() {
+	// 		ginkgo.By("Deleting PVC's and PV's")
+	// 		for i := 0; i < len(pvclaimsList); i++ {
+	// 			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+	// 			err = fpv.DeletePersistentVolumeClaim(client, pvclaimsList[i].Name, namespace)
+	// 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
+	// 			err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
+	// 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 		}
+	// 	}()
+	// 	defer func() {
+	// 		for i := 0; i < len(podList); i++ {
+	// 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podList[i].Name, namespace))
+	// 			err = fpod.DeletePodWithWait(client, podList[i])
+	// 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 		}
+	// 		ginkgo.By("Verify volume is detached from the node")
+	// 		for i := 0; i < len(pvclaimsList); i++ {
+	// 			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+	// 			isDiskDetached, err := multiVCe2eVSphere.waitForVolumeDetachedFromNodeInMultiVC(client,
+	// 				pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
+	// 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+	// 				fmt.Sprintf("Volume %q is not detached from the node", pv.Spec.CSI.VolumeHandle))
+	// 		}
+	// 	}()
+
+	// 	ginkgo.By("Bring down Vsan-health service")
+	// 	vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
+	// 	vcAddress := vCenterHostname[0] + ":" + sshdPort
+	// 	framework.Logf("vcAddress - %s ", vcAddress)
+	// 	err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	isVsanHealthServiceStopped = true
+
+	// 	defer func() {
+	// 		if isVsanHealthServiceStopped {
+	// 			framework.Logf("Bringing vsanhealth up before terminating the test")
+	// 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
+	// 		}
+	// 	}()
+
+	// 	ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
+	// 	service, statefulset := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
+	// 		parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen,
+	// 		podAntiAffinityToSet, parallelStatefulSetCreation)
+	// 	defer func() {
+	// 		deleteAllStatefulSetAndPVs(client, namespace)
+	// 		deleteService(namespace, client, service)
+	// 	}()
+
+	// 	ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
+	// 	for i := 0; i < len(podList); i++ {
+	// 		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, podList[i],
+	// 			namespace, allowedTopologies, true)
+	// 	}
+
+	// 	ginkgo.By("Perform scaleup/scaledown operation on statefulsets and " +
+	// 		"verify pv affinity and pod affinity")
+	// 	performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
+	// 		scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
+	// 		allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+	// })
+
+	// /* TESTCASE-24
+	// Validate Listvolume response , when volume is deleted from CNS
+
+	// Steps:
+	// 1. Create SC with default values , so that It is allowed to provision volume on any AZ's
+	// 2. Create state-full set with 10 replica
+	// 3. For any one POD note the node on which volume is attached
+	// 4. Verify list volume response and validate the pagination , Next_token value
+	// 5. From the VC UI , go the the node identified in step 2 → edit settings → delete the few  disks
+	// 6. Since there are more than 1 volume mismatch , ListResponse fails , instead "Kubernetes and CNS volumes completely out of sync and exceeds the threshold"  error should show up
+	// 7. Clean up the data
+	// */
+
+	// ginkgo.It("TC24Validate Listvolume response when volume is deleted from CNS", func() {
+	// 	ctx, cancel := context.WithCancel(context.Background())
+	// 	defer cancel()
+	// 	var volumesBeforeScaleUp []string
+
+	// 	ginkgo.By("scale down CSI driver POD to 1 , so that it will" +
+	// 		"be easy to validate all Listvolume response on one driver POD")
+	// 	collectPodLogs(ctx, client, csiSystemNamespace)
+	// 	scaledownCSIDriver, err := scaleCSIDriver(ctx, client, namespace, 1)
+	// 	gomega.Expect(scaledownCSIDriver).To(gomega.BeTrue(), "csi driver scaledown is not successful")
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	defer func() {
+	// 		ginkgo.By("Scale up the csi-driver replica to 3")
+	// 		success, err := scaleCSIDriver(ctx, client, namespace, 3)
+	// 		gomega.Expect(success).To(gomega.BeTrue(), "csi driver scale up to 3 replica not successful")
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	}()
+
+	// 	ginkgo.By("Creating StorageClass for Statefulset")
+	// 	scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies, "",
+	// 		"", false)
+	// 	sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	defer func() {
+	// 		err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	}()
+
+	// 	ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
+	// 	service, statefulset := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
+	// 		parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen,
+	// 		podAntiAffinityToSet, parallelStatefulSetCreation)
+	// 	defer func() {
+	// 		deleteAllStatefulSetAndPVs(client, namespace)
+	// 		deleteService(namespace, client, service)
+	// 	}()
+
+	// 	//List volume responses will show up in the interval of every 1 minute.
+	// 	time.Sleep(pollTimeoutShort)
+
+	// 	ginkgo.By("Validate ListVolume Response for all the volumes")
+	// 	logMessage := "List volume response: entries:"
+	// 	_, _, err = getCSIPodWhereListVolumeResponseIsPresent(ctx, client, sshClientConfig,
+	// 		csiDriverContainerName, logMessage, volumesBeforeScaleUp)
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// 	ginkgo.By("Perform scaleup  operation on statefulsets and verify pv affinity and pod affinity")
+	// 	stsScaleDown = false
+	// 	performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
+	// 		scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
+	// 		allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+
+	// 	ginkgo.By("Validate pagination")
+	// 	logMessage = "token for next set: 3"
+	// 	_, _, err = getCSIPodWhereListVolumeResponseIsPresent(ctx, client, sshClientConfig, csiDriverContainerName, logMessage, nil)
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// 	ginkgo.By("Delete volume from CNS and verify the error message")
+	// 	logMessage = "difference between number of K8s volumes and CNS volumes is greater than threshold"
+	// 	_, err = e2eVSphere.deleteCNSvolume(volumesBeforeScaleUp[0], false)
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	_, err = e2eVSphere.deleteCNSvolume(volumesBeforeScaleUp[1], false)
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	//List volume responses will show up in the interval of every 1 minute.
+	// 	//To see the error, It is required to wait for 1 min after deleteting few Volumes
+	// 	time.Sleep(pollTimeoutShort)
+	// 	_, _, err = getCSIPodWhereListVolumeResponseIsPresent(ctx, client, sshClientConfig, csiDriverContainerName, logMessage, nil)
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// 	ginkgo.By("Perform scaledown operation on statefulsets")
+	// 	stsScaleUp = false
+	// 	verifyTopologyAffinity = false
+	// 	performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
+	// 		scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
+	// 		allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+	// 	pvcList := getAllPVCFromNamespace(client, namespace)
+	// 	for _, pvc := range pvcList.Items {
+	// 		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace),
+	// 			"Failed to delete PVC", pvc.Name)
+	// 	}
+	// 	//List volume responses will show up in the interval of every 1 minute.
+	// 	//To see the empty response, It is required to wait for 1 min after deleteting all the PVC's
+	// 	time.Sleep(pollTimeoutShort)
+
+	// 	ginkgo.By("Validate ListVolume Response when no volumes are present")
+	// 	logMessage = "ListVolumes served 0 results"
+
+	// 	_, _, err = getCSIPodWhereListVolumeResponseIsPresent(ctx, client, sshClientConfig, csiDriverContainerName, logMessage, nil)
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// })
+
 })

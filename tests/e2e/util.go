@@ -5655,7 +5655,7 @@ func createParallelStatefulSetSpec(namespace string, no_of_sts int, replicas int
 }
 
 func createMultiplePVCsInParallel(ctx context.Context, client clientset.Interface, namespace string,
-	storageclass *storagev1.StorageClass, count int) []*v1.PersistentVolumeClaim {
+	storageclass *storagev1.StorageClass, count int, pvclaimlabels map[string]string) []*v1.PersistentVolumeClaim {
 	var pvclaims []*v1.PersistentVolumeClaim
 	for i := 0; i < count; i++ {
 		pvclaim, err := createPVC(client, namespace, nil, "", storageclass, "")
