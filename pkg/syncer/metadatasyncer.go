@@ -1573,6 +1573,12 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 				"with error %+v", migrationVolumeSpec, err)
 			return
 		}
+		vcHost, cnsVolumeMgr, err = getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, volumeHandle)
+		if err != nil {
+			log.Errorf("PVCUpdated: Failed to get VC host and volume manager for the given volume: %v. "+
+				"Error occoured: %+v", volumeHandle, err)
+			return
+		}
 	} else {
 		volumeFound := false
 		volumeHandle = pv.Spec.CSI.VolumeHandle
