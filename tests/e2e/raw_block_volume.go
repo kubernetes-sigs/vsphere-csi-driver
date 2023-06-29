@@ -1201,10 +1201,10 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			}
 		}()
 
-		ginkgo.By("Create a dyanmic volume snapshot")
+		ginkgo.By("Create a dynamic volume snapshot")
 		volumeSnapshot, snapshotContent, snapshotCreated,
-			snapshotContentCreated, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
-			pvc1, diskSize)
+			snapshotContentCreated, snapshotId, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
+			pvc1, volumeID, diskSize)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
@@ -1223,11 +1223,6 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
-
-		ginkgo.By("Get volume snapshot ID from snapshot handle")
-		snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, snapshotContent, volumeSnapshotClass,
-			volumeID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Restore volumeSnapshot to another PVC
 		ginkgo.By("Restore volume snapshot to another raw block PVC")

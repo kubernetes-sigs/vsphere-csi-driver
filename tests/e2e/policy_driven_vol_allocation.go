@@ -1782,7 +1782,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			snapIDs = append(snapIDs, snapshotId)
 
 			ginkgo.By("Query CNS and check the volume snapshot entry")
-			err = verifySnapshotIsCreatedInCNS(volIds[i], snapshotId, false)
+			err = waitForCNSSnapshotToBeCreated(volIds[i], snapshotId)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		defer func() {
@@ -3000,7 +3000,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}()
 
 			ginkgo.By("Query CNS and check the volume snapshot entry")
-			err = verifySnapshotIsCreatedInCNS(snapToVolIdMap[volumeSnapshot.Name], snapshotId, false)
+			err = waitForCNSSnapshotToBeCreated(snapToVolIdMap[volumeSnapshot.Name], snapshotId)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
