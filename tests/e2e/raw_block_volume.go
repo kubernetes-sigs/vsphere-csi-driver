@@ -339,7 +339,13 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 						volumeID, sspod.Spec.NodeName))
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
-					vmUUID := getNodeUUID(ctx, client, sspod.Spec.NodeName)
+					var vmUUID string
+					if vanillaCluster {
+						vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
+					} else if guestCluster {
+						vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
 					isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
 					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
@@ -899,8 +905,9 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		var vmUUID string
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, pod.Spec.NodeName))
-		vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
-		if guestCluster {
+		if vanillaCluster {
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
+		} else if guestCluster {
 			vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -1001,8 +1008,9 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		ginkgo.By(fmt.Sprintf("Verify volume after expansion: %s is attached to the node: %s",
 			volumeID, pod.Spec.NodeName))
-		vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
-		if guestCluster {
+		if vanillaCluster {
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
+		} else if guestCluster {
 			vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -1133,6 +1141,9 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		nodeName := pod1.Spec.NodeName
 		if vanillaCluster {
 			vmUUID = getNodeUUID(ctx, client, pod1.Spec.NodeName)
+		} else if guestCluster {
+			vmUUID, err = getVMUUIDFromNodeName(pod1.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
@@ -1249,7 +1260,12 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		nodeName = pod2.Spec.NodeName
-		vmUUID = getNodeUUID(ctx, client, pod2.Spec.NodeName)
+		if vanillaCluster {
+			vmUUID = getNodeUUID(ctx, client, pod2.Spec.NodeName)
+		} else if guestCluster {
+			vmUUID, err = getVMUUIDFromNodeName(pod2.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID2, nodeName))
 		isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, volumeID2, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
