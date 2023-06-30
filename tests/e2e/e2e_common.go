@@ -344,6 +344,16 @@ var (
 	datastoreClusterMap                   = "DATASTORE_CLUSTER_MAP"
 )
 
+// For multivc
+var (
+	envSharedDatastoreURLVC1          = "SHARED_VSPHERE_DATASTORE_URL_VC1"
+	envSharedDatastoreURLVC2          = "SHARED_VSPHERE_DATASTORE_URL_VC2"
+	envStoragePolicyNameToDeleteLater = "STORAGE_POLICY_TO_DELETE_LATER"
+	envMultiVCSetupType               = "MULTI_VC_SETUP_TYPE"
+	envStoragePolicyNameVC1           = "STORAGE_POLICY_VC1"
+	envStoragePolicyNameInVC1VC2      = "STORAGE_POLICY_NAME_COMMON_IN_VC1_VC2"
+)
+
 // VolumeSnapshotClass env variables for tkg-snapshot
 var (
 	envVolSnapClassDel = "VOLUME_SNAPSHOT_CLASS_DELETE"
