@@ -1510,7 +1510,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale)
+		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale, nil)
 		_, err = fpv.WaitForPVClaimBoundPhase(client,
 			pvclaimsList, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1712,7 +1712,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
-			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale)
+			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale, nil)
 			_, err = fpv.WaitForPVClaimBoundPhase(client,
 				pvclaimsList, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2260,7 +2260,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale)
+		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale, nil)
 		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
 			pvclaimsList, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
