@@ -5118,7 +5118,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Co
 
 /*
 For Standalone Pod
-verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5 for Standalone Pod verifies that PV
+verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5 for Standalone Pod verifies that PV
 node Affinity rules should match the topology constraints specified in the storage class.
 Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV
 is provisioned.

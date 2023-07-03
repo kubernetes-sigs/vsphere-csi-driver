@@ -3,9 +3,11 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi"
 	cnsmethods "github.com/vmware/govmomi/cns/methods"
@@ -443,3 +445,93 @@ func (vs *multiVCvSphere) deleteFCDFromMultiVC(ctx context.Context, fcdID string
 
 // 	return clusterComputeResource, vsanHealthClient, nil
 // }
+
+// waitForLabelsToBeUpdated executes QueryVolume API on vCenter and verifies
+// volume labels are updated by metadata-syncer
+func (vs *multiVCvSphere) waitForLabelsToBeUpdatedInMultiVC(volumeID string, matchLabels map[string]string,
+	entityType string, entityName string, entityNamespace string) error {
+	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+		err := vs.verifyLabelsAreUpdatedInMultiVC(volumeID, matchLabels, entityType, entityName, entityNamespace)
+		if err == nil {
+			return true, nil
+		} else {
+			return false, nil
+		}
+	})
+	if err != nil {
+		if err == wait.ErrWaitTimeout {
+			return fmt.Errorf("labels are not updated to %+v for %s %q for volume %s",
+				matchLabels, entityType, entityName, volumeID)
+		}
+		return err
+	}
+
+	return nil
+}
+
+// verifyLabelsAreUpdated executes cns QueryVolume API on vCenter and verifies if
+// volume labels are updated by metadata-syncer
+func (vs *multiVCvSphere) verifyLabelsAreUpdatedInMultiVC(volumeID string, matchLabels map[string]string,
+	entityType string, entityName string, entityNamespace string) error {
+
+	queryResult, err := vs.queryCNSVolumeWithResultInMultiVC(volumeID)
+	framework.Logf("queryResult: %s", spew.Sdump(queryResult))
+	if err != nil {
+		return err
+	}
+	if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
+		return fmt.Errorf("failed to query cns volume %s", volumeID)
+	}
+	gomega.Expect(queryResult.Volumes[0].Metadata).NotTo(gomega.BeNil())
+	for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
+		if metadata == nil {
+			continue
+		}
+		kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
+		k8sEntityName := kubernetesMetadata.EntityName
+		if guestCluster {
+			k8sEntityName = kubernetesMetadata.CnsEntityMetadata.EntityName
+		}
+		if kubernetesMetadata.EntityType == entityType && k8sEntityName == entityName &&
+			kubernetesMetadata.Namespace == entityNamespace {
+			if matchLabels == nil {
+				return nil
+			}
+			labelsMatch := reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.Labels), matchLabels)
+			if guestCluster {
+				labelsMatch = reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.CnsEntityMetadata.Labels),
+					matchLabels)
+			}
+			if labelsMatch {
+				return nil
+			} else {
+				return fmt.Errorf("labels are not updated to %+v for %s %q for volume %s",
+					matchLabels, entityType, entityName, volumeID)
+			}
+		}
+	}
+	return nil
+}
+
+// verifyPreferredDatastoreMatch verify if any of the given dsUrl matches with the datstore url for the volumeid
+func (vs *multiVCvSphere) verifyPreferredDatastoreMatchInMultiVC(volumeID string, dsUrls []string) bool {
+	actualDatastoreUrl := fetchDsUrlForCNSInMultiVC(multiVCe2eVSphere, volumeID)
+	flag := false
+	for _, dsUrl := range dsUrls {
+		if actualDatastoreUrl == dsUrl {
+			flag = true
+			return flag
+		}
+	}
+	return flag
+}
+
+// fetchDsUrl4CnsVol executes query CNS volume to get the datastore
+// where the volume is Present
+func fetchDsUrlForCNSInMultiVC(vs multiVCvSphere, volHandle string) string {
+	framework.Logf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle)
+	queryResult, err := vs.queryCNSVolumeWithResultInMultiVC(volHandle)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+	return queryResult.Volumes[0].DatastoreUrl
+}

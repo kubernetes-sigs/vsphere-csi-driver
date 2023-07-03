@@ -53,11 +53,15 @@ getTopologyLevel5ClusterGroupNames method is used to fetch list of cluster avail
 in level-5 testbed
 */
 func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.ClientConfig,
-	dataCenter []*object.Datacenter) ([]string, error) {
+	dataCenter []*object.Datacenter, isMultiVCSetup bool, clientIndexForMultiVC int) ([]string, error) {
 	var clusterList, clusList, clusFolderTemp, clusterGroupRes []string
-	var clusterFolderName string
+	var clusterFolderName, clusterFolder, clusterGroup string
 	for i := 0; i < len(dataCenter); i++ {
-		clusterFolder := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
+		if !isMultiVCSetup {
+			clusterFolder = govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
+		} else {
+			clusterFolder = govcLoginCmdForMultiVC(clientIndexForMultiVC) + "govc ls " + dataCenter[i].InventoryPath
+		}
 		framework.Logf("cmd: %s ", clusterFolder)
 		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder)
 		if err != nil && clusterFolderNameResult.Code != 0 {
@@ -74,7 +78,11 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 				break
 			}
 		}
-		clusterGroup := govcLoginCmd() + "govc ls " + clusterFolderName
+		if !isMultiVCSetup {
+			clusterGroup = govcLoginCmd() + "govc ls " + clusterFolderName
+		} else {
+			clusterGroup = govcLoginCmdForMultiVC(clientIndexForMultiVC) + "govc ls " + clusterFolderName
+		}
 		framework.Logf("cmd: %s ", clusterGroup)
 		clusterGroupResult, err := sshExec(sshClientConfig, masterIp, clusterGroup)
 		if err != nil && clusterGroupResult.Code != 0 {
@@ -82,8 +90,15 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 				clusterGroup, masterIp, err)
 		}
-		if clusterGroupResult.Stdout != "" {
-			clusterGroupRes = strings.Split(clusterGroupResult.Stdout, "\n")
+		if !isMultiVCSetup {
+			if clusterGroupResult.Stdout != "" {
+				clusterGroupRes = strings.Split(clusterGroupResult.Stdout, "\n")
+			}
+		} else {
+			if clusterGroupResult.Stdout != "" {
+				clusterGroupRes = strings.Split(clusterGroupResult.Stdout, "\n")
+				return clusterGroupRes, nil
+			}
 		}
 		cluster := govcLoginCmd() + "govc ls " + clusterGroupRes[0] + " | sort"
 		framework.Logf("cmd: %s ", cluster)
@@ -110,9 +125,16 @@ attachTagToPreferredDatastore method is used to attach the  preferred tag to the
 datastore chosen for volume provisioning
 */
 func attachTagToPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	datastore string, tagName string) error {
-	attachTagCat := govcLoginCmd() +
-		"govc tags.attach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
+	datastore string, tagName string, isMultiVC bool, clientIndexForMultiVC int) error {
+	var attachTagCat string
+	if !isMultiVC {
+		attachTagCat = govcLoginCmd() +
+			"govc tags.attach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
+	} else {
+		attachTagCat = govcLoginCmdForMultiVC(clientIndexForMultiVC) +
+			"govc tags.attach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
+	}
+
 	framework.Logf("cmd to attach tag to preferred datastore: %s ", attachTagCat)
 	attachTagCatRes, err := sshExec(sshClientConfig, masterIp, attachTagCat)
 	if err != nil && attachTagCatRes.Code != 0 {
@@ -125,9 +147,16 @@ func attachTagToPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientC
 
 /* detachTagCreatedOnPreferredDatastore is used to detach the tag created on preferred datastore */
 func detachTagCreatedOnPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	datastore string, tagName string) error {
-	detachTagCat := govcLoginCmd() +
-		"govc tags.detach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
+	datastore string, tagName string, isMultiVCSetup bool, clientIndexForMultiVC int) error {
+	var detachTagCat string
+	if isMultiVCSetup {
+		detachTagCat = govcLoginCmd() +
+			"govc tags.detach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
+
+	} else {
+		detachTagCat = govcLoginCmdForMultiVC(clientIndexForMultiVC) +
+			"govc tags.detach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
+	}
 	framework.Logf("cmd to detach the tag assigned to preferred datastore: %s ", detachTagCat)
 	detachTagCatRes, err := sshExec(sshClientConfig, masterIp, detachTagCat)
 	if err != nil && detachTagCatRes.Code != 0 {
@@ -219,7 +248,7 @@ chosen preferred datastore or not for statefulsets
 func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 	client clientset.Interface, statefulset *appsv1.StatefulSet,
 	namespace string, datastoreNames []string, datastoreListMap map[string]string,
-	multipleAllowedTopology bool, parallelStatefulSetCreation bool) error {
+	multipleAllowedTopology bool, parallelStatefulSetCreation bool, isMultiVCSetup bool) error {
 	counter := 0
 	stsPodCount := 0
 	var dsUrls []string
@@ -239,9 +268,15 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, volumespec := range sspod.Spec.Volumes {
+			var isPreferred bool
 			if volumespec.PersistentVolumeClaim != nil {
 				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-				isPreferred := e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, dsUrls)
+				if !isMultiVCSetup {
+					isPreferred = e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, dsUrls)
+				} else {
+					isPreferred = multiVCe2eVSphere.verifyPreferredDatastoreMatchInMultiVC(pv.Spec.CSI.VolumeHandle,
+						dsUrls)
+				}
 				if isPreferred {
 					framework.Logf("volume %s is created on preferred datastore %v", pv.Spec.CSI.VolumeHandle, dsUrls)
 					counter = counter + 1
@@ -302,7 +337,7 @@ func tagSameDatastoreAsPreferenceToDifferentRacks(masterIp string, sshClientConf
 	i := 0
 	for j := 0; j < len(datastoreNames); j++ {
 		i = i + 1
-		err := attachTagToPreferredDatastore(masterIp, sshClientConfig, datastoreNames[j], zoneValue)
+		err := attachTagToPreferredDatastore(masterIp, sshClientConfig, datastoreNames[j], zoneValue, false, 0)
 		if err != nil {
 			return err
 		}
@@ -317,14 +352,22 @@ func tagSameDatastoreAsPreferenceToDifferentRacks(masterIp string, sshClientConf
 tagPreferredDatastore method is used to tag the datastore which is chosen for volume provisioning
 */
 func tagPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, zoneValue string, itr int,
-	datastoreListMap map[string]string, datastoreNames []string) ([]string, error) {
+	datastoreListMap map[string]string, datastoreNames []string,
+	isMultiVCSetup bool, clientIndexForMultiVC int) ([]string, error) {
 	var preferredDatastorePaths []string
+	var err error
 	i := 0
 	if datastoreNames == nil {
 		for dsName := range datastoreListMap {
 			i = i + 1
 			preferredDatastorePaths = append(preferredDatastorePaths, dsName)
-			err := attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue)
+			if !isMultiVCSetup {
+				err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue,
+					false, clientIndexForMultiVC)
+			} else {
+				err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue,
+					true, clientIndexForMultiVC)
+			}
 			if err != nil {
 				return preferredDatastorePaths, err
 			}
@@ -337,7 +380,13 @@ func tagPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, z
 		for dsName := range datastoreListMap {
 			if !slices.Contains(datastoreNames, dsName) {
 				preferredDatastorePaths = append(preferredDatastorePaths, dsName)
-				err := attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue)
+				if !isMultiVCSetup {
+					err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue,
+						false, clientIndexForMultiVC)
+				} else {
+					err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue,
+						true, clientIndexForMultiVC)
+				}
 				if err != nil {
 					return preferredDatastorePaths, err
 				}

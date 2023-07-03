@@ -26,11 +26,13 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/object"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
 
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labels "k8s.io/apimachinery/pkg/labels"
@@ -38,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
@@ -386,11 +389,7 @@ func performOfflineAndOnlineVolumeExpansionOnPVC(f *framework.Framework, client 
 }
 
 // govc login cmd
-func govcLoginCmdForMultiVC() string {
-	// configUser := strings.Split(multiVCe2eVSphere.multivcConfig.Global.User[0], ",")
-	// configPwd := strings.Split(multiVCe2eVSphere.multivcConfig.Global.Password[0], ",")
-	// configvCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname[0], ",")
-	// configvCenterPort := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterPort[0], ",")
+func govcLoginCmdForMultiVC(i int) string {
 	configUser := strings.Split(multiVCe2eVSphere.multivcConfig.Global.User, ",")
 	configPwd := strings.Split(multiVCe2eVSphere.multivcConfig.Global.Password, ",")
 	configvCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
@@ -398,12 +397,13 @@ func govcLoginCmdForMultiVC() string {
 
 	loginCmd := "export GOVC_INSECURE=1;"
 	loginCmd += fmt.Sprintf("export GOVC_URL='https://%s:%s@%s:%s';",
-		configUser[0], configPwd[0], configvCenterHostname[0], configvCenterPort[0])
+		configUser[i], configPwd[i], configvCenterHostname[i], configvCenterPort[i])
 	return loginCmd
 }
 
-func deleteStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig, storagePolicyName string) error {
-	removeStoragePolicy := govcLoginCmdForMultiVC() +
+func deleteStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig,
+	storagePolicyName string, client_index int) error {
+	removeStoragePolicy := govcLoginCmdForMultiVC(client_index) +
 		"govc storage.policy.rm " + storagePolicyName
 	framework.Logf("Remove storage policy: %s ", removeStoragePolicy)
 	removeStoragePolicytRes, err := sshExec(sshClientConfig, masterIp, removeStoragePolicy)
@@ -467,66 +467,161 @@ type VirtualCenterConfig struct {
 	Datacenters  string `gcfg:"datacenters"`
 }
 
-func readConfigFromSecretStringT(cfg string) (e2eTestConfig, error) {
-	var config e2eTestConfig
-	var currentVC *VirtualCenterConfig
-	var vcFound bool
+// func readConfigFromSecretStringT(cfg string) (e2eTestConfig, error) {
+// 	var config e2eTestConfig
+// 	var currentVC *VirtualCenterConfig
+// 	var vcFound bool
 
-	lines := strings.Split(cfg, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
+// 	lines := strings.Split(cfg, "\n")
+// 	for _, line := range lines {
+// 		line = strings.TrimSpace(line)
+// 		if line == "" || strings.HasPrefix(line, "#") {
+// 			continue
+// 		}
 
-		if strings.HasPrefix(line, "[Global]") {
-			currentVC = nil
-			vcFound = false
-			continue
-		}
+// 		if strings.HasPrefix(line, "[Global]") {
+// 			currentVC = nil
+// 			vcFound = false
+// 			continue
+// 		}
 
-		if strings.HasPrefix(line, "[VirtualCenter") {
-			vcFound = true
-			currentVC = &VirtualCenterConfig{}
-			config.VirtualCenters = append(config.VirtualCenters, currentVC)
-			continue
-		}
+// 		if strings.HasPrefix(line, "[VirtualCenter") {
+// 			vcFound = true
+// 			currentVC = &VirtualCenterConfig{}
+// 			config.VirtualCenters = append(config.VirtualCenters, currentVC)
+// 			continue
+// 		}
 
-		if vcFound {
-			words := strings.Split(line, "=")
-			if len(words) != 2 {
-				return config, fmt.Errorf("invalid line format: %s", line)
-			}
-			key := strings.TrimSpace(words[0])
-			value := strings.TrimSpace(trimQuotesT(words[1]))
+// 		if vcFound {
+// 			words := strings.Split(line, "=")
+// 			if len(words) != 2 {
+// 				return config, fmt.Errorf("invalid line format: %s", line)
+// 			}
+// 			key := strings.TrimSpace(words[0])
+// 			value := strings.TrimSpace(trimQuotesT(words[1]))
 
-			switch key {
-			case "insecure-flag":
-				insecureFlag, err := strconv.ParseBool(value)
-				if err != nil {
-					return config, fmt.Errorf("failed to parse insecure-flag: %v", err)
-				}
-				currentVC.InsecureFlag = insecureFlag
-			case "user":
-				currentVC.User = value
-			case "password":
-				currentVC.Password = value
-			case "port":
-				currentVC.Port = value
-			case "datacenters":
-				currentVC.Datacenters = value
-			default:
-				return config, fmt.Errorf("unknown key %s in the input string", key)
-			}
-		}
-	}
+// 			switch key {
+// 			case "insecure-flag":
+// 				insecureFlag, err := strconv.ParseBool(value)
+// 				if err != nil {
+// 					return config, fmt.Errorf("failed to parse insecure-flag: %v", err)
+// 				}
+// 				currentVC.InsecureFlag = insecureFlag
+// 			case "user":
+// 				currentVC.User = value
+// 			case "password":
+// 				currentVC.Password = value
+// 			case "port":
+// 				currentVC.Port = value
+// 			case "datacenters":
+// 				currentVC.Datacenters = value
+// 			default:
+// 				return config, fmt.Errorf("unknown key %s in the input string", key)
+// 			}
+// 		}
+// 	}
 
-	return config, nil
+// 	return config, nil
+// }
+
+// func trimQuotesT(s string) string {
+// 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+// 		return s[1 : len(s)-1]
+// 	}
+// 	return s
+// }
+
+// createStaticPVC this method creates static PVC
+func createStaticPVCInMultiVC(ctx context.Context, f *framework.Framework,
+	client clientset.Interface, namespace string, defaultDatastore *object.Datastore,
+	pandoraSyncWaitTime int, allowedTopologies []v1.TopologySelectorLabelRequirement, clientIndex int,
+	sc *storagev1.StorageClass) (string, *v1.PersistentVolumeClaim, *v1.PersistentVolume) {
+	curtime := time.Now().Unix()
+
+	ginkgo.By("Creating FCD Disk")
+	curtimeinstring := strconv.FormatInt(curtime, 10)
+	fcdID, err := multiVCe2eVSphere.createFCDForMultiVC(ctx, "BasicStaticFCD"+curtimeinstring, diskSizeInMb, defaultDatastore.Reference(), clientIndex)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("FCD ID :", fcdID)
+
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
+		pandoraSyncWaitTime, fcdID))
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+	// Creating label for PV.
+	// PVC will use this label as Selector to find PV
+	staticPVLabels := make(map[string]string)
+	staticPVLabels["fcd-id"] = fcdID
+
+	ginkgo.By("Creating PV")
+	pv := getPersistentVolumeSpecWithStorageclass(fcdID, v1.PersistentVolumeReclaimDelete, sc.Name, nil, diskSize)
+	pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	pvName := pv.GetName()
+
+	ginkgo.By("Creating PVC")
+	pvc := getPVCSpecWithPVandStorageClass("static-pvc", namespace, nil, pvName, sc.Name, diskSize)
+	pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Waiting for claim to be in bound phase")
+	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+		namespace, pvc.Name, framework.Poll, framework.ClaimProvisionTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Verifying CNS entry is present in cache")
+	_, err = multiVCe2eVSphere.queryCNSVolumeWithResultInMultiVC(pv.Spec.CSI.VolumeHandle)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	pv = getPvFromClaim(client, namespace, pvc.Name)
+	verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
+
+	// Wait for PV and PVC to Bind
+	framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv, pvc))
+
+	return fcdID, pvc, pv
 }
 
-func trimQuotesT(s string) string {
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
+func getListOfDatastoresByClusterName1(masterIp string, sshClientConfig *ssh.ClientConfig,
+	cluster string, isMultiVCSetup bool) (map[string]string, map[string]string, map[string]string, error) {
+	ClusterdatastoreListMapVC1 := make(map[string]string)
+	ClusterdatastoreListMapVC2 := make(map[string]string)
+	ClusterdatastoreListMapVC3 := make(map[string]string)
+
+	configvCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
+	for i := 0; i < len(configvCenterHostname); i++ {
+		datastoreListByCluster := govcLoginCmdForMultiVC(i) +
+			"govc object.collect -s -d ' ' " + cluster + " host | xargs govc datastore.info -H | " +
+			"grep 'Path\\|URL' | tr -s [:space:]"
+
+		framework.Logf("cmd : %s ", datastoreListByCluster)
+		result, err := sshExec(sshClientConfig, masterIp, datastoreListByCluster)
+		if err != nil && result.Code != 0 {
+			fssh.LogResult(result)
+			return nil, nil, nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				datastoreListByCluster, masterIp, err)
+		}
+
+		datastoreList := strings.Split(result.Stdout, "\n")
+
+		ClusterdatastoreListMap := make(map[string]string) // Empty the map
+
+		for i := 0; i < len(datastoreList)-1; i = i + 2 {
+			key := strings.ReplaceAll(datastoreList[i], " Path: ", "")
+			value := strings.ReplaceAll(datastoreList[i+1], " URL: ", "")
+			ClusterdatastoreListMap[key] = value
+		}
+
+		if i == 0 {
+			ClusterdatastoreListMapVC1 = ClusterdatastoreListMap
+		} else if i == 1 {
+			ClusterdatastoreListMapVC2 = ClusterdatastoreListMap
+		} else if i == 2 {
+			ClusterdatastoreListMapVC3 = ClusterdatastoreListMap
+		}
 	}
-	return s
+
+	return ClusterdatastoreListMapVC1, ClusterdatastoreListMapVC2, ClusterdatastoreListMapVC3, nil
 }

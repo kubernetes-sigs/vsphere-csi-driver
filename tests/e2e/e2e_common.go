@@ -291,14 +291,17 @@ var (
 	nfstoragePolicyDatastoreUrl           = "NFS_STORAGE_POLICY_DATASTORE_URL"
 	workerClusterMap                      = "WORKER_CLUSTER_MAP"
 	datastoreClusterMap                   = "DATASTORE_CLUSTER_MAP"
+	clientIndex                           = 0
 )
 
 // For multivc
 var (
-	envSharedDatastoreURLVC1                 = "SHARED_VSPHERE_DATASTORE_URL_VC1"
-	envSharedDatastoreURLVC2                 = "SHARED_VSPHERE_DATASTORE_URL_VC2"
-	envStoragePolicyNameForSharedDatastores3 = "STORAGE_POLICY_FOR_SHARED_DATASTORES_3"
-	envMultiVCSetupType                      = "MULTI_VC_SETUP_TYPE"
+	envSharedDatastoreURLVC1          = "SHARED_VSPHERE_DATASTORE_URL_VC1"
+	envSharedDatastoreURLVC2          = "SHARED_VSPHERE_DATASTORE_URL_VC2"
+	envStoragePolicyNameToDeleteLater = "STORAGE_POLICY_TO_DELETE_LATER"
+	envMultiVCSetupType               = "MULTI_VC_SETUP_TYPE"
+	envStoragePolicyNameVC1           = "STORAGE_POLICY_VC1"
+	envStoragePolicyNameInVC1VC2      = "STORAGE_POLICY_NAME_COMMON_IN_VC1_VC2"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.
