@@ -735,3 +735,31 @@ func GetConfigPath(ctx context.Context) string {
 	}
 	return cfgPath
 }
+
+// GetSessionUserAgent returns clusterwise unique useragent
+func GetSessionUserAgent(ctx context.Context) (string, error) {
+	log := logger.GetLogger(ctx)
+	clusterFlavor, err := GetClusterFlavor(ctx)
+	if err != nil {
+		log.Errorf("failed retrieving cluster flavor. Error: %+v", err)
+		return "", err
+	}
+	cfg, err := GetConfig(ctx)
+	if err != nil {
+		log.Errorf("failed to read config. Error: %+v", err)
+		return "", err
+	}
+	useragent := "k8s-csi-useragent"
+	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		if cfg.Global.ClusterID != "" {
+			useragent = useragent + "-" + cfg.Global.ClusterID
+		} else {
+			useragent = useragent + "-" + GeneratedVanillaClusterID
+		}
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if cfg.Global.SupervisorID != "" {
+			useragent = useragent + "-" + cfg.Global.SupervisorID
+		}
+	}
+	return useragent, nil
+}

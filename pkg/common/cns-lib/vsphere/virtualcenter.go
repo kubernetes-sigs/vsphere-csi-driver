@@ -23,28 +23,28 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	neturl "net/url"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/vmware/govmomi/cns"
-	"github.com/vmware/govmomi/property"
-	"github.com/vmware/govmomi/vsan"
-	"github.com/vmware/govmomi/vslm"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	neturl "net/url"
 
 	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/cns"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/pbm"
+	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/sts"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
+	"github.com/vmware/govmomi/vsan"
+	"github.com/vmware/govmomi/vslm"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 const (
@@ -141,7 +141,7 @@ type VirtualCenterConfig struct {
 }
 
 // NewClient creates a new govmomi Client instance.
-func (vc *VirtualCenter) NewClient(ctx context.Context) (*govmomi.Client, error) {
+func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govmomi.Client, error) {
 	log := logger.GetLogger(ctx)
 	if vc.Config.Scheme == "" {
 		vc.Config.Scheme = DefaultScheme
@@ -177,7 +177,7 @@ func (vc *VirtualCenter) NewClient(ctx context.Context) (*govmomi.Client, error)
 		log.Errorf("Failed to set vimClient service version to vsan. err: %v", err)
 		return nil, err
 	}
-	vimClient.UserAgent = "k8s-csi-useragent"
+	vimClient.UserAgent = useragent
 	client := &govmomi.Client{
 		Client:         vimClient,
 		SessionManager: session.NewManager(vimClient),
@@ -279,9 +279,14 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 
 	// If client was never initialized, initialize one.
 	var err error
+	useragent, err := config.GetSessionUserAgent(ctx)
+	if err != nil {
+		log.Errorf("failed to get useragent for vCenter session. error: %+v", err)
+		return err
+	}
 	if vc.Client == nil {
 		log.Infof("VirtualCenter.connect() creating new client")
-		if vc.Client, err = vc.NewClient(ctx); err != nil {
+		if vc.Client, err = vc.NewClient(ctx, useragent); err != nil {
 			log.Errorf("failed to create govmomi client with err: %v", err)
 			if !vc.Config.Insecure {
 				log.Errorf("failed to connect to vCenter using CA file: %q", vc.Config.CAFile)
@@ -330,7 +335,7 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 			return logger.LogNewErrorf(log, "failed to get vCenter config for Host: %q", vc.Config.Host)
 		}
 	}
-	if vc.Client, err = vc.NewClient(ctx); err != nil {
+	if vc.Client, err = vc.NewClient(ctx, useragent); err != nil {
 		log.Errorf("failed to create govmomi client with err: %v", err)
 		if !vc.Config.Insecure {
 			log.Errorf("failed to connect to vCenter using CA file: %q", vc.Config.CAFile)
