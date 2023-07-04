@@ -450,7 +450,7 @@ func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string
 // waitForCNSVolumeToBeDeleted executes QueryVolume API on vCenter and verifies
 // volume entries are deleted from vCenter Database
 func (vs *vSphere) waitForCNSVolumeToBeDeleted(volumeID string) error {
-	err := wait.Poll(poll, 2*pollTimeout, func() (bool, error) {
+	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
 		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 		if err != nil {
 			return true, err
