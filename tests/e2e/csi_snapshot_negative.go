@@ -44,19 +44,21 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 	f := framework.NewDefaultFramework("file-snapshot")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client              clientset.Interface
-		csiNamespace        string
-		csiReplicas         int32
-		isServiceStopped    bool
-		namespace           string
-		scParameters        map[string]string
-		datastoreURL        string
-		fullSyncWaitTime    int
-		pvclaims            []*v1.PersistentVolumeClaim
-		restConfig          *restclient.Config
-		snapc               *snapclient.Clientset
-		serviceName         string
-		pandoraSyncWaitTime int
+		client                 clientset.Interface
+		csiNamespace           string
+		csiReplicas            int32
+		isServiceStopped       bool
+		namespace              string
+		scParameters           map[string]string
+		datastoreURL           string
+		fullSyncWaitTime       int
+		pvclaims               []*v1.PersistentVolumeClaim
+		restConfig             *restclient.Config
+		snapc                  *snapclient.Clientset
+		serviceName            string
+		pandoraSyncWaitTime    int
+		guestClusterRestConfig *restclient.Config
+		storagePolicyName      string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -75,9 +77,15 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		}
 
 		//Get snapshot client using the rest config
-		restConfig = getRestConfigClient()
-		snapc, err = snapclient.NewForConfig(restConfig)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if !guestCluster {
+			restConfig = getRestConfigClient()
+			snapc, err = snapclient.NewForConfig(restConfig)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			guestClusterRestConfig = getRestConfigClientForGuestCluster(guestClusterRestConfig)
+			snapc, err = snapclient.NewForConfig(guestClusterRestConfig)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		if os.Getenv(envFullSyncWaitTime) != "" {
 			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
@@ -100,6 +108,13 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+		}
+
+		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
 		}
 	})
 
@@ -154,20 +169,20 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		2. Try creating a snapshot on this pvc
 		3. Should fail with an appropriate error
 	*/
-	ginkgo.It("Volume snapshot creation on a file-share volume", func() {
+	ginkgo.It("[tkg-snapshot] TC23Volume snapshot creation on a file-share volume", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		var storageclass *storagev1.StorageClass
-		var pvclaim *v1.PersistentVolumeClaim
-		var err error
+		if vanillaCluster {
+			scParameters[scParamDatastoreURL] = datastoreURL
+		} else if guestCluster {
+			scParameters[svStorageClassName] = storagePolicyName
+		}
 
 		ginkgo.By("Create storage class and PVC")
-		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		storageclass, pvclaim, err := createPVCAndStorageClass(client,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -179,6 +194,9 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		if guestCluster {
+			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
+		}
 
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
@@ -188,13 +206,13 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		}()
 
 		ginkgo.By("Create volume snapshot class")
-		volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
-			getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil), metav1.CreateOptions{})
+		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		defer func() {
-			err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if vanillaCluster {
+				err = snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Create a volume snapshot")

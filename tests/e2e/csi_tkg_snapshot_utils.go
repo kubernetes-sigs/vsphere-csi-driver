@@ -107,7 +107,7 @@ func createPreProvisionedSnapshotForGuestCluster(ctx context.Context, volumeSnap
 		return nil, nil, fmt.Errorf("VolumeSnapshotContent is not ready to use")
 	}
 
-	ginkgo.By("Create a volume snapshot by snapshotcontent")
+	ginkgo.By("Create a static volume snapshot by static snapshotcontent")
 	staticVolumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
 		getVolumeSnapshotSpecByName(namespace, "static-vs",
 			staticSnapshotContent.ObjectMeta.Name), metav1.CreateOptions{})
