@@ -128,15 +128,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			setResourceQuota(svcClient, svNamespace, rqLimit)
 		}
 
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			if fullSyncWaitTime <= 0 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
 	})
 
 	ginkgo.AfterEach(func() {

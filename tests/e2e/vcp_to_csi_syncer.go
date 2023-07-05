@@ -49,7 +49,10 @@ import (
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
+	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func() {
@@ -73,7 +76,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		labelValue                 string
 		vmdks                      []string
 		pvsToDelete                []*v1.PersistentVolume
-		fullSyncWaitTime           int
+		cnsOperatorClient          k8sClient.Client
 		podsToDelete               []*v1.Pod
 		migrationEnabledByDefault  bool
 		rawBlockVolumeMode         = v1.PersistentVolumeBlock
@@ -103,16 +106,10 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		labelValue = "label-value"
 		pvsToDelete = []*v1.PersistentVolume{}
 
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// Full sync interval can be 1 min at minimum so full sync wait time has to be more than 120s
-			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
+		cnsOperatorClient, err = k8s.NewClientForGroup(ctx, f.ClientConfig(), cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
 		vcpPvcsPreMig = []*v1.PersistentVolumeClaim{}
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
 		vcpPvsPreMig = nil
@@ -514,8 +511,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		ginkgo.By("Waiting for migration related annotations on PV/PVCs created before migration")
 		waitForMigAnnotationsPvcPvLists(ctx, client, vcpPvcsPreMig, vcpPvsPreMig, true, migrationEnabledByDefault)
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync to finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on PVC1")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
@@ -1262,6 +1259,9 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		err = fpod.DeletePodWithWait(client, pod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podsToDelete = []*v1.Pod{}
+
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By("Verify CNS volume for vmdk1 is removed")
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(crd.Spec.VolumeID)

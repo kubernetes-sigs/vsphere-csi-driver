@@ -52,7 +52,6 @@ const (
 	datacenter                                 = "DATACENTER"
 	defaultFullSyncIntervalInMin               = "30"
 	defaultProvisionerTimeInSec                = "300"
-	defaultFullSyncWaitTime                    = 1800
 	defaultPandoraSyncWaitTime                 = 90
 	defaultK8sNodesUpWaitTime                  = 25
 	destinationDatastoreURL                    = "DESTINATION_VSPHERE_DATASTORE_URL"

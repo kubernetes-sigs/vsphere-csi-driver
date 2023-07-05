@@ -31,6 +31,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 	admissionapi "k8s.io/pod-security-admission/api"
+	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -68,7 +71,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		labelKey                   string
 		labelValue                 string
 		pandoraSyncWaitTime        int
-		fullSyncWaitTime           int
+		cnsOperatorClient          k8sClient.Client
 		datacenter                 *object.Datacenter
 		datastore                  *object.Datastore
 		datastoreURL               string
@@ -97,17 +100,13 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		bootstrap()
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// Full sync interval can be 1 min at minimum so full sync wait time
-			// has to be more than 120s.
-			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		cnsOperatorClient, err = k8s.NewClientForGroup(ctx, f.ClientConfig(), cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
 
 		cfg, err := getConfig()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -194,8 +193,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be created", fcdID))
 		err = e2eVSphere.waitForCNSVolumeToBeCreated(fcdID)
@@ -288,8 +287,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
 			labels, pvc.Name, pvc.Namespace))
@@ -381,8 +380,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", fcdID))
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdID)
@@ -472,8 +471,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By(fmt.Sprintf("Waiting for pvc metadata to be deleted for pvc %s in namespace %s",
 			pvclaims[0].Name, pvclaims[0].Namespace))
@@ -585,8 +584,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
 		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, pvc.Name, pv.ObjectMeta.Name, "")
@@ -666,8 +665,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By(fmt.Sprintf("Waiting for pvc metadata to be deleted for pvc %s in namespace %s",
 			pvc.Name, pvc.Namespace))
@@ -754,8 +753,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			vSphereCSIControllerPodNamePrefix, csiControllerNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s", deployment.Name))
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be created", fcdID))
 		err = e2eVSphere.waitForCNSVolumeToBeCreated(fcdID)
@@ -858,8 +857,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		ginkgo.By("Starting vsan-health on the vCenter host")
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By("Waiting for pod pod2, to be running")
 		err = fpod.WaitForPodNameRunningInNamespace(client, pod2.Name, namespace)

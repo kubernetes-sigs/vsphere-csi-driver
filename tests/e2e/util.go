@@ -1075,47 +1075,6 @@ func getSvcClientAndNamespace() (clientset.Interface, string) {
 	return svcClient, svcNamespace
 }
 
-// updateCSIDeploymentTemplateFullSyncInterval helps to update the
-// FULL_SYNC_INTERVAL_MINUTES in deployment template. For this to take effect,
-// we need to terminate the running csi controller pod.
-// Returns fsync interval value before the change.
-func updateCSIDeploymentTemplateFullSyncInterval(client clientset.Interface, mins string, namespace string) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	deployment, err := client.AppsV1().Deployments(namespace).Get(
-		ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	containers := deployment.Spec.Template.Spec.Containers
-
-	for _, c := range containers {
-		if c.Name == "vsphere-syncer" {
-			for _, e := range c.Env {
-				if e.Name == "FULL_SYNC_INTERVAL_MINUTES" {
-					e.Value = mins
-				}
-			}
-		}
-	}
-	deployment.Spec.Template.Spec.Containers = containers
-	_, err = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ginkgo.By("Polling for update operation on deployment to take effect...")
-	waitErr := wait.Poll(healthStatusPollInterval, healthStatusPollTimeout, func() (bool, error) {
-		deployment, err = client.AppsV1().Deployments(namespace).Get(
-			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		if err != nil {
-			return false, nil
-		}
-		err = fdep.WaitForDeploymentComplete(client, deployment)
-		if err != nil {
-			return false, err
-		}
-		return true, nil
-	})
-	return waitErr
-}
-
 // updateCSIDeploymentProvisionerTimeout helps to update the timeout value
 // in deployment template. For this to take effect,
 func updateCSIDeploymentProvisionerTimeout(client clientset.Interface, namespace string, timeout string) {
@@ -5924,20 +5883,23 @@ func enableFullSyncTriggerFss(ctx context.Context, client clientset.Interface, n
 }
 
 // triggerFullSync triggers 2 full syncs on demand
-func triggerFullSync(ctx context.Context, client clientset.Interface,
-	cnsOperatorClient client.Client) {
-	err := waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
+func triggerFullSync(ctx context.Context, client clientset.Interface, cnsOperatorClient client.Client) {
 	crd := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	var err error
+	if crd.Status.InProgress {
+		err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time or errored out")
+		crd = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	}
 	framework.Logf("INFO: full sync crd details: %v", crd)
 	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
 	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time or errored out")
 	crd = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
 	framework.Logf("INFO: full sync crd details: %v", crd)
 	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
 	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time or errored out")
 }
 
 // waitAndGetContainerID waits and fetches containerID of a given containerName

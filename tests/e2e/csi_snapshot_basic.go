@@ -28,6 +28,9 @@ import (
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"golang.org/x/crypto/ssh"
+	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -69,6 +72,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defaultDatastore           *object.Datastore
 		defaultDatacenter          *object.Datacenter
 		isVsanHealthServiceStopped bool
+		cnsOperatorClient          k8sClient.Client
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -82,6 +86,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 		//Get snapshot client using the rest config
 		if !guestCluster {
@@ -148,6 +154,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
+		cnsOperatorClient, err = k8s.NewClientForGroup(ctx, f.ClientConfig(), cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -3896,22 +3906,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		// After reboot.
 		bootstrap()
 
-		fullSyncWaitTime := 0
-
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// Full sync interval can be 1 min at minimum so full sync wait time
-			// has to be more than 120s.
-			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
-
-		ginkgo.By(fmt.Sprintf("Double Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(2*fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By("Verify volume snapshot is created")
 		for _, snapshot := range volumesnapshots {
@@ -7085,16 +7081,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		//After reboot
 		bootstrap()
-
-		fullSyncWaitTime := 0
-
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		}
 
 		ginkgo.By("Wait for the PVC to be bound")
 		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims2, framework.ClaimProvisionTimeout)
