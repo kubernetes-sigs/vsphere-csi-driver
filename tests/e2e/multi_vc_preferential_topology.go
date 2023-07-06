@@ -1,5 +1,5 @@
 /*
-	Copyright 2020 The Kubernetes Authors.
+	Copyright 2023 The Kubernetes Authors.
 
 	Licensed under the Apache License, Version 2.0 (the "License");
 	you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,8 +33,12 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
+
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 )
 
 var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provisioning", func() {
@@ -66,6 +71,21 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ClusterdatastoreListVC3     map[string]string
 		parallelStatefulSetCreation bool
 		stsReplicas                 int32
+		scaleDownReplicaCount       int32
+		scaleUpReplicaCount         int32
+		stsScaleUp                  bool
+		stsScaleDown                bool
+		verifyTopologyAffinity      bool
+		topValStartIndex            int
+		topValEndIndex              int
+		topkeyStartIndex            int
+		scParameters                map[string]string
+		storagePolicyInVc1Vc2       string
+		allowedTopologyLen          int
+		parallelPodPolicy           bool
+		nodeAffinityToSet           bool
+		podAntiAffinityToSet        bool
+		snapc                       *snapclient.Clientset
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -97,9 +117,19 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
 
+		stsScaleUp = true
+		stsScaleDown = true
+		verifyTopologyAffinity = true
+		scParameters = make(map[string]string)
+		storagePolicyInVc1Vc2 = GetAndExpectStringEnvVar(envStoragePolicyNameInVC1VC2)
 		topologyLength = 5
 		topologyMap := GetAndExpectStringEnvVar(topologyMap)
 		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+
+		//Get snapshot client using the rest config
+		restConfig = getRestConfigClient()
+		snapc, err = snapclient.NewForConfig(restConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
 		// 	ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
@@ -163,17 +193,17 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 	    Preferential FSS "topology-preferential-datastores" should be set and csi-vsphere-config should have
 		the preferential tag.
 
-	    1. Create SC  default parameters without any topology requirement.
+	    1. Create SC default parameters without any topology requirement.
 	    2. In each availability zone for any one datastore add preferential tag in VC1 and VC2
 	    3. Create 3 statefulset with 10 replica's
 	    4. Wait for all the  PVC to bound and pod's to reach running state
 	    5. Verify that since the prefered datastore is available, Volume should get created on the datastores
 		 which has the preferencce set
 	    6. Make sure common validation points are met on PV,PVC and POD
-	    Change the Preference in any 2 datastores
-	    scale up the statefull set to 15 replica
-	    The volumes should get provision on the datastores which has the preference
-	    Clear the data
+	    7. Change the Preference in any 2 datastores
+	    8. Scale up the statefulset to 15 replica
+	    9. The volumes should get provision on the datastores which has the preference
+	    10. Clear the data
 	*/
 	ginkgo.It("TagTest single preferred datastore each in VC1 and VC2 and verify it is honored", func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -182,6 +212,10 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		parallelStatefulSetCreation = true
 		sts_count := 3
 		stsReplicas = 2
+		var dsUrls []string
+		var datastoreListMap map[string]string
+		scaleDownReplicaCount = 3
+		scaleUpReplicaCount = 7
 
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, nil, "",
 			"", false)
@@ -198,19 +232,24 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// choose preferred datastore
 		ginkgo.By("Tag preferred datastore for volume provisioning in VC1 and VC2")
 		for i := 0; i < 2; i++ {
-			paths, err := tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologies[0].Values[i], preferredDatastoreChosen, ClusterdatastoreListVC[i], nil, true, i)
+			paths, err := tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologies[0].Values[i],
+				preferredDatastoreChosen, ClusterdatastoreListVC[i], nil, true, i)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			preferredDatastorePaths = append(preferredDatastorePaths, paths...)
-		}
 
-		defer func() {
-			ginkgo.By("Remove preferred datastore tag")
-			for i := 0; i < len(preferredDatastorePaths); i++ {
-				err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[i],
-					allowedTopologies[0].Values[i], true, i)
+			preferredDatastorePaths = append(preferredDatastorePaths, paths...)
+
+			// Get the length of the paths for the current iteration
+			pathsLen := len(paths)
+
+			for j := 0; j < pathsLen; j++ {
+				// Calculate the index for ClusterdatastoreListVC based on the current iteration
+				index := i + j
+
+				if val, ok := ClusterdatastoreListVC[index][paths[j]]; ok {
+					dsUrls = append(dsUrls, val)
+				}
 			}
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		}
 
 		framework.Logf("Waiting for %v for preferred datastore to get refreshed in the environment",
 			preferredDatastoreTimeOutInterval)
@@ -257,29 +296,322 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		for i := 0; i < len(statefulSets); i++ {
 			err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulSets[i], namespace,
-				preferredDatastorePaths, ClusterdatastoreListVC[i], true, true)
+				preferredDatastorePaths, datastoreListMap, true, true, true, dsUrls)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Remove preferred datatsore tag which is chosen for volume provisioning")
+		for i := 0; i < len(preferredDatastorePaths); i++ {
+			err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[i],
+				allowedTopologies[0].Values[i], true, i)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		var preferredDatastorePathsNew []string
+		ginkgo.By("Tag new preferred datastore for volume provisioning in VC1 and VC2")
+		for i := 0; i < 2; i++ {
+			paths, err := tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologies[0].Values[i],
+				preferredDatastoreChosen, ClusterdatastoreListVC[i], preferredDatastorePaths, true, i)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			preferredDatastorePathsNew = append(preferredDatastorePathsNew, paths...)
+
+			// Get the length of the paths for the current iteration
+			pathsLen := len(paths)
+
+			for j := 0; j < pathsLen; j++ {
+				// Calculate the index for ClusterdatastoreListVC based on the current iteration
+				index := i + j
+
+				if val, ok := ClusterdatastoreListVC[index][paths[j]]; ok {
+					dsUrls = append(dsUrls, val)
+				}
+			}
+		}
+
+		preferredDatastorePaths = append(preferredDatastorePaths, preferredDatastorePathsNew...)
+		defer func() {
+			ginkgo.By("Remove preferred datastore tag")
+			for i := 0; i < len(preferredDatastorePathsNew); i++ {
+				err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePathsNew[i],
+					allowedTopologies[0].Values[i], true, i)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Perform scaleup/scaledown operation on statefulsets and " +
+			"verify pv affinity and pod affinity")
+		for i := 0; i < len(statefulSets); i++ {
+			performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
+				scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
+				allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+		}
+
+		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
+		for i := 0; i < len(statefulSets); i++ {
+			err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulSets[i], namespace,
+				preferredDatastorePaths, datastoreListMap, true, true, true, dsUrls)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	})
 
 	/* Testcase-2:
-		Create SC with storage policy available in VC1 and VC2 , set the preference in VC1 datastore only
+			Create SC with storage policy available in VC1 and VC2 , set the preference in VC1 datastore only
 
-	    Steps
-		Preferential FSS "topology-preferential-datastores" should be set and csi-vsphere-config should have the preferential tag.
+		    Steps
+			Preferential FSS "topology-preferential-datastores" should be set and csi-vsphere-config should have the preferential tag.
+			set the default sync value to 1 min , so that No need to restart the csi-driver
 
-	    1. Create SC  default parameters without any topology requirement.
-	    2. In each availability zone for any one datastore add preferential tag in VC1 and VC2
-	    3. Create 3 statefulset with 10 replica's
-	    4. Wait for all the  PVC to bound and pod's to reach running state
-	    5. Verify that since the prefered datastore is available, Volume should get created on the datastores
-		 which has the preferencce set
-	    6. Make sure common validation points are met on PV,PVC and POD
-	    Change the Preference in any 2 datastores
-	    scale up the statefull set to 15 replica
-	    The volumes should get provision on the datastores which has the preference
-	    Clear the data
+	    1. Create storage policy with same name on both VC1 and VC2
+	    2. Add preference tag on the datastore which is on VC1 only
+	    3. Create statefulset using the above policy
+	    4. Since the preference tag is added in VC1, volume provisioning should  happned on VC1's datastore only
+		[no, first preference will be given to Storage Policy mentioned in the Storage Class]
+	    5. Make sure common validation points are met on PV,PVC and POD
+	    6. Reboot VC1
+	    7. Scale up the stateful set to replica 15  → What should be the behaviour here
+	    8. Since the VC1 is presently in reboot state, new volumes should start coming up on Vc2 .
+		Once VC1  is up , Again the datastore preference should take preference
+		[no, until all VCs comes up PVc provision will be stuck in Pending state]
+	    9. Verify the node affinity on all PV's
+	    10. Make sure POD has come up on appropriate nodes .
+	    11. Clean up the data
 	*/
+
+	ginkgo.It("Tag22Test single preferred datastore each in VC1 and VC2 and verify it is honored", func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		/* here we are considering storage policy of VC1 and the allowed topology is k8s-zone -> zone-1
+		in case of 2-VC setup and 3-VC setup
+		*/
+
+		stsReplicas = 5
+		scParameters[scParamStoragePolicyName] = storagePolicyInVc1Vc2
+		topValStartIndex = 0
+		topValEndIndex = 2
+		scaleUpReplicaCount = 15
+		stsScaleDown = false
+		var dsUrls []string
+		scaleDownReplicaCount = 3
+		scaleUpReplicaCount = 7
+		var multiVcClientIndex = 0
+		var datastoreListMap map[string]string
+
+		ginkgo.By("Set specific allowed topology")
+		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
+			topValEndIndex)
+
+		ginkgo.By("Create StorageClass with storage policy specified")
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "",
+			"", false)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		preferredDatastoreChosen = 1
+		preferredDatastorePaths = nil
+
+		// choose preferred datastore
+		ginkgo.By("Tag preferred datastore for volume provisioning in VC1")
+		preferredDatastorePaths, err := tagPreferredDatastore(masterIp, sshClientConfig,
+			allowedTopologies[0].Values[0],
+			preferredDatastoreChosen, ClusterdatastoreListVC[0], nil, true, multiVcClientIndex)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pathsLen := len(preferredDatastorePaths)
+		for j := 0; j < pathsLen; j++ {
+			if val, ok := ClusterdatastoreListVC[0][preferredDatastorePaths[j]]; ok {
+				dsUrls = append(dsUrls, val)
+			}
+		}
+
+		framework.Logf("Waiting for %v for preferred datastore to get refreshed in the environment",
+			preferredDatastoreTimeOutInterval)
+		time.Sleep(preferredDatastoreTimeOutInterval)
+
+		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
+		service, statefulset := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
+			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen,
+			podAntiAffinityToSet, parallelStatefulSetCreation)
+		defer func() {
+			fss.DeleteAllStatefulSets(client, namespace)
+			deleteService(namespace, client, service)
+		}()
+
+		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
+		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace,
+			preferredDatastorePaths, datastoreListMap, true, true, true, dsUrls)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Rebooting VC")
+		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
+		vcAddress := vCenterHostname[0] + ":" + sshdPort
+		framework.Logf("vcAddress - %s ", vcAddress)
+		err = invokeVCenterReboot(vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitForHostToBeUp(vCenterHostname[0])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Done with reboot")
+
+		ginkgo.By("Perform scaleup/scaledown operation on statefulsets and " +
+			"verify pv affinity and pod affinity")
+		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
+			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+
+		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
+		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
+
+		//After reboot
+		multiVCbootstrap()
+
+		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
+		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace,
+			preferredDatastorePaths, datastoreListMap, true, true, true, dsUrls)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/* Testcase-3:
+	Create/Restore Snapshot of PVC single datastore preference
+
+	Steps
+	Preferential FSS "topology-preferential-datastores" should be set and csi-vsphere-config should have the
+	preferential tag
+
+	    1. Assign preferential tag to any one datastore under any one VC
+	    2. Create SC with allowed topology set to all the volumes
+	    3. Create PVC-1 with the above SC
+	    4. Wait for PVC-1 to reach Bound state.
+	    5. Describe PV-1 and verify node affinity details
+	    6. Verify volume should be provisioned on the selected preferred datastore
+	    7. Create SnapshotClass, Snapshot of PVC-1.
+	    8. Verify snapshot state. It should be in ready-to-use state.
+	    9. Verify snapshot should be created on the preferred datastore.
+	    10. Restore snapshot to create PVC-2
+	    11. Wait for PVC-2 to reach Bound state.
+	    12. Describe PV-2 and verify node affinity details
+	    13. Verify volume should be provisioned on the selected preferred datastore
+	    14. Create Pod from restored PVC-2.
+	    15. Make sure common validation points are met on PV,PVC and POD
+	    16. Make sure POD is running on the same node as mentioned in the node affinity details.
+	    17. Perform Cleanup. Delete Snapshot, Pod, PVC, SC
+	    18. Remove datastore preference tags as part of cleanup.
+	*/
+
+	ginkgo.It("Testcase3Create restore snapshot of pvc using single datastore preference", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		preferredDatastoreChosen = 1
+		preferredDatastorePaths = nil
+		var dsUrls []string
+		var multiVcClientIndex = 2
+
+		// choose preferred datastore
+		ginkgo.By("Tag preferred datastore for volume provisioning in VC3")
+		preferredDatastorePaths, err := tagPreferredDatastore(masterIp, sshClientConfig,
+			allowedTopologies[0].Values[2],
+			preferredDatastoreChosen, ClusterdatastoreListVC[2], nil, true, multiVcClientIndex)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pathsLen := len(preferredDatastorePaths)
+		for j := 0; j < pathsLen; j++ {
+			if val, ok := ClusterdatastoreListVC[2][preferredDatastorePaths[j]]; ok {
+				dsUrls = append(dsUrls, val)
+			}
+		}
+
+		framework.Logf("Waiting for %v for preferred datastore to get refreshed in the environment",
+			preferredDatastoreTimeOutInterval)
+		time.Sleep(preferredDatastoreTimeOutInterval)
+
+		ginkgo.By("Create StorageClass and PVC")
+		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil,
+			nil, diskSize, allowedTopologies, "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
+				*metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// Wait for PVC to be in Bound phase
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim},
+			framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvclaim = nil
+		}()
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := multiVCe2eVSphere.queryCNSVolumeWithResultInMultiVC(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+		gomega.Expect(queryResult.Volumes[0].VolumeId.Id).To(gomega.Equal(volHandle))
+
+		ginkgo.By("Create volume snapshot class, volume snapshot")
+		volumeSnapshot, volumeSnapshotClass, snapshotId := createSnapshotClassAndVolSnapshot(ctx, snapc, namespace,
+			pvclaim, volHandle, false, true)
+		defer func() {
+			ginkgo.By("Perform cleanup of snapshot created")
+			performCleanUpForSnapshotCreated(ctx, snapc, namespace, volHandle, volumeSnapshot, snapshotId,
+				volumeSnapshotClass)
+		}()
+
+		ginkgo.By("Create PVC from snapshot")
+		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
+			v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
+		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
+			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(volHandle2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating pod")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+			err = fpod.DeletePodWithWait(client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Verify volume is detached from the node")
+			isDiskDetached, err := multiVCe2eVSphere.waitForVolumeDetachedFromNodeInMultiVC(client,
+				volHandle2, pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume %q is not detached from the node %q", volHandle2,
+					pod.Spec.NodeName))
+		}()
+
+		// verifying volume provisioning
+		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
+		verifyVolumeProvisioningForStandalonePods(ctx, client, pod, namespace, preferredDatastorePaths,
+			ClusterdatastoreListVC[2], true, dsUrls)
+
+		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
+			"appropriate node as specified in the allowed topologies of SC")
+		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod,
+			namespace, allowedTopologies, true)
+	})
 
 })
 

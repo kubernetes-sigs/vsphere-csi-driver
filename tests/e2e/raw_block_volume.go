@@ -1215,7 +1215,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		snapshotId := strings.Split(snapshothandle, "+")[1]
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volumeID, snapshotId)
+		err = verifySnapshotIsCreatedInCNS(volumeID, snapshotId, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Restore volumeSnapshot to another PVC

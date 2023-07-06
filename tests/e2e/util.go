@@ -4552,25 +4552,6 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context,
 	}
 }
 
-// isCsiFssEnabled checks if the given CSI FSS is enabled or not, errors out if not found
-func isCsiFssEnabled(ctx context.Context, client clientset.Interface, namespace string, fss string) bool {
-	fssCM, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, csiFssCM, metav1.GetOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	fssFound := false
-	for k, v := range fssCM.Data {
-		if fss == k {
-			fssFound = true
-			if v == "true" {
-				return true
-			}
-		}
-	}
-	if !fssFound {
-		framework.Logf("FSS %s not found in the %s configmap in namespace %s", fss, csiFssCM, namespace)
-	}
-	return false
-}
-
 /*
 This wrapper method is used to create the topology map of allowed topologies specified on VC.
 TOPOLOGY_MAP = "region:region1;zone:zone1;building:building1;level:level1;rack:rack1,rack2,rack3"
@@ -6326,69 +6307,6 @@ func getBlockDevSizeInBytes(f *framework.Framework, ns string, pod *v1.Pod, devi
 	}
 	output = strings.TrimSuffix(output, "\n")
 	return strconv.ParseInt(output, 10, 64)
-}
-
-// checkClusterIdValueOnWorkloads checks clusterId value by querying cns metadata
-// for all k8s workloads in a particular namespace
-func checkClusterIdValueOnWorkloads(vs *vSphere, client clientset.Interface,
-	ctx context.Context, namespace string, clusterID string) error {
-	podList, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	for _, pod := range podList.Items {
-		pvcName := pod.Spec.Volumes[0].PersistentVolumeClaim.ClaimName
-		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pvName := pvc.Spec.VolumeName
-		pv, err := client.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volumeID := pv.Spec.CSI.VolumeHandle
-		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
-		if err != nil {
-			return err
-		}
-		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
-		if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
-			return fmt.Errorf("failed to query cns volume %s", volumeID)
-		}
-		for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
-			kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
-			if kubernetesMetadata.EntityType == "POD" && kubernetesMetadata.ClusterID != clusterID {
-				return fmt.Errorf("clusterID %s is not matching with %s ", clusterID, kubernetesMetadata.ClusterID)
-			} else if kubernetesMetadata.EntityType == "PERSISTENT_VOLUME" &&
-				kubernetesMetadata.ClusterID != clusterID {
-				return fmt.Errorf("clusterID %s is not matching with %s ", clusterID, kubernetesMetadata.ClusterID)
-			} else if kubernetesMetadata.EntityType == "PERSISTENT_VOLUME_CLAIM" &&
-				kubernetesMetadata.ClusterID != clusterID {
-				return fmt.Errorf("clusterID %s is not matching with %s ", clusterID, kubernetesMetadata.ClusterID)
-			}
-		}
-		framework.Logf("successfully verified clusterID of the volume %q", volumeID)
-	}
-	return nil
-}
-
-// Clean up statefulset and make sure no volume is left in CNS after it is deleted from k8s
-// TODO: Code improvements is needed in case if the function is called from snapshot test.
-// add a logic to delete the snapshots for the volumes and then delete volumes
-func cleaupStatefulset(client clientset.Interface, ctx context.Context, namespace string,
-	statefulset *appsv1.StatefulSet) {
-	scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
-	pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	for _, claim := range pvcs.Items {
-		pv := getPvFromClaim(client, namespace, claim.Name)
-		err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-		err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
-			pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volumeHandle := pv.Spec.CSI.VolumeHandle
-		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-			fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-				"kubernetes", volumeHandle))
-	}
 }
 
 // getVsanDPersistentVolumeClaimSpecWithStorageClass return the PersistentVolumeClaim

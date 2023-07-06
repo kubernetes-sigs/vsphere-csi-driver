@@ -149,7 +149,7 @@ func attachTagToPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientC
 func detachTagCreatedOnPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
 	datastore string, tagName string, isMultiVCSetup bool, clientIndexForMultiVC int) error {
 	var detachTagCat string
-	if isMultiVCSetup {
+	if !isMultiVCSetup {
 		detachTagCat = govcLoginCmd() +
 			"govc tags.detach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
 
@@ -248,7 +248,8 @@ chosen preferred datastore or not for statefulsets
 func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 	client clientset.Interface, statefulset *appsv1.StatefulSet,
 	namespace string, datastoreNames []string, datastoreListMap map[string]string,
-	multipleAllowedTopology bool, parallelStatefulSetCreation bool, isMultiVCSetup bool) error {
+	multipleAllowedTopology bool, parallelStatefulSetCreation bool,
+	isMultiVCSetup bool, multiVCDsUrls []string) error {
 	counter := 0
 	stsPodCount := 0
 	var dsUrls []string
@@ -259,9 +260,11 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 		ssPodsBeforeScaleDown = fss.GetPodList(client, statefulset)
 	}
 	stsPodCount = len(ssPodsBeforeScaleDown.Items)
-	for i := 0; i < len(datastoreNames); i++ {
-		if val, ok := datastoreListMap[datastoreNames[i]]; ok {
-			dsUrls = append(dsUrls, val)
+	if !isMultiVCSetup {
+		for i := 0; i < len(datastoreNames); i++ {
+			if val, ok := datastoreListMap[datastoreNames[i]]; ok {
+				dsUrls = append(dsUrls, val)
+			}
 		}
 	}
 	for _, sspod := range ssPodsBeforeScaleDown.Items {
@@ -273,14 +276,20 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 				if !isMultiVCSetup {
 					isPreferred = e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, dsUrls)
+					if isPreferred {
+						framework.Logf("volume %s is created on preferred datastore %v", pv.Spec.CSI.VolumeHandle, dsUrls)
+						counter = counter + 1
+					}
 				} else {
 					isPreferred = multiVCe2eVSphere.verifyPreferredDatastoreMatchInMultiVC(pv.Spec.CSI.VolumeHandle,
-						dsUrls)
+						multiVCDsUrls)
+					if isPreferred {
+						framework.Logf("volume %s is created on preferred datastore %v", pv.Spec.CSI.VolumeHandle,
+							multiVCDsUrls)
+						counter = counter + 1
+					}
 				}
-				if isPreferred {
-					framework.Logf("volume %s is created on preferred datastore %v", pv.Spec.CSI.VolumeHandle, dsUrls)
-					counter = counter + 1
-				}
+
 			}
 		}
 	}
@@ -305,7 +314,8 @@ chosen preferred datastore or not for standalone pods
 */
 func verifyVolumeProvisioningForStandalonePods(ctx context.Context,
 	client clientset.Interface, pod *v1.Pod,
-	namespace string, datastoreNames []string, datastoreListMap map[string]string) {
+	namespace string, datastoreNames []string, datastoreListMap map[string]string,
+	isMultiVCSetup bool, multiVCDsUrls []string) {
 	var flag bool = false
 	var dsUrls []string
 	for i := 0; i < len(datastoreNames); i++ {
@@ -316,10 +326,18 @@ func verifyVolumeProvisioningForStandalonePods(ctx context.Context,
 	for _, volumespec := range pod.Spec.Volumes {
 		if volumespec.PersistentVolumeClaim != nil {
 			pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-			isPreferred := e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, dsUrls)
-			if isPreferred {
-				framework.Logf("volume %s is created on preferred datastore %v", pv.Spec.CSI.VolumeHandle, dsUrls)
-				flag = true
+			if !isMultiVCSetup {
+				isPreferred := e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, dsUrls)
+				if isPreferred {
+					framework.Logf("volume %s is created on preferred datastore %v", pv.Spec.CSI.VolumeHandle, dsUrls)
+					flag = true
+				}
+			} else {
+				isPreferred := multiVCe2eVSphere.verifyPreferredDatastoreMatchInMultiVC(pv.Spec.CSI.VolumeHandle, multiVCDsUrls)
+				if isPreferred {
+					framework.Logf("volume %s is created on preferred datastore %v", pv.Spec.CSI.VolumeHandle, multiVCDsUrls)
+					flag = true
+				}
 			}
 		}
 	}
@@ -495,7 +513,7 @@ volume snapshot and to verify if volume snapshot has created or not
 */
 func createSnapshotClassAndVolSnapshot(ctx context.Context, snapc *snapclient.Clientset,
 	namespace string, pvclaim *v1.PersistentVolumeClaim,
-	volHandle string, stsPvc bool) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotClass, string) {
+	volHandle string, stsPvc bool, isMultiVCSetup bool) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotClass, string) {
 
 	framework.Logf("Create volume snapshot class")
 	volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
@@ -528,8 +546,13 @@ func createSnapshotClassAndVolSnapshot(ctx context.Context, snapc *snapclient.Cl
 	snapshotId := strings.Split(snapshothandle, "+")[1]
 
 	framework.Logf("Query CNS and check the volume snapshot entry")
-	err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if !isMultiVCSetup {
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	return volumeSnapshot, volumeSnapshotClass, snapshotId
 }

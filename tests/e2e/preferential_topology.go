@@ -292,7 +292,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace, preferredDatastorePaths,
-			nonShareddatastoreListMapRack2, false, false, false)
+			nonShareddatastoreListMapRack2, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -365,7 +365,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		verifyVolumeProvisioningForStandalonePods(ctx, client, pod, namespace, preferredDatastorePaths,
-			nonShareddatastoreListMapRack1)
+			nonShareddatastoreListMapRack1, false, nil)
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
@@ -465,7 +465,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace, preferredDatastorePaths,
-			rack3DatastoreListMap, false, false, false)
+			rack3DatastoreListMap, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -481,7 +481,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace, preferredDatastorePaths,
-			rack3DatastoreListMap, false, false, false)
+			rack3DatastoreListMap, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -587,7 +587,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace, preferredDatastorePaths,
-			rack2DatastoreListMap, false, false, false)
+			rack2DatastoreListMap, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -603,7 +603,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace, preferredDatastorePaths,
-			rack2DatastoreListMap, false, false, false)
+			rack2DatastoreListMap, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -698,7 +698,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace, preferredDatastorePaths,
-			shareddatastoreListMap, true, false, false)
+			shareddatastoreListMap, true, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -792,7 +792,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace, preferredDatastorePaths,
-			shareddatastoreListMap, false, false, false)
+			shareddatastoreListMap, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -889,7 +889,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace, preferredDatastorePaths,
-			shareddatastoreListMap, true, false, false)
+			shareddatastoreListMap, true, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -975,7 +975,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace, preferredDatastorePaths,
-			shareddatastoreListMap, true, false, false)
+			shareddatastoreListMap, true, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -1064,7 +1064,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, sts1, namespace, preferredDatastorePaths,
-			nonShareddatastoreListMapRack1, false, false, false)
+			nonShareddatastoreListMapRack1, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -1137,7 +1137,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		verifyVolumeProvisioningForStandalonePods(ctx, client, pod, namespace, preferredDatastorePaths,
-			shareddatastoreListMap)
+			shareddatastoreListMap, false, nil)
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
@@ -1233,7 +1233,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, sts1, namespace, preferredDatastorePaths,
-			nonShareddatastoreListMapRack3, false, false, false)
+			nonShareddatastoreListMapRack3, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -1308,7 +1308,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		verifyVolumeProvisioningForStandalonePods(ctx, client, pod, namespace, preferredDatastorePaths,
-			nonShareddatastoreListMapRack3)
+			nonShareddatastoreListMapRack3, false, nil)
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
@@ -1324,7 +1324,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verifying volume is provisioned on the preferred datastore
 		ginkgo.By("Verify volume is provisioned on the specified datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, sts1, namespace, preferredDatastorePaths,
-			nonShareddatastoreListMapRack3, false, true, false)
+			nonShareddatastoreListMapRack3, false, true, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -1425,7 +1425,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// verify volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, sts1, namespace, preferredDatastorePaths,
-			shareddatastoreListMap, false, false, false)
+			shareddatastoreListMap, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -1456,7 +1456,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the specified datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, sts1, namespace, preferredDatastorePaths,
-			rack1DatastoreListMap, false, false, false)
+			rack1DatastoreListMap, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -1500,7 +1500,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the specified datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, sts1, namespace, preferredDatastorePaths,
-			rack1DatastoreListMap, false, false, false)
+			rack1DatastoreListMap, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -1610,7 +1610,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// verify volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, sts1, namespace, preferredDatastorePaths,
-			nonShareddatastoreListMapRack1, true, false, false)
+			nonShareddatastoreListMapRack1, true, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -1640,7 +1640,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verify volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, sts1, namespace, preferredDatastorePaths,
-			nonShareddatastoreListMapRack2, true, false, false)
+			nonShareddatastoreListMapRack2, true, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -1677,7 +1677,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// verify volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, sts1, namespace, preferredDatastorePaths,
-			nonShareddatastoreListMapRack3, true, false, false)
+			nonShareddatastoreListMapRack3, true, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -1777,7 +1777,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// verify volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, sts1, namespace, preferredDatastorePaths,
-			rack2DatastoreListMap, false, false, false)
+			rack2DatastoreListMap, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify affinity details
@@ -1956,7 +1956,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		verifyVolumeProvisioningForStandalonePods(ctx, client, pod, namespace, storagePolicyDs,
-			nonShareddatastoreListMapRack2)
+			nonShareddatastoreListMapRack2, false, nil)
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
@@ -2079,7 +2079,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verify volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, sts1, namespace, preferredDatastorePaths,
-			allDatastoresListMap, true, false, false)
+			allDatastoresListMap, true, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify affinity details
@@ -2095,7 +2095,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, sts1, namespace, preferredDatastorePaths,
-			allDatastoresListMap, true, false, false)
+			allDatastoresListMap, true, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify affinity details
@@ -2203,7 +2203,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		verifyVolumeProvisioningForStandalonePods(ctx, client, pod, namespace, preferredDatastorePaths,
-			rack2DatastoreListMap)
+			rack2DatastoreListMap, false, nil)
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
@@ -2320,7 +2320,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		verifyVolumeProvisioningForStandalonePods(ctx, client, pod, namespace, storagePolicyDs,
-			nonShareddatastoreListMapRack2)
+			nonShareddatastoreListMapRack2, false, nil)
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
@@ -2552,7 +2552,7 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		ginkgo.By("Verify volume provisioning for Pod-1/Pod-2")
 		for i := 0; i < len(podList); i++ {
 			verifyVolumeProvisioningForStandalonePods(ctx, client, podList[i], namespace,
-				preferredDatastorePaths, nonShareddatastoreListMapRack2)
+				preferredDatastorePaths, nonShareddatastoreListMapRack2, false, nil)
 		}
 
 		ginkgo.By("Verify pv and pod node affinity details for pv-1/pod-1 and pv-2/pod-2")

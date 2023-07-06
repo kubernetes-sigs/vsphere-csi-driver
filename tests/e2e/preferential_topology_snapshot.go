@@ -287,7 +287,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 
 		ginkgo.By("Create volume snapshot class, volume snapshot")
 		volumeSnapshot, volumeSnapshotClass, snapshotId := createSnapshotClassAndVolSnapshot(ctx, snapc, namespace,
-			pvclaim, volHandle, false)
+			pvclaim, volHandle, false, false)
 		defer func() {
 			ginkgo.By("Perform cleanup of snapshot created")
 			performCleanUpForSnapshotCreated(ctx, snapc, namespace, volHandle, volumeSnapshot, snapshotId,
@@ -332,7 +332,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		verifyVolumeProvisioningForStandalonePods(ctx, client, pod, namespace, preferredDatastorePaths,
-			nonShareddatastoreListMapRack1)
+			nonShareddatastoreListMapRack1, false, nil)
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
@@ -409,7 +409,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 
 		ginkgo.By("Create volume snapshot class, volume snapshot")
 		volumeSnapshot, volumeSnapshotClass, snapshotId := createSnapshotClassAndVolSnapshot(ctx, snapc, namespace,
-			pvclaim, volHandle, false)
+			pvclaim, volHandle, false, false)
 		defer func() {
 			ginkgo.By("Perform cleanup of snapshot created")
 			performCleanUpForSnapshotCreated(ctx, snapc, namespace, volHandle, volumeSnapshot, snapshotId,
@@ -672,7 +672,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		for i := 0; i < len(podList); i++ {
 			verifyVolumeProvisioningForStandalonePods(ctx, client, podList[i], namespace,
-				preferredDatastorePaths, allDatastoresListMap)
+				preferredDatastorePaths, allDatastoresListMap, false, nil)
 		}
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -684,7 +684,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 
 		ginkgo.By("Create volume snapshot class, volume snapshot")
 		volumeSnapshot1, volumeSnapshotClass1, snapshotId1 := createSnapshotClassAndVolSnapshot(ctx, snapc, namespace,
-			pvclaim1, volHandle1, false)
+			pvclaim1, volHandle1, false, false)
 		defer func() {
 			ginkgo.By("Perform cleanup of snapshot created")
 			performCleanUpForSnapshotCreated(ctx, snapc, namespace, volHandle1, volumeSnapshot1, snapshotId1,
@@ -733,7 +733,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		verifyVolumeProvisioningForStandalonePods(ctx, client, pod3, namespace, preferredDatastorePaths,
-			allDatastoresListMap)
+			allDatastoresListMap, false, nil)
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
@@ -827,7 +827,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		verifyVolumeProvisioningForStandalonePods(ctx, client, pod4, namespace, preferredDatastorePathsNew,
-			allDatastoresListMap)
+			allDatastoresListMap, false, nil)
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
@@ -835,7 +835,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 			allowedTopologies, false)
 
 		volumeSnapshot2, volumeSnapshotClass2, snapshotId2 := createSnapshotClassAndVolSnapshot(ctx, snapc, namespace,
-			pvclaim4, volHandle4, false)
+			pvclaim4, volHandle4, false, false)
 		defer func() {
 			performCleanUpForSnapshotCreated(ctx, snapc, namespace, pv4.Spec.CSI.VolumeHandle, volumeSnapshot2,
 				snapshotId2, volumeSnapshotClass2)
@@ -879,7 +879,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		verifyVolumeProvisioningForStandalonePods(ctx, client, pod5, namespace, preferredDatastorePathsNew,
-			allDatastoresListMap)
+			allDatastoresListMap, false, nil)
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
@@ -969,7 +969,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace, preferredDatastorePaths,
-			nonShareddatastoreListMapRack3, false, false, false)
+			nonShareddatastoreListMapRack3, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
@@ -995,7 +995,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 
 		ginkgo.By("Create volume snapshot class, volume snapshot")
 		volumeSnapshot, volumeSnapshotClass, snapshotId := createSnapshotClassAndVolSnapshot(ctx, snapc, namespace,
-			pvclaim3, volHandle3, true)
+			pvclaim3, volHandle3, true, false)
 		defer func() {
 			ginkgo.By("Perform cleanup of snapshot created")
 			performCleanUpForSnapshotCreated(ctx, snapc, namespace, volHandle3, volumeSnapshot, snapshotId,
@@ -1043,7 +1043,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		//verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace, preferredDatastorePaths,
-			nonShareddatastoreListMapRack3, false, false, false)
+			nonShareddatastoreListMapRack3, false, false, false, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +

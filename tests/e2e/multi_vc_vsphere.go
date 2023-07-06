@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/cns"
 	cnsmethods "github.com/vmware/govmomi/cns/methods"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
@@ -28,11 +30,6 @@ type multiVCvSphere struct {
 	multivcConfig    *e2eTestConfig
 	multiVcClient    []*govmomi.Client
 	multiVcCnsClient []*cnsClient
-}
-
-type multiVcVsanClient struct {
-	multiVCvim25Client   []*vim25.Client
-	multiVCserviceClient []*soap.Client
 }
 
 /*
@@ -534,4 +531,175 @@ func fetchDsUrlForCNSInMultiVC(vs multiVCvSphere, volHandle string) string {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 	return queryResult.Volumes[0].DatastoreUrl
+}
+
+// // queryCNSVolumeSnapshotWithResult Call CnsQuerySnapshots
+// // and returns CnsSnapshotQueryResult to client
+// func (vs *multiVCvSphere) queryCNSVolumeSnapshotWithResultInMultiVC1(fcdID string, snapshotID string) (*cnstypes.CnsSnapshotQueryResult, error) {
+// 	ctx, cancel := context.WithCancel(context.Background())
+// 	defer cancel()
+
+// 	var snapshotSpec []cnstypes.CnsSnapshotQuerySpec
+// 	snapshotSpec = append(snapshotSpec, cnstypes.CnsSnapshotQuerySpec{
+// 		VolumeId: cnstypes.CnsVolumeId{
+// 			Id: fcdID,
+// 		},
+// 		SnapshotId: &cnstypes.CnsSnapshotId{
+// 			Id: snapshotID,
+// 		},
+// 	})
+
+// 	queryFilter := cnstypes.CnsSnapshotQueryFilter{
+// 		SnapshotQuerySpecs: snapshotSpec,
+// 		Cursor: &cnstypes.CnsCursor{
+// 			Offset: 0,
+// 			Limit:  100,
+// 		},
+// 	}
+
+// 	req := cnstypes.CnsQuerySnapshots{
+// 		This:                cnsVolumeManagerInstance,
+// 		SnapshotQueryFilter: queryFilter,
+// 	}
+
+// 	for i := 0; i < len(vs.multiVcCnsClient); i++ {
+// 		res, err := cnsmethods.CnsQuerySnapshots(ctx, vs.multiVcCnsClient[i].Client, &req)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+
+// 		task := object.NewTask(vs.multiVcClient[i].Client, res.Returnval)
+
+// 		taskInfo, err := cns.GetTaskInfo(ctx, task)
+// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+// 		taskResult, err := cns.GetQuerySnapshotsTaskResult(ctx, taskInfo)
+// 		fmt.Println(taskResult)
+// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+// 		// dynamicDataValue := reflect.ValueOf(taskResult.DynamicData)
+// 		// if !dynamicDataValue.IsValid() && dynamicDataValue.IsNil() {
+// 		// 	continue
+// 		// }
+
+// 		// if taskResult != nil && !dynamicDataValue.IsNil() {
+// 		// 	return taskResult, nil
+// 		// }
+// 	}
+
+// 	return nil, errors.New("no successful task result found")
+// }
+
+// func (vs *multiVCvSphere) queryCNSVolumeSnapshotWithResultInMultiVC(fcdID string,
+// 	snapshotId string) (*cnstypes.CnsSnapshotQueryResult, error) {
+// 	ctx, cancel := context.WithCancel(context.Background())
+// 	defer cancel()
+
+// 	var task *object.Task
+// 	var taskResult *cnstypes.CnsSnapshotQueryResult
+
+// 	var snapshotSpec []cnstypes.CnsSnapshotQuerySpec
+// 	snapshotSpec = append(snapshotSpec, cnstypes.CnsSnapshotQuerySpec{
+// 		VolumeId: cnstypes.CnsVolumeId{
+// 			Id: fcdID,
+// 		},
+// 		SnapshotId: &cnstypes.CnsSnapshotId{
+// 			Id: snapshotId,
+// 		},
+// 	})
+
+// 	queryFilter := cnstypes.CnsSnapshotQueryFilter{
+// 		SnapshotQuerySpecs: snapshotSpec,
+// 		Cursor: &cnstypes.CnsCursor{
+// 			Offset: 0,
+// 			Limit:  100,
+// 		},
+// 	}
+
+// 	req := cnstypes.CnsQuerySnapshots{
+// 		This:                cnsVolumeManagerInstance,
+// 		SnapshotQueryFilter: queryFilter,
+// 	}
+// 	for i := 0; i < len(vs.multiVcCnsClient); i++ {
+// 		res, err := cnsmethods.CnsQuerySnapshots(ctx, vs.multiVcCnsClient[i].Client, &req)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+
+// 		task, err = object.NewTask(vs.multiVcClient[i].Client, res.Returnval), nil
+// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+// 		taskInfo, err := cns.GetTaskInfo(ctx, task)
+// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+// 		taskResult, err = cns.GetQuerySnapshotsTaskResult(ctx, taskInfo)
+// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+// 		if taskResult.Entries[0].Snapshot.SnapshotId.Id != snapshotId {
+// 			return taskResult, nil
+// 		} else {
+// 			continue
+// 		}
+// 	}
+
+// 	return nil, errors.New("No successful task result found")
+// }
+
+func (vs *multiVCvSphere) queryCNSVolumeSnapshotWithResultInMultiVC(fcdID string,
+	snapshotID string) (*cnstypes.CnsSnapshotQueryResult, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var task *object.Task
+	var taskResult *cnstypes.CnsSnapshotQueryResult
+
+	var snapshotSpec []cnstypes.CnsSnapshotQuerySpec
+	snapshotSpec = append(snapshotSpec, cnstypes.CnsSnapshotQuerySpec{
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: fcdID,
+		},
+		SnapshotId: &cnstypes.CnsSnapshotId{
+			Id: snapshotID,
+		},
+	})
+
+	queryFilter := cnstypes.CnsSnapshotQueryFilter{
+		SnapshotQuerySpecs: snapshotSpec,
+		Cursor: &cnstypes.CnsCursor{
+			Offset: 0,
+			Limit:  100,
+		},
+	}
+
+	req := cnstypes.CnsQuerySnapshots{
+		This:                cnsVolumeManagerInstance,
+		SnapshotQueryFilter: queryFilter,
+	}
+
+	for i := 0; i < len(vs.multiVcCnsClient); i++ {
+		res, err := cnsmethods.CnsQuerySnapshots(ctx, vs.multiVcCnsClient[i].Client, &req)
+		if err != nil {
+			return nil, err
+		}
+
+		task = object.NewTask(vs.multiVcClient[i].Client, res.Returnval)
+
+		taskInfo, err := cns.GetTaskInfo(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+
+		taskResult, err = cns.GetQuerySnapshotsTaskResult(ctx, taskInfo)
+		if err != nil {
+			return nil, err
+		}
+
+		if taskResult.Entries[0].Snapshot.SnapshotId.Id == snapshotID {
+			return taskResult, nil
+		} else {
+			continue
+		}
+	}
+
+	return nil, errors.New("No successful task result found")
 }

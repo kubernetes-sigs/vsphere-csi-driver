@@ -1355,7 +1355,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 		}()
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volumeID, snapshotId)
+		err = verifySnapshotIsCreatedInCNS(volumeID, snapshotId, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify the data on the PVCs match what was written in step 7")

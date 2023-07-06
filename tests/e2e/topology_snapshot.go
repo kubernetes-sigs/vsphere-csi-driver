@@ -225,7 +225,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		snapshotId := strings.Split(snapshothandle, "+")[1]
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		_, err = snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
@@ -437,7 +437,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		snapshotId2 := strings.Split(snapshothandle3, "+")[1]
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle3, snapshotId2)
+		err = verifySnapshotIsCreatedInCNS(volHandle3, snapshotId2, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, "1Gi", storageclass, nil,
