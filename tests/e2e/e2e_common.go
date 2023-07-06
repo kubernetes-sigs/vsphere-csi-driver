@@ -223,6 +223,57 @@ const (
 		"/api-tokens/authorize"
 )
 
+/*
+// test suite labels
+
+flaky -> label include the testcases which fails intermittently
+disruptive -> label include the testcases which are disruptive in nature
+vanilla -> label include the testcases for block, file, configSecret, topology etc.
+stable -> label include the testcases which do not fail
+longRunning -> label include the testcases which takes longer time for completion
+p0 -> label include the testcases which are P0
+p1 -> label include the testcases which are P1
+p2 -> label include the testcases which are P2
+semiAutomated -> label include the testcases which are semi-automated
+newTests -> label include the testcases which are newly automated
+core -> label include the testcases specific to block or file
+level2 -> label include the level-2 topology testcases or pipeline specific
+level5 -> label include the level-5 topology testcases
+customPort -> label include the testcases running on vCenter custom port <VC:444>
+deprecated ->label include the testcases which are no longer in execution
+*/
+const (
+	flaky               = "flaky"
+	disruptive          = "disruptive"
+	wcp                 = "wcp"
+	tkg                 = "tkg"
+	vanilla             = "vanilla"
+	topology            = "topology"
+	preferential        = "preferential"
+	vsphereConfigSecret = "vsphereConfigSecret"
+	snapshot            = "snapshot"
+	stable              = "stable"
+	newTests            = "newTests"
+	multiVc             = "multiVc"
+	block               = "block"
+	file                = "file"
+	core                = "core"
+	p0                  = "p0"
+	p1                  = "p1"
+	p2                  = "p2"
+	vsanStretch         = "vsanStretch"
+	longRunning         = "longRunning"
+	deprecated          = "deprecated"
+	vmc                 = "vmc"
+	tkgsHA              = "tkgsHA"
+	thickThin           = "thickThin"
+	customPort          = "customPort"
+	windows             = "windows"
+	semiAutomated       = "semiAutomated"
+	level2              = "level2"
+	level5              = "level5"
+)
+
 // The following variables are required to know cluster type to run common e2e
 // tests. These variables will be set once during test suites initialization.
 var (

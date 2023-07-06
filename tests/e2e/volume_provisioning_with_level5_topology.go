@@ -154,7 +154,8 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 	*/
 
 	ginkgo.It("Provisioning volume when no topology details specified in storage class "+
-		"and using default pod management policy for statefulset", func() {
+		"and using default pod management policy for statefulset", ginkgo.Label(p0, topology, block,
+		vanilla, level5), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Creating StorageClass when no topology details are specified using WFC Binding mode
@@ -671,7 +672,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 
 	ginkgo.It("Provisioning volume when storage class specified with multiple labels "+
 		"without specifying datastore url and using default pod management policy "+
-		"for statefulset", func() {
+		"for statefulset", ginkgo.Label(p2, topology, block, vanilla, level5), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Get allowed topologies for Storage Class rack > (rack1,rack2,rack3)
