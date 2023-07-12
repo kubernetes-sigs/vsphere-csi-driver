@@ -84,15 +84,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name,
 				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 		}
-		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
-
-		sshClientConfig = &ssh.ClientConfig{
-			User: "root",
-			Auth: []ssh.AuthMethod{
-				ssh.Password(nimbusGeneratedK8sVmPwd),
-			},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		}
 
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
@@ -659,7 +650,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 	})
 
 	/*
-	  Verify List volume Response on vsphere-ccsi-controller logs
+	  Verify List volume Response on vsphere-csi-controller logs
 	  Note: ist volume Threshold is set to 1 , and query limit set to 3
 	  1. Create SC
 	  2. Create statefull set with 3 replica
@@ -676,9 +667,10 @@ var _ = ginkgo.Describe("statefulset", func() {
 	  12. Inncrease the CSI driver  replica to 3
 
 	*/
-	ginkgo.It("[csi-block-vanilla] ListVolumeResponse Validation", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] ListVolumeResponse Validation", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var svcMasterPswd string
 		var volumesBeforeScaleUp []string
 		containerName := "vsphere-csi-controller"
 		ginkgo.By("Creating StorageClass for Statefulset")
@@ -688,12 +680,13 @@ var _ = ginkgo.Describe("statefulset", func() {
 			scParameters = nil
 			storageClassName = "nginx-sc-default"
 		} else {
-			ginkgo.By("CNS_TEST: Running for WCP setup")
+			storageClassName = defaultNginxStorageClassName
+			ginkgo.By("Running for WCP setup")
+
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			storageClassName = defaultNginxStorageClassName
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, defaultNginxStorageClassName)
+			createResourceQuota(client, namespace, rqLimit, storageClassName)
 		}
 
 		ginkgo.By("scale down CSI driver POD to 1 , so that it will" +
@@ -757,7 +750,29 @@ var _ = ginkgo.Describe("statefulset", func() {
 		time.Sleep(pollTimeoutShort)
 
 		ginkgo.By("Validate ListVolume Response for all the volumes")
-		logMessage := "List volume response: entries:"
+		var logMessage string
+		if vanillaCluster {
+			logMessage = "List volume response: entries:"
+			nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+			sshClientConfig = &ssh.ClientConfig{
+				User: "root",
+				Auth: []ssh.AuthMethod{
+					ssh.Password(nimbusGeneratedK8sVmPwd),
+				},
+				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			}
+		}
+		if supervisorCluster {
+			logMessage = "ListVolumes:"
+			svcMasterPswd = GetAndExpectStringEnvVar(svcMasterPassword)
+			sshClientConfig = &ssh.ClientConfig{
+				User: "root",
+				Auth: []ssh.AuthMethod{
+					ssh.Password(svcMasterPswd),
+				},
+				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			}
+		}
 		_, _, err = getCSIPodWhereListVolumeResponseIsPresent(ctx, client, sshClientConfig,
 			containerName, logMessage, volumesBeforeScaleUp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -780,17 +795,19 @@ var _ = ginkgo.Describe("statefulset", func() {
 		_, _, err = getCSIPodWhereListVolumeResponseIsPresent(ctx, client, sshClientConfig, containerName, logMessage, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Delete volume from CNS and verify the error message")
-		logMessage = "difference between number of K8s volumes and CNS volumes is greater than threshold"
-		_, err = e2eVSphere.deleteCNSvolume(volumesBeforeScaleUp[0], false)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_, err = e2eVSphere.deleteCNSvolume(volumesBeforeScaleUp[1], false)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		//List volume responses will show up in the interval of every 1 minute.
-		//To see the error, It is required to wait for 1 min after deleteting few Volumes
-		time.Sleep(pollTimeoutShort)
-		_, _, err = getCSIPodWhereListVolumeResponseIsPresent(ctx, client, sshClientConfig, containerName, logMessage, nil)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if vanillaCluster {
+			ginkgo.By("Delete volume from CNS and verify the error message")
+			logMessage = "difference between number of K8s volumes and CNS volumes is greater than threshold"
+			_, err = e2eVSphere.deleteCNSvolume(volumesBeforeScaleUp[0], false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			_, err = e2eVSphere.deleteCNSvolume(volumesBeforeScaleUp[1], false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			//List volume responses will show up in the interval of every 1 minute.
+			//To see the error, It is required to wait for 1 min after deleteting few Volumes
+			time.Sleep(pollTimeoutShort)
+			_, _, err = getCSIPodWhereListVolumeResponseIsPresent(ctx, client, sshClientConfig, containerName, logMessage, nil)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		replicas = 0
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))

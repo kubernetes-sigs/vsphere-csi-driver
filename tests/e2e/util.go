@@ -6163,8 +6163,13 @@ func getCSIPodWhereListVolumeResponseIsPresent(ctx context.Context,
 	csiPods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	var k8sMasterIP string
-	k8sMasterIPs := getK8sMasterIPs(ctx, client)
-	k8sMasterIP = k8sMasterIPs[0]
+	if vanillaCluster {
+		k8sMasterIPs := getK8sMasterIPs(ctx, client)
+		k8sMasterIP = k8sMasterIPs[0]
+	} else {
+		k8sMasterIP = GetAndExpectStringEnvVar(svcMasterIP)
+	}
+
 	for _, csiPod := range csiPods {
 		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) {
 			// Putting the grepped logs for leader of container of different CSI pods
