@@ -585,13 +585,37 @@ func (volumeMigration *volumeMigration) cleanupStaleCRDInstances() {
 			cnsVolumesMap[vol.VolumeId.Id] = true
 		}
 		log.Debugf("cnsVolumesMap:  %v:", cnsVolumesMap)
+		k8sclient, err := k8s.NewClient(ctx)
+		if err != nil {
+			log.Errorf("failed to get k8sclient with error: %v", err)
+			continue
+		}
+		// The runCleanupRoutine is only triggered from Syncer container,
+		// hence we are checking for PV objects in the k8s in the below code snippet.
+		pvList, err := k8sclient.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			log.Errorf("failed to list PersistentVolumes with error %v.", err)
+			continue
+		}
 		for _, volumeMigrationResource := range volumeMigrationResourceList.Items {
 			if _, existsInCNSVolumesMap := cnsVolumesMap[volumeMigrationResource.Name]; !existsInCNSVolumesMap {
 				log.Debugf("Volume with id %s is not found in CNS", volumeMigrationResource.Name)
-				err = volumeMigrationInstance.DeleteVolumeInfo(ctx, volumeMigrationResource.Name)
-				if err != nil {
-					log.Warnf("failed to delete volume mapping CR for %s with error %+v", volumeMigrationResource.Name, err)
-					continue
+				// Check if a PV exists for the given volumePath in CnsVSphereVolumeMigration CR
+				pvFound := false
+				for _, pv := range pvList.Items {
+					if pv.Spec.VsphereVolume != nil &&
+						pv.Spec.VsphereVolume.VolumePath == volumeMigrationResource.Spec.VolumePath {
+						pvFound = true
+						break
+					}
+				}
+				// Delete the CnsVSphereVolumeMigration CR only when there is no corresponding PV in k8s
+				if !pvFound {
+					err = volumeMigrationInstance.DeleteVolumeInfo(ctx, volumeMigrationResource.Name)
+					if err != nil {
+						log.Warnf("failed to delete volume mapping CR for %s with error %+v", volumeMigrationResource.Name, err)
+						continue
+					}
 				}
 			}
 		}
