@@ -506,7 +506,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		13. Delete SC
 	*/
 
-	ginkgo.It("Verify label updates on statically provisioned volume.", func() {
+	ginkgo.It("Verify label updates on statically provisioned volume", func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -539,7 +539,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Calling cnssyncdatastore on datastore " + datastoreURL)
-		e2eVSphere.cnsSyncDatastore(ctx, datastoreURL, false)
+		err = e2eVSphere.cnsSyncDatastore(ctx, datastoreURL, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Creating the PV with the fcdID %s", fcdID))
 		staticPVLabels := make(map[string]string)
