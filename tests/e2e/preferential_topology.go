@@ -230,7 +230,8 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 			18. Perform cleanup. Delete StatefulSet, PVC, PV and SC.
 			19. Remove datastore preference tags as part of cleanup.
 	*/
-	ginkgo.It("Tag single preferred datastore each in rack-1 and rack-2 and verify it is honored", func() {
+	ginkgo.It("Tag single preferred datastore each in rack-1 and rack-2 "+
+		"and verify it is honored", ginkgo.Label(p0, topology, preferential, block, vanilla, level5), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		preferredDatastoreChosen = 1

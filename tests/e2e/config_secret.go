@@ -150,8 +150,8 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		7. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Update user credentials in vsphere config "+
-		"secret keeping password same for both test users", func() {
+	ginkgo.It("Update user credentials in vsphere config secret keeping password same "+
+		"for both test users", ginkgo.Label(p1, vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -249,8 +249,8 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		12. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Change vcenter user password "+
-		"and restart csi controller pod", func() {
+	ginkgo.It("Change vcenter user password and restart csi controller pod", ginkgo.Label(p0,
+		vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		testUser1NewPassword := "Admin!123"
@@ -406,8 +406,8 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		7. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Update user credentials in vsphere config "+
-		"secret keeping password different for both test users", func() {
+	ginkgo.It("Update user credentials in vsphere config secret keeping password different for both test "+
+		"users", ginkgo.Label(p0, vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -503,8 +503,8 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		9. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Change vcenter ip to hostname and "+
-		"viceversa in vsphere config secret", func() {
+	ginkgo.It("Change vcenter ip to hostname and viceversa in vsphere config "+
+		"secret", ginkgo.Label(p0, vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -619,8 +619,8 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		9. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Change vcenter user to wrong dummy "+
-		"user and later switch back to correct one", func() {
+	ginkgo.It("Change vcenter user to wrong dummy user and later switch back to "+
+		"correct one", ginkgo.Label(p0, vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		dummyTestUser := "dummyUser@vsphere.local"
@@ -748,8 +748,8 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		10. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Add a user without adding required "+
-		"roles and privileges and switch back to the correct one", func() {
+	ginkgo.It("Add a user without adding required roles and privileges and switch back "+
+		"to the correct one", ginkgo.Label(p0, vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -869,8 +869,8 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		8. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Add necessary roles and privileges "+
-		"to the user post CSI driver creation", func() {
+	ginkgo.It("Add necessary roles and privileges to the user post CSI driver "+
+		"creation", ginkgo.Label(p0, vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -981,8 +981,8 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		10. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Add wrong datacenter and switch back "+
-		"to the correct datacenter in vsphere config secret file", func() {
+	ginkgo.It("Add wrong datacenter and switch back to the correct datacenter in vsphere "+
+		"config secret file", ginkgo.Label(p1, vsphereConfigSecret, block, file, vanilla), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1112,8 +1112,8 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		10. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[csi-config-secret-file] Add wrong targetvSANFileShareDatastoreURLs and switch back to the correct "+
-		"targetvSANFileShareDatastoreURLs", func() {
+	ginkgo.It("Add wrong targetvSANFileShareDatastoreURLs and switch back to the correct "+
+		"targetvSANFileShareDatastoreURLs", ginkgo.Label(p1, vsphereConfigSecret, file), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		targetDsURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
@@ -1207,7 +1207,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 	    9. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[vc-custom-port] VC with Custom Port", func() {
+	ginkgo.It("VC with Custom Port", ginkgo.Label(p1, vsphereConfigSecret, file, block, customPort), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		defaultvCenterPort := "443"
@@ -1334,7 +1334,8 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		10. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[vc-custom-port] Modify VC Port and validate the workloads", func() {
+	ginkgo.It("Modify VC Port and validate the workloads", ginkgo.Label(p1, vsphereConfigSecret, file, block,
+		customPort), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		dummyvCenterPort := "4444"
