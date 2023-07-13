@@ -19,10 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
-	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -64,22 +61,21 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 	f := framework.NewDefaultFramework("e2e-volume-label-updates")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client              clientset.Interface
-		namespace           string
-		labelKey            string
-		labelValue          string
-		pvclabelKey         string
-		pvclabelValue       string
-		pvlabelKey          string
-		pvlabelValue        string
-		pandoraSyncWaitTime int
-		datacenter          *object.Datacenter
-		datastoreURL        string
-		datastore           *object.Datastore
-		fcdID               string
-		storagePolicyName   string
-		scParameters        map[string]string
-		storageClassName    string
+		client            clientset.Interface
+		namespace         string
+		labelKey          string
+		labelValue        string
+		pvclabelKey       string
+		pvclabelValue     string
+		pvlabelKey        string
+		pvlabelValue      string
+		datacenter        *object.Datacenter
+		datastoreURL      string
+		datastore         *object.Datastore
+		fcdID             string
+		storagePolicyName string
+		scParameters      map[string]string
+		storageClassName  string
 	)
 	const (
 		fcdName = "BasicStaticFCD"
@@ -397,12 +393,6 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		if os.Getenv(envPandoraSyncWaitTime) != "" {
-			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
-		}
 		var datacenters []string
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		finder := find.NewFinder(e2eVSphere.Client.Client, false)
@@ -521,12 +511,6 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		if os.Getenv(envPandoraSyncWaitTime) != "" {
-			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
-		}
 		var datacenters []string
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		finder := find.NewFinder(e2eVSphere.Client.Client, false)
@@ -554,9 +538,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		fcdID, err = e2eVSphere.createFCD(ctx, fcdName, diskSizeInMb, datastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
-			pandoraSyncWaitTime, fcdID))
-		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+		ginkgo.By("Calling cnssyncdatastore on datastore " + datastoreURL)
+		e2eVSphere.cnsSyncDatastore(ctx, datastoreURL, false)
 
 		ginkgo.By(fmt.Sprintf("Creating the PV with the fcdID %s", fcdID))
 		staticPVLabels := make(map[string]string)

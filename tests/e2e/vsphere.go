@@ -1275,3 +1275,22 @@ func waitForCNSTaskToComplete(ctx context.Context, task *object.Task) *vim25type
 	cnsTaskRes := taskResult.GetCnsVolumeOperationResult()
 	return cnsTaskRes.Fault
 }
+
+// cnsSyncDatastore calls cnsSyncDatastore on given datastore
+func (vs *vSphere) cnsSyncDatastore(ctx context.Context, dsURL string, fullsync bool) error {
+	cClient, err := cns.NewClient(ctx, vs.Client.Client)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	syncDatastoreTask, err := cClient.SyncDatastore(ctx, dsURL, fullsync)
+	if err != nil {
+		return err
+	}
+	syncDatastoreTaskInfo, err := cns.GetTaskInfo(ctx, syncDatastoreTask)
+	if err != nil {
+		return err
+	}
+	if syncDatastoreTaskInfo.State != vim25types.TaskInfoStateSuccess {
+		return fmt.Errorf("cns sync datastore failed for %v datastore: %v", dsURL, syncDatastoreTaskInfo.Error)
+	}
+	framework.Logf("syncDatastore on %v with full sync option %v successful", dsURL, fullsync)
+	return nil
+}
