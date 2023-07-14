@@ -168,8 +168,17 @@ func StartWebhookServer(ctx context.Context) error {
 				cfg.WebHookConfig.Port = defaultWebhookServerPort
 			}
 			server = &http.Server{
-				Addr:      fmt.Sprintf(":%v", cfg.WebHookConfig.Port),
-				TLSConfig: &tls.Config{Certificates: []tls.Certificate{certs}},
+				Addr: fmt.Sprintf(":%v", cfg.WebHookConfig.Port),
+				TLSConfig: &tls.Config{
+					Certificates: []tls.Certificate{certs},
+					CipherSuites: []uint16{
+						tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+						tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+						tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+						tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+					},
+					MinVersion: tls.VersionTLS12,
+				},
 			}
 			// Define http server and server handler.
 			mux := http.NewServeMux()
