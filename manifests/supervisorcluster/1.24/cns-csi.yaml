@@ -340,10 +340,6 @@ spec:
             - name: GODEBUG
               value: x509sha1=1
           imagePullPolicy: "IfNotPresent"
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 65532
-            runAsGroup: 65532
           volumeMounts:
             - mountPath: /etc/vmware/wcp
               name: vsphere-config-volume
@@ -396,10 +392,6 @@ spec:
             - containerPort: 2113
               name: prometheus
               protocol: TCP
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 65532
-            runAsGroup: 65532
           volumeMounts:
             - mountPath: /etc/vmware/wcp
               name: vsphere-config-volume
@@ -681,10 +673,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 65532
-            runAsGroup: 65532
           volumeMounts:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: webhook-certs
