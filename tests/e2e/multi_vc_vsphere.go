@@ -10,6 +10,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/cns"
 	cnsmethods "github.com/vmware/govmomi/cns/methods"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
@@ -377,4 +378,113 @@ func (vs *multiVCvSphere) verifyLabelsAreUpdatedInMultiVC(volumeID string, match
 		}
 	}
 	return nil
+}
+
+/*
+This util getClusterNameForMultiVC will return the cluster details of anyone VC passed to this util
+*/
+func getClusterNameForMultiVC(ctx context.Context, vs *multiVCvSphere,
+	clientIndex int) ([]*object.ClusterComputeResource,
+	*VsanClient, error) {
+
+	var vsanHealthClient *VsanClient
+	var err error
+	c := newClientForMultiVC(ctx, vs)
+
+	datacenter := strings.Split(multiVCe2eVSphere.multivcConfig.Global.Datacenters, ",")
+
+	for i, client := range c {
+		if clientIndex == i {
+			vsanHealthClient, err = newVsanHealthSvcClient(ctx, client.Client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	}
+
+	finder := find.NewFinder(vsanHealthClient.vim25Client, false)
+	dc, err := finder.Datacenter(ctx, datacenter[0])
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	finder.SetDatacenter(dc)
+
+	clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
+	framework.Logf("clusterComputeResource %v", clusterComputeResource)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return clusterComputeResource, vsanHealthClient, err
+}
+
+/*
+This util verifyPreferredDatastoreMatchInMultiVC will compare the prefrence of datatsore with the
+actual datatsore and expected datastore and will return a bool value if both actual and expected datatsore
+gets matched else will return false
+This util will basically be used to check where exactly the volume provisioning has happened
+*/
+func (vs *multiVCvSphere) verifyPreferredDatastoreMatchInMultiVC(volumeID string, dsUrls []string) bool {
+	framework.Logf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volumeID)
+	queryResult, err := vs.queryCNSVolumeWithResultInMultiVC(volumeID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+	actualDatastoreUrl := queryResult.Volumes[0].DatastoreUrl
+	flag := false
+	for _, dsUrl := range dsUrls {
+		if actualDatastoreUrl == dsUrl {
+			flag = true
+			return flag
+		}
+	}
+	return flag
+}
+
+/*
+queryCNSVolumeSnapshotWithResultInMultiVC Call CnsQuerySnapshots and returns CnsSnapshotQueryResult
+to client
+*/
+func (vs *multiVCvSphere) queryCNSVolumeSnapshotWithResultInMultiVC(fcdID string,
+	snapshotId string) (*cnstypes.CnsSnapshotQueryResult, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var snapshotSpec []cnstypes.CnsSnapshotQuerySpec
+	var taskResult *cnstypes.CnsSnapshotQueryResult
+	snapshotSpec = append(snapshotSpec, cnstypes.CnsSnapshotQuerySpec{
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: fcdID,
+		},
+		SnapshotId: &cnstypes.CnsSnapshotId{
+			Id: snapshotId,
+		},
+	})
+
+	queryFilter := cnstypes.CnsSnapshotQueryFilter{
+		SnapshotQuerySpecs: snapshotSpec,
+		Cursor: &cnstypes.CnsCursor{
+			Offset: 0,
+			Limit:  100,
+		},
+	}
+
+	req := cnstypes.CnsQuerySnapshots{
+		This:                cnsVolumeManagerInstance,
+		SnapshotQueryFilter: queryFilter,
+	}
+
+	for i := 0; i < len(vs.multiVcCnsClient); i++ {
+		res, err := cnsmethods.CnsQuerySnapshots(ctx, vs.multiVcCnsClient[i].Client, &req)
+		if err != nil {
+			return nil, err
+		}
+
+		task, err := object.NewTask(vs.multiVcClient[i].Client, res.Returnval), nil
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		taskInfo, err := cns.GetTaskInfo(ctx, task)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		taskResult, err = cns.GetQuerySnapshotsTaskResult(ctx, taskInfo)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if taskResult.Entries[0].Snapshot.SnapshotId.Id == snapshotId {
+			return taskResult, nil
+		}
+	}
+	return taskResult, nil
 }

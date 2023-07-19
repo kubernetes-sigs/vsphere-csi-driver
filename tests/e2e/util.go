@@ -5024,6 +5024,7 @@ func getTopologySelector(topologyAffinityDetails map[string][]string,
 			Values: values,
 		}
 		allowedTopologyForSC = append(allowedTopologyForSC, topologySelector)
+
 	}
 	return allowedTopologyForSC
 }
@@ -5439,7 +5440,7 @@ func waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx context.Context,
 func waitForCNSSnapshotToBeDeleted(volumeId string, snapshotId string) error {
 	var err error
 	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
-		err = verifySnapshotIsDeletedInCNS(volumeId, snapshotId)
+		err = verifySnapshotIsDeletedInCNS(volumeId, snapshotId, false)
 		if err != nil {
 			if strings.Contains(err.Error(), "snapshot entry is still present") {
 				return false, nil
@@ -6700,7 +6701,7 @@ func getVolumeSnapshotIdFromSnapshotHandle(ctx context.Context, snapshotContent 
 	}
 
 	ginkgo.By("Query CNS and check the volume snapshot entry")
-	err = verifySnapshotIsCreatedInCNS(volHandle, snapshotID)
+	err = verifySnapshotIsCreatedInCNS(volHandle, snapshotID, false)
 	if err != nil {
 		return "", err
 	}
@@ -6753,7 +6754,7 @@ func deleteDynamicVolumeSnapshot(ctx context.Context, snapc *snapclient.Clientse
 	}
 
 	framework.Logf("Verify snapshot entry is deleted from CNS")
-	err = verifySnapshotIsDeletedInCNS(volHandle, snapshotID)
+	err = verifySnapshotIsDeletedInCNS(volHandle, snapshotID, false)
 	if err != nil {
 		return snapshotCreated, snapshotContentCreated, err
 	}

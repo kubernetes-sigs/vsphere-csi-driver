@@ -25,6 +25,7 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/object"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
 
@@ -278,7 +279,7 @@ func verifyVolumeMetadataInCNSForMultiVC(vs *multiVCvSphere, volumeID string,
 }
 
 // govc login cmd for multivc setups
-func govcLoginCmdForMultiVC() string {
+func govcLoginCmdForMultiVC(i int) string {
 	configUser := strings.Split(multiVCe2eVSphere.multivcConfig.Global.User, ",")
 	configPwd := strings.Split(multiVCe2eVSphere.multivcConfig.Global.Password, ",")
 	configvCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
@@ -286,14 +287,14 @@ func govcLoginCmdForMultiVC() string {
 
 	loginCmd := "export GOVC_INSECURE=1;"
 	loginCmd += fmt.Sprintf("export GOVC_URL='https://%s:%s@%s:%s';",
-		configUser[0], configPwd[0], configvCenterHostname[0], configvCenterPort[0])
+		configUser[i], configPwd[i], configvCenterHostname[i], configvCenterPort[i])
 	return loginCmd
 }
 
 /*deletes storage profile deletes the storage profile*/
 func deleteStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig,
-	storagePolicyName string) error {
-	removeStoragePolicy := govcLoginCmdForMultiVC() +
+	storagePolicyName string, clientIndex int) error {
+	removeStoragePolicy := govcLoginCmdForMultiVC(clientIndex) +
 		"govc storage.policy.rm " + storagePolicyName
 	framework.Logf("Remove storage policy: %s ", removeStoragePolicy)
 	removeStoragePolicytRes, err := sshExec(sshClientConfig, masterIp, removeStoragePolicy)
@@ -315,14 +316,14 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	allowedTopologies []v1.TopologySelectorLabelRequirement, stsScaleUp bool, stsScaleDown bool,
 	verifyTopologyAffinity bool) {
 
-	if stsScaleUp {
-		framework.Logf("Scale down statefulset replica count to 1")
+	if stsScaleDown {
+		framework.Logf("Scale down statefulset replica pods")
 		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
 			parallelStatefulSetCreation, true)
 	}
 
-	if stsScaleDown {
-		framework.Logf("Scale up statefulset replica count to 4")
+	if stsScaleUp {
+		framework.Logf("Scale up statefulset replica pods")
 		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
 			parallelStatefulSetCreation, true)
 	}
@@ -430,5 +431,53 @@ func performOnlineVolumeExpansin(f *framework.Framework, client clientset.Interf
 		framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize)
 	}
 	ginkgo.By("File system resize finished successfully")
+}
 
+/*
+getDatastoresListFromMultiVCs util will fetch the list of datastores available in all
+the multi-vc setup
+This util will return key-value combination of datastore-name:datastore-url of all the 3 VCs available
+in a multi-vc setup
+*/
+func getDatastoresListFromMultiVCs(masterIp string, sshClientConfig *ssh.ClientConfig,
+	cluster *object.ClusterComputeResource, isMultiVCSetup bool) (map[string]string, map[string]string,
+	map[string]string, error) {
+	ClusterdatastoreListMapVC1 := make(map[string]string)
+	ClusterdatastoreListMapVC2 := make(map[string]string)
+	ClusterdatastoreListMapVC3 := make(map[string]string)
+
+	configvCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
+	for i := 0; i < len(configvCenterHostname); i++ {
+		datastoreListByVC := govcLoginCmdForMultiVC(i) +
+			"govc object.collect -s -d ' ' " + cluster.InventoryPath + " host | xargs govc datastore.info -H | " +
+			"grep 'Path\\|URL' | tr -s [:space:]"
+
+		framework.Logf("cmd : %s ", datastoreListByVC)
+		result, err := sshExec(sshClientConfig, masterIp, datastoreListByVC)
+		if err != nil && result.Code != 0 {
+			fssh.LogResult(result)
+			return nil, nil, nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				datastoreListByVC, masterIp, err)
+		}
+
+		datastoreList := strings.Split(result.Stdout, "\n")
+
+		ClusterdatastoreListMap := make(map[string]string) // Empty the map
+
+		for i := 0; i < len(datastoreList)-1; i = i + 2 {
+			key := strings.ReplaceAll(datastoreList[i], " Path: ", "")
+			value := strings.ReplaceAll(datastoreList[i+1], " URL: ", "")
+			ClusterdatastoreListMap[key] = value
+		}
+
+		if i == 0 {
+			ClusterdatastoreListMapVC1 = ClusterdatastoreListMap
+		} else if i == 1 {
+			ClusterdatastoreListMapVC2 = ClusterdatastoreListMap
+		} else if i == 2 {
+			ClusterdatastoreListMapVC3 = ClusterdatastoreListMap
+		}
+	}
+
+	return ClusterdatastoreListMapVC1, ClusterdatastoreListMapVC2, ClusterdatastoreListMapVC3, nil
 }
