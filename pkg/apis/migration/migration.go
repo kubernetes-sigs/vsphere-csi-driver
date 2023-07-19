@@ -606,11 +606,15 @@ func (volumeMigration *volumeMigration) cleanupStaleCRDInstances() {
 					if pv.Spec.VsphereVolume != nil &&
 						pv.Spec.VsphereVolume.VolumePath == volumeMigrationResource.Spec.VolumePath {
 						pvFound = true
+						log.Infof("PV %s with VolumePath %s is found in k8s, but CNS does not have an entry."+
+							"Skipping the %s CR deletion.",
+							pv.Name, pv.Spec.VsphereVolume.VolumePath, volumeMigrationResource.Name)
 						break
 					}
 				}
 				// Delete the CnsVSphereVolumeMigration CR only when there is no corresponding PV in k8s
 				if !pvFound {
+					log.Debugf("Deleting CnsVSphereVolumeMigration CR: %s", volumeMigrationResource.Name)
 					err = volumeMigrationInstance.DeleteVolumeInfo(ctx, volumeMigrationResource.Name)
 					if err != nil {
 						log.Warnf("failed to delete volume mapping CR for %s with error %+v", volumeMigrationResource.Name, err)
