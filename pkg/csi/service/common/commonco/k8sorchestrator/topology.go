@@ -730,42 +730,49 @@ func (c *K8sOrchestrator) InitTopologyServiceInNode(ctx context.Context) (
 func (volTopology *nodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context, nodeInfo *commoncotypes.NodeInfo) (
 	map[string]string, error) {
 	log := logger.GetLogger(ctx)
-
 	var err error
-	csiNodeTopology := &csinodetopologyv1alpha1.CSINodeTopology{}
-	csiNodeTopologyKey := types.NamespacedName{
-		Name: nodeInfo.NodeName,
-	}
-	err = volTopology.csiNodeTopologyK8sClient.Get(ctx, csiNodeTopologyKey, csiNodeTopology)
-	csiNodeTopologyFound := true
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			msg := fmt.Sprintf("failed to get CsiNodeTopology for the node: %q. Error: %+v", nodeInfo.NodeName, err)
-			return nil, logger.LogNewErrorCodef(log, codes.Internal, msg)
-		}
-		csiNodeTopologyFound = false
+
+	if volTopology.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		err = createCSINodeTopologyInstance(ctx, volTopology, nodeInfo)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal, err.Error())
 		}
+	} else {
+		csiNodeTopology := &csinodetopologyv1alpha1.CSINodeTopology{}
+		csiNodeTopologyKey := types.NamespacedName{
+			Name: nodeInfo.NodeName,
+		}
+		err = volTopology.csiNodeTopologyK8sClient.Get(ctx, csiNodeTopologyKey, csiNodeTopology)
+		csiNodeTopologyFound := true
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				msg := fmt.Sprintf("failed to get CsiNodeTopology for the node: %q. Error: %+v", nodeInfo.NodeName, err)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal, msg)
+			}
+			csiNodeTopologyFound = false
+			err = createCSINodeTopologyInstance(ctx, volTopology, nodeInfo)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal, err.Error())
+			}
+		}
+		// There is an already existing topology.
+		if csiNodeTopologyFound {
+			newCSINodeTopology := csiNodeTopology.DeepCopy()
+			newCSINodeTopology = volTopology.updateNodeIDForTopology(ctx, nodeInfo, newCSINodeTopology)
+			// reset the status so as syncer can sync the object again
+			newCSINodeTopology.Status.Status = ""
+			_, err = volTopology.patchCSINodeTopology(ctx, csiNodeTopology, newCSINodeTopology)
+			if err != nil {
+				msg := fmt.Sprintf("Fail to patch CsiNodeTopology for the node: %q "+
+					"with nodeUUID: %s. Error: %+v",
+					nodeInfo.NodeName, nodeInfo.NodeID, err)
+				return nil, logger.LogNewErrorCodef(log, codes.Internal, msg)
+			}
+			log.Infof("Successfully patched CSINodeTopology instance: %q with Uuid: %q",
+				nodeInfo.NodeName, nodeInfo.NodeID)
+		}
 	}
 
-	// there is an already existing topology
-	if csiNodeTopologyFound && volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		newCSINodeTopology := csiNodeTopology.DeepCopy()
-		newCSINodeTopology = volTopology.updateNodeIDForTopology(ctx, nodeInfo, newCSINodeTopology)
-		// reset the status so as syncer can sync the object again
-		newCSINodeTopology.Status.Status = ""
-		_, err = volTopology.patchCSINodeTopology(ctx, csiNodeTopology, newCSINodeTopology)
-		if err != nil {
-			msg := fmt.Sprintf("Fail to patch CsiNodeTopology for the node: %q "+
-				"with nodeUUID: %s. Error: %+v",
-				nodeInfo.NodeName, nodeInfo.NodeID, err)
-			return nil, logger.LogNewErrorCodef(log, codes.Internal, msg)
-		}
-		log.Infof("Successfully patched CSINodeTopology instance: %q with Uuid: %q",
-			nodeInfo.NodeName, nodeInfo.NodeID)
-	}
 	// Create a watcher for CSINodeTopology CRs.
 	timeoutSeconds := int64((time.Duration(getCSINodeTopologyWatchTimeoutInMin(ctx)) * time.Minute).Seconds())
 	watchCSINodeTopology, err := volTopology.csiNodeTopologyWatcher.Watch(metav1.ListOptions{
