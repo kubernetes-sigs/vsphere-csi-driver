@@ -223,3 +223,35 @@ func QueryVolumeDetailsUtil(ctx context.Context, m cnsvolume.Manager, volumeIds 
 	}
 	return volumeDetailsMap, nil
 }
+
+// LogoutAllSessions will logout all vCenter sessions and disconnect vCenter client
+func LogoutAllvCenterSessions(ctx context.Context) {
+	log := logger.GetLogger(ctx)
+	log.Info("Logging out all vCenter sessions")
+	virtualcentermanager := cnsvsphere.GetVirtualCenterManager(ctx)
+	vCenters := virtualcentermanager.GetAllVirtualCenters()
+	managerInstanceMap := cnsvolume.GetAllManagerInstances(ctx)
+	for _, vc := range vCenters {
+		if vc.Client == nil {
+			continue
+		}
+		log.Info("Closing idle vCenter session")
+		vc.Client.CloseIdleConnections()
+		// logout vCenter session for list-view
+		mgr, ok := managerInstanceMap[vc.Config.Host]
+		if ok && mgr != nil {
+			err := mgr.LogoutListViewVCSession(ctx)
+			if err != nil {
+				continue
+			}
+		}
+		log.Infof("Disconnecting vCenter client for host %s", vc.Config.Host)
+		err := vc.Disconnect(ctx)
+		if err != nil {
+			log.Errorf("Error while disconnect vCenter client for host %s. Error: %+v", vc.Config.Host, err)
+			continue
+		}
+		log.Infof("Disconnected vCenter client for host %s", vc.Config.Host)
+	}
+	log.Info("Successfully logged out vCenter sessions")
+}

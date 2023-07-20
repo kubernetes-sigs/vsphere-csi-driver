@@ -134,6 +134,8 @@ type Manager interface {
 		task *object.Task, volNameFromInputSpec string, clusterID string) (*CnsVolumeInfo, string, error)
 	// GetOperationStore returns the VolumeOperationRequest interface
 	GetOperationStore() cnsvolumeoperationrequest.VolumeOperationRequest
+	// LogoutListViewVCSession logout current vCenter session for list-view
+	LogoutListViewVCSession(ctx context.Context) error
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -605,7 +607,6 @@ func (m *defaultManager) waitOnTask(csiOpContext context.Context,
 			}
 		}
 	}()
-
 	return waitForResultOrTimeout(csiOpContext, taskMoRef, ch)
 }
 
@@ -629,6 +630,7 @@ func waitForResultOrTimeout(csiOpContext context.Context, taskMoRef vim25types.M
 
 func (m *defaultManager) initListView() error {
 	ctx := logger.NewContextWithLogger(context.Background())
+
 	log := logger.GetLogger(ctx)
 	log.Debugf("Initializing new listView object for vc: %+v", m.virtualCenter)
 	if m.virtualCenter.Client == nil {
@@ -638,7 +640,6 @@ func (m *defaultManager) initListView() error {
 			return logger.LogNewErrorf(log, "failed to connect to vCenter. err: %v", err)
 		}
 	}
-
 	govmomiClient, err := m.virtualCenter.NewClient(ctx)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create a separate govmomi client for listView. error: %+v", err)
@@ -2620,4 +2621,24 @@ func (m *defaultManager) ProtectVolumeFromVMDeletion(ctx context.Context, volume
 	}
 	log.Infof("Successfully set keepAfterDeleteVm control flag for volumeID: %q", volumeID)
 	return nil
+}
+
+func (m *defaultManager) LogoutListViewVCSession(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+	if m.listViewIf != nil {
+		log.Info("Logging out list view vCenter session")
+		return m.listViewIf.LogoutSession(ctx)
+	}
+	return nil
+}
+
+// GetAllManagerInstances returns all Manager instances
+func GetAllManagerInstances(ctx context.Context) map[string]*defaultManager {
+	newManagerInstanceMap := make(map[string]*defaultManager)
+	if len(managerInstanceMap) != 0 {
+		newManagerInstanceMap = managerInstanceMap
+	} else if managerInstance != nil {
+		newManagerInstanceMap[managerInstance.virtualCenter.Config.Host] = managerInstance
+	}
+	return newManagerInstanceMap
 }

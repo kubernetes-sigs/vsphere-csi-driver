@@ -17,11 +17,15 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -66,7 +70,37 @@ func main() {
 		log.Error("CSI endpoint cannot be empty. Please set the env variable.")
 		os.Exit(1)
 	}
+	log.Info("Enable logging off for vCenter sessions on exit")
+	// Disconnect VC session on restart
+	defer func() {
+		if r := recover(); r != nil {
+			log.Info("Cleaning up vc sessions")
+			cleanupSessions(ctx, r)
+		}
+	}()
+
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGTERM)
+	go func() {
+		for {
+			sig := <-ch
+			if sig == syscall.SIGTERM {
+				log.Info("SIGTERM signal received")
+				utils.LogoutAllvCenterSessions(ctx)
+				os.Exit(0)
+			}
+		}
+	}()
 
 	vSphereCSIDriver := service.NewDriver()
 	vSphereCSIDriver.Run(ctx, CSIEndpoint)
+
+}
+
+func cleanupSessions(ctx context.Context, r interface{}) {
+	log := logger.GetLogger(ctx)
+	log.Errorf("Observed a panic and a restart was invoked, panic: %+v", r)
+	log.Info("Recovered from panic. Disconnecting the existing vc sessions.")
+	utils.LogoutAllvCenterSessions(ctx)
+	os.Exit(0)
 }

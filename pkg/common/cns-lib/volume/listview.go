@@ -317,3 +317,15 @@ func (l *ListViewImpl) MarkTaskForDeletion(ctx context.Context, taskMoRef types.
 	log.Infof("%v marked for deletion", taskMoRef)
 	return nil
 }
+
+// LogoutSession is a setter method to logout vcenter session created
+func (l *ListViewImpl) LogoutSession(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+	err := l.govmomiClient.Logout(l.ctx)
+	if err != nil {
+		log.Errorf("Error while logout vCenter session (list-view) for host %s, Error: %+v", l.virtualCenter.Config.Host, err)
+		return err
+	}
+	log.Infof("Logged out list-view vCenter session for host %s", l.virtualCenter.Config.Host)
+	return nil
+}
