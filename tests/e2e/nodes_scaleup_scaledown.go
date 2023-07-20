@@ -132,7 +132,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 		}
 
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = scName
+			Spec.StorageClassName = &scName
 		CreateStatefulSet(namespace, statefulset, client)
 
 		defer func() {

@@ -64,13 +64,11 @@ var _ = ginkgo.Describe("statefulset", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		namespace               string
-		client                  clientset.Interface
-		storagePolicyName       string
-		scParameters            map[string]string
-		storageClassName        string
-		sshClientConfig         *ssh.ClientConfig
-		nimbusGeneratedK8sVmPwd string
+		namespace         string
+		client            clientset.Interface
+		storagePolicyName string
+		scParameters      map[string]string
+		storageClassName  string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -139,7 +137,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
+			Spec.StorageClassName = &storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
@@ -337,7 +335,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		*(statefulset.Spec.Replicas) = 8
 		statefulset.Spec.PodManagementPolicy = apps.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
+			Spec.StorageClassName = &storageClassName
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
@@ -535,7 +533,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
+			Spec.StorageClassName = &storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
@@ -594,7 +592,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		statefulset = GetResizedStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
+			Spec.StorageClassName = &storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas = *(statefulset.Spec.Replicas)
 
@@ -672,6 +670,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		defer cancel()
 		var svcMasterPswd string
 		var volumesBeforeScaleUp []string
+		var sshClientConfig *ssh.ClientConfig
 		containerName := "vsphere-csi-controller"
 		ginkgo.By("Creating StorageClass for Statefulset")
 		// decide which test setup is available to run
@@ -718,7 +717,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageClassName
+			Spec.StorageClassName = &storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
@@ -753,7 +752,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		var logMessage string
 		if vanillaCluster {
 			logMessage = "List volume response: entries:"
-			nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+			nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 			sshClientConfig = &ssh.ClientConfig{
 				User: "root",
 				Auth: []ssh.AuthMethod{

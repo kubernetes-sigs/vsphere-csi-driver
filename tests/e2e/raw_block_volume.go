@@ -201,6 +201,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		}()
 
 		ginkgo.By("Creating statefulset with raw block volume")
+		scName := defaultNginxStorageClassName
 		statefulset := GetStatefulSetFromManifest(namespace)
 		statefulset.Spec.Template.Spec.Containers[len(statefulset.Spec.Template.Spec.Containers)-1].VolumeMounts = nil
 		statefulset.Spec.Template.Spec.Containers[len(statefulset.Spec.Template.Spec.Containers)-1].
@@ -211,7 +212,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			},
 		}
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = defaultNginxStorageClassName
+			Spec.StorageClassName = &scName
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].ObjectMeta.Name =
 			statefulset_volname
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.VolumeMode =

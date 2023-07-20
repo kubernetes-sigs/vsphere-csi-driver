@@ -741,7 +741,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 
 		statefulset := GetStatefulSetFromManifest(namespace)
 		temp := statefulset.Spec.VolumeClaimTemplates
-		temp[0].Annotations[scAnnotation4Statefulset] = vcpSc.Name
+		temp[0].Spec.StorageClassName = &vcpSc.Name
 		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 		ginkgo.By("Creating statefulset and waiting for the replicas to be ready")
 		CreateStatefulSet(namespace, statefulset, client)
@@ -1500,7 +1500,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		for i := 0; i < 10; i++ {
 			statefulset := GetStatefulSetFromManifest(ns.Name)
 			temp := statefulset.Spec.VolumeClaimTemplates
-			temp[0].Annotations[scAnnotation4Statefulset] = vcpSc.Name
+			temp[0].Spec.StorageClassName = &vcpSc.Name
 			statefulset.Name = "pre-sts" + strconv.Itoa(i)
 			statefulset.Spec.Template.Labels["app"] = statefulset.Name
 			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
@@ -1543,7 +1543,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		for i := 0; i < 10; i++ {
 			statefulset := GetStatefulSetFromManifest(ns.Name)
 			temp := statefulset.Spec.VolumeClaimTemplates
-			temp[0].Annotations[scAnnotation4Statefulset] = vcpSc.Name
+			temp[0].Spec.StorageClassName = &vcpSc.Name
 			statefulset.Name = "post-sts" + strconv.Itoa(i)
 			statefulset.Spec.Template.Labels["app"] = statefulset.Name
 			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name

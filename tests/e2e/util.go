@@ -5676,11 +5676,12 @@ func createParallelStatefulSetSpec(namespace string, no_of_sts int, replicas int
 	var statefulset *appsv1.StatefulSet
 
 	for i := 0; i < no_of_sts; i++ {
+		scName := defaultNginxStorageClassName
 		statefulset = GetStatefulSetFromManifest(namespace)
 		statefulset.Name = "thread-" + strconv.Itoa(i) + "-" + statefulset.Name
 		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = defaultNginxStorageClassName
+			Spec.StorageClassName = &scName
 		statefulset.Spec.Replicas = &replicas
 		stss = append(stss, statefulset)
 	}

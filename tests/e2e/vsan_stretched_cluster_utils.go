@@ -600,7 +600,7 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 	statefulset := GetStatefulSetFromManifest(namespace)
 	framework.Logf("Creating statefulset")
 	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-		Annotations["volume.beta.kubernetes.io/storage-class"] = sc.Name
+		Spec.StorageClassName = &sc.Name
 	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
 		accessMode
 	if modifyStsSpec {
