@@ -12,6 +12,7 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -164,7 +165,12 @@ func (l *ListViewImpl) isClientValid() error {
 		return nil
 	}
 	// If session has expired, create a new instance.
-	client, err := l.virtualCenter.NewClient(l.ctx)
+	useragent, err := config.GetSessionUserAgent(l.ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get useragent for vCenter session. error: %+v", err)
+	}
+	useragent = useragent + "-listview"
+	client, err := l.virtualCenter.NewClient(l.ctx, useragent)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create a govmomi client for listView. error: %+v", err)
 	}

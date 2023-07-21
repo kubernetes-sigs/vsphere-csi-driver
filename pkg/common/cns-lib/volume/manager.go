@@ -35,6 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -640,7 +641,13 @@ func (m *defaultManager) initListView() error {
 			return logger.LogNewErrorf(log, "failed to connect to vCenter. err: %v", err)
 		}
 	}
-	govmomiClient, err := m.virtualCenter.NewClient(ctx)
+
+	useragent, err := config.GetSessionUserAgent(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get useragent for vCenter session. error: %+v", err)
+	}
+	useragent = useragent + "-listview"
+	govmomiClient, err := m.virtualCenter.NewClient(ctx, useragent)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create a separate govmomi client for listView. error: %+v", err)
 	}

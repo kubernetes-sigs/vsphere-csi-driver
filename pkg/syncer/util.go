@@ -361,6 +361,7 @@ func getConfig(ctx context.Context) (*cnsconfig.Config, error) {
 				"vSphere config secret and in immutable ConfigMap")
 		}
 		cfg.Global.ClusterID = clusterID
+		cnsconfig.GeneratedVanillaClusterID = clusterID
 	} else {
 		if _, err := commonco.ContainerOrchestratorUtility.GetConfigMap(ctx,
 			cnsconfig.ClusterIDConfigMapName, CSINamespace); err == nil {
