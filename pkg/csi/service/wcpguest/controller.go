@@ -64,6 +64,8 @@ var (
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
 	}
 )
 
@@ -1344,10 +1346,6 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
-		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
-			csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS)
-	}
 	var caps []*csi.ControllerServiceCapability
 	for _, cap := range controllerCaps {
 		c := &csi.ControllerServiceCapability{
