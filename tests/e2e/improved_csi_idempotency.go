@@ -839,6 +839,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 // stopHostD is a function for waitGroup to run stop hostd parallelly
 func stopHostD(ctx context.Context, addr string, wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	stopHostDOnHost(ctx, addr)
 }

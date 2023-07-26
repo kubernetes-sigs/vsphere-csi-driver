@@ -3121,6 +3121,7 @@ func setVpxdTaskTimeout(ctx context.Context, taskTimeout int) {
 func writeKnownData2PodInParallel(
 	f *framework.Framework, pod *v1.Pod, testdataFile string, wg *sync.WaitGroup, size ...int64) {
 
+	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	writeKnownData2Pod(f, pod, testdataFile, size...)
 }
@@ -3175,6 +3176,7 @@ func verifyKnownDataInPod(f *framework.Framework, pod *v1.Pod, testdataFile stri
 }
 
 func reconfigPolicyParallel(ctx context.Context, volID string, policyId string, wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	err := e2eVSphere.reconfigPolicy(ctx, volID, policyId)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

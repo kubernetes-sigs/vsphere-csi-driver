@@ -893,6 +893,7 @@ func createPVC(client clientset.Interface, pvcnamespace string, pvclaimlabels ma
 // storage class.
 func scaleCreatePVC(client clientset.Interface, pvcnamespace string, pvclaimlabels map[string]string, ds string,
 	storageclass *storagev1.StorageClass, accessMode v1.PersistentVolumeAccessMode, wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 
 	pvcspec := getPersistentVolumeClaimSpecWithStorageClass(pvcnamespace, ds, storageclass, pvclaimlabels, accessMode)
@@ -911,6 +912,7 @@ func scaleCreatePVC(client clientset.Interface, pvcnamespace string, pvclaimlabe
 func scaleCreateDeletePVC(client clientset.Interface, pvcnamespace string, pvclaimlabels map[string]string,
 	ds string, storageclass *storagev1.StorageClass, accessMode v1.PersistentVolumeAccessMode,
 	wg *sync.WaitGroup, lock *sync.Mutex, worker int) {
+	defer ginkgo.GinkgoRecover()
 	ctx, cancel := context.WithCancel(context.Background())
 	var totalPVCDeleted int = 0
 	defer cancel()
@@ -2540,6 +2542,7 @@ func verifyIsDetachedInSupervisor(ctx context.Context, f *framework.Framework,
 // namespace. It takes client, namespace, pvc, pv as input.
 func verifyPodCreation(f *framework.Framework, client clientset.Interface, namespace string,
 	pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume) {
+	defer ginkgo.GinkgoRecover()
 	ginkgo.By("Create pod and wait for this to be in running phase")
 	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5475,6 +5478,7 @@ func getMasterIpFromMasterNodeName(ctx context.Context, client clientset.Interfa
 
 func createParallelStatefulSets(client clientset.Interface, namespace string,
 	statefulset *appsv1.StatefulSet, replicas int32, wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	ginkgo.By("Creating statefulset")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -6324,6 +6328,7 @@ func createVsanDPvcAndPod(client clientset.Interface, ctx context.Context,
 // on a given pod in parallel
 func writeDataToMultipleFilesOnPodInParallel(namespace string, podName string, data string,
 	wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	for i := 0; i < 10; i++ {
 		ginkgo.By("write to a file in pod")
