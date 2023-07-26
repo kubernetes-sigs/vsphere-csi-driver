@@ -73,6 +73,15 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 	})
+	ginkgo.AfterEach(func() {
+		if supervisorCluster {
+			dumpSvcNsEventsOnTestFailure(client, namespace)
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+		}
+	})
 
 	// Shared datastore should be provisioned successfully.
 	ginkgo.It("Verify dynamic provisioning of PV passes with user specified shared datastore and "+

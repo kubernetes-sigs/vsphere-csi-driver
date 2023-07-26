@@ -124,10 +124,12 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		if supervisorCluster {
 			ginkgo.By("Delete Resource quota")
 			deleteResourceQuota(client, namespace)
+			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 
 	})

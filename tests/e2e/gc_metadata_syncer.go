@@ -96,6 +96,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
+		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	})
 
 	// Steps:

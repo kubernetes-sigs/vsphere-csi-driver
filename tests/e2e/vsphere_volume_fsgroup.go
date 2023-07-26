@@ -75,6 +75,15 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 	})
+	ginkgo.AfterEach(func() {
+		if supervisorCluster {
+			dumpSvcNsEventsOnTestFailure(client, namespace)
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+		}
+	})
 
 	// Test for Pod creation works when SecurityContext has FSGroup
 	ginkgo.It("Verify Pod Creation works when SecurityContext has FSGroup", func() {

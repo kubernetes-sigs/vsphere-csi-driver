@@ -97,14 +97,11 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		setVpxdTaskTimeout(ctx, 0) // reset vpxd timeout to default
 
 		if supervisorCluster {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			framework.Logf("Collecting supervisor PVC events before performing PV/PVC cleanup")
-			eventList, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			for _, item := range eventList.Items {
-				framework.Logf(fmt.Sprintf(item.Message))
-			}
+			dumpSvcNsEventsOnTestFailure(client, namespace)
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 	})
 

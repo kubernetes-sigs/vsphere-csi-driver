@@ -44,6 +44,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Basic File Volume Provision Test", func()
 		scParameters      map[string]string
 		storagePolicyName string
 	)
+
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
@@ -55,6 +56,11 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Basic File Volume Provision Test", func()
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+	})
+
+	ginkgo.AfterEach(func() {
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	})
 
 	/*

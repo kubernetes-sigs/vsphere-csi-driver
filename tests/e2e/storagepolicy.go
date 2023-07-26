@@ -78,10 +78,12 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 	ginkgo.AfterEach(func() {
 		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
+			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 	})
 

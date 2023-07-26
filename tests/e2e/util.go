@@ -6332,3 +6332,36 @@ func writeDataToMultipleFilesOnPodInParallel(namespace string, podName string, d
 	}
 
 }
+
+// byFirstTimeStamp sorts a slice of events by first timestamp, using their involvedObject's name as a tie breaker.
+type byFirstTimeStamp []v1.Event
+
+func (o byFirstTimeStamp) Len() int      { return len(o) }
+func (o byFirstTimeStamp) Swap(i, j int) { o[i], o[j] = o[j], o[i] }
+
+func (o byFirstTimeStamp) Less(i, j int) bool {
+	if o[i].FirstTimestamp.Equal(&o[j].FirstTimestamp) {
+		return o[i].InvolvedObject.Name < o[j].InvolvedObject.Name
+	}
+	return o[i].FirstTimestamp.Before(&o[j].FirstTimestamp)
+}
+
+// dumpSvcNsEventsOnTestFailure dumps the events from the given namespace in case of test failure
+func dumpSvcNsEventsOnTestFailure(client clientset.Interface, namespace string) {
+	if !ginkgo.CurrentSpecReport().Failed() {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("Found %d events in svc ns %s.", len(events.Items), namespace))
+	sortedEvents := events.Items
+	if len(sortedEvents) > 1 {
+		sort.Sort(byFirstTimeStamp(sortedEvents))
+	}
+	for _, e := range sortedEvents {
+		framework.Logf(
+			"At %v - event for %v: %v %v: %v", e.FirstTimestamp, e.InvolvedObject.Name, e.Source, e.Reason, e.Message)
+	}
+}

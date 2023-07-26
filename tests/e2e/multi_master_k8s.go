@@ -116,6 +116,13 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		ginkgo.By("Waiting for old vsphere-csi-controller pod to be removed")
 		err = waitForControllerDeletion(client, controllerNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if supervisorCluster {
+			dumpSvcNsEventsOnTestFailure(client, namespace)
+		} else {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+		}
 	})
 
 	/*

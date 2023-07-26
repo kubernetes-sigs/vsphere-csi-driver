@@ -116,6 +116,11 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 	ginkgo.AfterEach(func() {
 		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
+			dumpSvcNsEventsOnTestFailure(client, namespace)
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 	})
 

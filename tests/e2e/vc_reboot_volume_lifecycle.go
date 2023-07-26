@@ -65,10 +65,12 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 	ginkgo.AfterEach(func() {
 		if supervisorCluster || guestCluster {
 			deleteResourceQuota(client, namespace)
+			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 	})
 

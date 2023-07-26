@@ -65,6 +65,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	})
 
 	/*

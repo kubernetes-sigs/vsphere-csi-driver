@@ -165,6 +165,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+		}
+		if supervisorCluster {
+			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 	})
 

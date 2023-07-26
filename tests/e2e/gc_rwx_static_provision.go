@@ -57,6 +57,11 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume static Provision Test", func(
 		}
 	})
 
+	ginkgo.AfterEach(func() {
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+	})
+
 	/*
 		Test to verify static volume provision.
 

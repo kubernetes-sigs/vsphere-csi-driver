@@ -90,6 +90,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		if vanillaCluster {
 			// Reset the cluster distribution value to default value "CSI-Vanilla".
 			setClusterDistribution(ctx, client, vanillaClusterDistribution)
+		} else if supervisorCluster {
+			dumpSvcNsEventsOnTestFailure(client, namespace)
+		} else {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 	})
 

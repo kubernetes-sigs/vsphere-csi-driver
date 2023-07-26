@@ -66,6 +66,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", func(
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	})
 
 	/*
