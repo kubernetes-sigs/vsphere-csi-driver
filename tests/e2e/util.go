@@ -2010,7 +2010,10 @@ func writeToFile(filePath, data string) error {
 // invokeVCenterChangePassword invokes `dir-cli password reset` command on the
 // given vCenter host over SSH, thereby resetting the currentPassword of the
 // `user` to the `newPassword`.
-func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) error {
+func invokeVCenterChangePassword(user, adminPassword, newPassword, host string,
+	isMultiVCSetup bool, clientIndex int) error {
+	var copyCmd string
+	var removeCmd string
 	// Create an input file and write passwords into it.
 	path := "input.txt"
 	data := fmt.Sprintf("%s\n%s\n", adminPassword, newPassword)
@@ -2023,16 +2026,27 @@ func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 	// Remote copy this input file to VC.
-	copyCmd := fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'",
-		path, e2eVSphere.Config.Global.VCenterHostname)
+	if !isMultiVCSetup {
+		copyCmd = fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'",
+			path, e2eVSphere.Config.Global.VCenterHostname)
+	} else {
+		vCenter := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")[clientIndex]
+		copyCmd = fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'",
+			path, vCenter)
+	}
 	fmt.Printf("Executing the command: %s\n", copyCmd)
 	_, err = exec.Command("/bin/sh", "-c", copyCmd).Output()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	defer func() {
 		// Remove the input_copy.txt file from VC.
-		removeCmd := fmt.Sprintf("/usr/bin/ssh root@%s '/usr/bin/rm input_copy.txt'",
-			e2eVSphere.Config.Global.VCenterHostname)
+		if !isMultiVCSetup {
+			removeCmd = fmt.Sprintf("/usr/bin/ssh root@%s '/usr/bin/rm input_copy.txt'",
+				e2eVSphere.Config.Global.VCenterHostname)
+		} else {
+			vCenter := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")[clientIndex]
+			removeCmd = fmt.Sprintf("/usr/bin/ssh root@%s '/usr/bin/rm input_copy.txt'",
+				vCenter)
+		}
 		_, err = exec.Command("/bin/sh", "-c", removeCmd).Output()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
@@ -4910,7 +4924,9 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 		_, scaleupErr := scaleStatefulSetPods(client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		//fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		verifyStsPodsRelicaStatusWhenSiteIsDown(client, statefulset, replicas,
+			"multi-2vc-setup", namespace)
 
 		ssPodsAfterScaleUp = GetListOfPodsInSts(client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
@@ -5024,6 +5040,7 @@ func getTopologySelector(topologyAffinityDetails map[string][]string,
 			Values: values,
 		}
 		allowedTopologyForSC = append(allowedTopologyForSC, topologySelector)
+
 	}
 	return allowedTopologyForSC
 }
@@ -5439,7 +5456,7 @@ func waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx context.Context,
 func waitForCNSSnapshotToBeDeleted(volumeId string, snapshotId string) error {
 	var err error
 	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
-		err = verifySnapshotIsDeletedInCNS(volumeId, snapshotId)
+		err = verifySnapshotIsDeletedInCNS(volumeId, snapshotId, false)
 		if err != nil {
 			if strings.Contains(err.Error(), "snapshot entry is still present") {
 				return false, nil
@@ -5934,31 +5951,31 @@ func waitForEventWithReason(client clientset.Interface, namespace string,
 }
 
 // stopCSIPods function stops all the running csi pods
-func stopCSIPods(ctx context.Context, client clientset.Interface) (bool, error) {
-	collectPodLogs(ctx, client, csiSystemNamespace)
+func stopCSIPods(ctx context.Context, client clientset.Interface, csiNamespace string) (bool, error) {
+	//collectPodLogs(ctx, client, csiNamespace)
 	isServiceStopped := false
 	err := updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix,
-		csiSystemNamespace)
+		csiNamespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	isServiceStopped = true
 	return isServiceStopped, err
 }
 
 // startCSIPods function starts the csi pods and waits till all the pods comes up
-func startCSIPods(ctx context.Context, client clientset.Interface, csiReplicas int32) (bool, error) {
+func startCSIPods(ctx context.Context, client clientset.Interface, csiReplicas int32, csiNamespace string) (bool, error) {
 	ignoreLabels := make(map[string]string)
 	err := updateDeploymentReplicawithWait(client, csiReplicas, vSphereCSIControllerPodNamePrefix,
-		csiSystemNamespace)
+		csiNamespace)
 	if err != nil {
 		return true, err
 	}
 	// Wait for the CSI Pods to be up and Running
-	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	list_of_pods, err := fpod.GetPodsInNamespace(client, csiNamespace, ignoreLabels)
 	if err != nil {
 		return true, err
 	}
 	num_csi_pods := len(list_of_pods)
-	err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
+	err = fpod.WaitForPodsRunningReady(client, csiNamespace, int32(num_csi_pods), 0,
 		pollTimeout, ignoreLabels)
 	isServiceStopped := false
 	return isServiceStopped, err
@@ -6700,7 +6717,7 @@ func getVolumeSnapshotIdFromSnapshotHandle(ctx context.Context, snapshotContent 
 	}
 
 	ginkgo.By("Query CNS and check the volume snapshot entry")
-	err = verifySnapshotIsCreatedInCNS(volHandle, snapshotID)
+	err = verifySnapshotIsCreatedInCNS(volHandle, snapshotID, false)
 	if err != nil {
 		return "", err
 	}
@@ -6753,7 +6770,7 @@ func deleteDynamicVolumeSnapshot(ctx context.Context, snapc *snapclient.Clientse
 	}
 
 	framework.Logf("Verify snapshot entry is deleted from CNS")
-	err = verifySnapshotIsDeletedInCNS(volHandle, snapshotID)
+	err = verifySnapshotIsDeletedInCNS(volHandle, snapshotID, false)
 	if err != nil {
 		return snapshotCreated, snapshotContentCreated, err
 	}

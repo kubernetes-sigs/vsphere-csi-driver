@@ -507,18 +507,18 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		csiReplicaCount := *deployment.Spec.Replicas
 
 		ginkgo.By("Stopping CSI driver")
-		isServiceStopped, err = stopCSIPods(ctx, c)
+		isServiceStopped, err = stopCSIPods(ctx, c, csiSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			if isServiceStopped {
 				framework.Logf("Starting CSI driver")
-				isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount)
+				isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount, csiSystemNamespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 		framework.Logf("Starting CSI driver")
-		isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount)
+		isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount, csiSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if os.Getenv(envFullSyncWaitTime) != "" {
@@ -764,19 +764,19 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		csiReplicaCount := *deployment.Spec.Replicas
 
 		ginkgo.By("Stopping CSI driver")
-		isServiceStopped, err = stopCSIPods(ctx, c)
+		isServiceStopped, err = stopCSIPods(ctx, c, csiSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			if isServiceStopped {
 				framework.Logf("Starting CSI driver")
-				isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount)
+				isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount, csiSystemNamespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
 		framework.Logf("Starting CSI driver")
-		isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount)
+		isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount, csiSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if os.Getenv(envFullSyncWaitTime) != "" {

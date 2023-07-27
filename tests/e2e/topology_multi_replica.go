@@ -81,6 +81,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			k8sVersion                 string
 			nimbusGeneratedVcPwd       string
 			nimbusGeneratedK8sVmPwd    string
+			clientIndex                int
 		)
 		ginkgo.BeforeEach(func() {
 			var cancel context.CancelFunc
@@ -108,6 +109,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			topologyLength = 5
 			isSPSServiceStopped = false
 			isVsanHealthServiceStopped = false
+			clientIndex = 0
 
 			topologyMap := GetAndExpectStringEnvVar(topologyMap)
 			topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap, topologyLength)
@@ -1718,7 +1720,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			username := vsphereCfg.Global.User
 			newPassword := e2eTestPassword
-			err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, newPassword, vcAddress)
+			err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, newPassword, vcAddress, false, clientIndex)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Modifying the password in the secret")
@@ -1740,17 +1742,17 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			csiReplicaCount := *deployment.Spec.Replicas
 
 			ginkgo.By("Stopping CSI driver")
-			isServiceStopped, err := stopCSIPods(ctx, c)
+			isServiceStopped, err := stopCSIPods(ctx, c, csiSystemNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				if isServiceStopped {
 					framework.Logf("Starting CSI driver")
-					isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount)
+					isServiceStopped, err = startCSIPods(ctx, c, csiReplicaCount, csiSystemNamespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}()
 			framework.Logf("Starting CSI driver")
-			_, err = startCSIPods(ctx, c, csiReplicaCount)
+			_, err = startCSIPods(ctx, c, csiReplicaCount, csiSystemNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// As we are in the same vCenter session, deletion of PVC should go through
@@ -1759,7 +1761,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Reverting the password change")
-			err = invokeVCenterChangePassword(username, newPassword, nimbusGeneratedVcPwd, vcAddress)
+			err = invokeVCenterChangePassword(username, newPassword, nimbusGeneratedVcPwd, vcAddress, false, clientIndex)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Reverting the secret change back to reflect the original password")

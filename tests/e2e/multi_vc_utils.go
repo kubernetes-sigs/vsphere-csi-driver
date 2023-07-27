@@ -19,12 +19,14 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/object"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
 
@@ -278,7 +280,7 @@ func verifyVolumeMetadataInCNSForMultiVC(vs *multiVCvSphere, volumeID string,
 }
 
 // govc login cmd for multivc setups
-func govcLoginCmdForMultiVC() string {
+func govcLoginCmdForMultiVC(i int) string {
 	configUser := strings.Split(multiVCe2eVSphere.multivcConfig.Global.User, ",")
 	configPwd := strings.Split(multiVCe2eVSphere.multivcConfig.Global.Password, ",")
 	configvCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
@@ -286,14 +288,14 @@ func govcLoginCmdForMultiVC() string {
 
 	loginCmd := "export GOVC_INSECURE=1;"
 	loginCmd += fmt.Sprintf("export GOVC_URL='https://%s:%s@%s:%s';",
-		configUser[0], configPwd[0], configvCenterHostname[0], configvCenterPort[0])
+		configUser[i], configPwd[i], configvCenterHostname[i], configvCenterPort[i])
 	return loginCmd
 }
 
 /*deletes storage profile deletes the storage profile*/
 func deleteStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig,
-	storagePolicyName string) error {
-	removeStoragePolicy := govcLoginCmdForMultiVC() +
+	storagePolicyName string, clientIndex int) error {
+	removeStoragePolicy := govcLoginCmdForMultiVC(clientIndex) +
 		"govc storage.policy.rm " + storagePolicyName
 	framework.Logf("Remove storage policy: %s ", removeStoragePolicy)
 	removeStoragePolicytRes, err := sshExec(sshClientConfig, masterIp, removeStoragePolicy)
@@ -315,14 +317,14 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	allowedTopologies []v1.TopologySelectorLabelRequirement, stsScaleUp bool, stsScaleDown bool,
 	verifyTopologyAffinity bool) {
 
-	if stsScaleUp {
-		framework.Logf("Scale down statefulset replica count to 1")
+	if stsScaleDown {
+		framework.Logf("Scale down statefulset")
 		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
 			parallelStatefulSetCreation, true)
 	}
 
-	if stsScaleDown {
-		framework.Logf("Scale up statefulset replica count to 4")
+	if stsScaleUp {
+		framework.Logf("Scale up statefulset")
 		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
 			parallelStatefulSetCreation, true)
 	}
@@ -430,5 +432,392 @@ func performOnlineVolumeExpansin(f *framework.Framework, client clientset.Interf
 		framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize)
 	}
 	ginkgo.By("File system resize finished successfully")
-
 }
+
+func getDatastoresListFromMultiVCs(masterIp string, sshClientConfig *ssh.ClientConfig,
+	cluster *object.ClusterComputeResource, isMultiVCSetup bool) (map[string]string, map[string]string,
+	map[string]string, error) {
+	ClusterdatastoreListMapVC1 := make(map[string]string)
+	ClusterdatastoreListMapVC2 := make(map[string]string)
+	ClusterdatastoreListMapVC3 := make(map[string]string)
+
+	configvCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
+	for i := 0; i < len(configvCenterHostname); i++ {
+		datastoreListByVC := govcLoginCmdForMultiVC(i) +
+			"govc object.collect -s -d ' ' " + cluster.InventoryPath + " host | xargs govc datastore.info -H | " +
+			"grep 'Path\\|URL' | tr -s [:space:]"
+
+		framework.Logf("cmd : %s ", datastoreListByVC)
+		result, err := sshExec(sshClientConfig, masterIp, datastoreListByVC)
+		if err != nil && result.Code != 0 {
+			fssh.LogResult(result)
+			return nil, nil, nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				datastoreListByVC, masterIp, err)
+		}
+
+		datastoreList := strings.Split(result.Stdout, "\n")
+
+		ClusterdatastoreListMap := make(map[string]string) // Empty the map
+
+		for i := 0; i < len(datastoreList)-1; i = i + 2 {
+			key := strings.ReplaceAll(datastoreList[i], " Path: ", "")
+			value := strings.ReplaceAll(datastoreList[i+1], " URL: ", "")
+			ClusterdatastoreListMap[key] = value
+		}
+
+		if i == 0 {
+			ClusterdatastoreListMapVC1 = ClusterdatastoreListMap
+		} else if i == 1 {
+			ClusterdatastoreListMapVC2 = ClusterdatastoreListMap
+		} else if i == 2 {
+			ClusterdatastoreListMapVC3 = ClusterdatastoreListMap
+		}
+	}
+
+	return ClusterdatastoreListMapVC1, ClusterdatastoreListMapVC2, ClusterdatastoreListMapVC3, nil
+}
+
+// This util method takes cluster name as input parameter and powers off esxi host of that cluster
+func powerOffEsxiHostsInMultiVcCluster(ctx context.Context, vs *multiVCvSphere,
+	esxCount int, hostsInCluster []*object.HostSystem) []string {
+	var powerOffHostsList []string
+	for i := 0; i < esxCount; i++ {
+		for _, esxInfo := range tbinfo.esxHosts {
+			host := hostsInCluster[i].Common.InventoryPath
+			hostIp := strings.Split(host, "/")
+			if hostIp[len(hostIp)-1] == esxInfo["ip"] {
+				esxHostName := esxInfo["vmName"]
+				powerOffHostsList = append(powerOffHostsList, esxHostName)
+				err := vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, esxHostName, false)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = waitForHostToBeDown(esxInfo["ip"])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+	return powerOffHostsList
+}
+
+/*
+putDatastoreInMaintenanceMode method is use to put preferred datastore in
+maintenance mode
+*/
+func putDatastoreInMaintenanceMode(masterIp string, sshClientConfig *ssh.ClientConfig,
+	dataCenter []*object.Datacenter, datastoreName string, isMultiVC bool, itr int) error {
+	var enableDrsModeCmd string
+	var putDatastoreInMMmodeCmd string
+	for i := 0; i < len(dataCenter); i++ {
+		if !isMultiVC {
+			enableDrsModeCmd = govcLoginCmd() + "govc datastore.cluster.change -drs-mode automated"
+		} else {
+			enableDrsModeCmd = govcLoginCmdForMultiVC(itr) + "govc datastore.cluster.change -drs-mode automated"
+		}
+		framework.Logf("Enable drs mode: %s ", enableDrsModeCmd)
+		enableDrsMode, err := sshExec(sshClientConfig, masterIp, enableDrsModeCmd)
+		if err != nil && enableDrsMode.Code != 0 {
+			fssh.LogResult(enableDrsMode)
+			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				enableDrsModeCmd, masterIp, err)
+		}
+		if !isMultiVC {
+			putDatastoreInMMmodeCmd = govcLoginCmd() +
+				"govc datastore.maintenance.enter -ds " + datastoreName
+		} else {
+			putDatastoreInMMmodeCmd = govcLoginCmdForMultiVC(itr) +
+				"govc datastore.maintenance.enter -ds " + datastoreName
+		}
+		framework.Logf("Enable drs mode: %s ", putDatastoreInMMmodeCmd)
+		putDatastoreInMMmodeRes, err := sshExec(sshClientConfig, masterIp, putDatastoreInMMmodeCmd)
+		if err != nil && putDatastoreInMMmodeRes.Code != 0 {
+			fssh.LogResult(putDatastoreInMMmodeRes)
+			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				putDatastoreInMMmodeCmd, masterIp, err)
+		}
+	}
+	return nil
+}
+
+func verifyStsPodsRelicaStatusWhenSiteIsDown(client clientset.Interface, ss *appsv1.StatefulSet,
+	expectedReplicas int32, multiVCSetupType string, namespace string) {
+	framework.Logf("Waiting for statefulset status.replicas updated to %d", expectedReplicas)
+	StatefulSetPoll := 10 * time.Second
+	StatefulSetTimeout := 10 * time.Minute
+	ns, name := ss.Namespace, ss.Name
+	pollErr := wait.PollImmediate(StatefulSetPoll, StatefulSetTimeout,
+		func() (bool, error) {
+			ssGet, err := client.AppsV1().StatefulSets(ns).Get(context.TODO(), name, metav1.GetOptions{})
+			if err != nil {
+				return false, err
+			}
+			if ssGet.Status.ObservedGeneration < ss.Generation {
+				return false, nil
+			}
+			if ssGet.Status.ReadyReplicas != expectedReplicas {
+				framework.Logf("Waiting for stateful set status.readyReplicas to become %d, currently %d", expectedReplicas, ssGet.Status.ReadyReplicas)
+
+				return false, nil
+			}
+			return true, nil
+		})
+	if pollErr != nil {
+		if multiVCSetupType == "multi-2vc-setup" {
+			expectedErrMsg := "Node is not ready"
+			listOptions := metav1.ListOptions{}
+			isFailureFound := checkEventsforError(client, namespace, listOptions, expectedErrMsg)
+			fmt.Println(isFailureFound)
+
+		}
+
+	}
+}
+
+func readVsphereConfCredentialsInMultiVCcSetup(cfg string) (e2eTestConfig, error) {
+	var config e2eTestConfig
+
+	virtualCenters := make([]string, 0)
+	userList := make([]string, 0)
+	passwordList := make([]string, 0)
+	portList := make([]string, 0)
+	dataCenterList := make([]string, 0)
+
+	key, value := "", ""
+	lines := strings.Split(cfg, "\n")
+	for index, line := range lines {
+		if index == 0 {
+			// Skip [Global].
+			continue
+		}
+		words := strings.Split(line, " = ")
+		if strings.Contains(words[0], "topology-categories=") {
+			words = strings.Split(line, "=")
+		}
+
+		if len(words) == 1 {
+			if strings.Contains(words[0], "Snapshot") {
+				continue
+			}
+			if strings.Contains(words[0], "Labels") {
+				continue
+			}
+			words = strings.Split(line, " ")
+			if strings.Contains(words[0], "VirtualCenter") {
+				value = words[1]
+				value = strings.TrimSuffix(value, "]")
+				value = trimQuotes(value)
+				config.Global.VCenterHostname = value
+				virtualCenters = append(virtualCenters, value)
+			}
+			continue
+		}
+		key = words[0]
+		value = trimQuotes(words[1])
+		var strconvErr error
+		switch key {
+		case "insecure-flag":
+			if strings.Contains(value, "true") {
+				config.Global.InsecureFlag = true
+			} else {
+				config.Global.InsecureFlag = false
+			}
+		case "cluster-id":
+			config.Global.ClusterID = value
+		case "cluster-distribution":
+			config.Global.ClusterDistribution = value
+		case "user":
+			config.Global.User = value
+			userList = append(userList, value)
+		case "password":
+			config.Global.Password = value
+			passwordList = append(passwordList, value)
+		case "datacenters":
+			config.Global.Datacenters = value
+			dataCenterList = append(dataCenterList, value)
+		case "port":
+			config.Global.VCenterPort = value
+			portList = append(portList, value)
+		case "cnsregistervolumes-cleanup-intervalinmin":
+			config.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
+			if strconvErr != nil {
+				return config, fmt.Errorf("invalid value for cnsregistervolumes-cleanup-intervalinmin: %s", value)
+			}
+		case "topology-categories":
+			config.Labels.TopologyCategories = value
+		case "global-max-snapshots-per-block-volume":
+			config.Snapshot.GlobalMaxSnapshotsPerBlockVolume, strconvErr = strconv.Atoi(value)
+			if strconvErr != nil {
+				return config, fmt.Errorf("invalid value for global-max-snapshots-per-block-volume: %s", value)
+			}
+		case "csi-fetch-preferred-datastores-intervalinmin":
+			config.Global.CSIFetchPreferredDatastoresIntervalInMin, strconvErr = strconv.Atoi(value)
+			if strconvErr != nil {
+				return config, fmt.Errorf("invalid value for csi-fetch-preferred-datastores-intervalinmin: %s", value)
+			}
+		case "targetvSANFileShareDatastoreURLs":
+			config.Global.TargetvSANFileShareDatastoreURLs = value
+		case "query-limit":
+			config.Global.QueryLimit, strconvErr = strconv.Atoi(value)
+			if strconvErr != nil {
+				return config, fmt.Errorf("invalid value for query-limit: %s", value)
+			}
+		case "list-volume-threshold":
+			config.Global.ListVolumeThreshold, strconvErr = strconv.Atoi(value)
+			if strconvErr != nil {
+				return config, fmt.Errorf("invalid value for list-volume-threshold: %s", value)
+			}
+		default:
+			return config, fmt.Errorf("unknown key %s in the input string", key)
+		}
+	}
+
+	config.Global.VCenterHostname = strings.Join(virtualCenters, ",")
+	config.Global.User = strings.Join(userList, ",")
+	config.Global.Password = strings.Join(passwordList, ",")
+	config.Global.VCenterPort = strings.Join(portList, ",")
+	config.Global.Datacenters = strings.Join(dataCenterList, ",")
+
+	return config, nil
+}
+
+func writeNewDataAndUpdateVsphereConfSecret(client clientset.Interface, ctx context.Context,
+	csiNamespace string, cfg e2eTestConfig) error {
+	var result string
+
+	// fetch current secret
+	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	// modify vshere conf file
+	vCenterHostnames := strings.Split(cfg.Global.VCenterHostname, ",")
+	users := strings.Split(cfg.Global.User, ",")
+	passwords := strings.Split(cfg.Global.Password, ",")
+	dataCenters := strings.Split(cfg.Global.Datacenters, ",")
+	ports := strings.Split(cfg.Global.VCenterPort, ",")
+
+	result += fmt.Sprintf("[Global]\ncluster-distribution = \"%s\"\n\n", cfg.Global.ClusterDistribution)
+	for i := 0; i < len(vCenterHostnames); i++ {
+		result += fmt.Sprintf("[VirtualCenter \"%s\"]\ninsecure-flag = \"%t\"\nuser = \"%s\"\npassword = \"%s\"\nport = \"%s\"\ndatacenters = \"%s\"\n\n",
+			vCenterHostnames[i], cfg.Global.InsecureFlag, users[i], passwords[i], ports[i], dataCenters[i])
+	}
+
+	result += fmt.Sprintf("[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n", cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
+	result += fmt.Sprintf("[Labels]\ntopology-categories = \"%s\"\n", cfg.Labels.TopologyCategories)
+
+	framework.Logf(result)
+
+	// update config secret with newly updated vshere conf file
+	framework.Logf("Updating the secret to reflect new conf credentials")
+	currentSecret.Data[vSphereCSIConf] = []byte(result)
+	_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// readVsphereConfSecret method is used to read csi vsphere conf file
+func readVsphereConfSecret(client clientset.Interface, ctx context.Context,
+	csiNamespace string) (e2eTestConfig, error) {
+
+	// fetch current secret
+	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+	if err != nil {
+		return e2eTestConfig{}, err
+	}
+
+	// read vsphere conf
+	originalConf := string(currentSecret.Data[vSphereCSIConf])
+	vsphereCfg, err := readVsphereConfCredentialsInMultiVCcSetup(originalConf)
+	if err != nil {
+		return e2eTestConfig{}, err
+	}
+
+	return vsphereCfg, nil
+}
+
+func setNewNameSpaceInCsiYaml(ctx context.Context, client clientset.Interface, sshClientConfig *ssh.ClientConfig,
+	masterIp string, originalNS string, newNS string) error {
+
+	createNS := "kubectl create ns test-ns"
+	framework.Logf("Create test namespace: %s ", createNS)
+	createNsCmd, err := sshExec(sshClientConfig, masterIp, createNS)
+	if err != nil && createNsCmd.Code != 0 {
+		fssh.LogResult(createNsCmd)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			createNS, masterIp, err)
+	}
+
+	deleteCsiYaml := "kubectl delete -f vsphere-csi-driver.yaml"
+	framework.Logf("Delete csi driver yaml: %s ", deleteCsiYaml)
+	deleteCsi, err := sshExec(sshClientConfig, masterIp, deleteCsiYaml)
+	if err != nil && deleteCsi.Code != 0 {
+		fssh.LogResult(deleteCsi)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			deleteCsiYaml, masterIp, err)
+	}
+
+	findAndSetVal := "sed -i 's/" + originalNS + "/" + newNS + "/g' " + "vsphere-csi-driver.yaml"
+	framework.Logf("Set test namespace to csi yaml: %s ", findAndSetVal)
+	setVal, err := sshExec(sshClientConfig, masterIp, findAndSetVal)
+	if err != nil && setVal.Code != 0 {
+		fssh.LogResult(setVal)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			findAndSetVal, masterIp, err)
+	}
+
+	applyCsiYaml := "kubectl apply -f vsphere-csi-driver.yaml"
+	framework.Logf("Apply updated csi yaml: %s ", applyCsiYaml)
+	applyCsi, err := sshExec(sshClientConfig, masterIp, applyCsiYaml)
+	if err != nil && applyCsi.Code != 0 {
+		fssh.LogResult(applyCsi)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			applyCsiYaml, masterIp, err)
+	}
+	return nil
+}
+
+// func recreateVsphereConfSecretForMultiVC1(client clientset.Interface, ctx context.Context,
+// 	namespace string, vCenterIP string, vCenterUser string,
+// 	vCenterPassword string, vCenterPort string, dataCenter string, itr int, originalVsphereConf bool) {
+
+// 	csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+// 	csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
+// 		ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// 	csiReplicas := *csiDeployment.Spec.Replicas
+
+// 	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// 	originalConf := string(currentSecret.Data[vSphereCSIConf])
+// 	vsphereCfg, err := readVsphereConfCredentialsInMultiVCcSetup(originalConf)
+// 	framework.Logf("original config: %v", vsphereCfg)
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// 	if originalVsphereConf && vCenterIP != "" && vCenterUser != "" &&
+// 		vCenterPassword != "" && vCenterPort != "" && dataCenter != "" {
+// 		vsphereCfg.Global.VCenterHostname = vCenterIP
+// 		vsphereCfg.Global.User = vCenterUser
+// 		vsphereCfg.Global.Password = vCenterPassword
+// 		vsphereCfg.Global.VCenterPort = vCenterPort
+// 		vsphereCfg.Global.Datacenters = dataCenter
+// 	}
+// 	if !originalVsphereConf && vCenterPassword != "" {
+// 		passwordList := strings.Split(vsphereCfg.Global.Password, ",")
+// 		passwordList[itr] = vCenterPassword
+// 		vsphereCfg.Global.Password = strings.Join(passwordList, ",")
+// 	}
+
+// 	framework.Logf("updated config: %v", vsphereCfg)
+// 	modifiedConf, err := writeDataInVsphereConfSecret(vsphereCfg)
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// 	framework.Logf("Updating the secret to reflect new conf credentials")
+// 	currentSecret.Data[vSphereCSIConf] = []byte(modifiedConf)
+// 	_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+// 	ginkgo.By("Restart CSI driver")
+// 	restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+// 	gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// }

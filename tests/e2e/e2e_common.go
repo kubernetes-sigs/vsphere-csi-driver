@@ -184,6 +184,7 @@ const (
 	vpxdServiceName                           = "vpxd"
 	vpxdReducedTaskTimeoutSecsInt             = 90
 	vSphereCSIControllerPodNamePrefix         = "vsphere-csi-controller"
+	vSphereCSINodePrefix                      = "vsphere-csi-node"
 	vmUUIDLabel                               = "vmware-system-vm-uuid"
 	vsanDefaultStorageClassInSVC              = "vsan-default-storage-policy"
 	vsanDefaultStoragePolicyName              = "vSAN Default Storage Policy"
@@ -351,6 +352,9 @@ var (
 	envMultiVCSetupType               = "MULTI_VC_SETUP_TYPE"
 	envStoragePolicyNameVC1           = "STORAGE_POLICY_VC1"
 	envStoragePolicyNameInVC1VC2      = "STORAGE_POLICY_NAME_COMMON_IN_VC1_VC2"
+	envTestbedInfoJsonPathVC1         = "TESTBEDINFO_JSON_VC1"
+	envTestbedInfoJsonPathVC2         = "TESTBEDINFO_JSON_VC2"
+	envTestbedInfoJsonPathVC3         = "TESTBEDINFO_JSON_VC3"
 )
 
 // VolumeSnapshotClass env variables for tkg-snapshot
