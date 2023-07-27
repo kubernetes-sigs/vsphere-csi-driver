@@ -350,11 +350,20 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 			"ENV NODE_NAME is not set")
 	}
 
-	// Get VM UUID
-	nodeID, err = driver.osUtils.GetSystemUUID(ctx)
+	clusterFlavor, err = cnsconfig.GetClusterFlavor(ctx)
 	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to get system uuid for node VM with error: %v", err)
+		return nil, err
+	}
+
+	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		nodeID = nodeName
+	} else {
+		// Get VM UUID
+		nodeID, err = driver.osUtils.GetSystemUUID(ctx)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get system uuid for node VM with error: %v", err)
+		}
 	}
 
 	var maxVolumesPerNode int64
@@ -386,11 +395,6 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 	var (
 		accessibleTopology map[string]string
 	)
-
-	clusterFlavor, err = cnsconfig.GetClusterFlavor(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
