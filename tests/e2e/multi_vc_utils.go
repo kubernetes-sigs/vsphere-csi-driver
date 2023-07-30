@@ -737,17 +737,7 @@ func readVsphereConfSecret(client clientset.Interface, ctx context.Context,
 	return vsphereCfg, nil
 }
 
-func setNewNameSpaceInCsiYaml(ctx context.Context, client clientset.Interface, sshClientConfig *ssh.ClientConfig,
-	masterIp string, originalNS string, newNS string) error {
-
-	createNS := "kubectl create ns test-ns"
-	framework.Logf("Create test namespace: %s ", createNS)
-	createNsCmd, err := sshExec(sshClientConfig, masterIp, createNS)
-	if err != nil && createNsCmd.Code != 0 {
-		fssh.LogResult(createNsCmd)
-		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			createNS, masterIp, err)
-	}
+func setNewNameSpaceInCsiYaml(sshClientConfig *ssh.ClientConfig, masterIp string, originalNS string, newNS string) error {
 
 	deleteCsiYaml := "kubectl delete -f vsphere-csi-driver.yaml"
 	framework.Logf("Delete csi driver yaml: %s ", deleteCsiYaml)
@@ -778,46 +768,93 @@ func setNewNameSpaceInCsiYaml(ctx context.Context, client clientset.Interface, s
 	return nil
 }
 
-// func recreateVsphereConfSecretForMultiVC1(client clientset.Interface, ctx context.Context,
-// 	namespace string, vCenterIP string, vCenterUser string,
-// 	vCenterPassword string, vCenterPort string, dataCenter string, itr int, originalVsphereConf bool) {
+func deleteVsphereConfigSecret(client clientset.Interface, ctx context.Context,
+	originalNS string) error {
 
-// 	csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
-// 	csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
-// 		ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
-// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-// 	csiReplicas := *csiDeployment.Spec.Replicas
+	// get current secret
+	currentSecret, err := client.CoreV1().Secrets(originalNS).Get(ctx, configSecret, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
 
-// 	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
-// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-// 	originalConf := string(currentSecret.Data[vSphereCSIConf])
-// 	vsphereCfg, err := readVsphereConfCredentialsInMultiVCcSetup(originalConf)
-// 	framework.Logf("original config: %v", vsphereCfg)
-// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-// 	if originalVsphereConf && vCenterIP != "" && vCenterUser != "" &&
-// 		vCenterPassword != "" && vCenterPort != "" && dataCenter != "" {
-// 		vsphereCfg.Global.VCenterHostname = vCenterIP
-// 		vsphereCfg.Global.User = vCenterUser
-// 		vsphereCfg.Global.Password = vCenterPassword
-// 		vsphereCfg.Global.VCenterPort = vCenterPort
-// 		vsphereCfg.Global.Datacenters = dataCenter
-// 	}
-// 	if !originalVsphereConf && vCenterPassword != "" {
-// 		passwordList := strings.Split(vsphereCfg.Global.Password, ",")
-// 		passwordList[itr] = vCenterPassword
-// 		vsphereCfg.Global.Password = strings.Join(passwordList, ",")
-// 	}
+	// delete current secret
+	err = client.CoreV1().Secrets(originalNS).Delete(ctx, currentSecret.Name, metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
 
-// 	framework.Logf("updated config: %v", vsphereCfg)
-// 	modifiedConf, err := writeDataInVsphereConfSecret(vsphereCfg)
-// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-// 	framework.Logf("Updating the secret to reflect new conf credentials")
-// 	currentSecret.Data[vSphereCSIConf] = []byte(modifiedConf)
-// 	_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
-// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return nil
+}
 
-// 	ginkgo.By("Restart CSI driver")
-// 	restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
-// 	gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-// }
+func createNamespaceSpec(nsName string) *v1.Namespace {
+	var namespace = &v1.Namespace{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "Namespace",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: nsName,
+		},
+	}
+	return namespace
+}
+
+func createNamespace(client clientset.Interface, ctx context.Context, nsName string) (*v1.Namespace, error) {
+
+	framework.Logf("Create namespace")
+	namespaceSpec := createNamespaceSpec(nsName)
+	namespace, err := client.CoreV1().Namespaces().Create(ctx, namespaceSpec, metav1.CreateOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return namespace, nil
+}
+
+func createVsphereConfigSecret(namespace string, cfg e2eTestConfig, sshClientConfig *ssh.ClientConfig,
+	masterIp string) error {
+
+	var conf string
+
+	vCenterHostnames := strings.Split(cfg.Global.VCenterHostname, ",")
+	users := strings.Split(cfg.Global.User, ",")
+	passwords := strings.Split(cfg.Global.Password, ",")
+	dataCenters := strings.Split(cfg.Global.Datacenters, ",")
+	ports := strings.Split(cfg.Global.VCenterPort, ",")
+
+	conf = (fmt.Sprintf("tee csi-vsphere.conf >/dev/null <<EOF\n[Global]\ncluster-distribution = \"%s\"\n\n", cfg.Global.ClusterDistribution))
+	for i := 0; i < len(vCenterHostnames); i++ {
+		conf += fmt.Sprintf("[VirtualCenter \"%s\"]\ninsecure-flag = \"%t\"\nuser = \"%s\"\npassword = \"%s\"\nport = \"%s\"\ndatacenters = \"%s\"\n\n",
+			vCenterHostnames[i], cfg.Global.InsecureFlag, users[i], passwords[i], ports[i], dataCenters[i])
+	}
+
+	conf += fmt.Sprintf("[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n", cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
+	conf += fmt.Sprintf("[Labels]\ntopology-categories = \"%s\"\n", cfg.Labels.TopologyCategories)
+	conf += "\nEOF"
+
+	framework.Logf(conf)
+
+	result, err := sshExec(sshClientConfig, masterIp, conf)
+	if err != nil && result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s", conf, masterIp, err)
+	}
+	applyConf := "kubectl create secret generic vsphere-config-secret --from-file=csi-vsphere.conf " +
+		"-n " + namespace
+	framework.Logf(applyConf)
+	result, err = sshExec(sshClientConfig, masterIp, applyConf)
+	if err != nil && result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			applyConf, masterIp, err)
+	}
+	return nil
+}
+
+func deleteNamespace(client clientset.Interface, ctx context.Context, nsName string) error {
+
+	framework.Logf("Delete namespace")
+	err := client.CoreV1().Namespaces().Delete(ctx, nsName, metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
+}

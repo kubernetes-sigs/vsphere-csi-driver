@@ -365,7 +365,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC-Operation-Storm", func
 		}
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
