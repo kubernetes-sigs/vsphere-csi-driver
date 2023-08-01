@@ -95,6 +95,16 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 
 	})
 
+	ginkgo.AfterEach(func() {
+		if supervisorCluster {
+			dumpSvcNsEventsOnTestFailure(client, namespace)
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+		}
+	})
+
 	/*
 		Bring down ESX in AZ1
 		1. Use Zonal storage class of AZ1 with immediate binding

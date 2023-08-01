@@ -59,6 +59,7 @@ var _ = ginkgo.Describe("[csi-guest] File Share on Non File Service enabled setu
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	})
 
 	/*

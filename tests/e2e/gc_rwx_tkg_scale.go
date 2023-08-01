@@ -78,6 +78,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		}
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	})
 
 	/*

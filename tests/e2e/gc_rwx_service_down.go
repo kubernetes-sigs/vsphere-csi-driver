@@ -87,6 +87,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
+		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	})
 
 	/*

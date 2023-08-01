@@ -1246,6 +1246,7 @@ func (vs *vSphere) reconfigPolicy(ctx context.Context, volumeID string, profileI
 func cnsRelocateVolumeInParallel(e2eVSphere vSphere, ctx context.Context, fcdID string,
 	dsRefDest vim25types.ManagedObjectReference, waitForRelocateTaskToComplete bool,
 	wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	_, err := e2eVSphere.cnsRelocateVolume(e2eVSphere, ctx, fcdID, dsRefDest, waitForRelocateTaskToComplete)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

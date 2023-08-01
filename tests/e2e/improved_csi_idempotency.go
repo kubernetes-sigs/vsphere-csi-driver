@@ -124,14 +124,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
-		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
-		}
-		if guestCluster {
-			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
-		}
 		if isServiceStopped {
 			if serviceName == "CSI" {
 				framework.Logf("Starting CSI driver")
@@ -165,6 +157,16 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 
 		ginkgo.By(fmt.Sprintf("Resetting provisioner time interval to %s sec", defaultProvisionerTimeInSec))
 		updateCSIDeploymentProvisionerTimeout(c, csiSystemNamespace, defaultProvisionerTimeInSec)
+
+		if supervisorCluster {
+			deleteResourceQuota(client, namespace)
+			dumpSvcNsEventsOnTestFailure(client, namespace)
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+		}
 	})
 
 	/*
@@ -837,6 +839,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 // stopHostD is a function for waitGroup to run stop hostd parallelly
 func stopHostD(ctx context.Context, addr string, wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	stopHostDOnHost(ctx, addr)
 }

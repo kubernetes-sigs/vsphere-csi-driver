@@ -57,6 +57,11 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for ReadOnlyMany", func(
 		}
 	})
 
+	ginkgo.AfterEach(func() {
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+	})
+
 	/*
 		Test to verify Pod restricts write into PVC
 

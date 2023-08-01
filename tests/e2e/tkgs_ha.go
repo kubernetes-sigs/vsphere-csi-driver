@@ -105,6 +105,16 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}
 	})
 
+	ginkgo.AfterEach(func() {
+		if supervisorCluster {
+			dumpSvcNsEventsOnTestFailure(client, namespace)
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+		}
+	})
+
 	/*
 		Dynamic PVC -  Zonal storage and Immediate binding
 		1. Create a zonal storage policy, on the datastore that is shared only to specific cluster

@@ -97,14 +97,11 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		setVpxdTaskTimeout(ctx, 0) // reset vpxd timeout to default
 
 		if supervisorCluster {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			framework.Logf("Collecting supervisor PVC events before performing PV/PVC cleanup")
-			eventList, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			for _, item := range eventList.Items {
-				framework.Logf(fmt.Sprintf(item.Message))
-			}
+			dumpSvcNsEventsOnTestFailure(client, namespace)
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 	})
 
@@ -3124,6 +3121,7 @@ func setVpxdTaskTimeout(ctx context.Context, taskTimeout int) {
 func writeKnownData2PodInParallel(
 	f *framework.Framework, pod *v1.Pod, testdataFile string, wg *sync.WaitGroup, size ...int64) {
 
+	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	writeKnownData2Pod(f, pod, testdataFile, size...)
 }
@@ -3178,6 +3176,7 @@ func verifyKnownDataInPod(f *framework.Framework, pod *v1.Pod, testdataFile stri
 }
 
 func reconfigPolicyParallel(ctx context.Context, volID string, policyId string, wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	err := e2eVSphere.reconfigPolicy(ctx, volID, policyId)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

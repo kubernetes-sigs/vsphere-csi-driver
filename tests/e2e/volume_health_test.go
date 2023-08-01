@@ -83,6 +83,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
+			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 		if pvc != nil {
 			if hostIP != "" {
@@ -112,6 +113,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 		waitForAllHostsToBeUp(ctx, &e2eVSphere)
 	})
