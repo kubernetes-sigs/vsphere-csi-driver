@@ -1552,7 +1552,7 @@ func (c *controller) calculateAccessibleTopologiesForDatastore(ctx context.Conte
 	log := logger.GetLogger(ctx)
 	var datastoreAccessibleTopology []map[string]string
 
-	// Find out all nodes which have access to the chosen datastore.
+	// Find out all nodeVMs which have access to the chosen datastore among all the nodes in k8s cluster.
 	accessibleNodes, err := common.GetNodeVMsWithAccessToDatastore(ctx, vcenter, datastoreURL, allNodeVMs)
 	if err != nil || len(accessibleNodes) == 0 {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,

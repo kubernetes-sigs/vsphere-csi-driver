@@ -2,15 +2,16 @@ package common
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
 )
@@ -35,16 +36,268 @@ var (
 	preferredDatastoresMap = make(map[string]map[string][]string)
 	// preferredDatastoresMapInstanceLock guards the preferredDatastoresMap from read-write overlaps.
 	preferredDatastoresMapInstanceLock = &sync.RWMutex{}
-	// topologyVCMapInstanceLock guards the topologyVCMap instance from concurrent writes.
-	topologyVCMapInstanceLock = &sync.RWMutex{}
-	// topologyVCMap maintains a cache of topology tags to the vCenter IP/FQDN which holds the tag.
-	// Example - {region1: {VC1: struct{}{}, VC2: struct{}{}},
-	//            zone1: {VC1: struct{}{}},
-	//            zone2: {VC2: struct{}{}}}
-	// The vCenter IP/FQDN under each tag are maintained as a map of string with nil values to improve
-	// retrieval and deletion performance.
-	topologyVCMap = make(map[string]map[string]struct{})
+	// tagVCEntityMoRefMap maintains a cache of topology tags to the vCenter IP/FQDN & the MoRef of the
+	// entity which holds the tag.
+	// Example - {
+	//    "region-1": {"vc1": [{Type:Datacenter Value:datacenter-3}], "vc2": [{Type:Datacenter Value:datacenter-5}] },
+	//	  "zone-1": {"vc1": [{Type:ClusterComputeResource Value:domain-c12}] },
+	//	  "zone-2": {"vc2": [{Type:ClusterComputeResource Value:domain-c8] },}
+	tagVCEntityMoRefMap = make(map[string]map[string][]mo.Reference)
 )
+
+// DiscoverTagEntities populates tagVCEntityMoRefMap with tagName -> VC -> associated MoRefs mapping.
+// NOTE: Any edits to existing topology labels will require a restart of the controller.
+func DiscoverTagEntities(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+	// Get CNS config.
+	cnsCfg, err := config.GetConfig(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to fetch CNS config. Error: %+v", err)
+	}
+
+	var categories []string
+	zoneCat := strings.TrimSpace(cnsCfg.Labels.Zone)
+	regionCat := strings.TrimSpace(cnsCfg.Labels.Region)
+	if zoneCat != "" && regionCat != "" {
+		categories = []string{zoneCat, regionCat}
+	} else if strings.TrimSpace(cnsCfg.Labels.TopologyCategories) != "" {
+		categories = strings.Split(cnsCfg.Labels.TopologyCategories, ",")
+		for index := range categories {
+			categories[index] = strings.TrimSpace(categories[index])
+		}
+	} else {
+		log.Infof("DiscoverTagEntities: No topology information found in CNS config.")
+		return nil
+	}
+	log.Infof("Topology categories being considered for tag to VC mapping are %+v", categories)
+
+	vcenterConfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, cnsCfg)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. Error: %v", err)
+	}
+	for _, vcenterCfg := range vcenterConfigs {
+		// Get VC instance
+		vcenter, err := cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcenterCfg, false)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q. Error: %v",
+				vcenterCfg.Host, err)
+		}
+		// Get tag manager instance.
+		tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to create tagManager. Error: %v", err)
+		}
+		defer func() {
+			err := tagManager.Logout(ctx)
+			if err != nil {
+				log.Errorf("failed to logout tagManager. Error: %v", err)
+			}
+		}()
+		for _, cat := range categories {
+			topoTags, err := tagManager.GetTagsForCategory(ctx, cat)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to fetch tags for category %q", cat)
+			}
+			log.Infof("Tags associated with category %q are %+v", cat, topoTags)
+			for _, tag := range topoTags {
+				objMORs, err := tagManager.ListAttachedObjects(ctx, tag.ID)
+				if err != nil {
+					return logger.LogNewErrorf(log, "failed to fetch objects associated with tag %q", tag.Name)
+				}
+				log.Infof("Entities associated with tag %q are %+v", tag.Name, objMORs)
+				if len(objMORs) == 0 {
+					continue
+				}
+				if _, exists := tagVCEntityMoRefMap[tag.Name]; !exists {
+					tagVCEntityMoRefMap[tag.Name] = map[string][]mo.Reference{vcenterCfg.Host: objMORs}
+				} else {
+					tagVCEntityMoRefMap[tag.Name][vcenterCfg.Host] = objMORs
+				}
+			}
+		}
+	}
+	log.Debugf("tagVCEntityMoRefMap: %+v", tagVCEntityMoRefMap)
+	return nil
+}
+
+// GetHostsForSegment retrieves the list of hosts for a topology segment by first
+// finding the entities associated with the tag lower in hierarchy.
+func GetHostsForSegment(ctx context.Context, topoSegment map[string]string, vCenter *cnsvsphere.VirtualCenter) (
+	[]*cnsvsphere.HostSystem, error) {
+	log := logger.GetLogger(ctx)
+	var (
+		targetEntityPref   int
+		targetEntityMorefs []mo.Reference
+		hostList           []*cnsvsphere.HostSystem
+	)
+
+	// Get the entity MoRefs for each tag.
+	for _, tag := range topoSegment {
+		entityMorefs, exists := areEntityMorefsPresentForTag(tag, vCenter.Config.Host)
+		if !exists {
+			// Refresh cache to see if the tag has been added recently.
+			err := DiscoverTagEntities(ctx)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log,
+					"failed to update cache with topology information. Error: %+v", err)
+			}
+			entityMorefs, exists = areEntityMorefsPresentForTag(tag, vCenter.Config.Host)
+			if !exists {
+				return nil, logger.LogNewErrorf(log, "failed to find tag %q in VC %q.", tag, vCenter.Config.Host)
+			}
+		}
+		log.Infof("Tag %q is applied on entities %+v", tag, entityMorefs)
+		// Find the entity morefs belonging to the topology segment which are lower in hierarchy.
+		for _, entity := range entityMorefs {
+			var entityPref int
+			switch entity.Reference().Type {
+			case "rootFolder":
+				entityPref = 1
+			case "Folder":
+				folder := mo.Folder{}
+				err := property.DefaultCollector(vCenter.Client.Client).RetrieveOne(ctx, entity.Reference(),
+					[]string{"childType"}, &folder)
+				if err != nil {
+					return nil, logger.LogNewErrorf(log, ""+
+						"failed to retrieve childType property for folder %+v", entity.Reference())
+				}
+				for _, childType := range folder.ChildType {
+					switch childType {
+					case "vim.Datacenter":
+						entityPref = 2
+					case "vim.ComputeResource":
+						entityPref = 4
+					case "vim.Folder":
+						continue
+					default:
+						return nil, logger.LogNewErrorf(log, "unrecognised childType for Folder %+v",
+							entity.Reference())
+					}
+				}
+			case "Datacenter":
+				entityPref = 3
+			case "ClusterComputeResource":
+				entityPref = 5
+			case "HostSystem":
+				entityPref = 6
+			default:
+				return nil, logger.LogNewErrorf(log,
+					"unrecognised entity type %q found while checking preference.", entity.Reference().Type)
+			}
+
+			// If the entity preference is higher than the previously found entity, replace the values.
+			switch {
+			case entityPref > targetEntityPref:
+				targetEntityPref = entityPref
+				targetEntityMorefs = []mo.Reference{entity.Reference()}
+			case entityPref == targetEntityPref:
+				// If the entity preference is equal to the previously found
+				// entity, append the entity to the already existing list.
+				targetEntityMorefs = append(targetEntityMorefs, entity.Reference())
+			}
+		}
+	}
+	log.Debugf("Fetching hosts under entities %+v", targetEntityMorefs)
+
+	// targetEntityMorefs contains the list of entities at the leaf level of topology hierarchy.
+	// Club all the hosts associated with the entities at the leaf level.
+	for _, entity := range targetEntityMorefs {
+		hosts, err := fetchHosts(ctx, entity, vCenter)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to fetch hosts from entity %+v. Error: %+v",
+				entity.Reference(), err)
+		}
+		hostList = append(hostList, hosts...)
+	}
+	return hostList, nil
+}
+
+// fetchHosts gives a list of hosts under the entity given as input.
+func fetchHosts(ctx context.Context, entity mo.Reference, vCenter *cnsvsphere.VirtualCenter) (
+	[]*cnsvsphere.HostSystem, error) {
+	log := logger.GetLogger(ctx)
+	var hosts []*cnsvsphere.HostSystem
+
+	switch entity.Reference().Type {
+	case "rootFolder":
+		folder := object.NewFolder(vCenter.Client.Client, entity.Reference())
+		children, err := folder.Children(ctx)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log,
+				"failed to retrieve child entities of the rootFolder %+v. Error: %+v", entity.Reference(), err)
+		}
+		for _, child := range children {
+			hostList, err := fetchHosts(ctx, child.Reference(), vCenter)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log, "failed to fetch hosts from entity %+v. Error: %+v",
+					child.Reference(), err)
+			}
+			hosts = append(hosts, hostList...)
+		}
+	case "Datacenter":
+		dc := cnsvsphere.Datacenter{
+			Datacenter:        object.NewDatacenter(vCenter.Client.Client, entity.Reference()),
+			VirtualCenterHost: vCenter.Config.Host}
+		var dcMo mo.Datacenter
+		err := dc.Properties(ctx, dc.Reference(), []string{"hostFolder"}, &dcMo)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, ""+
+				"failed to retrieve hostFolder property for datacenter %+v", dc.Reference())
+		}
+		hostList, err := fetchHosts(ctx, dcMo, vCenter)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to fetch hosts from entity %+v. Error: %+v",
+				dcMo, err)
+		}
+		hosts = append(hosts, hostList...)
+	case "Folder":
+		folder := object.NewFolder(vCenter.Client.Client, entity.Reference())
+		children, err := folder.Children(ctx)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to fetch child entities of Folder %+v. Error: %+v",
+				entity.Reference(), err)
+		}
+		for _, child := range children {
+			hostList, err := fetchHosts(ctx, child.Reference(), vCenter)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log, "failed to fetch hosts from entity %+v. Error: %+v",
+					child.Reference(), err)
+			}
+			hosts = append(hosts, hostList...)
+		}
+	case "ClusterComputeResource":
+		ccr := cnsvsphere.ClusterComputeResource{
+			ClusterComputeResource: object.NewClusterComputeResource(vCenter.Client.Client, entity.Reference()),
+			VirtualCenterHost:      vCenter.Config.Host}
+		hostList, err := ccr.GetHosts(ctx)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to retrieve hosts from cluster %+v. Error: %+v",
+				entity.Reference(), err)
+		}
+		hosts = append(hosts, hostList...)
+	case "HostSystem":
+		host := cnsvsphere.HostSystem{HostSystem: object.NewHostSystem(vCenter.Client.Client, entity.Reference())}
+		hosts = append(hosts, &host)
+	default:
+		return nil, logger.LogNewErrorf(log, "unrecognised entity type found %+v.", entity.Reference())
+	}
+
+	return hosts, nil
+}
+
+// areEntityMorefsPresentForTag retrieves the entities in given VC which have the
+// input tag associated with them.
+func areEntityMorefsPresentForTag(tag, vcHost string) ([]mo.Reference, bool) {
+	vcEntityMap, exists := tagVCEntityMoRefMap[tag]
+	if !exists {
+		return nil, false
+	}
+	entityMorefs, exists := vcEntityMap[vcHost]
+	if !exists {
+		return nil, false
+	}
+	return entityMorefs, true
+}
 
 // GetAccessibilityRequirementsByVC clubs the accessibility requirements by the VC they belong to.
 func GetAccessibilityRequirementsByVC(ctx context.Context, topoReq *csi.TopologyRequirement) (
@@ -68,7 +321,7 @@ func GetAccessibilityRequirementsByVC(ctx context.Context, topoReq *csi.Topology
 	return vcTopoSegmentsMap, nil
 }
 
-// getVCForTopologySegments uses the topologyVCMap to retrieve the
+// getVCForTopologySegments uses the tagVCEntityMoRefMap to retrieve the
 // VC instance for the given topology segments map in a multi-VC environment.
 func getVCForTopologySegments(ctx context.Context, topologySegments map[string]string) (string, error) {
 	log := logger.GetLogger(ctx)
@@ -77,10 +330,10 @@ func getVCForTopologySegments(ctx context.Context, topologySegments map[string]s
 	vcCountMap := make(map[string]int)
 
 	// Find the VC which contains all the labels given in the topologySegments.
-	// For example, if topologyVCMap looks like
-	// {"region-1": {"vc1": struct{}{}, "vc2": struct{}{} },
-	// "zone-1": {"vc1": struct{}{} },
-	// "zone-2": {"vc2": struct{}{} },}
+	// For example, if tagVCEntityMoRefMap looks like
+	// {"region-1": {"vc1": [{Type:Datacenter Value:datacenter-3}], "vc2": [{Type:Datacenter Value:datacenter-5}] },
+	// "zone-1": {"vc1": [{Type:ClusterComputeResource Value:domain-c12}] },
+	// "zone-2": {"vc2": [{Type:ClusterComputeResource Value:domain-c8] },}
 	// For a given topologySegment
 	// {"topology.csi.vmware.com/k8s-region": "region-1",
 	// "topology.csi.vmware.com/k8s-zone": "zone-2"}
@@ -88,12 +341,22 @@ func getVCForTopologySegments(ctx context.Context, topologySegments map[string]s
 	// We go over the vcCountMap to check which VC has a count equal to
 	// the len(topologySegment), in this case 2 and return that VC.
 	for topologyKey, label := range topologySegments {
-		if vcList, exists := topologyVCMap[label]; exists {
-			for vc := range vcList {
+		vcMap, exists := tagVCEntityMoRefMap[label]
+		if !exists {
+			// Refresh cache to see if the tag has been added recently.
+			err := DiscoverTagEntities(ctx)
+			if err != nil {
+				return "", logger.LogNewErrorf(log,
+					"failed to update cache with tag to VC to MoRef mapping. Error: %+v", err)
+			}
+			vcMap, exists = tagVCEntityMoRefMap[label]
+		}
+		if exists {
+			for vc := range vcMap {
 				vcCountMap[vc] = vcCountMap[vc] + 1
 			}
 		} else {
-			return "", logger.LogNewErrorf(log, "Topology label %q not found in topology to vCenter mapping.",
+			return "", logger.LogNewErrorf(log, "Topology label %q not found in tag to vCenter mapping.",
 				topologyKey+":"+label)
 		}
 	}
@@ -205,7 +468,7 @@ func RefreshPreferentialDatastoresForMultiVCenter(ctx context.Context) error {
 		preferredDatastoresMap = prefDatastoresMap
 		PreferredDatastoresExist = true
 		log.Debugf("preferredDatastoresMap :%v", preferredDatastoresMap)
-		log.Debugf("PreferredDatastoresExist: %v", PreferredDatastoresExist)
+		log.Debugf("PreferredDatastoresExist: %t", PreferredDatastoresExist)
 	}
 	return nil
 }
@@ -233,53 +496,6 @@ func GetPreferredDatastoresInSegments(ctx context.Context, segments map[string]s
 		}
 	}
 	return allPreferredDSURLs
-}
-
-// AddLabelsToTopologyVCMap adds topology label to VC mapping for given CSINodeTopology instance
-// in the topologyVCMap variable.
-func AddLabelsToTopologyVCMap(ctx context.Context, nodeTopoObj csinodetopologyv1alpha1.CSINodeTopology) {
-	log := logger.GetLogger(ctx)
-	// Get node manager instance.
-	nodeManager := node.GetManager(ctx)
-	nodeVM, err := nodeManager.GetNode(ctx, nodeTopoObj.Spec.NodeUUID, nil)
-	if err != nil {
-		log.Errorf("Node %q is not yet registered in the node manager. Error: %+v",
-			nodeTopoObj.Spec.NodeUUID, err)
-		return
-	}
-	log.Infof("Topology labels %+v belong to %q VC", nodeTopoObj.Status.TopologyLabels,
-		nodeVM.VirtualCenterHost)
-	// Update topologyVCMap with topology label and associated VC host.
-	topologyVCMapInstanceLock.Lock()
-	defer topologyVCMapInstanceLock.Unlock()
-	for _, label := range nodeTopoObj.Status.TopologyLabels {
-		if _, exists := topologyVCMap[label.Value]; !exists {
-			topologyVCMap[label.Value] = map[string]struct{}{nodeVM.VirtualCenterHost: {}}
-		} else {
-			topologyVCMap[label.Value][nodeVM.VirtualCenterHost] = struct{}{}
-		}
-	}
-}
-
-// RemoveLabelsFromTopologyVCMap removes the topology label to VC mapping for given CSINodeTopology
-// instance in the topologyVCMap variable.
-func RemoveLabelsFromTopologyVCMap(ctx context.Context, nodeTopoObj csinodetopologyv1alpha1.CSINodeTopology) {
-	log := logger.GetLogger(ctx)
-	// Get node manager instance.
-	nodeManager := node.GetManager(ctx)
-	nodeVM, err := nodeManager.GetNode(ctx, nodeTopoObj.Spec.NodeUUID, nil)
-	if err != nil {
-		log.Errorf("Node %q is not yet registered in the node manager. Error: %+v",
-			nodeTopoObj.Spec.NodeUUID, err)
-		return
-	}
-	log.Infof("Removing VC %q mapping for TopologyLabels %+v.", nodeVM.VirtualCenterHost,
-		nodeTopoObj.Status.TopologyLabels)
-	topologyVCMapInstanceLock.Lock()
-	defer topologyVCMapInstanceLock.Unlock()
-	for _, label := range nodeTopoObj.Status.TopologyLabels {
-		delete(topologyVCMap[label.Value], nodeVM.VirtualCenterHost)
-	}
 }
 
 // AddNodeToDomainNodeMapNew adds the CR instance name in the domainNodeMap wherever appropriate.
