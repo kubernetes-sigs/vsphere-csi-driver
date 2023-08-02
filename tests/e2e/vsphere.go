@@ -141,10 +141,16 @@ func (vs *vSphere) queryCNSVolumeSnapshotWithResult(fcdID string,
 }
 
 // verifySnapshotIsDeletedInCNS verifies the snapshotId's presence on CNS
-func verifySnapshotIsDeletedInCNS(volumeId string, snapshotId string) error {
+func verifySnapshotIsDeletedInCNS(volumeId string, snapshotId string, isMultiVCSetup bool) error {
 	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",
 		volumeId, snapshotId))
-	querySnapshotResult, err := e2eVSphere.queryCNSVolumeSnapshotWithResult(volumeId, snapshotId)
+	var querySnapshotResult *cnstypes.CnsSnapshotQueryResult
+	var err error
+	if !isMultiVCSetup {
+		querySnapshotResult, err = e2eVSphere.queryCNSVolumeSnapshotWithResult(volumeId, snapshotId)
+	} else {
+		querySnapshotResult, err = multiVCe2eVSphere.queryCNSVolumeSnapshotWithResultInMultiVC(volumeId, snapshotId)
+	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By(fmt.Sprintf("Task result is %+v", querySnapshotResult))
 	gomega.Expect(querySnapshotResult.Entries).ShouldNot(gomega.BeEmpty())
@@ -156,10 +162,16 @@ func verifySnapshotIsDeletedInCNS(volumeId string, snapshotId string) error {
 }
 
 // verifySnapshotIsCreatedInCNS verifies the snapshotId's presence on CNS
-func verifySnapshotIsCreatedInCNS(volumeId string, snapshotId string) error {
+func verifySnapshotIsCreatedInCNS(volumeId string, snapshotId string, isMultiVC bool) error {
 	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",
 		volumeId, snapshotId))
-	querySnapshotResult, err := e2eVSphere.queryCNSVolumeSnapshotWithResult(volumeId, snapshotId)
+	var querySnapshotResult *cnstypes.CnsSnapshotQueryResult
+	var err error
+	if !isMultiVC {
+		querySnapshotResult, err = e2eVSphere.queryCNSVolumeSnapshotWithResult(volumeId, snapshotId)
+	} else {
+		querySnapshotResult, err = multiVCe2eVSphere.queryCNSVolumeSnapshotWithResultInMultiVC(volumeId, snapshotId)
+	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By(fmt.Sprintf("Task result is %+v", querySnapshotResult))
 	gomega.Expect(querySnapshotResult.Entries).ShouldNot(gomega.BeEmpty())

@@ -1055,6 +1055,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		topValStartIndex = 1
 		topValEndIndex = 2
 		stsReplicas = 3
+		clientIndex := 0
 
 		scParameters[scParamStoragePolicyName] = storagePolicyToDelete
 
@@ -1077,7 +1078,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		}()
 
 		ginkgo.By("Delete Storage Policy created in VC1")
-		err = deleteStorageProfile(masterIp, sshClientConfig, storagePolicyToDelete)
+		err = deleteStorageProfile(masterIp, sshClientConfig, storagePolicyToDelete, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")

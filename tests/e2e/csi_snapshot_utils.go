@@ -166,7 +166,7 @@ func waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx context.Context,
 func waitForCNSSnapshotToBeDeleted(volumeId string, snapshotId string) error {
 	var err error
 	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
-		err = verifySnapshotIsDeletedInCNS(volumeId, snapshotId)
+		err = verifySnapshotIsDeletedInCNS(volumeId, snapshotId, false)
 		if err != nil {
 			if strings.Contains(err.Error(), "snapshot entry is still present") {
 				return false, nil
@@ -335,7 +335,7 @@ func deleteVolumeSnapshot(ctx context.Context, snapc *snapclient.Clientset, name
 	}
 
 	framework.Logf("Verify snapshot entry is deleted from CNS")
-	err = verifySnapshotIsDeletedInCNS(volHandle, snapshotID)
+	err = verifySnapshotIsDeletedInCNS(volHandle, snapshotID, false)
 	if err != nil {
 		return snapshotCreated, snapshotContentCreated, err
 	}
@@ -374,7 +374,7 @@ func getVolumeSnapshotIdFromSnapshotHandle(ctx context.Context, snapshotContent 
 	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
 	ginkgo.By("Query CNS and check the volume snapshot entry")
-	err = verifySnapshotIsCreatedInCNS(volHandle, snapshotID)
+	err = verifySnapshotIsCreatedInCNS(volHandle, snapshotID, false)
 	if err != nil {
 		return "", err
 	}
