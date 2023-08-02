@@ -34,6 +34,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpodoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 )
@@ -197,7 +198,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		for index := range persistentvolumes {
 			// Verify Volumes are accessible by creating an empty file on the volume
 			filepath := filepath.Join("/mnt/", fmt.Sprintf("volume%v", index+1), "/emptyFile.txt")
-			_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+			_, err = fpodoutput.LookForStringInPodExec(namespace, pod.Name,
 				[]string{"/bin/touch", filepath}, "", time.Minute)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

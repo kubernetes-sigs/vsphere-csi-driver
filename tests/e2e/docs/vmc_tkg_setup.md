@@ -89,7 +89,7 @@ The section outlines how to set the env variable for running the e2e test.
 
 ## Requirements
 
-Go version: 1.15
+Go version: 1.20
 
 Export the go binary in your PATH to run end-to-end tests
 

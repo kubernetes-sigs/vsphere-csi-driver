@@ -40,6 +40,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fkubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
@@ -707,11 +708,11 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			// Restart CSI daemonset
 			ginkgo.By("Restart Daemonset")
 			cmd := []string{"rollout", "restart", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
-			framework.RunKubectlOrDie(csiSystemNamespace, cmd...)
+			fkubectl.RunKubectlOrDie(csiSystemNamespace, cmd...)
 
 			ginkgo.By("Waiting for daemon set rollout status to finish")
 			statusCheck := []string{"rollout", "status", "daemonset/vsphere-csi-node", "--namespace=" + csiSystemNamespace}
-			framework.RunKubectlOrDie(csiSystemNamespace, statusCheck...)
+			fkubectl.RunKubectlOrDie(csiSystemNamespace, statusCheck...)
 
 			// wait for csi Pods to be in running ready state
 			err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)

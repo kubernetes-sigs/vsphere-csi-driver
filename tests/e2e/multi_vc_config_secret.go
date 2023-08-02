@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fkubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
@@ -683,11 +684,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 				// Restart CSI daemonset
 				ginkgo.By("Restart Daemonset")
 				cmd := []string{"rollout", "restart", "daemonset/vsphere-csi-node", "--namespace=" + newNamespace.Name}
-				framework.RunKubectlOrDie(newNamespace.Name, cmd...)
+				fkubectl.RunKubectlOrDie(newNamespace.Name, cmd...)
 
 				ginkgo.By("Waiting for daemon set rollout status to finish")
 				statusCheck := []string{"rollout", "status", "daemonset/vsphere-csi-node", "--namespace=" + newNamespace.Name}
-				framework.RunKubectlOrDie(newNamespace.Name, statusCheck...)
+				fkubectl.RunKubectlOrDie(newNamespace.Name, statusCheck...)
 
 				// wait for csi Pods to be in running ready state
 				err = fpod.WaitForPodsRunningReady(client, newNamespace.Name, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)

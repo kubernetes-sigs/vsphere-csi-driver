@@ -41,8 +41,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fkubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpodoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	admissionapi "k8s.io/pod-security-admission/api"
@@ -1544,7 +1546,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}()
 
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-		_, err = framework.LookForStringInPodExec(namespace, newPods[0].Name,
+		_, err = fpodoutput.LookForStringInPodExec(namespace, newPods[0].Name,
 			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -3036,7 +3038,7 @@ func fillVolumeInPods(f *framework.Framework, pods []*v1.Pod) {
 func writeRandomDataOnPod(pod *v1.Pod, count int64) {
 	cmd := []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
 		"/bin/sh", "-c", "dd if=/dev/urandom of=/mnt/volume1/f1 bs=1M count=" + strconv.FormatInt(count, 10)}
-	_ = framework.RunKubectlOrDie(pod.Namespace, cmd...)
+	_ = fkubectl.RunKubectlOrDie(pod.Namespace, cmd...)
 }
 
 // setVpxdTaskTimeout sets vpxd task timeout to given number of seconds
@@ -3128,7 +3130,7 @@ func writeKnownData2PodInParallel(
 
 // writeKnownData2Pod writes known 1mb data to a file in given pod's volume until 200mb is left in the volume
 func writeKnownData2Pod(f *framework.Framework, pod *v1.Pod, testdataFile string, size ...int64) {
-	_ = framework.RunKubectlOrDie(pod.Namespace, "cp", testdataFile, fmt.Sprintf(
+	_ = fkubectl.RunKubectlOrDie(pod.Namespace, "cp", testdataFile, fmt.Sprintf(
 		"%v/%v:/mnt/volume1/testdata", pod.Namespace, pod.Name))
 	fsSize, err := getFSSizeMb(f, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3142,11 +3144,11 @@ func writeKnownData2Pod(f *framework.Framework, pod *v1.Pod, testdataFile string
 		seek := fmt.Sprintf("%v", i)
 		cmd := []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
 			"/bin/sh", "-c", "dd if=/mnt/volume1/testdata of=/mnt/volume1/f1 bs=1M count=100 seek=" + seek}
-		_ = framework.RunKubectlOrDie(pod.Namespace, cmd...)
+		_ = fkubectl.RunKubectlOrDie(pod.Namespace, cmd...)
 	}
 	cmd := []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
 		"/bin/sh", "-c", "rm /mnt/volume1/testdata"}
-	_ = framework.RunKubectlOrDie(pod.Namespace, cmd...)
+	_ = fkubectl.RunKubectlOrDie(pod.Namespace, cmd...)
 }
 
 // verifyKnownDataInPod verify known data on a file in given pod's volume in 100mb loop
@@ -3163,8 +3165,8 @@ func verifyKnownDataInPod(f *framework.Framework, pod *v1.Pod, testdataFile stri
 		skip := fmt.Sprintf("%v", i)
 		cmd := []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
 			"/bin/sh", "-c", "dd if=/mnt/volume1/f1 of=/mnt/volume1/testdata bs=1M count=100 skip=" + skip}
-		_ = framework.RunKubectlOrDie(pod.Namespace, cmd...)
-		_ = framework.RunKubectlOrDie(pod.Namespace, "cp",
+		_ = fkubectl.RunKubectlOrDie(pod.Namespace, cmd...)
+		_ = fkubectl.RunKubectlOrDie(pod.Namespace, "cp",
 			fmt.Sprintf("%v/%v:mnt/volume1/testdata", pod.Namespace, pod.Name),
 			testdataFile+pod.Name)
 		framework.Logf("Running diff with source file and file from pod %v for 100M starting %vM", pod.Name, skip)

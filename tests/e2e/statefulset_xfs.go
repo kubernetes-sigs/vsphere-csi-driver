@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fkubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
@@ -115,7 +116,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] st
 			// Check filesystem used to mount volume inside pod is as expeted
 			ginkgo.By("Verify if filesystem used to mount volume is xfs as expected")
 			cmd := []string{"exec", sspod.Name, "--", "/bin/sh", "-c", "mount | grep /usr/share/nginx/html"}
-			output := framework.RunKubectlOrDie(namespace, cmd...)
+			output := fkubectl.RunKubectlOrDie(namespace, cmd...)
 			ginkgo.By(fmt.Sprintf("Mount information: %s", output))
 			gomega.Expect(strings.Contains(output, xfsFSType)).NotTo(gomega.BeFalse(), "filesystem used should be xfs")
 

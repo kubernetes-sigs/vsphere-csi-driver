@@ -104,10 +104,12 @@ datacenters should be comma separated if deployed on multi-datacenters
     # Datastore URL from the region/zone where worker node VMs do not have a shared datastore
     export INACCESSIBLE_ZONE_VSPHERE_DATASTORE_URL="Region-2-shared-datastore-storage-url"
     export BUSYBOX_IMAGE="<image-used-to-deploy-pods>"
+    # Need this for dcli, REST APIs and govc
+    export VC_ADMIN_PWD="<password>"
 
 ## Requirements
 
-Go version: 1.13
+Go version: 1.20
 
 Export the go binary in your PATH to run end-to-end tests
 

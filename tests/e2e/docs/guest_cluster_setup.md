@@ -99,6 +99,8 @@ The section outlines how to set the env variable for running e2e test.
     #shared VMFS datastore url
     export SHARED_VMFS_DATASTORE_URL="<shared-VMFS-datastore-url>"
     export BUSYBOX_IMAGE="<image-used-to-deploy-pods>"
+    # Need this for dcli, REST APIs and govc
+    export VC_ADMIN_PWD="<password>"
 
     # `STORAGE_POLICY_FOR_SHARED_DATASTORES` and `STORAGE_POLICY_FOR_NONSHARED_DATASTORES` need to be
     # added to `SVC_NAMESPACE` with storage limit >=20GiB each
@@ -117,7 +119,7 @@ The section outlines how to set the env variable for running e2e test.
 
 ## Requirements
 
-Go version: 1.13
+Go version: 1.20
 
 Export the go binary in your PATH to run end-to-end tests
 

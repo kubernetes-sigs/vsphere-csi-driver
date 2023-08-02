@@ -110,7 +110,7 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
 
 ## Requirements
 
-Go version: 1.13
+Go version: 1.20
 
 Export the go binary in your PATH to run end-to-end tests
 

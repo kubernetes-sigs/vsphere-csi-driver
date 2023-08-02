@@ -59,6 +59,6 @@ func TestE2E(t *testing.T) {
 func handleFlags() {
 	config.CopyFlags(config.Flags, flag.CommandLine)
 	framework.RegisterCommonFlags(flag.CommandLine)
-	framework.RegisterClusterFlags(flag.CommandLine)
+	framework.TestContext.KubeConfig = os.Getenv(kubeconfigEnvVar)
 	flag.Parse()
 }

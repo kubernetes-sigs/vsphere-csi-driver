@@ -45,6 +45,7 @@ import (
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpodoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
@@ -903,7 +904,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 
 		// Check filesystem used to mount volume inside pod is xfs as expeted
 		ginkgo.By("Verify if filesystem used to mount volume is xfs as expected")
-		_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+		_, err = fpodoutput.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
 			xfsFSType, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -937,7 +938,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podAfterMig := podsAfterMig.Items[0]
 		ginkgo.By("Verify if filesystem used to mount volume is xfs post migration")
-		_, err = framework.LookForStringInPodExec(namespace, podAfterMig.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+		_, err = fpodoutput.LookForStringInPodExec(namespace, podAfterMig.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
 			xfsFSType, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -984,7 +985,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 
 		// Check filesystem used to mount volume inside pod is xfs as expeted
 		ginkgo.By("Verify if filesystem used to mount volume is xfs as expected")
-		_, err = framework.LookForStringInPodExec(namespace, podDep2.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+		_, err = fpodoutput.LookForStringInPodExec(namespace, podDep2.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
 			xfsFSType, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2013,7 +2014,7 @@ func createPodWithMultipleVolsVerifyVolMounts(ctx context.Context, client client
 			"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
 
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+		_, err = fpodoutput.LookForStringInPodExec(namespace, pod.Name,
 			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}

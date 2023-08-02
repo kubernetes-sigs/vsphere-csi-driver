@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fkubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
@@ -221,13 +222,13 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across TKG clusters", fu
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := fkubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		writeCmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
-		framework.RunKubectlOrDie(namespace, writeCmd...)
-		output = framework.RunKubectlOrDie(namespace, cmd...)
+		fkubectl.RunKubectlOrDie(namespace, writeCmd...)
+		output = fkubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		// Getting the client for the second GC
@@ -327,13 +328,13 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across TKG clusters", fu
 		ginkgo.By("Verify the volume is accessible and Read/write is possible from pod2")
 		cmd2 := []string{"exec", pod2.Name, "--namespace=" + namespaceNewGC, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output = framework.RunKubectlOrDie(namespaceNewGC, cmd2...)
+		output = fkubectl.RunKubectlOrDie(namespaceNewGC, cmd2...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		wrtiecmd2 := []string{"exec", pod2.Name, "--namespace=" + namespaceNewGC, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod2' > /mnt/volume1/Pod1.html"}
-		framework.RunKubectlOrDie(namespaceNewGC, wrtiecmd2...)
-		output = framework.RunKubectlOrDie(namespaceNewGC, cmd2...)
+		fkubectl.RunKubectlOrDie(namespaceNewGC, wrtiecmd2...)
+		output = fkubectl.RunKubectlOrDie(namespaceNewGC, cmd2...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod2")).NotTo(gomega.BeFalse())
 	})
 
@@ -577,13 +578,13 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across TKG clusters", fu
 		ginkgo.By("Verify the volume is accessible and Read/write is possible from pod2")
 		cmd2 := []string{"exec", pod2.Name, "--namespace=" + namespaceNewGC, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod2.html "}
-		output := framework.RunKubectlOrDie(namespaceNewGC, cmd2...)
+		output := fkubectl.RunKubectlOrDie(namespaceNewGC, cmd2...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod2")).NotTo(gomega.BeFalse())
 
 		wrtiecmd2 := []string{"exec", pod2.Name, "--namespace=" + namespaceNewGC, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod2' > /mnt/volume1/Pod2.html"}
-		framework.RunKubectlOrDie(namespaceNewGC, wrtiecmd2...)
-		output = framework.RunKubectlOrDie(namespaceNewGC, cmd2...)
+		fkubectl.RunKubectlOrDie(namespaceNewGC, wrtiecmd2...)
+		output = fkubectl.RunKubectlOrDie(namespaceNewGC, cmd2...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod2")).NotTo(gomega.BeFalse())
 	})
 

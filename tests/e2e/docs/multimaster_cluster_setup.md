@@ -51,10 +51,12 @@ SSH keys need to be configured properley for all three master nodes of K8S clust
     export USER=root
     export GINKGO_FOCUS="csi-multi-master-block-e2e"
     export BUSYBOX_IMAGE="<image-used-to-deploy-pods>"
+    # Need this for dcli, REST APIs and govc
+    export VC_ADMIN_PWD="<password>"
 
 ## Requirements
 
-Go version: 1.13
+Go version: 1.20
 
 Export the go binary in your PATH to run end-to-end tests
 

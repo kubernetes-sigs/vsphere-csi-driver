@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fkubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
@@ -254,13 +255,13 @@ func verifyOnlineVolumeExpansionOnGc(client clientset.Interface, namespace strin
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 
-	_ = framework.RunKubectlOrDie(namespace, "cp", testdataFile,
+	_ = fkubectl.RunKubectlOrDie(namespace, "cp", testdataFile,
 		fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name))
 
 	onlineVolumeResizeCheck(f, client, namespace, svcPVCName, volHandle, pvclaim, pod)
 
 	ginkgo.By("Checking data consistency after PVC resize")
-	_ = framework.RunKubectlOrDie(namespace, "cp",
+	_ = fkubectl.RunKubectlOrDie(namespace, "cp",
 		fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name), testdataFile+"_pod")
 	defer func() {
 		op, err = exec.Command("rm", "-f", testdataFile+"_pod").Output()

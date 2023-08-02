@@ -103,6 +103,8 @@ datacenters should be comma separated if deployed on multi-datacenters
     export SHARED_VSAND_DATASTORE_URL="<vsan-direct-datastore-url>"
     export SHARED_VSAND_DATASTORE2_URL="<vsan-direct-datastore2-url>"
     export BUSYBOX_IMAGE="<image-used-to-deploy-pods>"
+    # Need this for dcli, REST APIs and govc
+    export VC_ADMIN_PWD="<password>"
 
 ### To run full sync test, need do extra following steps
 
@@ -113,9 +115,20 @@ datacenters should be comma separated if deployed on multi-datacenters
     3.cat ~/.ssh/id_rsa.pub | ssh root@vcip 'cat >> .ssh/authorized_keys'
     4.ssh root@vcip "chmod 700 .ssh; chmod 640 .ssh/authorized_keys"
 
+### To run VMservice with CSI pvc(s) tests, need to do extra steps mentioned below
+
+    export CONTENT_LIB_URL="<url>"
+    # Similar to cd:42:47:26:...:7e:24:e1:39
+    export CONTENT_LIB_THUMBPRINT="<thumbprint>"
+    export VMSVC_IMAGE_NAME="<name of image to use>"
+    export GATEWAY_VM_IP=<gateway vm ip>
+    # Gateway/bastion/jump host credentials
+    export GATEWAY_VM_USER=<user>
+    export GATEWAY_VM_PASSWD=<passwd>
+
 ## Requirements
 
-Go version: 1.13
+Go version: 1.20
 
 Export the go binary in your PATH to run end-to-end tests
 
