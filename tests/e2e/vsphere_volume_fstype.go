@@ -135,6 +135,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func(
 		}()
 
 	})
+
+	ginkgo.It("[csi-block-vanilla-parallelized] CSI - Windows - verify valid fstype", func() {
+		invokeTestForFstype(f, client, namespace, ntfsFSType, ntfsFSType, storagePolicyName, profileID)
+	})
+
+	ginkgo.It("[csi-block-vanilla-parallelized] CSI - Windows - verify invalid fstype", func() {
+		invokeTestForInvalidFstype(f, client, namespace, invalidNtfsFSType, storagePolicyName, profileID)
+	})
 })
 
 func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
@@ -171,7 +179,12 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
 
 	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, _ := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+	var pod *v1.Pod
+	if windowsEnv {
+		pod, _ = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsExecCmd)
+	} else {
+		pod, _ = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+	}
 	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -184,9 +197,17 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
-		expectedContent, time.Minute)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if windowsEnv {
+		time.Sleep(sleepTimeOut * time.Second)
+		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+			[]string{"powershell.exe", "Get-Content 'C:\\mnt\\volume1\\fstype.txt'"}, expectedContent, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	} else {
+		_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+			expectedContent, time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	// Delete POD
 	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))

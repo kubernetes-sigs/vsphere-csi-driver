@@ -733,8 +733,14 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 	}()
 
 	ginkgo.By("Create POD")
-	pod, err := createPod(client, namespace, nil, pvclaims, false, "")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var pod *v1.Pod
+	if windowsEnv {
+		pod, err = createPod(client, namespace, nil, pvclaims, false, windowsPodCmd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		pod, err = createPod(client, namespace, nil, pvclaims, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	defer func() {
 		ginkgo.By("Deleting the pod")

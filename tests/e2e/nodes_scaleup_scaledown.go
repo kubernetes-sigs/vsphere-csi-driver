@@ -130,7 +130,11 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
 				v1.ReadWriteMany
 		}
-
+		if windowsEnv {
+			statefulset.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
+			statefulset.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
+			statefulset.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
+		}
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &scName
 		CreateStatefulSet(namespace, statefulset, client)
@@ -143,7 +147,11 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if windowsEnv {
+			framework.Logf("Not yet implemented for windows")
+		} else {
+			gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		}
 		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
@@ -186,7 +194,11 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 		framework.Logf("Allow pods to reschedule on different nodes")
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if windowsEnv {
+			framework.Logf("Not yet implemented for windows")
+		} else {
+			gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas-1))
 		_, scaledownErr := fss.Scale(client, statefulset, replicas-1)

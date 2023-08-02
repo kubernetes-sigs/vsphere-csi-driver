@@ -131,8 +131,14 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		volumeID := pv.Spec.CSI.VolumeHandle
 
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		var pod *v1.Pod
+		if windowsEnv {
+			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsPodCmd)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		var vmUUID string
 		var vmUUID2 string
@@ -208,8 +214,14 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		volumeID2 := pv2.Spec.CSI.VolumeHandle
 
 		ginkgo.By("Creating pod to attach PV2 to the node")
-		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		var pod2 *v1.Pod
+		if windowsEnv {
+			pod2, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, windowsPodCmd)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			pod2, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, execCommand)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		nodeName2 := pod2.Spec.NodeName
 
@@ -342,8 +354,14 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		}()
 
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		var pod *v1.Pod
+		if windowsEnv {
+			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsPodCmd)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		var vmUUID string
 

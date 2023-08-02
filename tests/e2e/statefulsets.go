@@ -137,13 +137,22 @@ var _ = ginkgo.Describe("statefulset", func() {
 		}()
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
+		if windowsEnv {
+			statefulset.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
+			statefulset.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
+			statefulset.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
+		}
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if windowsEnv {
+			framework.Logf("Not yet implemented for windows")
+		} else {
+			gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		}
 		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
@@ -337,12 +346,21 @@ var _ = ginkgo.Describe("statefulset", func() {
 		statefulset.Spec.PodManagementPolicy = apps.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storageClassName
+		if windowsEnv {
+			statefulset.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
+			statefulset.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
+			statefulset.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
+		}
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if windowsEnv {
+			framework.Logf("Not yet implemented for windows")
+		} else {
+			gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		}
 		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
@@ -542,11 +560,20 @@ var _ = ginkgo.Describe("statefulset", func() {
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storageClassName
+		if windowsEnv {
+			statefulset.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
+			statefulset.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
+			statefulset.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
+		}
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if windowsEnv {
+			framework.Logf("Not yet implemented for windows")
+		} else {
+			gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		}
 		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
@@ -618,6 +645,11 @@ var _ = ginkgo.Describe("statefulset", func() {
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storageClassName
+		if windowsEnv {
+			statefulset.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
+			statefulset.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
+			statefulset.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
+		}
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas = *(statefulset.Spec.Replicas)
 
@@ -753,11 +785,20 @@ var _ = ginkgo.Describe("statefulset", func() {
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storageClassName
+		if windowsEnv {
+			statefulset.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
+			statefulset.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
+			statefulset.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
+		}
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if windowsEnv {
+			framework.Logf("Not yet implemented for windows")
+		} else {
+			gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		}
 		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
