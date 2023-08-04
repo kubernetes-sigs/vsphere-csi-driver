@@ -55,6 +55,9 @@ const (
 	// used only for listView
 	noTimeout = 0 * time.Minute
 
+	// VolumeOperationTimeoutInSeconds specifies the default CSI operation timeout in seconds
+	VolumeOperationTimeoutInSeconds = 300
+
 	listviewAdditionError = "failed to add task to list view"
 
 	// defaultOpsExpirationTimeInHours is expiration time for create volume operations.
@@ -763,6 +766,8 @@ func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVol
 // CreateVolume creates a new volume given its spec.
 func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec) (*CnsVolumeInfo,
 	string, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalCreateVolume := func() (*CnsVolumeInfo, string, error) {
 		log := logger.GetLogger(ctx)
 		var faultType string
@@ -799,9 +804,23 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 	return resp, faultType, err
 }
 
+// ensureOperationContextHasATimeout checks if the passed context has a timeout associated with it.
+// If there is no timeout set, we set it to 300 seconds. This is the same as set by sidecars.
+// If a timeout is already set, we don't change it.
+func ensureOperationContextHasATimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	_, ok := ctx.Deadline()
+	if !ok {
+		// no timeout is set, so we need to set it
+		return context.WithTimeout(ctx, VolumeOperationTimeoutInSeconds*time.Second)
+	}
+	return context.WithCancel(ctx)
+}
+
 // AttachVolume attaches a volume to a virtual machine given the spec.
 func (m *defaultManager) AttachVolume(ctx context.Context,
 	vm *cnsvsphere.VirtualMachine, volumeID string, checkNVMeController bool) (string, string, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalAttachVolume := func() (string, string, error) {
 		log := logger.GetLogger(ctx)
 		var faultType string
@@ -908,6 +927,8 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 // DetachVolume detaches a volume from the virtual machine given the spec.
 func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string) (string,
 	error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalDetachVolume := func() (string, error) {
 		log := logger.GetLogger(ctx)
 		var faultType string
@@ -1048,6 +1069,8 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 
 // DeleteVolume deletes a volume given its spec.
 func (m *defaultManager) DeleteVolume(ctx context.Context, volumeID string, deleteDisk bool) (string, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalDeleteVolume := func() (string, error) {
 		log := logger.GetLogger(ctx)
 		var faultType string
@@ -1329,6 +1352,8 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 
 // UpdateVolumeMetadata updates a volume given its spec.
 func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstypes.CnsVolumeMetadataUpdateSpec) error {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalUpdateVolumeMetadata := func() error {
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
@@ -1418,6 +1443,8 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 
 // ExpandVolume expands a volume given its spec.
 func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size int64) (string, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalExpandVolume := func() (string, error) {
 		log := logger.GetLogger(ctx)
 		var faultType string
@@ -1706,6 +1733,8 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 // QueryVolume returns volumes matching the given filter.
 func (m *defaultManager) QueryVolume(ctx context.Context,
 	queryFilter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalQueryVolume := func() (*cnstypes.CnsQueryResult, error) {
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
@@ -1742,6 +1771,8 @@ func (m *defaultManager) QueryVolume(ctx context.Context,
 // QueryAllVolume returns all volumes matching the given filter and selection.
 func (m *defaultManager) QueryAllVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter,
 	querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalQueryAllVolume := func() (*cnstypes.CnsQueryResult, error) {
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
@@ -1779,6 +1810,8 @@ func (m *defaultManager) QueryAllVolume(ctx context.Context, queryFilter cnstype
 // which CnsQueryVolumeInfoResult is extracted.
 func (m *defaultManager) QueryVolumeInfo(ctx context.Context,
 	volumeIDList []cnstypes.CnsVolumeId) (*cnstypes.CnsQueryVolumeInfoResult, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalQueryVolumeInfo := func() (*cnstypes.CnsQueryVolumeInfoResult, error) {
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
@@ -1846,6 +1879,8 @@ func (m *defaultManager) QueryVolumeInfo(ctx context.Context,
 
 func (m *defaultManager) RelocateVolume(ctx context.Context,
 	relocateSpecList ...cnstypes.BaseCnsVolumeRelocateSpec) (*object.Task, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalRelocateVolume := func() (*object.Task, error) {
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
@@ -1881,6 +1916,8 @@ func (m *defaultManager) RelocateVolume(ctx context.Context,
 
 // ConfigureVolumeACLs configures net permissions for a given CnsVolumeACLConfigureSpec.
 func (m *defaultManager) ConfigureVolumeACLs(ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec) error {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalConfigureVolumeACLs := func() error {
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
@@ -2017,6 +2054,8 @@ func (m *defaultManager) RetrieveVStorageObject(ctx context.Context,
 // parameters are not specified.
 func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnstypes.CnsQueryFilter,
 	querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	log := logger.GetLogger(ctx)
 	err := validateManager(ctx, m)
 	if err != nil {
@@ -2081,6 +2120,8 @@ func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnsty
 
 func (m *defaultManager) QuerySnapshots(ctx context.Context, snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter) (
 	*cnstypes.CnsSnapshotQueryResult, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalQuerySnapshots := func() (*cnstypes.CnsSnapshotQueryResult, error) {
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
@@ -2354,6 +2395,8 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 // which is generated by the CSI snapshotter sidecar.
 func (m *defaultManager) CreateSnapshot(
 	ctx context.Context, volumeID string, snapshotName string) (*CnsSnapshotInfo, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalCreateSnapshot := func() (*CnsSnapshotInfo, error) {
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
@@ -2577,6 +2620,8 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 }
 
 func (m *defaultManager) DeleteSnapshot(ctx context.Context, volumeID string, snapshotID string) error {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	internalDeleteSnapshot := func() error {
 		log := logger.GetLogger(ctx)
 		err := validateManager(ctx, m)
