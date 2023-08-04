@@ -346,18 +346,18 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 
 	if serviceName == "CSI" {
 		ginkgo.By("Stopping CSI driver")
-		isServiceStopped, err = stopCSIPods(ctx, client)
+		isServiceStopped, err = stopCSIPods(ctx, client, csiSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			if isServiceStopped {
 				framework.Logf("Starting CSI driver")
-				isServiceStopped, err = startCSIPods(ctx, client, csiReplicas)
+				isServiceStopped, err = startCSIPods(ctx, client, csiReplicas, csiSystemNamespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 		framework.Logf("Starting CSI driver")
-		isServiceStopped, err = startCSIPods(ctx, client, csiReplicas)
+		isServiceStopped, err = startCSIPods(ctx, client, csiReplicas, csiSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
@@ -451,17 +451,17 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 
 		if serviceName == "CSI" {
 			ginkgo.By("Stopping CSI driver")
-			isServiceStopped, err = stopCSIPods(ctx, client)
+			isServiceStopped, err = stopCSIPods(ctx, client, csiSystemNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				if isServiceStopped {
 					framework.Logf("Starting CSI driver")
-					isServiceStopped, err = startCSIPods(ctx, client, csiReplicas)
+					isServiceStopped, err = startCSIPods(ctx, client, csiReplicas, csiSystemNamespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}()
 			framework.Logf("Starting CSI driver")
-			isServiceStopped, err = startCSIPods(ctx, client, csiReplicas)
+			isServiceStopped, err = startCSIPods(ctx, client, csiReplicas, csiSystemNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
@@ -553,18 +553,18 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 	if isSnapshotCreated {
 		if serviceName == "CSI" {
 			ginkgo.By("Stopping CSI driver")
-			isServiceStopped, err = stopCSIPods(ctx, client)
+			isServiceStopped, err = stopCSIPods(ctx, client, csiSystemNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			defer func() {
 				if isServiceStopped {
 					framework.Logf("Starting CSI driver")
-					isServiceStopped, err = startCSIPods(ctx, client, csiReplicas)
+					isServiceStopped, err = startCSIPods(ctx, client, csiReplicas, csiSystemNamespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}()
 			framework.Logf("Starting CSI driver")
-			isServiceStopped, err = startCSIPods(ctx, client, csiReplicas)
+			isServiceStopped, err = startCSIPods(ctx, client, csiReplicas, csiSystemNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
@@ -719,19 +719,19 @@ func snapshotOperationWhileServiceDownNegative(serviceName string, namespace str
 
 	if serviceName == "CSI" {
 		ginkgo.By("Stopping CSI driver")
-		isServiceStopped, err = stopCSIPods(ctx, client)
+		isServiceStopped, err = stopCSIPods(ctx, client, csiSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			if isServiceStopped {
 				framework.Logf("Starting CSI driver")
-				isServiceStopped, err = startCSIPods(ctx, client, csiReplicas)
+				isServiceStopped, err = startCSIPods(ctx, client, csiReplicas, csiSystemNamespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
 		framework.Logf("Starting CSI driver")
-		isServiceStopped, err = startCSIPods(ctx, client, csiReplicas)
+		isServiceStopped, err = startCSIPods(ctx, client, csiReplicas, csiSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))

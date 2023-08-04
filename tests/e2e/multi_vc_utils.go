@@ -18,7 +18,9 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +45,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
@@ -309,6 +312,21 @@ func deleteStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig,
 	return nil
 }
 
+/*deletes storage profile deletes the storage profile*/
+func createStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig,
+	storagePolicyName string, clientIndex int) error {
+	createStoragePolicy := govcLoginCmdForMultiVC(clientIndex) +
+		"govc storage.policy.create -category=shared-cat-todelete1 -tag=shared-tag-todelete1 " + storagePolicyName
+	framework.Logf("Create storage policy: %s ", createStoragePolicy)
+	createStoragePolicytRes, err := sshExec(sshClientConfig, masterIp, createStoragePolicy)
+	if err != nil && createStoragePolicytRes.Code != 0 {
+		fssh.LogResult(createStoragePolicytRes)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			createStoragePolicy, masterIp, err)
+	}
+	return nil
+}
+
 /*
 performScalingOnStatefulSetAndVerifyPvNodeAffinity accepts 3 bool values - one for scaleup,
 second for scale down and third bool value to check node and pod topology affinites
@@ -317,25 +335,36 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	scaleUpReplicaCount int32, scaleDownReplicaCount int32, statefulset *appsv1.StatefulSet,
 	parallelStatefulSetCreation bool, namespace string,
 	allowedTopologies []v1.TopologySelectorLabelRequirement, stsScaleUp bool, stsScaleDown bool,
-	verifyTopologyAffinity bool) {
+	verifyTopologyAffinity bool) error {
 
 	if stsScaleDown {
 		framework.Logf("Scale down statefulset replica")
-		scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
+		err := scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
 			parallelStatefulSetCreation, true)
+		if err != nil {
+			return fmt.Errorf("error scaling down statefulset: %v", err)
+		}
 	}
 
 	if stsScaleUp {
 		framework.Logf("Scale up statefulset replica")
-		scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
+		err := scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
 			parallelStatefulSetCreation, true)
+		if err != nil {
+			return fmt.Errorf("error scaling up statefulset: %v", err)
+		}
 	}
 
 	if verifyTopologyAffinity {
 		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
-		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+		err := verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
 			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+		if err != nil {
+			return fmt.Errorf("error verifying PV node affinity and POD node details: %v", err)
+		}
 	}
+
+	return nil
 }
 
 /*
@@ -347,7 +376,7 @@ func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 	allowedTopologies []v1.TopologySelectorLabelRequirement, allowedTopologyLen int,
 	podAntiAffinityToSet bool, parallelStatefulSetCreation bool, modifyStsSpec bool,
 	stsName string, accessMode v1.PersistentVolumeAccessMode,
-	sc *storagev1.StorageClass, verifyTopologyAffinity bool) (*v1.Service, *appsv1.StatefulSet) {
+	sc *storagev1.StorageClass, verifyTopologyAffinity bool) (*v1.Service, *appsv1.StatefulSet, error) {
 
 	ginkgo.By("Create service")
 	service := CreateService(namespace, client)
@@ -359,81 +388,101 @@ func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 
 	if verifyTopologyAffinity {
 		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
-		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+		err := verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
 			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error verifying PV node affinity and POD node details: %v", err)
+		}
 	}
 
-	return service, statefulset
+	return service, statefulset, nil
 }
 
 /*
 performOfflineVolumeExpansin performs offline volume expansion on the PVC passed as an input
 */
 func performOfflineVolumeExpansin(client clientset.Interface,
-	pvclaim *v1.PersistentVolumeClaim, volHandle string, namespace string) {
+	pvclaim *v1.PersistentVolumeClaim, volHandle string, namespace string) error {
 
 	ginkgo.By("Expanding current pvc, performing offline volume expansion")
 	currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 	newSize := currentPvcSize.DeepCopy()
 	newSize.Add(resource.MustParse("1Gi"))
 	framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
-	pvclaim, err := expandPVCSize(pvclaim, newSize, client)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+	expandedPvc, err := expandPVCSize(pvclaim, newSize, client)
+	if err != nil {
+		return fmt.Errorf("error expanding PVC size: %v", err)
+	}
+	if expandedPvc == nil {
+		return errors.New("expanded PVC is nil")
+	}
 
-	pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+	pvcSize := expandedPvc.Spec.Resources.Requests[v1.ResourceStorage]
 	if pvcSize.Cmp(newSize) != 0 {
-		framework.Failf("error updating pvc size %q", pvclaim.Name)
+		return fmt.Errorf("error updating PVC size %q", expandedPvc.Name)
 	}
 
 	ginkgo.By("Waiting for controller volume resize to finish")
-	err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = waitForPvResizeForGivenPvc(expandedPvc, client, totalResizeWaitPeriod)
+	if err != nil {
+		return fmt.Errorf("error waiting for controller volume resize: %v", err)
+	}
 
-	ginkgo.By("Checking for conditions on pvc")
-	_, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By("Checking for conditions on PVC")
+	_, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, expandedPvc.Name, pollTimeout)
+	if err != nil {
+		return fmt.Errorf("error waiting for PVC conditions: %v", err)
+	}
 
 	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
 	queryResult, err := multiVCe2eVSphere.queryCNSVolumeWithResultInMultiVC(volHandle)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		return fmt.Errorf("error querying CNS volume: %v", err)
+	}
 
 	if len(queryResult.Volumes) == 0 {
-		err = fmt.Errorf("queryCNSVolumeWithResult returned no volume")
+		return errors.New("queryCNSVolumeWithResult returned no volume")
 	}
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	ginkgo.By("Verifying disk size requested in volume expansion is honored")
 	newSizeInMb := int64(3072)
 	if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
-		err = fmt.Errorf("got wrong disk size after volume expansion")
+		return errors.New("wrong disk size after volume expansion")
 	}
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return nil
 }
 
 /*
 performOnlineVolumeExpansin performs online volume expansion on the Pod passed as an input
 */
 func performOnlineVolumeExpansin(f *framework.Framework, client clientset.Interface,
-	pvclaim *v1.PersistentVolumeClaim, namespace string, pod *v1.Pod) {
+	pvclaim *v1.PersistentVolumeClaim, namespace string, pod *v1.Pod) error {
 
 	ginkgo.By("Waiting for file system resize to finish")
-	pvclaim, err := waitForFSResize(pvclaim, client)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	expandedPVC, err := waitForFSResize(pvclaim, client)
+	if err != nil {
+		return fmt.Errorf("error waiting for file system resize: %v", err)
+	}
 
-	pvcConditions := pvclaim.Status.Conditions
+	pvcConditions := expandedPVC.Status.Conditions
 	expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 	var fsSize int64
 
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 	fsSize, err = getFSSizeMb(f, pod)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		return fmt.Errorf("error getting file system size: %v", err)
+	}
 	framework.Logf("File system size after expansion : %s", fsSize)
 
 	if fsSize < diskSizeInMb {
-		framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize)
+		return fmt.Errorf("error updating filesystem size for %q. Resulting filesystem size is %d", expandedPVC.Name, fsSize)
 	}
 	ginkgo.By("File system resize finished successfully")
+
+	return nil
 }
 
 /*
@@ -552,11 +601,11 @@ This util will return key-value combination of datastore-name:datastore-url of a
 in a multi-vc setup
 */
 func getDatastoresListFromMultiVCs(masterIp string, sshClientConfig *ssh.ClientConfig,
-	cluster *object.ClusterComputeResource, isMultiVCSetup bool) (map[string]string, map[string]string,
+	cluster *object.ClusterComputeResource, isMultiVcSetup bool) (map[string]string, map[string]string,
 	map[string]string, error) {
-	ClusterdatastoreListMapVC1 := make(map[string]string)
-	ClusterdatastoreListMapVC2 := make(map[string]string)
-	ClusterdatastoreListMapVC3 := make(map[string]string)
+	ClusterdatastoreListMapVc1 := make(map[string]string)
+	ClusterdatastoreListMapVc2 := make(map[string]string)
+	ClusterdatastoreListMapVc3 := make(map[string]string)
 
 	configvCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
 	for i := 0; i < len(configvCenterHostname); i++ {
@@ -583,13 +632,385 @@ func getDatastoresListFromMultiVCs(masterIp string, sshClientConfig *ssh.ClientC
 		}
 
 		if i == 0 {
-			ClusterdatastoreListMapVC1 = ClusterdatastoreListMap
+			ClusterdatastoreListMapVc1 = ClusterdatastoreListMap
 		} else if i == 1 {
-			ClusterdatastoreListMapVC2 = ClusterdatastoreListMap
+			ClusterdatastoreListMapVc2 = ClusterdatastoreListMap
 		} else if i == 2 {
-			ClusterdatastoreListMapVC3 = ClusterdatastoreListMap
+			ClusterdatastoreListMapVc3 = ClusterdatastoreListMap
 		}
 	}
 
-	return ClusterdatastoreListMapVC1, ClusterdatastoreListMapVC2, ClusterdatastoreListMapVC3, nil
+	return ClusterdatastoreListMapVc1, ClusterdatastoreListMapVc2, ClusterdatastoreListMapVc3, nil
+}
+
+/*
+readVsphereConfCredentialsInMultiVCcSetup util accepts a vsphere conf parameter, reads all the values
+of vsphere conf and returns a testConf file
+*/
+func readVsphereConfCredentialsInMultiVcSetup(cfg string) (e2eTestConfig, error) {
+	var config e2eTestConfig
+
+	virtualCenters := make([]string, 0)
+	userList := make([]string, 0)
+	passwordList := make([]string, 0)
+	portList := make([]string, 0)
+	dataCenterList := make([]string, 0)
+
+	key, value := "", ""
+	lines := strings.Split(cfg, "\n")
+	for index, line := range lines {
+		if index == 0 {
+			// Skip [Global].
+			continue
+		}
+		words := strings.Split(line, " = ")
+		if strings.Contains(words[0], "topology-categories=") {
+			words = strings.Split(line, "=")
+		}
+
+		if len(words) == 1 {
+			if strings.Contains(words[0], "Snapshot") {
+				continue
+			}
+			if strings.Contains(words[0], "Labels") {
+				continue
+			}
+			words = strings.Split(line, " ")
+			if strings.Contains(words[0], "VirtualCenter") {
+				value = words[1]
+				value = strings.TrimSuffix(value, "]")
+				value = trimQuotes(value)
+				config.Global.VCenterHostname = value
+				virtualCenters = append(virtualCenters, value)
+			}
+			continue
+		}
+		key = words[0]
+		value = trimQuotes(words[1])
+		var strconvErr error
+		switch key {
+		case "insecure-flag":
+			if strings.Contains(value, "true") {
+				config.Global.InsecureFlag = true
+			} else {
+				config.Global.InsecureFlag = false
+			}
+		case "cluster-id":
+			config.Global.ClusterID = value
+		case "cluster-distribution":
+			config.Global.ClusterDistribution = value
+		case "user":
+			config.Global.User = value
+			userList = append(userList, value)
+		case "password":
+			config.Global.Password = value
+			passwordList = append(passwordList, value)
+		case "datacenters":
+			config.Global.Datacenters = value
+			dataCenterList = append(dataCenterList, value)
+		case "port":
+			config.Global.VCenterPort = value
+			portList = append(portList, value)
+		case "cnsregistervolumes-cleanup-intervalinmin":
+			config.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
+			if strconvErr != nil {
+				return config, fmt.Errorf("invalid value for cnsregistervolumes-cleanup-intervalinmin: %s", value)
+			}
+		case "topology-categories":
+			config.Labels.TopologyCategories = value
+		case "global-max-snapshots-per-block-volume":
+			config.Snapshot.GlobalMaxSnapshotsPerBlockVolume, strconvErr = strconv.Atoi(value)
+			if strconvErr != nil {
+				return config, fmt.Errorf("invalid value for global-max-snapshots-per-block-volume: %s", value)
+			}
+		case "csi-fetch-preferred-datastores-intervalinmin":
+			config.Global.CSIFetchPreferredDatastoresIntervalInMin, strconvErr = strconv.Atoi(value)
+			if strconvErr != nil {
+				return config, fmt.Errorf("invalid value for csi-fetch-preferred-datastores-intervalinmin: %s", value)
+			}
+		case "targetvSANFileShareDatastoreURLs":
+			config.Global.TargetvSANFileShareDatastoreURLs = value
+		case "query-limit":
+			config.Global.QueryLimit, strconvErr = strconv.Atoi(value)
+			if strconvErr != nil {
+				return config, fmt.Errorf("invalid value for query-limit: %s", value)
+			}
+		case "list-volume-threshold":
+			config.Global.ListVolumeThreshold, strconvErr = strconv.Atoi(value)
+			if strconvErr != nil {
+				return config, fmt.Errorf("invalid value for list-volume-threshold: %s", value)
+			}
+		default:
+			return config, fmt.Errorf("unknown key %s in the input string", key)
+		}
+	}
+
+	config.Global.VCenterHostname = strings.Join(virtualCenters, ",")
+	config.Global.User = strings.Join(userList, ",")
+	config.Global.Password = strings.Join(passwordList, ",")
+	config.Global.VCenterPort = strings.Join(portList, ",")
+	config.Global.Datacenters = strings.Join(dataCenterList, ",")
+
+	return config, nil
+}
+
+/*
+writeNewDataAndUpdateVsphereConfSecret uitl edit the vsphere conf and returns the updated
+vsphere config sceret
+*/
+func writeNewDataAndUpdateVsphereConfSecret(client clientset.Interface, ctx context.Context,
+	csiNamespace string, cfg e2eTestConfig) error {
+	var result string
+
+	// fetch current secret
+	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	// modify vshere conf file
+	vCenterHostnames := strings.Split(cfg.Global.VCenterHostname, ",")
+	users := strings.Split(cfg.Global.User, ",")
+	passwords := strings.Split(cfg.Global.Password, ",")
+	dataCenters := strings.Split(cfg.Global.Datacenters, ",")
+	ports := strings.Split(cfg.Global.VCenterPort, ",")
+
+	result += fmt.Sprintf("[Global]\ncluster-distribution = \"%s\"\n"+
+		"csi-fetch-preferred-datastores-intervalinmin = %d\n"+
+		"query-limit = %d\nlist-volume-threshold = %d\n\n",
+		cfg.Global.ClusterDistribution, cfg.Global.CSIFetchPreferredDatastoresIntervalInMin, cfg.Global.QueryLimit,
+		cfg.Global.ListVolumeThreshold)
+	for i := 0; i < len(vCenterHostnames); i++ {
+		result += fmt.Sprintf("[VirtualCenter \"%s\"]\ninsecure-flag = \"%t\"\nuser = \"%s\"\npassword = \"%s\"\n"+
+			"port = \"%s\"\ndatacenters = \"%s\"\n\n",
+			vCenterHostnames[i], cfg.Global.InsecureFlag, users[i], passwords[i], ports[i], dataCenters[i])
+	}
+
+	result += fmt.Sprintf("[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n",
+		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
+	result += fmt.Sprintf("[Labels]\ntopology-categories = \"%s\"\n", cfg.Labels.TopologyCategories)
+
+	framework.Logf(result)
+
+	// update config secret with newly updated vshere conf file
+	framework.Logf("Updating the secret to reflect new conf credentials")
+	currentSecret.Data[vSphereCSIConf] = []byte(result)
+	_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// readVsphereConfSecret method is used to read csi vsphere conf file
+func readVsphereConfSecret(client clientset.Interface, ctx context.Context,
+	csiNamespace string) (e2eTestConfig, error) {
+
+	// fetch current secret
+	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+	if err != nil {
+		return e2eTestConfig{}, err
+	}
+
+	// read vsphere conf
+	originalConf := string(currentSecret.Data[vSphereCSIConf])
+	vsphereCfg, err := readVsphereConfCredentialsInMultiVcSetup(originalConf)
+	if err != nil {
+		return e2eTestConfig{}, err
+	}
+
+	return vsphereCfg, nil
+}
+
+/*
+setNewNameSpaceInCsiYaml util installs the csi yaml in new namespace
+*/
+func setNewNameSpaceInCsiYaml(client clientset.Interface, sshClientConfig *ssh.ClientConfig, originalNS string,
+	newNS string, allMasterIps []string) error {
+
+	var controlIp string
+	ignoreLabels := make(map[string]string)
+
+	for _, masterIp := range allMasterIps {
+		deleteCsiYaml := "kubectl delete -f vsphere-csi-driver.yaml"
+		framework.Logf("Delete csi driver yaml: %s ", deleteCsiYaml)
+		deleteCsi, err := sshExec(sshClientConfig, masterIp, deleteCsiYaml)
+		if err != nil && deleteCsi.Code != 0 {
+			if strings.Contains(err.Error(), "does not exist") {
+				framework.Logf("Retry other master nodes")
+				continue
+			} else {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
+					masterIp, err)
+			}
+		}
+		if err == nil {
+			controlIp = masterIp
+			break
+		}
+	}
+
+	findAndSetVal := "sed -i 's/" + originalNS + "/" + newNS + "/g' " + "vsphere-csi-driver.yaml"
+	framework.Logf("Set test namespace to csi yaml: %s ", findAndSetVal)
+	setVal, err := sshExec(sshClientConfig, controlIp, findAndSetVal)
+	if err != nil && setVal.Code != 0 {
+		fssh.LogResult(setVal)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			findAndSetVal, controlIp, err)
+	}
+
+	applyCsiYaml := "kubectl apply -f vsphere-csi-driver.yaml"
+	framework.Logf("Apply updated csi yaml: %s ", applyCsiYaml)
+	applyCsi, err := sshExec(sshClientConfig, controlIp, applyCsiYaml)
+	if err != nil && applyCsi.Code != 0 {
+		fssh.LogResult(applyCsi)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			applyCsiYaml, controlIp, err)
+	}
+
+	// Wait for the CSI Pods to be up and Running
+	list_of_pods, err := fpod.GetPodsInNamespace(client, newNS, ignoreLabels)
+	if err != nil {
+		return err
+	}
+	num_csi_pods := len(list_of_pods)
+	err = fpod.WaitForPodsRunningReady(client, newNS, int32(num_csi_pods), 0,
+		pollTimeout, ignoreLabels)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+/*
+deleteVsphereConfigSecret deletes vsphere config secret
+*/
+func deleteVsphereConfigSecret(client clientset.Interface, ctx context.Context,
+	originalNS string) error {
+
+	// get current secret
+	currentSecret, err := client.CoreV1().Secrets(originalNS).Get(ctx, configSecret, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	// delete current secret
+	err = client.CoreV1().Secrets(originalNS).Delete(ctx, currentSecret.Name, metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+/*
+createNamespaceSpec util creates a spec required for creating a namespace
+*/
+func createNamespaceSpec(nsName string) *v1.Namespace {
+	var namespace = &v1.Namespace{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "Namespace",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: nsName,
+		},
+	}
+	return namespace
+}
+
+/*
+createNamespace creates a namespace
+*/
+func createNamespace(client clientset.Interface, ctx context.Context, nsName string) (*v1.Namespace, error) {
+
+	framework.Logf("Create namespace")
+	namespaceSpec := createNamespaceSpec(nsName)
+	namespace, err := client.CoreV1().Namespaces().Create(ctx, namespaceSpec, metav1.CreateOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return namespace, nil
+}
+
+/*
+createVsphereConfigSecret util creates csi vsphere conf and later creates a new config secret
+*/
+func createVsphereConfigSecret(namespace string, cfg e2eTestConfig, sshClientConfig *ssh.ClientConfig,
+	allMasterIps []string) error {
+
+	var conf string
+	var controlIp string
+
+	for _, masterIp := range allMasterIps {
+		readCsiYaml := "ls -l vsphere-csi-driver.yaml"
+		framework.Logf("list csi driver yaml: %s ", readCsiYaml)
+		grepCsiNs, err := sshExec(sshClientConfig, masterIp, readCsiYaml)
+		if err != nil && grepCsiNs.Code != 0 {
+			if strings.Contains(err.Error(), "No such file or directory") {
+				framework.Logf("Retry other master nodes")
+				continue
+			} else {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
+					masterIp, err)
+			}
+		}
+		if err == nil {
+			controlIp = masterIp
+			break
+		}
+	}
+
+	vCenterHostnames := strings.Split(cfg.Global.VCenterHostname, ",")
+	users := strings.Split(cfg.Global.User, ",")
+	passwords := strings.Split(cfg.Global.Password, ",")
+	dataCenters := strings.Split(cfg.Global.Datacenters, ",")
+	ports := strings.Split(cfg.Global.VCenterPort, ",")
+
+	conf = fmt.Sprintf("tee csi-vsphere.conf >/dev/null <<EOF\n[Global]\ncluster-distribution = \"%s\"\n"+
+		"csi-fetch-preferred-datastores-intervalinmin = %d\n"+
+		"query-limit = %d\nlist-volume-threshold = %d\n\n",
+		cfg.Global.ClusterDistribution, cfg.Global.CSIFetchPreferredDatastoresIntervalInMin, cfg.Global.QueryLimit,
+		cfg.Global.ListVolumeThreshold)
+	for i := 0; i < len(vCenterHostnames); i++ {
+		conf += fmt.Sprintf("[VirtualCenter \"%s\"]\ninsecure-flag = \"%t\"\nuser = \"%s\"\npassword = \"%s\"\n"+
+			"port = \"%s\"\ndatacenters = \"%s\"\n\n",
+			vCenterHostnames[i], cfg.Global.InsecureFlag, users[i], passwords[i], ports[i], dataCenters[i])
+	}
+
+	conf += fmt.Sprintf("[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n",
+		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
+	conf += fmt.Sprintf("[Labels]\ntopology-categories = \"%s\"\n", cfg.Labels.TopologyCategories)
+	conf += "\nEOF"
+
+	framework.Logf(conf)
+
+	result, err := sshExec(sshClientConfig, controlIp, conf)
+	if err != nil && result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s", conf, controlIp, err)
+	}
+	applyConf := "kubectl create secret generic vsphere-config-secret --from-file=csi-vsphere.conf " +
+		"-n " + namespace
+	framework.Logf(applyConf)
+	result, err = sshExec(sshClientConfig, controlIp, applyConf)
+	if err != nil && result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			applyConf, controlIp, err)
+	}
+	return nil
+}
+
+/*
+deleteNamespace util deletes the user created namespace
+*/
+func deleteNamespace(client clientset.Interface, ctx context.Context, nsName string) error {
+
+	framework.Logf("Delete namespace")
+	err := client.CoreV1().Namespaces().Delete(ctx, nsName, metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
 }

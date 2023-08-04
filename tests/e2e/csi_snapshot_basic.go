@@ -62,6 +62,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		guestClusterRestConfig *restclient.Config
 		snapc                  *snapclient.Clientset
 		storagePolicyName      string
+		clientIndex            int
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -4026,14 +4027,16 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		originalPassword := vsphereCfg.Global.Password
 		newPassword := e2eTestPassword
 		ginkgo.By(fmt.Sprintf("Original password %s, new password %s", originalPassword, newPassword))
-		err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, newPassword, vcAddress)
+		err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, newPassword, vcAddress,
+			false, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVCPasswordChanged := true
 
 		defer func() {
 			if originalVCPasswordChanged {
 				ginkgo.By("Reverting the password change")
-				err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, originalPassword, vcAddress)
+				err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, originalPassword,
+					vcAddress, false, clientIndex)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -4109,7 +4112,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Reverting the password change")
-		err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, originalPassword, vcAddress)
+		err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, originalPassword, vcAddress, false, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVCPasswordChanged = false
 
