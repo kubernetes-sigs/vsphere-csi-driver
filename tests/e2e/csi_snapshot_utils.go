@@ -19,8 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,9 +33,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
 // getVolumeSnapshotClassSpec returns a spec for the volume snapshot class
@@ -83,7 +83,7 @@ func waitForVolumeSnapshotReadyToUse(client snapclient.Clientset, ctx context.Co
 	name string) (*snapV1.VolumeSnapshot, error) {
 	var volumeSnapshot *snapV1.VolumeSnapshot
 	var err error
-	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
+	waitErr := wait.PollImmediate(poll, pollTimeout*2, func() (bool, error) {
 		volumeSnapshot, err = client.SnapshotV1().VolumeSnapshots(namespace).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return false, fmt.Errorf("error fetching volumesnapshot details : %v", err)
@@ -351,7 +351,6 @@ func getVolumeSnapshotIdFromSnapshotHandle(ctx context.Context, snapshotContent 
 	volumeSnapshotClass *snapV1.VolumeSnapshotClass, volHandle string) (string, error) {
 	var snapshotID string
 	var err error
-	var pandoraSyncWaitTime int
 	if vanillaCluster {
 		snapshotHandle := *snapshotContent.Status.SnapshotHandle
 		snapshotID = strings.Split(snapshotHandle, "+")[1]
@@ -362,26 +361,11 @@ func getVolumeSnapshotIdFromSnapshotHandle(ctx context.Context, snapshotContent 
 			return "", err
 		}
 	}
-
-	if os.Getenv(envPandoraSyncWaitTime) != "" {
-		pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	} else {
-		pandoraSyncWaitTime = defaultPandoraSyncWaitTime
-	}
-
-	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
-	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
-
-	ginkgo.By("Query CNS and check the volume snapshot entry")
-	err = verifySnapshotIsCreatedInCNS(volHandle, snapshotID, false)
-	if err != nil {
-		return "", err
-	}
 	return snapshotID, nil
 }
 
-// createVolumeSnapshotClass creates VSC for a Vanilla cluster and fetches VSC for a Guest Cluster
+// createVolumeSnapshotClass creates VSC for a Vanilla cluster and
+// fetches VSC for a Guest or Supervisor Cluster
 func createVolumeSnapshotClass(ctx context.Context, snapc *snapclient.Clientset,
 	deletionPolicy string) (*snapV1.VolumeSnapshotClass, error) {
 	var volumeSnapshotClass *snapV1.VolumeSnapshotClass
@@ -393,11 +377,30 @@ func createVolumeSnapshotClass(ctx context.Context, snapc *snapclient.Clientset,
 			return nil, err
 		}
 	} else if guestCluster || supervisorCluster {
-		volumeSnapshotClassName := GetAndExpectStringEnvVar(envVolSnapClassDel)
-		volumeSnapshotClass, err = snapc.SnapshotV1().VolumeSnapshotClasses().Get(ctx,
-			volumeSnapshotClassName, metav1.GetOptions{})
-		if err != nil {
-			return nil, err
+		var volumeSnapshotClassName string
+		if deletionPolicy == "Delete" {
+			volumeSnapshotClassName = GetAndExpectStringEnvVar(envVolSnapClassDel)
+		} else {
+			framework.Failf("%s volume snapshotclass is not supported"+
+				" in Supervisor or Guest Cluster", deletionPolicy)
+		}
+		waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
+			volumeSnapshotClass, err = snapc.SnapshotV1().VolumeSnapshotClasses().Get(ctx,
+				volumeSnapshotClassName, metav1.GetOptions{})
+			framework.Logf("volumesnapshotclass %v, err:%v", volumeSnapshotClass, err)
+			if !apierrors.IsNotFound(err) && err != nil {
+				return false, fmt.Errorf("couldn't find "+
+					"snapshotclass: %s due to error: %v", volumeSnapshotClassName, err)
+			}
+			if volumeSnapshotClass.Name != "" {
+				framework.Logf("Found volumesnapshotclass %s", volumeSnapshotClassName)
+				return true, nil
+			}
+			framework.Logf("waiting to get volumesnapshotclass %s", volumeSnapshotClassName)
+			return false, nil
+		})
+		if waitErr == wait.ErrWaitTimeout {
+			return nil, fmt.Errorf("couldn't find volumesnapshotclass: %s in SVC", volumeSnapshotClassName)
 		}
 	}
 	return volumeSnapshotClass, nil
@@ -406,38 +409,53 @@ func createVolumeSnapshotClass(ctx context.Context, snapc *snapclient.Clientset,
 // createDynamicVolumeSnapshot util creates dynamic volume snapshot for a volume
 func createDynamicVolumeSnapshot(ctx context.Context, namespace string,
 	snapc *snapclient.Clientset, volumeSnapshotClass *snapV1.VolumeSnapshotClass,
-	pvclaim *v1.PersistentVolumeClaim, diskSize string) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotContent,
-	bool, bool, error) {
+	pvclaim *v1.PersistentVolumeClaim, volHandle string, diskSize string) (*snapV1.VolumeSnapshot,
+	*snapV1.VolumeSnapshotContent, bool, bool, string, error) {
 
 	volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
 		getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
 	if err != nil {
-		return nil, nil, false, false, err
+		return nil, nil, false, false, "", err
 	}
 	framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
 
 	ginkgo.By("Verify volume snapshot is created")
 	volumeSnapshot, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, volumeSnapshot.Name)
 	if err != nil {
-		return nil, nil, false, false, err
+		return nil, nil, false, false, "", err
 	}
+
 	snapshotCreated := true
 	if volumeSnapshot.Status.RestoreSize.Cmp(resource.MustParse(diskSize)) != 0 {
-		return nil, nil, false, false, fmt.Errorf("unexpected restore size")
+		return nil, nil, false, false, "", fmt.Errorf("unexpected restore size")
 	}
 
 	ginkgo.By("Verify volume snapshot content is created")
 	snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
 		*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
 	if err != nil {
-		return nil, nil, false, false, err
+		return nil, nil, false, false, "", err
 	}
 	snapshotContentCreated := true
-	if !*snapshotContent.Status.ReadyToUse {
-		return nil, nil, false, false, fmt.Errorf("volume snapshot content is not ready to use")
+	snapshotContent, err = waitForVolumeSnapshotContentReadyToUse(*snapc, ctx, snapshotContent.Name)
+	if err != nil {
+		return nil, nil, false, false, "", fmt.Errorf("volume snapshot content is not ready to use")
 	}
 
-	return volumeSnapshot, snapshotContent, snapshotCreated, snapshotContentCreated, nil
+	framework.Logf("Get volume snapshot ID from snapshot handle")
+	snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, snapshotContent, volumeSnapshotClass,
+		volHandle)
+	if err != nil {
+		return nil, nil, false, false, "", err
+	}
+
+	ginkgo.By("Query CNS and check the volume snapshot entry")
+	err = waitForCNSSnapshotToBeCreated(volHandle, snapshotId)
+	if err != nil {
+		return nil, nil, false, false, snapshotId, err
+	}
+
+	return volumeSnapshot, snapshotContent, snapshotCreated, snapshotContentCreated, snapshotId, nil
 }
 
 // getPersistentVolumeClaimSpecWithDatasource return the PersistentVolumeClaim
@@ -567,8 +585,9 @@ func createPreProvisionedSnapshotInGuestCluster(ctx context.Context, volumeSnaps
 	}
 	framework.Logf("Snapshotcontent name is  %s", staticSnapshotContent.ObjectMeta.Name)
 
-	if !*staticSnapshotContent.Status.ReadyToUse {
-		return nil, nil, false, false, fmt.Errorf("VolumeSnapshotContent is not ready to use")
+	staticSnapshotContent, err = waitForVolumeSnapshotContentReadyToUse(*snapc, ctx, staticSnapshotContent.Name)
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("volume snapshot content is not ready to use")
 	}
 	staticSnapshotContentCreated := true
 
@@ -593,4 +612,133 @@ func createPreProvisionedSnapshotInGuestCluster(ctx context.Context, volumeSnaps
 	staticSnapshotCreated := true
 
 	return staticSnapshotContent, staticSnapshot, staticSnapshotContentCreated, staticSnapshotCreated, nil
+}
+
+// verifyVolumeRestoreOperation verifies if volume(PVC) restore from given snapshot
+// and creates pod and checks attach volume operation if verifyPodCreation is set to true
+func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interface,
+	namespace string, storageclass *storagev1.StorageClass,
+	volumeSnapshot *snapV1.VolumeSnapshot,
+	verifyPodCreation bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume, *v1.Pod) {
+
+	ginkgo.By("Create PVC from snapshot")
+	pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
+		v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
+
+	pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
+		[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
+	if guestCluster {
+		volHandle2 = getVolumeIDFromSupervisorCluster(volHandle2)
+	}
+	gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
+
+	if verifyPodCreation {
+		// Create a Pod to use this PVC, and verify volume has been attached
+		ginkgo.By("Creating pod to attach PV to the node")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false,
+			execRWXCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		var vmUUID string
+		nodeName := pod.Spec.NodeName
+
+		if vanillaCluster {
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
+		} else if guestCluster {
+			vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle2, nodeName))
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle2, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+
+		ginkgo.By("Verify the volume is accessible and Read/write is possible")
+		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"cat /mnt/volume1/Pod1.html "}
+		output := framework.RunKubectlOrDie(namespace, cmd...)
+		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
+
+		wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
+		framework.RunKubectlOrDie(namespace, wrtiecmd...)
+		output = framework.RunKubectlOrDie(namespace, cmd...)
+		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
+		return pvclaim2, persistentvolumes2, pod
+	}
+	return pvclaim2, persistentvolumes2, nil
+}
+
+// createPVCAndQueryVolumeInCNS creates PVc with a given storage class on a given namespace
+// and verifies cns metadata of that volume if verifyCNSVolume is set to true
+func createPVCAndQueryVolumeInCNS(client clientset.Interface, namespace string,
+	pvclaimLabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
+	ds string, storageclass *storagev1.StorageClass,
+	verifyCNSVolume bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume) {
+	pvclaim, err := createPVC(client, namespace, pvclaimLabels, ds, storageclass, accessMode)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Expect claim to provision volume successfully")
+	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+		[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+	if guestCluster {
+		volHandle = getVolumeIDFromSupervisorCluster(volHandle)
+	}
+	gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+
+	if verifyCNSVolume {
+		// Verify using CNS Query API if VolumeID retrieved from PV is present.
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+		gomega.Expect(queryResult.Volumes[0].VolumeId.Id).To(gomega.Equal(volHandle))
+	}
+	return pvclaim, persistentvolumes
+}
+
+// waitForVolumeSnapshotContentReadyToUse waits for the volume's snapshot content to be in ReadyToUse
+func waitForVolumeSnapshotContentReadyToUse(client snapclient.Clientset, ctx context.Context,
+	name string) (*snapV1.VolumeSnapshotContent, error) {
+	var volumeSnapshotContent *snapV1.VolumeSnapshotContent
+	var err error
+
+	waitErr := wait.PollImmediate(poll, pollTimeout*2, func() (bool, error) {
+		volumeSnapshotContent, err = client.SnapshotV1().VolumeSnapshotContents().Get(ctx, name, metav1.GetOptions{})
+		framework.Logf("volumesnapshotcontent details: %v", volumeSnapshotContent)
+		if err != nil {
+			return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
+		}
+		if volumeSnapshotContent.Status != nil && *volumeSnapshotContent.Status.ReadyToUse {
+			framework.Logf("%s volume snapshotContent is in ready state", name)
+			return true, nil
+		}
+		return false, nil
+	})
+	return volumeSnapshotContent, waitErr
+}
+
+// waitForCNSSnapshotToBeCreated wait till the give snapshot is created in CNS
+func waitForCNSSnapshotToBeCreated(volumeId string, snapshotId string) error {
+	var err error
+	waitErr := wait.PollImmediate(poll, pollTimeout*2, func() (bool, error) {
+		err = verifySnapshotIsCreatedInCNS(volumeId, snapshotId, false)
+		if err != nil {
+			if strings.Contains(err.Error(), "snapshot entry is not present in CNS") {
+				return false, nil
+			}
+			return false, err
+		}
+		framework.Logf("Snapshot with ID: %v for volume with ID: %v is created in CNS now...", snapshotId, volumeId)
+		return true, nil
+	})
+	return waitErr
 }
