@@ -23,11 +23,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	neturl "net/url"
 	"strconv"
 	"sync"
 	"time"
-
-	neturl "net/url"
 
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/cns"
@@ -43,6 +42,7 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/govmomi/vsan"
 	"github.com/vmware/govmomi/vslm"
+
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
@@ -185,6 +185,7 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 
 	err = vc.login(ctx, client)
 	if err != nil {
+		log.Errorf("failed to login to vc. err: %v", err)
 		return nil, err
 	}
 
