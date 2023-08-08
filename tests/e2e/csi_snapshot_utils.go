@@ -224,25 +224,6 @@ func getVolumeSnapshotSpecByName(namespace string, snapshotName string,
 	return volumesnapshotSpec
 }
 
-// getVolumeSnapshotSpecWithoutSC returns a spec for the volume snapshot
-func getVolumeSnapshotSpecWithoutSC(namespace string, pvcName string) *snapV1.VolumeSnapshot {
-	var volumesnapshotSpec = &snapV1.VolumeSnapshot{
-		TypeMeta: metav1.TypeMeta{
-			Kind: "VolumeSnapshot",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "snapshot-",
-			Namespace:    namespace,
-		},
-		Spec: snapV1.VolumeSnapshotSpec{
-			Source: snapV1.VolumeSnapshotSource{
-				PersistentVolumeClaimName: &pvcName,
-			},
-		},
-	}
-	return volumesnapshotSpec
-}
-
 // createSnapshotInParallel creates snapshot for a given pvc
 // in a given namespace
 func createSnapshotInParallel(ctx context.Context, namespace string,
