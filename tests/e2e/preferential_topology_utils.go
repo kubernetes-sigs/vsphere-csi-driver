@@ -138,9 +138,9 @@ func attachTagToPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientC
 
 /* detachTagCreatedOnPreferredDatastore is used to detach the tag created on preferred datastore */
 func detachTagCreatedOnPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	datastore string, tagName string, isMultiVCSetup bool, clientIndex int) error {
+	datastore string, tagName string, isMultiVcSetup bool, clientIndex int) error {
 	var detachTagCat string
-	if !isMultiVCSetup {
+	if !isMultiVcSetup {
 		detachTagCat = govcLoginCmd() +
 			"govc tags.detach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
 
@@ -240,7 +240,7 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 	client clientset.Interface, statefulset *appsv1.StatefulSet,
 	namespace string, datastoreNames []string, datastoreListMap map[string]string,
 	multipleAllowedTopology bool, parallelStatefulSetCreation bool,
-	isMultiVCSetup bool, multiVCDsUrls []string) error {
+	isMultiVcSetup bool, multiVCDsUrls []string) error {
 	counter := 0
 	stsPodCount := 0
 	var dsUrls []string
@@ -251,7 +251,7 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 		ssPodsBeforeScaleDown = fss.GetPodList(client, statefulset)
 	}
 	stsPodCount = len(ssPodsBeforeScaleDown.Items)
-	if !isMultiVCSetup {
+	if !isMultiVcSetup {
 		for i := 0; i < len(datastoreNames); i++ {
 			if val, ok := datastoreListMap[datastoreNames[i]]; ok {
 				dsUrls = append(dsUrls, val)
@@ -265,7 +265,7 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 			var isPreferred bool
 			if volumespec.PersistentVolumeClaim != nil {
 				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-				if !isMultiVCSetup {
+				if !isMultiVcSetup {
 					isPreferred = e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, dsUrls)
 					if isPreferred {
 						framework.Logf("volume %s is created on preferred datastore %v", pv.Spec.CSI.VolumeHandle, dsUrls)
@@ -306,7 +306,7 @@ chosen preferred datastore or not for standalone pods
 func verifyVolumeProvisioningForStandalonePods(ctx context.Context,
 	client clientset.Interface, pod *v1.Pod,
 	namespace string, datastoreNames []string, datastoreListMap map[string]string,
-	isMultiVCSetup bool, multiVCDsUrls []string) {
+	isMultiVcSetup bool, multiVCDsUrls []string) {
 	var flag bool = false
 	var dsUrls []string
 	for i := 0; i < len(datastoreNames); i++ {
@@ -317,7 +317,7 @@ func verifyVolumeProvisioningForStandalonePods(ctx context.Context,
 	for _, volumespec := range pod.Spec.Volumes {
 		if volumespec.PersistentVolumeClaim != nil {
 			pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-			if !isMultiVCSetup {
+			if !isMultiVcSetup {
 				isPreferred := e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, dsUrls)
 				if isPreferred {
 					framework.Logf("volume %s is created on preferred datastore %v", pv.Spec.CSI.VolumeHandle, dsUrls)
@@ -362,7 +362,7 @@ tagPreferredDatastore method is used to tag the datastore which is chosen for vo
 */
 func tagPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, zoneValue string, itr int,
 	datastoreListMap map[string]string, datastoreNames []string,
-	isMultiVCSetup bool, clientIndex int) ([]string, error) {
+	isMultiVcSetup bool, clientIndex int) ([]string, error) {
 	var preferredDatastorePaths []string
 	var err error
 	i := 0
@@ -370,7 +370,7 @@ func tagPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, z
 		for dsName := range datastoreListMap {
 			i = i + 1
 			preferredDatastorePaths = append(preferredDatastorePaths, dsName)
-			if !isMultiVCSetup {
+			if !isMultiVcSetup {
 				err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue,
 					false, clientIndex)
 			} else {
@@ -389,7 +389,7 @@ func tagPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, z
 		for dsName := range datastoreListMap {
 			if !slices.Contains(datastoreNames, dsName) {
 				preferredDatastorePaths = append(preferredDatastorePaths, dsName)
-				if !isMultiVCSetup {
+				if !isMultiVcSetup {
 					err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue,
 						false, clientIndex)
 				} else {
@@ -412,11 +412,11 @@ func tagPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, z
 // restartCSIDriver method restarts the csi driver
 func restartCSIDriver(ctx context.Context, client clientset.Interface, namespace string,
 	csiReplicas int32) (bool, error) {
-	isServiceStopped, err := stopCSIPods(ctx, client)
+	isServiceStopped, err := stopCSIPods(ctx, client, namespace)
 	if err != nil {
 		return isServiceStopped, err
 	}
-	isServiceStarted, err := startCSIPods(ctx, client, csiReplicas)
+	isServiceStarted, err := startCSIPods(ctx, client, csiReplicas, namespace)
 	if err != nil {
 		return isServiceStarted, err
 	}
@@ -428,20 +428,40 @@ setPreferredDatastoreTimeInterval method is used to set the time interval at whi
 datastores are refreshed in the environment
 */
 func setPreferredDatastoreTimeInterval(client clientset.Interface, ctx context.Context,
-	csiNamespace string, namespace string, csiReplicas int32) {
+	csiNamespace string, csiReplicas int32, isMultiVcSetup bool) {
+
+	var modifiedConf string
+	var vsphereCfg e2eTestConfig
+
+	// read current secret
 	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// read original conf
 	originalConf := string(currentSecret.Data[vSphereCSIConf])
-	vsphereCfg, err := readConfigFromSecretString(originalConf)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	if !isMultiVcSetup {
+		vsphereCfg, err = readConfigFromSecretString(originalConf)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		vsphereCfg, err = readVsphereConfCredentialsInMultiVcSetup(originalConf)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
 	if vsphereCfg.Global.CSIFetchPreferredDatastoresIntervalInMin == 0 {
 		vsphereCfg.Global.CSIFetchPreferredDatastoresIntervalInMin = preferredDatastoreRefreshTimeInterval
-		modifiedConf, err := writeConfigToSecretString(vsphereCfg)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Updating the secret to reflect new changes")
-		currentSecret.Data[vSphereCSIConf] = []byte(modifiedConf)
-		_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if !isMultiVcSetup {
+			modifiedConf, err = writeConfigToSecretString(vsphereCfg)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Updating the secret to reflect new changes")
+			currentSecret.Data[vSphereCSIConf] = []byte(modifiedConf)
+			_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			err = writeNewDataAndUpdateVsphereConfSecret(client, ctx, csiNamespace, vsphereCfg)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 		// restart csi driver
 		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
@@ -488,10 +508,10 @@ func deleteTagCreatedForPreferredDatastore(masterIp string, sshClientConfig *ssh
 
 // createTagForPreferredDatastore method is used to create tag required for choosing preferred datastore
 func createTagForPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	tagName []string, isMultiVCSetup bool) error {
+	tagName []string, isMultiVcSetup bool) error {
 	var createTagCat string
 	for i := 0; i < len(tagName); i++ {
-		if !isMultiVCSetup {
+		if !isMultiVcSetup {
 			createTagCat = govcLoginCmd() +
 				"govc tags.create -d '" + preferredTagDesc + "' -c " + preferredDSCat + " " + tagName[i]
 		} else {
@@ -516,7 +536,7 @@ volume snapshot and to verify if volume snapshot has created or not
 */
 func createSnapshotClassAndVolSnapshot(ctx context.Context, snapc *snapclient.Clientset,
 	namespace string, pvclaim *v1.PersistentVolumeClaim,
-	volHandle string, stsPvc bool, isMultiVCSetup bool) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotClass, string) {
+	volHandle string, stsPvc bool, isMultiVcSetup bool) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotClass, string) {
 
 	framework.Logf("Create volume snapshot class")
 	volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
@@ -549,7 +569,7 @@ func createSnapshotClassAndVolSnapshot(ctx context.Context, snapc *snapclient.Cl
 	snapshotId := strings.Split(snapshothandle, "+")[1]
 
 	framework.Logf("Query CNS and check the volume snapshot entry")
-	if !isMultiVCSetup {
+	if !isMultiVcSetup {
 		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	} else {
@@ -566,7 +586,7 @@ snapshot class, volume snapshot created for pvc post testcase completion
 */
 func performCleanUpForSnapshotCreated(ctx context.Context, snapc *snapclient.Clientset,
 	namespace string, volHandle string, volumeSnapshot *snapV1.VolumeSnapshot, snapshotId string,
-	volumeSnapshotClass *snapV1.VolumeSnapshotClass, pandoraSyncWaitTime int, isMultiVCSetup bool) {
+	volumeSnapshotClass *snapV1.VolumeSnapshotClass, pandoraSyncWaitTime int, isMultiVcSetup bool) {
 
 	framework.Logf("Delete volume snapshot and verify the snapshot content is deleted")
 	deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
@@ -575,7 +595,7 @@ func performCleanUpForSnapshotCreated(ctx context.Context, snapc *snapclient.Cli
 	err := waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	if !isMultiVCSetup {
+	if !isMultiVcSetup {
 		framework.Logf("Verify snapshot entry is deleted from CNS")
 		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

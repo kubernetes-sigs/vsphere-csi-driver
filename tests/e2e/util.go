@@ -2010,7 +2010,10 @@ func writeToFile(filePath, data string) error {
 // invokeVCenterChangePassword invokes `dir-cli password reset` command on the
 // given vCenter host over SSH, thereby resetting the currentPassword of the
 // `user` to the `newPassword`.
-func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) error {
+func invokeVCenterChangePassword(user, adminPassword, newPassword, host string,
+	isMultiVcSetup bool, clientIndex int) error {
+	var copyCmd string
+	var removeCmd string
 	// Create an input file and write passwords into it.
 	path := "input.txt"
 	data := fmt.Sprintf("%s\n%s\n", adminPassword, newPassword)
@@ -2023,16 +2026,27 @@ func invokeVCenterChangePassword(user, adminPassword, newPassword, host string) 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 	// Remote copy this input file to VC.
-	copyCmd := fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'",
-		path, e2eVSphere.Config.Global.VCenterHostname)
+	if !isMultiVcSetup {
+		copyCmd = fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'",
+			path, e2eVSphere.Config.Global.VCenterHostname)
+	} else {
+		vCenter := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")[clientIndex]
+		copyCmd = fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'",
+			path, vCenter)
+	}
 	fmt.Printf("Executing the command: %s\n", copyCmd)
 	_, err = exec.Command("/bin/sh", "-c", copyCmd).Output()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	defer func() {
 		// Remove the input_copy.txt file from VC.
-		removeCmd := fmt.Sprintf("/usr/bin/ssh root@%s '/usr/bin/rm input_copy.txt'",
-			e2eVSphere.Config.Global.VCenterHostname)
+		if !isMultiVcSetup {
+			removeCmd = fmt.Sprintf("/usr/bin/ssh root@%s '/usr/bin/rm input_copy.txt'",
+				e2eVSphere.Config.Global.VCenterHostname)
+		} else {
+			vCenter := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")[clientIndex]
+			removeCmd = fmt.Sprintf("/usr/bin/ssh root@%s '/usr/bin/rm input_copy.txt'",
+				vCenter)
+		}
 		_, err = exec.Command("/bin/sh", "-c", removeCmd).Output()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
@@ -4706,17 +4720,23 @@ which PV is provisioned.
 func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Context,
 	client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string,
 	allowedTopologies []v1.TopologySelectorLabelRequirement,
-	parallelStatefulSetCreation bool, isMultiVCSetup bool) {
+	parallelStatefulSetCreation bool, isMultiVcSetup bool) error {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	var ssPodsBeforeScaleDown *v1.PodList
+	var err error
+
 	if parallelStatefulSetCreation {
 		ssPodsBeforeScaleDown = GetListOfPodsInSts(client, statefulset)
 	} else {
 		ssPodsBeforeScaleDown = fss.GetPodList(client, statefulset)
 	}
+
 	for _, sspod := range ssPodsBeforeScaleDown.Items {
-		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		_, err = client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				// get pv details
@@ -4726,42 +4746,60 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 				ginkgo.By("Verifying PV node affinity details")
 				res, err := verifyVolumeTopologyForLevel5(pv, allowedTopologiesMap)
 				if res {
-					framework.Logf("PV %s node affinity details lies in the specified allowed topologies of Storage Class", pv.Name)
+					framework.Logf("PV %s node affinity details lie in the specified allowed "+
+						"topologies of Storage Class", pv.Name)
 				}
-				gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the "+
-					"specified allowed topologies of Storage Class", pv.Name)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				if !res {
+					return fmt.Errorf("PV %s node affinity details are not in the specified allowed "+
+						"topologies of Storage Class", pv.Name)
+				}
+				if err != nil {
+					return err
+				}
 
 				// fetch node details
 				nodeList, err := fnodes.GetReadySchedulableNodes(client)
-				framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
-				if !(len(nodeList.Items) > 0) {
-					framework.Failf("Unable to find ready and schedulable Node")
+				if err != nil {
+					return err
 				}
+				if len(nodeList.Items) <= 0 {
+					return fmt.Errorf("unable to find ready and schedulable Node")
+				}
+
 				// verify pod is running on appropriate nodes
 				ginkgo.By("Verifying If Pods are running on appropriate nodes as mentioned in SC")
 				res, err = verifyPodLocationLevel5(&sspod, nodeList, allowedTopologiesMap)
 				if res {
-					framework.Logf("Pod %v is running on appropriate node as specified "+
-						"in the allowed topolgies of Storage Class", sspod.Name)
+					framework.Logf("Pod %v is running on an appropriate node as specified in the "+
+						"allowed topologies of Storage Class", sspod.Name)
 				}
-				gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node "+
-					"as specified in allowed topolgies of Storage Class", sspod.Name)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				if !res {
+					return fmt.Errorf("pod %v is not running on an appropriate node as specified "+
+						"in the allowed topologies of Storage Class", sspod.Name)
+				}
+				if err != nil {
+					return err
+				}
 
 				// Verify the attached volume match the one in CNS cache
-				if !isMultiVCSetup {
-					error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+				if !isMultiVcSetup {
+					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					gomega.Expect(error).NotTo(gomega.HaveOccurred())
+					if err != nil {
+						return err
+					}
 				} else {
-					error := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+					err := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					gomega.Expect(error).NotTo(gomega.HaveOccurred())
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}
 	}
+
+	return nil
 }
 
 /*
@@ -4839,21 +4877,29 @@ func scaleStatefulSetPods(c clientset.Interface, ss *appsv1.StatefulSet, count i
 }
 
 /*
-scaleDownStatefulSetPod is a utility method which is used to scale down the count of StatefulSet replicas.
+scaleDownStatefulSetPod util is used to perform scale down operation on StatefulSert Pods
+and later verifies that after scale down operation volume gets detached from the node
+and returns nil if no error found
 */
 func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool,
-	isMultiVCSetup bool) {
+	isMultiVcSetup bool) error {
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleDown *v1.PodList
+	var err error
+
 	if parallelStatefulSetCreation {
 		_, scaledownErr := scaleStatefulSetPods(client, statefulset, replicas)
-		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
+		if scaledownErr != nil {
+			return scaledownErr
+		}
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulset)
 	} else {
 		_, scaledownErr := fss.Scale(client, statefulset, replicas)
-		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
+		if scaledownErr != nil {
+			return scaledownErr
+		}
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 		ssPodsAfterScaleDown = fss.GetPodList(client, statefulset)
 	}
@@ -4861,83 +4907,124 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 	// After scale down, verify vSphere volumes are detached from deleted pods
 	ginkgo.By("Verify Volumes are detached from Nodes after Statefulsets is scaled down")
 	for _, sspod := range ssPodsAfterScaleDown.Items {
-		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		_, err = client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 		if err != nil {
-			gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
-			for _, volumespec := range sspod.Spec.Volumes {
-				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-					isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(
-						client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
-						fmt.Sprintf("Volume %q is not detached from the node %q",
-							pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+			if apierrors.IsNotFound(err) {
+				for _, volumespec := range sspod.Spec.Volumes {
+					if volumespec.PersistentVolumeClaim != nil {
+						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						if !isMultiVcSetup {
+							isDiskDetached, detachErr := e2eVSphere.waitForVolumeDetachedFromNode(
+								client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
+							if detachErr != nil {
+								return detachErr
+							}
+							if !isDiskDetached {
+								return fmt.Errorf("volume %q is not detached from the node %q",
+									pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
+							}
+						} else {
+							isDiskDetached, detachErr := multiVCe2eVSphere.waitForVolumeDetachedFromNodeInMultiVC(
+								client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
+							if detachErr != nil {
+								return detachErr
+							}
+							if !isDiskDetached {
+								return fmt.Errorf("volume %q is not detached from the node %q",
+									pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
+							}
+						}
+					}
 				}
+			} else {
+				return err
 			}
 		}
 	}
 	// After scale down, verify the attached volumes match those in CNS Cache
 	for _, sspod := range ssPodsAfterScaleDown.Items {
-		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		_, err = client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
-				if !isMultiVCSetup {
+				if !isMultiVcSetup {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					if err != nil {
+						return err
+					}
 				} else {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					err := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}
 	}
+	return nil
 }
 
 /*
-scaleUpStatefulSetPod is a utility method which is used to scale up the count of StatefulSet replicas.
+scaleUpStatefulSetPod util is used to perform scale up operation on StatefulSert Pods
+and later verifies that after scale up operation volume get successfully attached to the node
+and returns nil if no error found
 */
 func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 	statefulset *appsv1.StatefulSet, namespace string, replicas int32,
-	parallelStatefulSetCreation bool, isMultiVCSetup bool) {
+	parallelStatefulSetCreation bool, isMultiVcSetup bool) error {
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleUp *v1.PodList
+	var err error
+
 	if parallelStatefulSetCreation {
 		_, scaleupErr := scaleStatefulSetPods(client, statefulset, replicas)
-		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
+		if scaleupErr != nil {
+			return scaleupErr
+		}
 		fss.WaitForStatusReplicas(client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 
 		ssPodsAfterScaleUp = GetListOfPodsInSts(client, statefulset)
-		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
-			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
-		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
-			"Number of Pods in the statefulset should match with number of replicas")
+		if len(ssPodsAfterScaleUp.Items) == 0 {
+			return fmt.Errorf("unable to get list of Pods from the Statefulset: %v", statefulset.Name)
+		}
+		if len(ssPodsAfterScaleUp.Items) != int(replicas) {
+			return fmt.Errorf("number of Pods in the statefulset should match with number of replicas")
+		}
 	} else {
 		_, scaleupErr := fss.Scale(client, statefulset, replicas)
-		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
+		if scaleupErr != nil {
+			return scaleupErr
+		}
 		fss.WaitForStatusReplicas(client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 
 		ssPodsAfterScaleUp = fss.GetPodList(client, statefulset)
-		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
-			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
-		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
-			"Number of Pods in the statefulset should match with number of replicas")
+		if len(ssPodsAfterScaleUp.Items) == 0 {
+			return fmt.Errorf("unable to get list of Pods from the Statefulset: %v", statefulset.Name)
+		}
+		if len(ssPodsAfterScaleUp.Items) != int(replicas) {
+			return fmt.Errorf("number of Pods in the statefulset should match with number of replicas")
+		}
 	}
 
 	// After scale up, verify all vSphere volumes are attached to node VMs.
 	ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
 	for _, sspod := range ssPodsAfterScaleUp.Items {
-		err := fpod.WaitTimeoutForPodReadyInNamespace(client, sspod.Name, statefulset.Namespace, pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = fpod.WaitTimeoutForPodReadyInNamespace(client, sspod.Name, statefulset.Namespace, pollTimeout)
+		if err != nil {
+			return err
+		}
 		pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if err != nil {
+			return err
+		}
 		for _, volumespec := range pod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
@@ -4952,36 +5039,53 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 				} else {
 					annotations := pod.Annotations
 					vmUUID, exists = annotations[vmUUIDLabel]
-					gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
-					if !isMultiVCSetup {
+					if !exists {
+						return fmt.Errorf("pod doesn't have %s annotation", vmUUIDLabel)
+					}
+					if !isMultiVcSetup {
 						_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						if err != nil {
+							return err
+						}
 					} else {
 						_, err := multiVCe2eVSphere.getVMByUUIDForMultiVC(ctx, vmUUID)
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						if err != nil {
+							return err
+						}
 					}
 				}
-				if !isMultiVCSetup {
+				if !isMultiVcSetup {
 					isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
-					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
-					ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
+					if err != nil {
+						return err
+					}
+					if !isDiskAttached {
+						return fmt.Errorf("disk is not attached to the node")
+					}
 					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					if err != nil {
+						return err
+					}
 				} else {
 					isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(client,
 						pv.Spec.CSI.VolumeHandle, vmUUID)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
-					gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
-					ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")
+					if err != nil {
+						return err
+					}
+					if !isDiskAttached {
+						return fmt.Errorf("disk is not attached to the node")
+					}
 					err = verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}
 	}
+	return nil
 }
 
 /*
@@ -5087,20 +5191,29 @@ PV is provisioned.
 func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Context,
 	client clientset.Interface, deployment *appsv1.Deployment, namespace string,
 	allowedTopologies []v1.TopologySelectorLabelRequirement,
-	parallelDeplCreation bool, isMultiVCSetup bool) {
+	parallelDeplCreation bool, isMultiVcSetup bool) error {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	var pods *v1.PodList
 	var err error
+
 	if parallelDeplCreation {
 		pods, err = GetPodsForMultipleDeployment(client, deployment)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if err != nil {
+			return err
+		}
 	} else {
 		pods, err = fdep.GetPodsForDeployment(client, deployment)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if err != nil {
+			return err
+		}
 	}
+
 	for _, sspod := range pods.Items {
 		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if err != nil {
+			return err
+		}
+
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				// get pv details
@@ -5110,99 +5223,130 @@ func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Co
 				ginkgo.By("Verifying PV node affinity details")
 				res, err := verifyVolumeTopologyForLevel5(pv, allowedTopologiesMap)
 				if res {
-					framework.Logf("PV %s node affinity details lies in the specified allowed topologies of Storage Class", pv.Name)
+					framework.Logf("PV %s node affinity details lie in the specified allowed "+
+						"topologies of Storage Class", pv.Name)
 				}
-				gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the "+
-					"specified allowed topologies of Storage Class", pv.Name)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				if !res {
+					return fmt.Errorf("PV %s node affinity details are not in the specified allowed "+
+						"topologies of Storage Class", pv.Name)
+				}
+				if err != nil {
+					return err
+				}
 
 				// fetch node details
 				nodeList, err := fnodes.GetReadySchedulableNodes(client)
-				framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
-				if !(len(nodeList.Items) > 0) {
-					framework.Failf("Unable to find ready and schedulable Node")
+				if err != nil {
+					return err
 				}
+				if len(nodeList.Items) <= 0 {
+					return fmt.Errorf("unable to find ready and schedulable Node")
+				}
+
 				// verify pod is running on appropriate nodes
 				ginkgo.By("Verifying If Pods are running on appropriate nodes as mentioned in SC")
 				res, err = verifyPodLocationLevel5(&sspod, nodeList, allowedTopologiesMap)
 				if res {
-					framework.Logf("Pod %v is running on appropriate node as specified in the "+
-						"allowed topolgies of Storage Class", sspod.Name)
+					framework.Logf("Pod %v is running on an appropriate node as specified in the "+
+						"allowed topologies of Storage Class", sspod.Name)
 				}
-				gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node "+
-					"as specified in allowed topolgies of Storage Class", sspod.Name)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				if !res {
+					return fmt.Errorf("pod %v is not running on an appropriate node as specified in the "+
+						"allowed topologies of Storage Class", sspod.Name)
+				}
+				if err != nil {
+					return err
+				}
 
 				// Verify the attached volume match the one in CNS cache
-				if !isMultiVCSetup {
-					error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+				if !isMultiVcSetup {
+					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					gomega.Expect(error).NotTo(gomega.HaveOccurred())
+					if err != nil {
+						return err
+					}
 				} else {
-					error := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+					err := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					gomega.Expect(error).NotTo(gomega.HaveOccurred())
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}
 	}
+
+	return nil
 }
 
 /*
 For Standalone Pod
+verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5
 verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5 for Standalone Pod verifies that PV
 node Affinity rules should match the topology constraints specified in the storage class.
 Also it verifies that a pod is scheduled on a node that belongs to the topology on which PV
 is provisioned.
 */
-func verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx context.Context,
+func verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx context.Context,
 	client clientset.Interface, pod *v1.Pod, namespace string,
-	allowedTopologies []v1.TopologySelectorLabelRequirement, isMultiVCSetup bool) {
+	allowedTopologies []v1.TopologySelectorLabelRequirement, isMultiVcSetup bool) error {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	for _, volumespec := range pod.Spec.Volumes {
 		if volumespec.PersistentVolumeClaim != nil {
 			// get pv details
 			pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+			if pv == nil {
+				return fmt.Errorf("failed to get PV for claim: %s", volumespec.PersistentVolumeClaim.ClaimName)
+			}
 
 			// verify pv node affinity details as specified on SC
 			ginkgo.By("Verifying PV node affinity details")
 			res, err := verifyVolumeTopologyForLevel5(pv, allowedTopologiesMap)
-			if res {
-				framework.Logf("PV %s node affinity details lies in the specified allowed topologies of Storage Class", pv.Name)
+			if err != nil {
+				return fmt.Errorf("error verifying PV node affinity: %v", err)
 			}
-			gomega.Expect(res).To(gomega.BeTrue(), "PV %s node affinity details is not in the specified "+
-				"allowed topologies of Storage Class", pv.Name)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !res {
+				return fmt.Errorf("PV %s node affinity details are not in the specified allowed "+
+					"topologies of Storage Class", pv.Name)
+			}
 
 			// fetch node details
 			nodeList, err := fnodes.GetReadySchedulableNodes(client)
-			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
-			if !(len(nodeList.Items) > 0) {
-				framework.Failf("Unable to find ready and schedulable Node")
+			if err != nil {
+				return fmt.Errorf("error getting ready and schedulable nodes: %v", err)
 			}
+			if !(len(nodeList.Items) > 0) {
+				return errors.New("no ready and schedulable nodes found")
+			}
+
 			// verify pod is running on appropriate nodes
 			ginkgo.By("Verifying If Pods are running on appropriate nodes as mentioned in SC")
 			res, err = verifyPodLocationLevel5(pod, nodeList, allowedTopologiesMap)
-			if res {
-				framework.Logf("Pod %v is running on appropriate node as specified in the allowed "+
-					"topolgies of Storage Class", pod.Name)
+			if err != nil {
+				return fmt.Errorf("error verifying pod location: %v", err)
 			}
-			gomega.Expect(res).To(gomega.BeTrue(), "Pod %v is not running on appropriate node as "+
-				"specified in allowed topolgies of Storage Class", pod.Name)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !res {
+				return fmt.Errorf("pod %v is not running on appropriate node as specified in allowed "+
+					"topologies of Storage Class", pod.Name)
+			}
 
-			//Verify the attached volume match the one in CNS cache
-			if !isMultiVCSetup {
-				error := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+			// Verify the attached volume matches the one in CNS cache
+			if !isMultiVcSetup {
+				err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
-				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+				if err != nil {
+					return fmt.Errorf("error verifying volume metadata in CNS: %v", err)
+				}
 			} else {
-				error := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+				err := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
 					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
-				gomega.Expect(error).NotTo(gomega.HaveOccurred())
+				if err != nil {
+					return fmt.Errorf("error verifying volume metadata in CNS for multi-VC: %v", err)
+				}
 			}
 		}
 	}
+	return nil
 }
 
 func getPersistentVolumeSpecWithStorageClassFCDNodeSelector(volumeHandle string,
@@ -5690,31 +5834,32 @@ func waitForEventWithReason(client clientset.Interface, namespace string,
 }
 
 // stopCSIPods function stops all the running csi pods
-func stopCSIPods(ctx context.Context, client clientset.Interface) (bool, error) {
+func stopCSIPods(ctx context.Context, client clientset.Interface, namespace string) (bool, error) {
 	collectPodLogs(ctx, client, csiSystemNamespace)
 	isServiceStopped := false
 	err := updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix,
-		csiSystemNamespace)
+		namespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	isServiceStopped = true
 	return isServiceStopped, err
 }
 
 // startCSIPods function starts the csi pods and waits till all the pods comes up
-func startCSIPods(ctx context.Context, client clientset.Interface, csiReplicas int32) (bool, error) {
+func startCSIPods(ctx context.Context, client clientset.Interface, csiReplicas int32,
+	namespace string) (bool, error) {
 	ignoreLabels := make(map[string]string)
 	err := updateDeploymentReplicawithWait(client, csiReplicas, vSphereCSIControllerPodNamePrefix,
-		csiSystemNamespace)
+		namespace)
 	if err != nil {
 		return true, err
 	}
 	// Wait for the CSI Pods to be up and Running
-	list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+	list_of_pods, err := fpod.GetPodsInNamespace(client, namespace, ignoreLabels)
 	if err != nil {
 		return true, err
 	}
 	num_csi_pods := len(list_of_pods)
-	err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
+	err = fpod.WaitForPodsRunningReady(client, namespace, int32(num_csi_pods), 0,
 		pollTimeout, ignoreLabels)
 	isServiceStopped := false
 	return isServiceStopped, err

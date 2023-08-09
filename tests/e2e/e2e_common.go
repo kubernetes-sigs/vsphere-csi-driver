@@ -352,6 +352,8 @@ var (
 	envMultiVCSetupType               = "MULTI_VC_SETUP_TYPE"
 	envStoragePolicyNameVC1           = "STORAGE_POLICY_VC1"
 	envStoragePolicyNameInVC1VC2      = "STORAGE_POLICY_NAME_COMMON_IN_VC1_VC2"
+	envPreferredDatastoreUrlVC1       = "PREFERRED_DATASTORE_URL_VC1"
+	envPreferredDatastoreUrlVC2       = "PREFERRED_DATASTORE_URL_VC2"
 )
 
 // VolumeSnapshotClass env variables for tkg-snapshot

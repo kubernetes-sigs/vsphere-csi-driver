@@ -79,6 +79,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		snapc                       *snapclient.Clientset
 		pandoraSyncWaitTime         int
 		err                         error
+		csiNamespace                string
+		csiReplicas                 int32
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -154,6 +156,15 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 			}
 		}
 
+		// read namespace
+		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
+			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicas = *csiDeployment.Spec.Replicas
+
+		//set preferred datatsore time interval
+		setPreferredDatastoreTimeInterval(client, ctx, csiNamespace, csiReplicas, true)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -193,7 +204,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 	    9. The volumes should get provision on the datastores which has the preference
 	    10. Clear the data
 	*/
-	ginkgo.It("Tag one datastore as preferred each in VC1 and VC2 and verify it is honored", func() {
+	ginkgo.It("TestTag one datastore as preferred each in VC1 and VC2 and verify it is honored", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -268,8 +279,9 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
-			verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulSets[i],
+			err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulSets[i],
 				namespace, allowedTopologies, parallelStatefulSetCreation, true)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
@@ -315,9 +327,10 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		ginkgo.By("Perform scaleup/scaledown operation on statefulsets and " +
 			"verify pv affinity and pod affinity")
 		for i := 0; i < len(statefulSets); i++ {
-			performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
+			err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 				scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
 				allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
@@ -369,8 +382,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		preferredDatastoreChosen = 1
 		preferredDatastorePaths = nil
 
-		datastoreURLVC1 := GetAndExpectStringEnvVar(envSharedDatastoreURLVC1)
-		datastoreURLVC2 := GetAndExpectStringEnvVar(envSharedDatastoreURLVC2)
+		datastoreURLVC1 := GetAndExpectStringEnvVar(envPreferredDatastoreUrlVC1)
+		datastoreURLVC2 := GetAndExpectStringEnvVar(envPreferredDatastoreUrlVC2)
 
 		/*
 			fetching datstore details passed in the storage policy
@@ -391,7 +404,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 			topValEndIndex)
 
 		ginkgo.By("Create StorageClass with storage policy specified")
-		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "",
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, allowedTopologies, "",
 			"", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -426,9 +439,10 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
-		service, statefulset := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
+		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
 			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen,
 			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", "", sc, verifyTopologyAffinity)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
 			deleteService(namespace, client, service)
@@ -457,9 +471,10 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 
 		ginkgo.By("Perform scaleup/scaledown operation on statefulsets and " +
 			"verify pv affinity and pod affinity")
-		performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
+		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
 			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace,
@@ -613,8 +628,9 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
-		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod,
+		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod,
 			namespace, allowedTopologies, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	/* Testcase-4

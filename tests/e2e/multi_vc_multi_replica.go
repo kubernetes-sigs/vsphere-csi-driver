@@ -212,8 +212,9 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC-Replica", func() {
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
-			verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
+			err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
 				statefulSets[i], namespace, allowedTopologies, parallelStatefulSetCreation, true)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		ginkgo.By("Perform scaleup/scaledown operation on statefulset and verify pv and pod affinity details")
@@ -222,18 +223,20 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC-Replica", func() {
 				stsScaleUp = false
 				scaleDownReplicaCount = 3
 				framework.Logf("Scale down StatefulSet1 replica count to 3")
-				performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
+				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
 					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 1 {
 				scaleUpReplicaCount = 9
 				stsScaleDown = false
 				framework.Logf("Scale up StatefulSet2 replica count to 9 and in between " +
 					"kill vsphere syncer container")
-				performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
+				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
 					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				framework.Logf("Kill Vsphere-Syncer container")
 				err = execDockerPauseNKillOnContainer(sshClientConfig, vsphereSyncerControlIp, syncerContainerName,
@@ -246,9 +249,10 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC-Replica", func() {
 					"the replica count to 2")
 				scaleUpReplicaCount = 7
 				scaleDownReplicaCount = 2
-				performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
+				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
 					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
 	})
