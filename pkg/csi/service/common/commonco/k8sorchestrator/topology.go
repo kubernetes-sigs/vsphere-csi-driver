@@ -109,7 +109,7 @@ var (
 	// isMultiVCSupportEnabled is set to true only when the MultiVCenterCSITopology FSS
 	// is enabled. isMultivCenterCluster is set to true only when the MultiVCenterCSITopology FSS
 	// is enabled and the K8s cluster involves multiple VCs.
-	isMultiVCSupportEnabled, isMultivCenterCluster bool
+	isMultiVCSupportEnabled bool
 	// csiNodeTopologyInformer refers to a shared K8s informer listening on CSINodeTopology instances
 	// in the cluster.
 	csiNodeTopologyInformer *cache.SharedIndexInformer
@@ -197,14 +197,12 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 
 				// Set isMultivCenterCluster if the K8s cluster is a multi-VC cluster.
 				isMultiVCSupportEnabled = c.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
-				if isMultiVCSupportEnabled {
-					cfg, err := cnsconfig.GetConfig(ctx)
-					if err != nil {
-						return nil, logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
-					}
-					if len(cfg.VirtualCenter) > 1 {
-						isMultivCenterCluster = true
-					}
+
+				// Create a cache of topology tags -> VC -> associated MoRefs in that VC to ease volume provisioning.
+				err = common.DiscoverTagEntities(ctx)
+				if err != nil {
+					return nil, logger.LogNewErrorf(log,
+						"failed to update cache with topology information. Error: %+v", err)
 				}
 
 				controllerVolumeTopologyInstance = &controllerVolumeTopology{
@@ -538,9 +536,6 @@ func topoCRAdded(obj interface{}) {
 	}
 	if isMultiVCSupportEnabled {
 		common.AddNodeToDomainNodeMapNew(ctx, nodeTopoObj)
-		if isMultivCenterCluster {
-			common.AddLabelsToTopologyVCMap(ctx, nodeTopoObj)
-		}
 	} else {
 		addNodeToDomainNodeMap(ctx, nodeTopoObj)
 	}
@@ -592,9 +587,6 @@ func topoCRUpdated(oldObj interface{}, newObj interface{}) {
 			oldNodeTopoObj, newNodeTopoObj)
 		if isMultiVCSupportEnabled {
 			common.RemoveNodeFromDomainNodeMapNew(ctx, oldNodeTopoObj)
-			if isMultivCenterCluster {
-				common.RemoveLabelsFromTopologyVCMap(ctx, oldNodeTopoObj)
-			}
 		} else {
 			removeNodeFromDomainNodeMap(ctx, oldNodeTopoObj)
 		}
@@ -603,9 +595,6 @@ func topoCRUpdated(oldObj interface{}, newObj interface{}) {
 	if newNodeTopoObj.Status.Status == csinodetopologyv1alpha1.CSINodeTopologySuccess {
 		if isMultiVCSupportEnabled {
 			common.AddNodeToDomainNodeMapNew(ctx, newNodeTopoObj)
-			if isMultivCenterCluster {
-				common.AddLabelsToTopologyVCMap(ctx, newNodeTopoObj)
-			}
 		} else {
 			addNodeToDomainNodeMap(ctx, newNodeTopoObj)
 		}
@@ -627,9 +616,6 @@ func topoCRDeleted(obj interface{}) {
 	if nodeTopoObj.Status.Status == csinodetopologyv1alpha1.CSINodeTopologySuccess {
 		if isMultiVCSupportEnabled {
 			common.RemoveNodeFromDomainNodeMapNew(ctx, nodeTopoObj)
-			if isMultivCenterCluster {
-				common.RemoveLabelsFromTopologyVCMap(ctx, nodeTopoObj)
-			}
 		} else {
 			removeNodeFromDomainNodeMap(ctx, nodeTopoObj)
 		}
