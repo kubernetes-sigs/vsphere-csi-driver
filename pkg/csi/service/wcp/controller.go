@@ -129,6 +129,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
 		return err
 	}
+	vcenterconfig.ReloadVCConfigForNewClient = true
 	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
 	vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
 	if err != nil {
@@ -243,8 +244,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 							log.Infof("Successfully reloaded configuration from: %q", cfgPath)
 							break
 						}
-						log.Errorf("failed to reload configuration. will retry again in 5 seconds. err: %+v", reloadConfigErr)
-						time.Sleep(5 * time.Second)
+						log.Errorf("failed to reload configuration. will retry again in 60 seconds. err: %+v", reloadConfigErr)
+						time.Sleep(60 * time.Second)
 					}
 				}
 				// Handling create event for reconnecting to VC when ca file is
@@ -322,6 +323,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 		return err
 	}
 	if newVCConfig != nil {
+		newVCConfig.ReloadVCConfigForNewClient = true
 		var vcenter *cnsvsphere.VirtualCenter
 		if c.manager.VcenterConfig.Host != newVCConfig.Host ||
 			c.manager.VcenterConfig.Username != newVCConfig.Username ||

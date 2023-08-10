@@ -286,6 +286,12 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 		return err
 	}
 	if vc.Client == nil {
+		if vc.Config.ReloadVCConfigForNewClient {
+			err = ReadVCConfigs(ctx, vc)
+			if err != nil {
+				return err
+			}
+		}
 		log.Infof("VirtualCenter.connect() creating new client")
 		if vc.Client, err = vc.NewClient(ctx, useragent); err != nil {
 			log.Errorf("failed to create govmomi client with err: %v", err)
@@ -313,27 +319,9 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 	// If session has expired, create a new instance.
 	log.Infof("Creating a new client session as the existing one isn't valid or not authenticated")
 	if vc.Config.ReloadVCConfigForNewClient {
-		log.Info("Reloading latest VC config from vSphere Config Secret")
-		cfg, err := config.GetConfig(ctx)
+		err = ReadVCConfigs(ctx, vc)
 		if err != nil {
-			return logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
-		}
-		var foundVCConfig bool
-		newVcenterConfigs, err := GetVirtualCenterConfigs(ctx, cfg)
-		if err != nil {
-			return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err=%v", err)
-		}
-		for _, newvcconfig := range newVcenterConfigs {
-			if newvcconfig.Host == vc.Config.Host {
-				newvcconfig.ReloadVCConfigForNewClient = true
-				vc.Config = newvcconfig
-				log.Infof("Successfully set latest VC config for vcenter: %q", vc.Config.Host)
-				foundVCConfig = true
-				break
-			}
-		}
-		if !foundVCConfig {
-			return logger.LogNewErrorf(log, "failed to get vCenter config for Host: %q", vc.Config.Host)
+			return err
 		}
 	}
 	if vc.Client, err = vc.NewClient(ctx, useragent); err != nil {
@@ -373,6 +361,37 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 			return err
 		}
 	}
+	return nil
+}
+
+// ReadVCConfigs will ensure we are always reading the latest config
+// before attempting to create a new govmomi client.
+// It works in case of both vanilla (including multi-vc) and wcp
+func ReadVCConfigs(ctx context.Context, vc *VirtualCenter) error {
+	log := logger.GetLogger(ctx)
+	log.Infof("Reloading latest VC config from vSphere Config Secret for vcenter: %q", vc.Config.Host)
+	cfg, err := config.GetConfig(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
+	}
+	var foundVCConfig bool
+	newVcenterConfigs, err := GetVirtualCenterConfigs(ctx, cfg)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err=%v", err)
+	}
+	for _, newvcconfig := range newVcenterConfigs {
+		if newvcconfig.Host == vc.Config.Host {
+			newvcconfig.ReloadVCConfigForNewClient = true
+			vc.Config = newvcconfig
+			log.Infof("Successfully set latest VC config for vcenter: %q", vc.Config.Host)
+			foundVCConfig = true
+			break
+		}
+	}
+	if !foundVCConfig {
+		return logger.LogNewErrorf(log, "failed to get vCenter config for Host: %q", vc.Config.Host)
+	}
+
 	return nil
 }
 

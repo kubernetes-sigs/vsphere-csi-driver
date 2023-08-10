@@ -645,11 +645,17 @@ func (m *defaultManager) initListView() error {
 		}
 	}
 
+	err := cnsvsphere.ReadVCConfigs(ctx, m.virtualCenter)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to read VC config. err: %v", err)
+	}
+
 	useragent, err := config.GetSessionUserAgent(ctx)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to get useragent for vCenter session. error: %+v", err)
 	}
 	useragent = useragent + "-listview"
+
 	govmomiClient, err := m.virtualCenter.NewClient(ctx, useragent)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create a separate govmomi client for listView. error: %+v", err)

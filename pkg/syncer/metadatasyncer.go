@@ -248,6 +248,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		if err != nil {
 			return err
 		}
+		vCenter.Config.ReloadVCConfigForNewClient = true
 		metadataSyncer.host = vCenter.Config.Host
 
 		cnsDeletionMap[metadataSyncer.host] = make(map[string]bool)
