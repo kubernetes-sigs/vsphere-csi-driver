@@ -1437,7 +1437,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
 			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
-	return resp, nil
+	return resp, err
 }
 
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (
