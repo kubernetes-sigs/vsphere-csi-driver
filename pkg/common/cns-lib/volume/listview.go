@@ -164,6 +164,11 @@ func (l *ListViewImpl) isClientValid() error {
 	} else if userSession != nil {
 		return nil
 	}
+
+	err := cnsvsphere.ReadVCConfigs(l.ctx, l.virtualCenter)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to read VC config. err: %v", err)
+	}
 	// If session has expired, create a new instance.
 	useragent, err := config.GetSessionUserAgent(l.ctx)
 	if err != nil {
