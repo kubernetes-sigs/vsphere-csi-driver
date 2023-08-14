@@ -1057,8 +1057,6 @@ func createMultiplePods(ctx context.Context, client clientset.Interface,
 ) []*v1.Pod {
 	pods := []*v1.Pod{}
 	var err error
-	var exists bool
-	var vmUUID string
 	for _, pvcs := range pvclaims2d {
 		if len(pvcs) != 0 {
 			pod := fpod.MakePod(pvcs[0].Namespace, nil, pvcs, false, execCommand)
@@ -1068,50 +1066,63 @@ func createMultiplePods(ctx context.Context, client clientset.Interface,
 			pods = append(pods, pod)
 		}
 	}
-
-	for i, pod := range pods {
+	for _, pod := range pods {
 		// Waiting for pod to be running.
 		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, pod.Namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	if verifyAttachment {
+		verifyVolMountsInPods(ctx, client, pods, pvclaims2d)
+	}
+
+	return pods
+}
+
+func verifyVolMountsInPods(ctx context.Context, client clientset.Interface, pods []*v1.Pod,
+	pvclaims2d [][]*v1.PersistentVolumeClaim) {
+
+	var exists bool
+	var vmUUID string
+	for i, pod := range pods {
+		// Waiting for pod to be running.
+		err := fpod.WaitForPodNameRunningInNamespace(client, pod.Name, pod.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Get fresh pod info.
 		pods[i], err = client.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pod = pods[i]
 		for _, pvc := range pvclaims2d[i] {
-			if verifyAttachment {
-				if vanillaCluster {
-					vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
-				} else if guestCluster {
-					vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				} else {
-					annotations := pod.Annotations
-					vmUUID, exists = annotations[vmUUIDLabel]
-					gomega.Expect(exists).To(
-						gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel),
-					)
-				}
-				var volHandle string
-				volHandle = getVolHandle4Pvc(ctx, client, pvc)
-				if guestCluster {
-					pv := getPvFromClaim(client, pvc.Namespace, pvc.Name)
-					volHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
-					gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-				}
-				ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s, VMUUID : %s",
-					volHandle, pod.Spec.NodeName, vmUUID))
-				isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+			if vanillaCluster {
+				vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
+			} else if guestCluster {
+				vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
-					"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
+			} else {
+				annotations := pod.Annotations
+				vmUUID, exists = annotations[vmUUIDLabel]
+				gomega.Expect(exists).To(
+					gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel),
+				)
 			}
+			var volHandle string
+			volHandle = getVolHandle4Pvc(ctx, client, pvc)
+			if guestCluster {
+				pv := getPvFromClaim(client, pvc.Namespace, pvc.Name)
+				volHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+			}
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s, VMUUID : %s",
+				volHandle, pod.Spec.NodeName, vmUUID))
+			isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
+				"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
 			ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 			_, err = e2eoutput.LookForStringInPodExec(pvc.Namespace, pod.Name,
 				[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}
-	return pods
 }
 
 // getVolHandle4Pv fetches volume handle for given PVC

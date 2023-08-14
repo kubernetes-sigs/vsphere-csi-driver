@@ -23,6 +23,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/pbm"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
+	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -1287,4 +1288,57 @@ func waitForCNSTaskToComplete(ctx context.Context, task *object.Task) *vim25type
 
 	cnsTaskRes := taskResult.GetCnsVolumeOperationResult()
 	return cnsTaskRes.Fault
+}
+
+func (vs *vSphere) svmotionVM2DiffDs(ctx context.Context, vm *object.VirtualMachine, destinationDsUrl string) {
+	dsMo := vs.getDsByUrl(ctx, destinationDsUrl)
+	relocateSpec := vim25types.VirtualMachineRelocateSpec{}
+	dsref := dsMo.Reference()
+	relocateSpec.Datastore = &dsref
+	vmname, err := vm.ObjectName(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Starting relocation of vm %s to datastore %s", vmname, dsref.Value)
+	task, err := vm.Relocate(ctx, relocateSpec, vim25types.VirtualMachineMovePriorityHighPriority)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	_, err = task.WaitForResult(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Relocation of vm %s to datastore %s completed successfully", vmname, dsref.Value)
+}
+
+func (vs *vSphere) getDsByUrl(ctx context.Context, datastoreURL string) mo.Datastore {
+	finder := find.NewFinder(vs.Client.Client, false)
+	dcString := e2eVSphere.Config.Global.Datacenters
+	dc, err := finder.Datacenter(ctx, dcString)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	finder.SetDatacenter(dc)
+	datastores, err := finder.DatastoreList(ctx, "*")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var dsList []vim25types.ManagedObjectReference
+	for _, ds := range datastores {
+		dsList = append(dsList, ds.Reference())
+	}
+	var dsMoList []mo.Datastore
+	pc := property.DefaultCollector(vs.Client.Client)
+	properties := []string{"info"}
+	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var dsMo mo.Datastore
+	for _, mo := range dsMoList {
+		if mo.Info.GetDatastoreInfo().Url == datastoreURL {
+			dsMo = mo
+		}
+	}
+	gomega.Expect(dsMo).NotTo(gomega.BeNil())
+	return dsMo
+}
+
+func (vs *vSphere) getAllVms(ctx context.Context) []*object.VirtualMachine {
+	finder := find.NewFinder(vs.Client.Client, false)
+	dcString := e2eVSphere.Config.Global.Datacenters
+	dc, err := finder.Datacenter(ctx, dcString)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	finder.SetDatacenter(dc)
+	vms, err := finder.VirtualMachineList(ctx, "*")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return vms
 }
