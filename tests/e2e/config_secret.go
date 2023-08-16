@@ -131,7 +131,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 				vCenterPort, dataCenter, "", clusterId)
 
 			ginkgo.By("Restart CSI driver")
-			restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			csiNamespace, vCenterIP, vCenterPort, dataCenter, "", clusterId)
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -212,13 +212,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
-			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -283,7 +283,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			vCenterIP, vCenterPort, dataCenter, "", clusterId)
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -357,13 +357,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
-			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -438,7 +438,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			vCenterIP, vCenterPort, dataCenter, "", clusterId)
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -468,13 +468,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
-			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -535,7 +535,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			vCenterIP, vCenterPort, dataCenter, "", clusterId)
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -564,7 +564,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			vCenterHostName, vCenterPort, dataCenter, "", clusterId)
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -585,13 +585,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
-			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -652,7 +652,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			vCenterIP, vCenterPort, dataCenter, "", clusterId)
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -712,13 +712,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
-			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -780,7 +780,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			vCenterIP, vCenterPort, dataCenter, "", clusterId)
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -804,7 +804,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			vCenterIP, vCenterPort, dataCenter, "", clusterId)
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -833,13 +833,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
-			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -907,13 +907,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
-			restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -946,7 +946,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			dataCenters, clusters, hosts, vms, datastores, "reuseUser", "reuseRoles")
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1015,7 +1015,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			vCenterIP, vCenterPort, dataCenter, "", clusterId)
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1069,13 +1069,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
-			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1145,7 +1145,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			vCenterIP, vCenterPort, dataCenter, "", clusterId)
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1175,13 +1175,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
-			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1239,7 +1239,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			vCenterIP, defaultvCenterPort, dataCenter, "", clusterId)
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1280,13 +1280,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
-			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1367,7 +1367,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			vCenterIP, vCenterPort, dataCenter, "", clusterId)
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1392,7 +1392,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			vCenterIP, dummyvCenterPort, dataCenter, "", clusterId)
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1421,13 +1421,13 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
-			restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, namespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

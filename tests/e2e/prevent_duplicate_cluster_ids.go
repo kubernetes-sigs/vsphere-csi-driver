@@ -778,7 +778,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			}
 		}()
 		for i := 0; i < 3; i++ {
-			restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
