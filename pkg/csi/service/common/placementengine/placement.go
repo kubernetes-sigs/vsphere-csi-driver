@@ -24,8 +24,8 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 	params := reqParams.(VanillaSharedDatastoresParams)
 	nodeMgr := node.GetManager(ctx)
 
-	log.Infof("GetSharedDatastores called with policyID: %q , Topology Segment List: %v",
-		params.StoragePolicyID, params.TopologySegmentsList)
+	log.Infof("GetSharedDatastores called for VC %q with policyID: %q , Topology Segment List: %v",
+		params.Vcenter.Config.Host, params.StoragePolicyID, params.TopologySegmentsList)
 	var sharedDatastores []*cnsvsphere.DatastoreInfo
 	// Iterate through each set of topology segments and find shared datastores for that segment.
 	/* For example, if the topology environment is as follows:
@@ -64,7 +64,7 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 				reqSegment)
 			continue
 		}
-		log.Infof("TopologySegments expanded as: %+v", completeTopologySegments)
+		log.Infof("TopologySegment %+v expanded as: %+v", reqSegment, completeTopologySegments)
 		// For each segment in the complete topology segments hierarchy, get the matching hosts.
 		for _, segment := range completeTopologySegments {
 			hostMoRefs, err := common.GetHostsForSegment(ctx, segment, params.Vcenter)
