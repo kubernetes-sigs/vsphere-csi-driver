@@ -163,11 +163,11 @@ func GetHostsForSegment(ctx context.Context, topoSegment map[string]string, vCen
 				}
 				for _, childType := range folder.ChildType {
 					switch childType {
-					case "vim.Datacenter":
+					case "Datacenter":
 						entityPref = 2
-					case "vim.ComputeResource":
+					case "ComputeResource":
 						entityPref = 4
-					case "vim.Folder":
+					case "Folder":
 						continue
 					default:
 						return nil, logger.LogNewErrorf(log, "unrecognised childType for Folder %+v",

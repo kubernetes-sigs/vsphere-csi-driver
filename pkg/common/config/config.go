@@ -401,7 +401,7 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 	}
 	if cfg.NetPermissions == nil {
 		// If no net permissions are given, assume default.
-		log.Info("No Net Permissions given in Config. Using default permissions.")
+		log.Debug("No Net Permissions given in Config. Using default permissions.")
 		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 			cfg.NetPermissions = map[string]*NetPermissionConfig{"#": GetDefaultNetPermission()}
 		}
