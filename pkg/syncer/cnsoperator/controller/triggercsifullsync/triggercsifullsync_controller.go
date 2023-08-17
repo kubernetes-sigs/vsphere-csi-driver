@@ -163,6 +163,7 @@ type ReconcileTriggerCsiFullSync struct {
 func (r *ReconcileTriggerCsiFullSync) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
+	log.Info("Reconciling CR TriggerCsiFullSync")
 	// Fetch the TriggerCsiFullSync instance.
 	instance := &triggercsifullsyncv1alpha1.TriggerCsiFullSync{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
@@ -176,7 +177,7 @@ func (r *ReconcileTriggerCsiFullSync) Reconcile(ctx context.Context,
 		// Error reading the object - return with err.
 		return reconcile.Result{}, err
 	}
-
+	log.Info("Reconciling trigger full sync")
 	// Initialize backOffDuration for the instance, if required.
 	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
@@ -218,8 +219,10 @@ func (r *ReconcileTriggerCsiFullSync) Reconcile(ctx context.Context,
 		// LastTriggerSyncID saves the last TriggerSyncID attempted by the
 		// user regardless of success or failure.
 		instance.Status.LastTriggerSyncID = instance.Spec.TriggerSyncID
+		log.Info("TriggerCsiFullSync update status with LastTriggerSyncID ")
 		err = updateTriggerCsiFullSync(ctx, r.client, instance)
 		if err != nil {
+			log.Errorf("TriggerCsiFullSync failed, %v ", err)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning,
 				fmt.Sprintf("Failed to increment LastTriggerSyncID with TriggerSyncID: %d", instance.Spec.TriggerSyncID))
 			return reconcile.Result{RequeueAfter: timeout}, nil
@@ -237,8 +240,10 @@ func (r *ReconcileTriggerCsiFullSync) Reconcile(ctx context.Context,
 	log.Infof("Reconciling trigger full sync with triggerSyncID: %d", instance.Spec.TriggerSyncID)
 	instance.Status.LastTriggerSyncID = instance.Spec.TriggerSyncID
 	instance.Status.InProgress = true
+	log.Info("TriggerCsiFullSync set operation in progress and update LastTriggerSyncID")
 	err = updateTriggerCsiFullSync(ctx, r.client, instance)
 	if err != nil {
+		log.Errorf("TriggerCsiFullSync failed %v", err)
 		recordEvent(ctx, r, instance, v1.EventTypeWarning,
 			fmt.Sprintf("Failed to update LastTriggerSyncID and Inprogress for TriggerSyncID: %d",
 				instance.Spec.TriggerSyncID))
@@ -282,6 +287,7 @@ func setInstanceError(ctx context.Context, r *ReconcileTriggerCsiFullSync,
 	instance.Status.LastTriggerSyncID = instance.Spec.TriggerSyncID
 	instance.Status.InProgress = false
 	instance.Status.Error = errMsg
+	log.Info("TriggerCsiFullSync update status with error")
 	err := updateTriggerCsiFullSync(ctx, r.client, instance)
 	if err != nil {
 		log.Errorf("updateTriggerCsiFullSync failed. err: %v", err)
@@ -300,6 +306,7 @@ func setInstanceSuccess(ctx context.Context, r *ReconcileTriggerCsiFullSync,
 	instance.Status.LastRunEndTimeStamp = &metav1.Time{Time: time.Now()}
 	instance.Status.InProgress = false
 	instance.Status.Error = ""
+	log.Info("TriggerCsiFullSync update status with success")
 	err := updateTriggerCsiFullSync(ctx, r.client, instance)
 	if err != nil {
 		log.Errorf("updateTriggerCsiFullSync failed. err: %v", err)
@@ -328,8 +335,9 @@ func updateTriggerCsiFullSync(ctx context.Context, client client.Client,
 	if err != nil {
 		log.Errorf("Failed to update TriggerCsiFullSync instance: %+v. Error: %+v",
 			instance, err)
+		return err
 	}
-	return err
+	return nil
 }
 
 // getMaxWorkerThreadsToReconcileTriggerCsiFullSync returns the maximum number

@@ -514,7 +514,10 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 				// Update TriggerCsiFullSync instance if full sync is not already in progress
 				if triggerCsiFullSyncInstance.Status.InProgress {
-					log.Infof("There is a full sync already in progress. Ignoring this current cycle of periodic full sync")
+					log.Info("There is a full sync already in progress. Ignoring this current cycle of periodic full sync")
+				} else if !triggerCsiFullSyncInstance.Status.InProgress &&
+					triggerCsiFullSyncInstance.Spec.TriggerSyncID != triggerCsiFullSyncInstance.Status.LastTriggerSyncID {
+					log.Info("FullSync is already triggered. Ignoring this current cycle of periodic full sync")
 				} else {
 					triggerCsiFullSyncInstance.Spec.TriggerSyncID = triggerCsiFullSyncInstance.Spec.TriggerSyncID + 1
 					err = updateTriggerCsiFullSyncInstance(ctx, cnsOperatorClient, triggerCsiFullSyncInstance)
@@ -921,9 +924,12 @@ func getVCForTopologySegments(ctx context.Context, topologySegments map[string][
 // "csifullsync".
 func getTriggerCsiFullSyncInstance(ctx context.Context,
 	client client.Client) (*triggercsifullsyncv1alpha1.TriggerCsiFullSync, error) {
+	log := logger.GetLogger(ctx)
+	log.Info("get triggercsifullsync instance")
 	triggerCsiFullSyncInstance := &triggercsifullsyncv1alpha1.TriggerCsiFullSync{}
 	key := k8stypes.NamespacedName{Namespace: "", Name: common.TriggerCsiFullSyncCRName}
 	if err := client.Get(ctx, key, triggerCsiFullSyncInstance); err != nil {
+		log.Errorf("error get triggercsifullsync instance %+v", err)
 		return nil, err
 	}
 	return triggerCsiFullSyncInstance, nil
@@ -933,9 +939,12 @@ func getTriggerCsiFullSyncInstance(ctx context.Context,
 // name "csifullsync".
 func updateTriggerCsiFullSyncInstance(ctx context.Context,
 	client client.Client, instance *triggercsifullsyncv1alpha1.TriggerCsiFullSync) error {
+	log := logger.GetLogger(ctx)
+	log.Info("updating trigger csi fullsync instance")
 	if err := client.Update(ctx, instance); err != nil {
 		return err
 	}
+	log.Info("successfully update triggercsifullsync instance")
 	return nil
 }
 
