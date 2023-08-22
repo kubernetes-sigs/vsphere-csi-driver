@@ -160,7 +160,6 @@ func (l *ListViewImpl) isClientValid() error {
 	// authenticated or timed out.
 	if userSession, err := sessionMgr.UserSession(l.ctx); err != nil {
 		log.Errorf("failed to obtain user session with err: %v", err)
-		return err
 	} else if userSession != nil {
 		return nil
 	}
