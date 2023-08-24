@@ -15,7 +15,7 @@
 
 set -e
 
-if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+function usage() {
     cat <<EOF
 Usage: Deploys the necessary components for CSI Snapshot feature for vSphere CSI driver.
 
@@ -37,12 +37,39 @@ The script patches the vSphere CSI driver with the qualified csi-snapshotter sid
 
 Refer to https://kubernetes-csi.github.io/docs/snapshot-controller.html for further information.
 
-Example command:
-
-./deploy-csi-snapshot-components.sh
+usage: ${0} [OPTIONS]
+The following options are available:
+	--namespace 	  Namespace where vSphere CSI driver is deployed. (default: vmware-system-csi)
+	--context         Kubernetes context to deploy to.
 EOF
+}
+
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+	usage
     exit 0
 fi
+
+context=""
+
+while [[ $# -gt 0 ]]; do
+    case ${1} in
+        --namespace)
+            namespace="$2"
+            shift
+            ;;
+        --context)
+            context="$2"
+            shift
+            ;;
+        *)
+            usage
+			exit 1
+            ;;
+    esac
+    shift
+done
+
+[ -z "${namespace}" ] && namespace=vmware-system-csi
 
 if ! command -v kubectl > /dev/null; then
   echo "kubectl is missing"
@@ -50,10 +77,32 @@ if ! command -v kubectl > /dev/null; then
   exit 1
 fi
 
+if [ -n "${context}" ]; then
+	old_kube_context=$(kubectl config current-context)
+
+	if ! [[ "${old_kube_context}" = "${context}" ]]; then
+		trap 'kubectl config use-context "${old_kube_context}"' EXIT
+		kubectl config use-context "${context}"
+	fi
+fi
+
+kubectl version 1>/dev/null
+
+feature_state=$(kubectl get configmap internal-feature-states.csi.vsphere.vmware.com -n "${namespace}" -o jsonpath='{.data.block-volume-snapshot}')
+if [ "$feature_state" = "true" ]
+then
+        echo -e "✅ Verified that block-volume-snapshot feature is enabled"
+else
+        echo -e "❌ ERROR: Please enable the block-volume-snapshot feature to proceed"
+        exit 1
+fi
+
 qualified_version="v6.3.3"
 volumesnapshotclasses_crd="volumesnapshotclasses.snapshot.storage.k8s.io"
 volumesnapshotcontents_crd="volumesnapshotcontents.snapshot.storage.k8s.io"
 volumesnapshots_crd="volumesnapshots.snapshot.storage.k8s.io"
+node_selector=""
+node_tolerations=""
 
 is_deployment_available(){
 	if ! output=$(kubectl get deployment "$1" -n "$2" 2>&1); then
@@ -147,13 +196,50 @@ check_and_deploy_crds(){
 	echo  -e "\n✅ Deployed VolumeSnapshot CRDs\n"
 }
 
+find_control_plane_metadata(){
+	declare -g node_tolerations=""
+	declare -g node_tolerations=""
+
+	echo -e "Looking for control plane labels and taints..."
+	controller_labels=""
+	for label in "control-plane" "controlplane" "master"; do
+		# shellcheck disable=SC2016
+		controller_labels=$(kubectl get node --selector="node-role.kubernetes.io/${label}" -o go-template='{{ range $node := .items }}{{ range $k, $v := .metadata.labels}}{{ printf "\"%s\": \"%s\"\n" $k $v }}{{ end }}{{ end }}' | grep node-role.kubernetes.io | sort | uniq)
+		controller_taints=$(kubectl get node --selector="node-role.kubernetes.io/${label}" -o jsonpath='{range .items[*]}{range .spec.taints[*]}{@}{"\n"}{end}{end}' | sort | uniq)
+
+		if [ -n "$controller_labels" ]; then
+			break
+		fi
+	done
+
+	if [ -z "$controller_labels" ]; then
+		echo -e "❌ ERROR: Could not find any control plane nodes with one or more of the following labels: control-plane, controlplane, or master" 1>&2
+		exit 1
+	fi
+
+	if [[ -z "$controller_taints" ]]; then
+		echo -e "❌ ERROR: Could not find any taints for control plane nodes." 1>&2
+		exit 1
+	fi
+
+	while read -r label; do
+		[[ -n "${node_selector}" ]] && node_selector="${node_selector}, "
+		node_selector="${node_selector}${label}"
+	done <<< "${controller_labels}"
+
+	while read -r taint; do
+		[[ -n "${node_tolerations}" ]] && node_tolerations="${node_tolerations}, "
+		node_tolerations="${node_tolerations}${taint}"
+	done <<< "${controller_taints}"
+}
+
 deploy_snapshot_controller(){
 	echo -e "Start snapshot-controller deployment..."
 	kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml 2>/dev/null || true
 	echo -e "✅ Created  RBACs for snapshot-controller"
 	kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml 2>/dev/null || true
 	kubectl -n kube-system set image deployment/snapshot-controller snapshot-controller=registry.k8s.io/sig-storage/snapshot-controller:"${qualified_version}"
-	kubectl patch deployment -n kube-system snapshot-controller --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/control-plane": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","operator":"Exists", "effect":"NoSchedule"}]}}}}'
+	kubectl patch deployment -n kube-system snapshot-controller --patch '{"spec": {"template": {"spec": {"nodeSelector": {'"${node_selector}"'}, "tolerations": ['"${node_tolerations}"']}}}}'
 	kubectl patch deployment -n kube-system snapshot-controller --type=json \
 	-p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kube-api-qps=100"},{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kube-api-burst=100"}]'
 	kubectl -n kube-system rollout status deploy/snapshot-controller
@@ -190,7 +276,7 @@ EOF
 
 	# Default webhook server and ca certificate validity
 	validity=180
- 
+
 	openssl req -nodes -new -x509 -keyout "${tmpdir}"/ca.key -days ${validity} -out "${tmpdir}"/ca.crt -subj "/CN=vSphere CSI Admission Controller Webhook CA"
 	openssl genrsa -out "${tmpdir}"/webhook-server-tls.key 2048
 	openssl req -new -key "${tmpdir}"/webhook-server-tls.key -subj "/CN=${service}.${namespace}.svc" -config "${tmpdir}"/server.conf \
@@ -217,7 +303,7 @@ EOF
 	kubectl delete deployment snapshot-validation-deployment --namespace "${namespace}" 2>/dev/null || true
 	# patch csi-snapshot-validatingwebhook.yaml with CA_BUNDLE and create service and validatingwebhookconfiguration
 	curl https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/vanilla/csi-snapshot-validatingwebhook.yaml | sed "s/caBundle: .*$/caBundle: ${CA_BUNDLE}/g" | kubectl apply -f -
-	kubectl patch deployment -n kube-system snapshot-validation-deployment --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/control-plane": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","operator":"Exists", "effect":"NoSchedule"}]}}}}'
+	kubectl patch deployment -n kube-system snapshot-validation-deployment --patch '{"spec": {"template": {"spec": {"nodeSelector": {'"${node_selector}"'}, "tolerations": ['"${node_tolerations}"']}}}}'
 	kubectl -n kube-system rollout status deploy/snapshot-validation-deployment
 	echo -e "\n✅ Successfully deployed snapshot-validation-deployment\n"
 }
@@ -246,21 +332,21 @@ spec:
             - mountPath: /csi
               name: socket-dir
 EOF
-	numOfCSIDriverRequiredReplicas=$(kubectl get deployment vsphere-csi-controller -n vmware-system-csi -o jsonpath='{.spec.replicas}')
+	numOfCSIDriverRequiredReplicas=$(kubectl get deployment vsphere-csi-controller -n "${namespace}" -o jsonpath='{.spec.replicas}')
 	echo -e "Scale down the vSphere CSI driver"
-	kubectl scale deployment vsphere-csi-controller -n vmware-system-csi --replicas=0
+	kubectl scale deployment vsphere-csi-controller -n "${namespace}" --replicas=0
 	echo -e "Patching vSphere CSI driver.."
-	kubectl patch deployment vsphere-csi-controller -n vmware-system-csi --patch "$(cat "${tmpdir}"/patch.yaml)"
+	kubectl patch deployment vsphere-csi-controller -n "${namespace}" --patch "$(cat "${tmpdir}"/patch.yaml)"
 	echo -e "Scaling the vSphere CSI driver back to original state.."
-	kubectl scale deployment vsphere-csi-controller -n vmware-system-csi --replicas="${numOfCSIDriverRequiredReplicas}"
-	kubectl -n vmware-system-csi rollout status deploy/vsphere-csi-controller
+	kubectl scale deployment vsphere-csi-controller -n "${namespace}" --replicas="${numOfCSIDriverRequiredReplicas}"
+	kubectl -n "${namespace}" rollout status deploy/vsphere-csi-controller
 }
 
 check_snapshotter_sidecar(){
 	local found="false"
 	local container_images
 	local csi_snapshotter_image="registry.k8s.io/sig-storage/csi-snapshotter"
-	container_images=$(kubectl -n vmware-system-csi get deployment vsphere-csi-controller -o jsonpath='{.spec.template.spec.containers[*].image}')
+	container_images=$(kubectl -n "${namespace}" get deployment vsphere-csi-controller -o jsonpath='{.spec.template.spec.containers[*].image}')
 	IFS=' '
 	read -r -a container_images_arr <<< "$container_images"
 	for image in "${container_images_arr[@]}"; do
@@ -294,6 +380,12 @@ check_snapshotter_sidecar(){
 
 # Check if CRDs exist, if they do, then validate the version, if not then deploy them
 check_and_deploy_crds
+find_control_plane_metadata
+
+if [ -z "${node_selector}" ] || [[ -z "${node_tolerations}" ]]; then
+	echo -e "❌ ERROR: Unable to find control plane nodes." 1>&2
+	exit 1
+fi
 
 snap_controller_available=$(is_deployment_available snapshot-controller kube-system)
 if [ "$snap_controller_available" = "true" ]
