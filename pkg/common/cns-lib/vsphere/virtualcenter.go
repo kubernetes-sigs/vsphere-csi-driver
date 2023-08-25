@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net"
 	neturl "net/url"
+	"reflect"
 	"strconv"
 	"sync"
 	"time"
@@ -45,6 +46,8 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 )
 
 const (
@@ -52,6 +55,11 @@ const (
 	DefaultScheme = "https"
 	// DefaultRoundTripperCount is the default SOAP round tripper count.
 	DefaultRoundTripperCount = 3
+
+	// success request
+	statusSuccess = "success"
+	// failed request
+	statusFailUnknown = "fail-unknown"
 )
 
 // VirtualCenter holds details of a virtual center instance.
@@ -70,6 +78,11 @@ type VirtualCenter struct {
 	VslmClient *vslm.Client
 	// ClientMutex is used for exclusive connection creation.
 	ClientMutex *sync.Mutex
+}
+
+type MetricRoundTripper struct {
+	clientName   string
+	roundTripper soap.RoundTripper
 }
 
 var (
@@ -205,8 +218,8 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 	if vc.Config.RoundTripperCount == 0 {
 		vc.Config.RoundTripperCount = DefaultRoundTripperCount
 	}
-	client.RoundTripper = vim25.Retry(client.RoundTripper,
-		vim25.TemporaryNetworkError(vc.Config.RoundTripperCount))
+	rt := vim25.Retry(client.RoundTripper, vim25.TemporaryNetworkError(vc.Config.RoundTripperCount))
+	client.RoundTripper = &MetricRoundTripper{"soap", rt}
 	return client, nil
 }
 
@@ -337,6 +350,7 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 			log.Errorf("failed to create pbm client with err: %v", err)
 			return err
 		}
+		vc.PbmClient.RoundTripper = &MetricRoundTripper{"pbm", vc.PbmClient.RoundTripper}
 	}
 	// Recreate CNSClient if created using timed out VC Client.
 	if vc.CnsClient != nil {
@@ -360,6 +374,7 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 			log.Errorf("failed to create vsan client with err: %v", err)
 			return err
 		}
+		vc.VsanClient.RoundTripper = &MetricRoundTripper{"vsan", vc.VsanClient.RoundTripper}
 	}
 	return nil
 }
@@ -753,4 +768,20 @@ func (vc *VirtualCenter) GetAllVirtualMachines(ctx context.Context,
 		virtualMachines = append(virtualMachines, vm)
 	}
 	return virtualMachines, nil
+}
+
+func (mrt *MetricRoundTripper) RoundTrip(ctx context.Context, req, resp soap.HasFault) error {
+	vreq := reflect.ValueOf(req).Elem().FieldByName("Req").Elem()
+	requestName := vreq.Type().Name()
+	requestTime := time.Now()
+	err := mrt.roundTripper.RoundTrip(ctx, req, resp)
+	if err != nil {
+		timeTaken := time.Since(requestTime).Seconds()
+		prometheus.RequestOpsMetric.WithLabelValues(requestName, mrt.clientName, statusFailUnknown).Observe(timeTaken)
+		return err
+	}
+
+	timeTaken := time.Since(requestTime).Seconds()
+	prometheus.RequestOpsMetric.WithLabelValues(requestName, mrt.clientName, statusSuccess).Observe(timeTaken)
+	return nil
 }
