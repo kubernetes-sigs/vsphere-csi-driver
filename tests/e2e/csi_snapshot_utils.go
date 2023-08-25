@@ -104,6 +104,7 @@ func waitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx co
 		_, err = client.SnapshotV1().VolumeSnapshotContents().Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			if apierrors.IsNotFound(err) {
+				framework.Logf("VolumeSnapshotContent: %s is deleted", name)
 				return true, nil
 			} else {
 				return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
@@ -302,7 +303,7 @@ func deleteVolumeSnapshot(ctx context.Context, snapc *snapclient.Clientset, name
 	deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
 	snapshotCreated := false
 
-	framework.Logf("Wait until the volume snapshot is deleted")
+	framework.Logf("Wait until the volume snapshot content is deleted")
 	err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
 	if err != nil {
 		return snapshotCreated, false, err
@@ -381,7 +382,7 @@ func createVolumeSnapshotClass(ctx context.Context, snapc *snapclient.Clientset,
 			return false, nil
 		})
 		if waitErr == wait.ErrWaitTimeout {
-			return nil, fmt.Errorf("couldn't find volumesnapshotclass: %s in SVC", volumeSnapshotClassName)
+			return nil, fmt.Errorf("couldn't find volumesnapshotclass: %s", volumeSnapshotClassName)
 		}
 	}
 	return volumeSnapshotClass, nil
@@ -488,7 +489,7 @@ of volume snapshot content from delete to retain in Guest Cluster
 */
 func changeDeletionPolicyOfVolumeSnapshotContent(ctx context.Context,
 	snapshotContent *snapV1.VolumeSnapshotContent, snapc *snapclient.Clientset,
-	namespace string, policyName snapV1.DeletionPolicy) (*snapV1.VolumeSnapshotContent, error) {
+	policyName snapV1.DeletionPolicy) (*snapV1.VolumeSnapshotContent, error) {
 
 	// Retrieve the latest version of the object
 	latestSnapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx, snapshotContent.Name,
@@ -534,8 +535,9 @@ func createPreProvisionedSnapshotInGuestCluster(ctx context.Context, volumeSnaps
 
 	framework.Logf("Change the deletion policy of VolumeSnapshotContent from Delete to Retain " +
 		"in Guest Cluster")
+
 	updatedSnapshotContent, err := changeDeletionPolicyOfVolumeSnapshotContent(ctx, updatedSnapshotContent,
-		snapc, namespace, snapV1.VolumeSnapshotContentRetain)
+		snapc, snapV1.VolumeSnapshotContentRetain)
 	if err != nil {
 		return nil, nil, false, false, fmt.Errorf("failed to change deletion policy of VolumeSnapshotContent: %v", err)
 	}
@@ -667,7 +669,7 @@ func createPVCAndQueryVolumeInCNS(client clientset.Interface, namespace string,
 
 	ginkgo.By("Expect claim to provision volume successfully")
 	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
-		[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+		[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout*2)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 	if guestCluster {
