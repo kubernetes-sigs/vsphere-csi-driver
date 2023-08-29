@@ -650,12 +650,20 @@ func powerOnPreferredDatastore(datastoreToPowerOn string, opName string) {
 
 /* fetchWorkerNodeVms fetches the list of vms */
 func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, dataCenter []*object.Datacenter,
-	workerNodeAlias string) ([]string, error) {
+	workerNodeAlias string, isMultiVcSetup bool, itr int) ([]string, error) {
 	var clusFolderTemp []string
 	var clusterFolderName string
+	var clusterFolder string
 	var k8svMList []string
+	var listWokerVms string
+	var listvCLSVms string
+
 	for i := 0; i < len(dataCenter); i++ {
-		clusterFolder := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
+		if !isMultiVcSetup {
+			clusterFolder = govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
+		} else {
+			clusterFolder = govcLoginCmdForMultiVC(itr) + "govc ls " + dataCenter[i].InventoryPath
+		}
 		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder)
 		if err != nil && clusterFolderNameResult.Code != 0 {
 			fssh.LogResult(clusterFolderNameResult)
@@ -671,8 +679,13 @@ func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, data
 				break
 			}
 		}
-		listWokerVms := govcLoginCmd() + "govc ls " + clusterFolderName + " | grep " +
-			workerNodeAlias + "-.*worker"
+		if !isMultiVcSetup {
+			listWokerVms = govcLoginCmd() + "govc ls " + clusterFolderName + " | grep " +
+				workerNodeAlias + "-.*worker"
+		} else {
+			listWokerVms = govcLoginCmdForMultiVC(itr) + "govc ls " + clusterFolderName + " | grep " +
+				workerNodeAlias + "-.*worker"
+		}
 		framework.Logf("cmd : %s ", listWokerVms)
 		result, err := sshExec(sshClientConfig, masterIp, listWokerVms)
 		if err != nil && result.Code != 0 {
@@ -684,7 +697,11 @@ func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, data
 		for i := 0; i < len(vMList)-1; i++ {
 			k8svMList = append(k8svMList, vMList[i])
 		}
-		listvCLSVms := govcLoginCmd() + "govc ls " + clusterFolderName + "/vCLS"
+		if !isMultiVcSetup {
+			listvCLSVms = govcLoginCmd() + "govc ls " + clusterFolderName + "/vCLS"
+		} else {
+			listvCLSVms = govcLoginCmdForMultiVC(itr) + "govc ls " + clusterFolderName + "/vCLS"
+		}
 		framework.Logf("cmd : %s ", listvCLSVms)
 		listvCLSVmsRes, err := sshExec(sshClientConfig, masterIp, listvCLSVms)
 		if err != nil && listvCLSVmsRes.Code != 0 {
@@ -704,10 +721,16 @@ func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, data
 migrateVmsFromDatastore method is use to migrate the vms to destination preferred datastore
 */
 func migrateVmsFromDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	destDatastore string, vMsToMigrate []string) (bool, error) {
+	destDatastore string, vMsToMigrate []string, isMultiVcSetup bool, itr int) (bool, error) {
+	var migrateVm string
 	for i := 0; i < len(vMsToMigrate); i++ {
-		migrateVm := govcLoginCmd() + "govc vm.migrate -ds " + destDatastore + " " +
-			vMsToMigrate[i]
+		if !isMultiVcSetup {
+			migrateVm = govcLoginCmd() + "govc vm.migrate -ds " + destDatastore + " " +
+				vMsToMigrate[i]
+		} else {
+			migrateVm = govcLoginCmdForMultiVC(itr) + "govc vm.migrate -ds " + destDatastore + " " +
+				vMsToMigrate[i]
+		}
 		framework.Logf("cmd : %s ", migrateVm)
 		migrateVmRes, err := sshExec(sshClientConfig, masterIp, migrateVm)
 		if err != nil && migrateVmRes.Code != 0 {
@@ -724,9 +747,15 @@ preferredDatastoreInMaintenanceMode method is use to put preferred datastore in
 maintenance mode
 */
 func preferredDatastoreInMaintenanceMode(masterIp string, sshClientConfig *ssh.ClientConfig,
-	dataCenter []*object.Datacenter, datastoreName string) error {
+	dataCenter []*object.Datacenter, datastoreName string, isMultiVC bool, itr int) error {
+	var enableDrsModeCmd string
+	var putDatastoreInMMmodeCmd string
 	for i := 0; i < len(dataCenter); i++ {
-		enableDrsModeCmd := govcLoginCmd() + "govc datastore.cluster.change -drs-mode automated"
+		if !isMultiVC {
+			enableDrsModeCmd = govcLoginCmd() + "govc datastore.cluster.change -drs-mode automated"
+		} else {
+			enableDrsModeCmd = govcLoginCmdForMultiVC(itr) + "govc datastore.cluster.change -drs-mode automated"
+		}
 		framework.Logf("Enable drs mode: %s ", enableDrsModeCmd)
 		enableDrsMode, err := sshExec(sshClientConfig, masterIp, enableDrsModeCmd)
 		if err != nil && enableDrsMode.Code != 0 {
@@ -734,8 +763,13 @@ func preferredDatastoreInMaintenanceMode(masterIp string, sshClientConfig *ssh.C
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 				enableDrsModeCmd, masterIp, err)
 		}
-		putDatastoreInMMmodeCmd := govcLoginCmd() +
-			"govc datastore.maintenance.enter -ds " + datastoreName
+		if !isMultiVC {
+			putDatastoreInMMmodeCmd = govcLoginCmd() +
+				"govc datastore.maintenance.enter -ds " + datastoreName
+		} else {
+			putDatastoreInMMmodeCmd = govcLoginCmdForMultiVC(itr) +
+				"govc datastore.maintenance.enter -ds " + datastoreName
+		}
 		framework.Logf("Enable drs mode: %s ", putDatastoreInMMmodeCmd)
 		putDatastoreInMMmodeRes, err := sshExec(sshClientConfig, masterIp, putDatastoreInMMmodeCmd)
 		if err != nil && putDatastoreInMMmodeRes.Code != 0 {
@@ -752,9 +786,15 @@ exitDatastoreFromMaintenanceMode method is use to exit preferred datastore from
 maintenance mode
 */
 func exitDatastoreFromMaintenanceMode(masterIp string, sshClientConfig *ssh.ClientConfig,
-	dataCenter []*object.Datacenter, datastoreName string) error {
-	exitMmMode := govcLoginCmd() +
-		" govc datastore.maintenance.exit -ds " + datastoreName
+	dataCenter []*object.Datacenter, datastoreName string, isMultiVcSetup bool, itr int) error {
+	var exitMmMode string
+	if !isMultiVcSetup {
+		exitMmMode = govcLoginCmd() +
+			" govc datastore.maintenance.exit -ds " + datastoreName
+	} else {
+		exitMmMode = govcLoginCmdForMultiVC(itr) +
+			" govc datastore.maintenance.exit -ds " + datastoreName
+	}
 	framework.Logf("Exit maintenance mode: %s ", exitMmMode)
 	exitMmModeMMmodeRes, err := sshExec(sshClientConfig, masterIp, exitMmMode)
 	if err != nil && exitMmModeMMmodeRes.Code != 0 {
