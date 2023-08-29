@@ -1014,3 +1014,69 @@ func deleteNamespace(client clientset.Interface, ctx context.Context, nsName str
 	}
 	return nil
 }
+
+// This util method takes cluster name as input parameter and powers off esxi host of that cluster
+func powerOffEsxiHostsInMultiVcCluster(ctx context.Context, vs *multiVCvSphere,
+	esxCount int, hostsInCluster []*object.HostSystem) []string {
+	var powerOffHostsList []string
+	for i := 0; i < esxCount; i++ {
+		for _, esxInfo := range tbinfo.esxHosts {
+			host := hostsInCluster[i].Common.InventoryPath
+			hostIp := strings.Split(host, "/")
+			if hostIp[len(hostIp)-1] == esxInfo["ip"] {
+				esxHostName := esxInfo["vmName"]
+				powerOffHostsList = append(powerOffHostsList, esxHostName)
+				err := vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, esxHostName, false)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = waitForHostToBeDown(esxInfo["ip"])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+	return powerOffHostsList
+}
+
+/*
+suspendDatastore util suspends the datastore in one of the multivc setup passed in the
+input parameter
+Here, this util is expecting what datastore operation to perform, it can be suspend, off etc.
+Next input parameter is the datastore name on which suspend operation needs to be performed
+and last is on which of the multivc setup we need to perform this datastore operation
+*/
+func suspendDatastore(opName string, dsNameToPowerOff string, testbedInfoJsonIndex string) string {
+	dsName := ""
+	readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(testbedInfoJsonIndex))
+
+	for _, dsInfo := range tbinfo.datastores {
+		if strings.Contains(dsInfo["vmName"], dsNameToPowerOff) {
+			dsName = dsInfo["vmName"]
+			err := datatoreOperations(tbinfo.user, tbinfo.location, tbinfo.podname, dsName, opName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = waitForHostToBeDown(dsInfo["ip"])
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			break
+		}
+	}
+	return dsName
+}
+
+/*
+resumeDatastore util resumes the datastore in one of the multivc setup passed in the
+input parameter
+Here, this util is expecting what datastore operation to perform, it can be resume, on etc.
+Next input parameter is the datastore name on which resume operation needs to be performed
+and last is on which of the multivc setup we need to perform this datastore operation
+*/
+func resumeDatastore(datastoreToPowerOn string, opName string, testbedInfoJsonIndex string) {
+
+	readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(testbedInfoJsonIndex))
+	err := datatoreOperations(tbinfo.user, tbinfo.location, tbinfo.podname, datastoreToPowerOn, opName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, dsInfo := range tbinfo.datastores {
+		if strings.Contains(dsInfo["vmName"], datastoreToPowerOn) {
+			err = waitForHostToBeUp(dsInfo["ip"])
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			break
+		}
+	}
+}

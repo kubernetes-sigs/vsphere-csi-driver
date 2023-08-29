@@ -579,11 +579,13 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 			"making datastore inaccessible")
 
 		framework.Logf("Fetch worker vms residing on rack-2")
-		vMsToMigrate, err := fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[1])
+		vMsToMigrate, err := fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[1],
+			false, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Move worker vms if residing on nfs to another preferred datastore")
-		isMigrateSuccess, err := migrateVmsFromDatastore(masterIp, sshClientConfig, preferredDatastore2[0], vMsToMigrate)
+		isMigrateSuccess, err := migrateVmsFromDatastore(masterIp, sshClientConfig, preferredDatastore2[0],
+			vMsToMigrate, false, clientIndex)
 		gomega.Expect(isMigrateSuccess).To(gomega.BeTrue(), "Migration of vms failed")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -801,22 +803,26 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 			"putting it into maintenance mode")
 
 		framework.Logf("Fetch worker vms sitting on rack-1")
-		vMsToMigrate, err := fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[0])
+		vMsToMigrate, err := fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[0],
+			false, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Move worker vms if residing on preferred datastore to another " +
 			"preferred  datastore")
-		isMigrateSuccess, err := migrateVmsFromDatastore(masterIp, sshClientConfig, preferredDatastore2[0], vMsToMigrate)
+		isMigrateSuccess, err := migrateVmsFromDatastore(masterIp, sshClientConfig, preferredDatastore2[0],
+			vMsToMigrate, false, clientIndex)
 		gomega.Expect(isMigrateSuccess).To(gomega.BeTrue(), "Migration of vms failed")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Put preferred datastore in maintenance mode")
-		err = preferredDatastoreInMaintenanceMode(masterIp, sshClientConfig, dataCenters, preferredDatastore1[0])
+		err = preferredDatastoreInMaintenanceMode(masterIp, sshClientConfig, dataCenters, preferredDatastore1[0], false,
+			clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isDatastoreInMaintenanceMode = true
 		defer func() {
 			if isDatastoreInMaintenanceMode {
-				err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig, dataCenters, preferredDatastore1[0])
+				err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig, dataCenters,
+					preferredDatastore1[0], false, clientIndex)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -879,7 +885,8 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Exit datastore from Maintenance mode")
-		err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig, dataCenters, preferredDatastore1[0])
+		err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig, dataCenters,
+			preferredDatastore1[0], false, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isDatastoreInMaintenanceMode = false
 
@@ -1031,11 +1038,13 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 			"making datastore inaccessible")
 
 		framework.Logf("Fetch worker vms sitting on rack-2")
-		vMsToMigrate, err := fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[1])
+		vMsToMigrate, err := fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[1],
+			false, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Move worker vms if residing on nfs to another preferred sharedvmfs datastore")
-		isMigrateSuccess, err := migrateVmsFromDatastore(masterIp, sshClientConfig, preferredDatastore2[0], vMsToMigrate)
+		isMigrateSuccess, err := migrateVmsFromDatastore(masterIp, sshClientConfig, preferredDatastore2[0],
+			vMsToMigrate, false, clientIndex)
 		gomega.Expect(isMigrateSuccess).To(gomega.BeTrue(), "Migration of vms failed")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

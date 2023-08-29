@@ -204,7 +204,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 	    9. The volumes should get provision on the datastores which has the preference
 	    10. Clear the data
 	*/
-	ginkgo.It("TestTag one datastore as preferred each in VC1 and VC2 and verify it is honored", func() {
+	ginkgo.It("Tag one datastore as preferred each in VC1 and VC2 and verify it is honored", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
