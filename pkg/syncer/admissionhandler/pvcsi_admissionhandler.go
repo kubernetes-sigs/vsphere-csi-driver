@@ -93,6 +93,10 @@ func (h *CSIGuestWebhook) Handle(ctx context.Context, req admission.Request) (re
 			admissionResp := validatePVC(ctx, &req.AdmissionRequest)
 			resp.AdmissionResponse = *admissionResp.DeepCopy()
 		}
+	} else if req.Kind.Kind == "VolumeSnapshotClass" || req.Kind.Kind == "VolumeSnapshot" ||
+		req.Kind.Kind == "VolumeSnapshotContent" {
+		admissionResp := validateSnapshotOperationGuestRequest(ctx, &req.AdmissionRequest)
+		resp.AdmissionResponse = *admissionResp.DeepCopy()
 	}
 	return
 }
