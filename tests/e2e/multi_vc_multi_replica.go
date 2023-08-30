@@ -34,8 +34,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC-Replica", func() {
-	f := framework.NewDefaultFramework("csi-multi-vc")
+var _ = ginkgo.Describe("[csi-multi-vc-replica] Multi-VC-Replica", func() {
+	f := framework.NewDefaultFramework("multi-vc-replica")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                      clientset.Interface

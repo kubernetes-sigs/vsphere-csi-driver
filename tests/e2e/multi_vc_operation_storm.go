@@ -37,7 +37,7 @@ import (
 )
 
 var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm", func() {
-	f := framework.NewDefaultFramework("csi-multi-vc")
+	f := framework.NewDefaultFramework("multi-vc-operation-storm")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                      clientset.Interface

@@ -378,3 +378,24 @@ func (vs *multiVCvSphere) verifyLabelsAreUpdatedInMultiVC(volumeID string, match
 	}
 	return nil
 }
+
+/*
+waitForCNSVolumeToBeCreatedInMultiVC executes QueryVolume API on vCenter and verifies
+volume entries are created in a multi vCenter database
+*/
+func (vs *multiVCvSphere) waitForCNSVolumeToBeCreatedInMultiVC(volumeID string) error {
+	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+		queryResult, err := vs.queryCNSVolumeWithResultInMultiVC(volumeID)
+		if err != nil {
+			return true, err
+		}
+
+		if len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == volumeID {
+			framework.Logf("volume %q has successfully created", volumeID)
+			return true, nil
+		}
+		framework.Logf("waiting for Volume %q to be created.", volumeID)
+		return false, nil
+	})
+	return err
+}
