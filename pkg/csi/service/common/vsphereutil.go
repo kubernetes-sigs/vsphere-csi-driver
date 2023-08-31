@@ -17,7 +17,6 @@ limitations under the License.
 package common
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -1020,9 +1019,8 @@ func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int
 	if len(queryResult.Volumes) > 0 {
 		currentSize = queryResult.Volumes[0].BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
 	} else {
-		msg := fmt.Sprintf("failed to find volume by querying volumeID: %q", volumeID)
-		log.Error(msg)
-		return false, err
+		// Error out as volume is not found during a resize operation.
+		return false, logger.LogNewErrorf(log, "failed to find volume by querying volumeID: %q", volumeID)
 	}
 
 	log.Infof("isExpansionRequired: Found current size of volumeID %q to be %d Mb. "+
