@@ -36,7 +36,7 @@ import (
 )
 
 var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", func() {
-	f := framework.NewDefaultFramework("csi-multi-vc")
+	f := framework.NewDefaultFramework("multi-vc-sitedown")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                      clientset.Interface

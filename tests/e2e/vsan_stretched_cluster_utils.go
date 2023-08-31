@@ -602,7 +602,7 @@ func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) 
 func createStsDeployment(ctx context.Context, client clientset.Interface, namespace string,
 	sc *storagev1.StorageClass, isDeploymentRequired bool, modifyStsSpec bool,
 	replicaCount int32, stsName string,
-	accessMode v1.PersistentVolumeAccessMode) (*appsv1.StatefulSet, *appsv1.Deployment, []string) {
+	accessMode v1.PersistentVolumeAccessMode, isMultiVcSetup bool) (*appsv1.StatefulSet, *appsv1.Deployment, []string) {
 	var pvclaims []*v1.PersistentVolumeClaim
 	if accessMode == "" {
 		// If accessMode is not specified, set the default accessMode.
@@ -642,9 +642,15 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 				volumesBeforeScaleDown = append(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)
 				// Verify the attached volume match the one in CNS cache
-				err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				if !isMultiVcSetup {
+					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				} else {
+					err := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
 			}
 		}
 	}

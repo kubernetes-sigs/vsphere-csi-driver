@@ -31,6 +31,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/methods"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
 
@@ -46,6 +47,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
@@ -1079,4 +1081,110 @@ func resumeDatastore(datastoreToPowerOn string, opName string, testbedInfoJsonIn
 			break
 		}
 	}
+}
+
+/*
+createStaticPVCInMultiVC util creates static PV/PVC and returns the fcd-id, pv and pvc metadata
+*/
+func createStaticFCDPvAndPvc(ctx context.Context, f *framework.Framework,
+	client clientset.Interface, namespace string, defaultDatastore *object.Datastore,
+	pandoraSyncWaitTime int, allowedTopologies []v1.TopologySelectorLabelRequirement, clientIndex int,
+	sc *storagev1.StorageClass) (string, *v1.PersistentVolumeClaim, *v1.PersistentVolume) {
+	curtime := time.Now().Unix()
+
+	ginkgo.By("Creating FCD Disk")
+	curtimeinstring := strconv.FormatInt(curtime, 10)
+	fcdID, err := multiVCe2eVSphere.createFCDInMultiVC(ctx, "BasicStaticFCD"+curtimeinstring, diskSizeInMb,
+		defaultDatastore.Reference(), clientIndex)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("FCD ID :", fcdID)
+
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
+		pandoraSyncWaitTime, fcdID))
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+	staticPVLabels := make(map[string]string)
+	staticPVLabels["fcd-id"] = fcdID
+
+	// Creating PV using above created SC and FCD
+	ginkgo.By("Creating the PV")
+	staticPv := getPersistentVolumeSpecWithStorageClassFCDNodeSelector(fcdID,
+		v1.PersistentVolumeReclaimDelete, sc.Name, staticPVLabels,
+		diskSize, allowedTopologies)
+	staticPv, err = client.CoreV1().PersistentVolumes().Create(ctx, staticPv, metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = multiVCe2eVSphere.waitForCNSVolumeToBeCreatedInMultiVC(staticPv.Spec.CSI.VolumeHandle)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Creating PVC using above created PV
+	ginkgo.By("Creating static PVC")
+	staticPvc := getPersistentVolumeClaimSpec(namespace, staticPVLabels, staticPv.Name)
+	staticPvc.Spec.StorageClassName = &sc.Name
+	staticPvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, staticPvc,
+		metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Wait for PV and PVC to Bind.
+	ginkgo.By("Wait for PV and PVC to Bind")
+	framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(),
+		namespace, staticPv, staticPvc))
+
+	ginkgo.By("Verifying CNS entry is present in cache")
+	_, err = multiVCe2eVSphere.queryCNSVolumeWithResultInMultiVC(staticPv.Spec.CSI.VolumeHandle)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return fcdID, staticPvc, staticPv
+}
+
+// createFCDForMultiVC creates an FCD disk on a multiVC setup
+func (vs *multiVCvSphere) createFCDInMultiVC(ctx context.Context, fcdname string,
+	diskCapacityInMB int64, dsRef vim25types.ManagedObjectReference, clientIndex int) (string, error) {
+	KeepAfterDeleteVM := false
+	spec := vim25types.VslmCreateSpec{
+		Name:              fcdname,
+		CapacityInMB:      diskCapacityInMB,
+		KeepAfterDeleteVm: &KeepAfterDeleteVM,
+		BackingSpec: &vim25types.VslmCreateSpecDiskFileBackingSpec{
+			VslmCreateSpecBackingSpec: vim25types.VslmCreateSpecBackingSpec{
+				Datastore: dsRef,
+			},
+			ProvisioningType: string(vim25types.BaseConfigInfoDiskFileBackingInfoProvisioningTypeThin),
+		},
+	}
+	req := vim25types.CreateDisk_Task{
+		This: *vs.multiVcClient[clientIndex].ServiceContent.VStorageObjectManager,
+		Spec: spec,
+	}
+	res, err := methods.CreateDisk_Task(ctx, vs.multiVcClient[clientIndex].Client, &req)
+	if err != nil {
+		return "", err
+	}
+	task := object.NewTask(vs.multiVcClient[clientIndex].Client, res.Returnval)
+	taskInfo, err := task.WaitForResult(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	fcdID := taskInfo.Result.(vim25types.VStorageObject).Config.Id.Id
+	return fcdID, nil
+}
+
+// deleteFCDInMultiVc deletes an FCD disk from a multivc setup
+func (vs *multiVCvSphere) deleteFCDInMultiVc(ctx context.Context, fcdID string,
+	dsRef vim25types.ManagedObjectReference, clientIndex int) error {
+	req := vim25types.DeleteVStorageObject_Task{
+		This:      *vs.multiVcClient[clientIndex].ServiceContent.VStorageObjectManager,
+		Datastore: dsRef,
+		Id:        vim25types.ID{Id: fcdID},
+	}
+	res, err := methods.DeleteVStorageObject_Task(ctx, vs.multiVcClient[clientIndex].Client, &req)
+	if err != nil {
+		return err
+	}
+	task := object.NewTask(vs.multiVcClient[clientIndex].Client, res.Returnval)
+	_, err = task.WaitForResult(ctx, nil)
+	if err != nil {
+		framework.Logf(err.Error())
+	}
+	return nil
 }
