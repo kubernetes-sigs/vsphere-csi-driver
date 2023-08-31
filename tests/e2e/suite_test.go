@@ -18,6 +18,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -60,5 +61,8 @@ func handleFlags() {
 	config.CopyFlags(config.Flags, flag.CommandLine)
 	framework.RegisterCommonFlags(flag.CommandLine)
 	framework.TestContext.KubeConfig = os.Getenv(kubeconfigEnvVar)
+	mydir, err := os.Getwd()
+	framework.ExpectNoError(err)
+	framework.TestContext.RepoRoot = strings.ReplaceAll(mydir, "/tests/e2e", "")
 	flag.Parse()
 }
