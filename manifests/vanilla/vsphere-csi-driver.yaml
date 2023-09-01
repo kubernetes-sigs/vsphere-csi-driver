@@ -163,6 +163,7 @@ data:
   "multi-vcenter-csi-topology": "true"
   "csi-internal-generated-cluster-id": "true"
   "listview-tasks": "true"
+  "create-file-volume-with-topology": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

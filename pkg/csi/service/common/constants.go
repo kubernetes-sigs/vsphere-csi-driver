@@ -392,4 +392,6 @@ const (
 	CSIInternalGeneratedClusterID = "csi-internal-generated-cluster-id"
 	// ListViewPerf uses govmomi ListView to wait for CNS tasks
 	ListViewPerf = "listview-tasks"
+	// CreateFileVolumeWithTopology enables creation of file volumes on topology aware environment.
+	CreateFileVolumeWithTopology = "create-file-volume-with-topology"
 )
