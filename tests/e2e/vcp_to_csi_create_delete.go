@@ -39,7 +39,9 @@ import (
 	clientcmd "k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -47,6 +49,7 @@ import (
 
 var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests", func() {
 	f := framework.NewDefaultFramework("csi-vcp-mig-create-del")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                     clientset.Interface
 		namespace                  string
@@ -609,7 +612,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 
 		ginkgo.By("Create CSI SC SC2")
 		csiSC, err := createStorageClass(client, nil, nil, v1.PersistentVolumeReclaimDelete,
-			storagev1.VolumeBindingImmediate, false, "")
+			storagev1.VolumeBindingImmediate, true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PV2 statically via CSI with fcd leftover by PV1 using FCD ID noted earlier and SC2")
@@ -661,6 +664,19 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		ginkgo.By("Verify CNS entries for PVC2 and PV2")
 		err = waitAndVerifyCnsVolumeMetadata(fcdID, pvc2, pv, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create POD on PVC2")
+		pod, _ := createPODandVerifyVolumeMount(ctx, f, client, namespace, pvc2, fcdID, "")
+
+		defer func() {
+			// Delete Pod.
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+			err := fpod.DeletePodWithWait(client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Increase PVC size and verify online volume resize")
+		increaseSizeOfPvcAttachedToPod(f, client, namespace, pvc2, pod)
 	})
 
 })
