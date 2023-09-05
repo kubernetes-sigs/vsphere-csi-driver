@@ -96,6 +96,12 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		var pvclaim *v1.PersistentVolumeClaim
 		var svcPVCName string
 		var err error
+		var podExecCmd string
+		if windowsEnv {
+			podExecCmd = windowsPodCmd
+		} else {
+			podExecCmd = ""
+		}
 		ginkgo.By("Creating Storage Class and PVC")
 		// decide which test setup is available to run
 		if vanillaCluster {
@@ -149,14 +155,8 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 		}
 
-		var pod *v1.Pod
-		if windowsEnv {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsPodCmd)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, podExecCmd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var vmUUID string
 		var exists bool

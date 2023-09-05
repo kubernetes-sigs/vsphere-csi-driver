@@ -795,6 +795,15 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		defer cancel()
 		var err error
 		var svcPVCName string
+		var podExecCmd string
+		var podImage string
+		if windowsEnv {
+			podImage = windowsImageOnMcr
+			podExecCmd = windowsPodCmd
+		} else {
+			podImage = busyBoxImageOnGcr
+			podExecCmd = execCommand
+		}
 
 		ginkgo.By("create a pvc pvc1, wait for pvc bound to pv")
 		volHandle, pvc, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
@@ -846,15 +855,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("create a new pod pod2, using pvc1")
-		var pod2 *v1.Pod
-		if windowsEnv {
-			pod2 = fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, windowsPodCmd)
-			pod2.Spec.Containers[0].Image = windowsLTSC2019Image
-
-		} else {
-			pod2 = fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, execCommand)
-			pod2.Spec.Containers[0].Image = busyBoxImageOnGcr
-		}
+		pod2 := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, podExecCmd)
+		pod2.Spec.Containers[0].Image = podImage
 		pod2, err = client.CoreV1().Pods(namespace).Create(ctx, pod2, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {

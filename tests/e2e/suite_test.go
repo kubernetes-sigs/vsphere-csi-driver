@@ -31,6 +31,7 @@ import (
 
 const kubeconfigEnvVar = "KUBECONFIG"
 const busyBoxImageEnvVar = "BUSYBOX_IMAGE"
+const windowsLtsc2019ImageEnvVar = "WINDOWS_LTSC_2019_IMAGE"
 
 func init() {
 	// k8s.io/kubernetes/tests/e2e/framework requires env KUBECONFIG to be set
@@ -46,6 +47,10 @@ func init() {
 
 	if os.Getenv(busyBoxImageEnvVar) != "" {
 		busyBoxImageOnGcr = os.Getenv(busyBoxImageEnvVar)
+	}
+
+	if os.Getenv(windowsLtsc2019ImageEnvVar) != "" {
+		windowsImageOnMcr = os.Getenv(windowsLtsc2019ImageEnvVar)
 	}
 }
 

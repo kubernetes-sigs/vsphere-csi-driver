@@ -691,11 +691,6 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 
 		ginkgo.By("Creating statefulset")
 		statefulset := GetStatefulSetFromManifest(namespace)
-		if windowsEnv {
-			statefulset.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
-			statefulset.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
-			statefulset.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
-		}
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storageClassName
 		CreateStatefulSet(namespace, statefulset, client)

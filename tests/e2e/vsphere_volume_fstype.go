@@ -136,11 +136,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func(
 
 	})
 
-	ginkgo.It("[csi-block-vanilla-parallelized] CSI - Windows - verify valid fstype", func() {
+	ginkgo.It("[csi-windows] CSI - Windows - verify valid fstype", func() {
 		invokeTestForFstype(f, client, namespace, ntfsFSType, ntfsFSType, storagePolicyName, profileID)
 	})
 
-	ginkgo.It("[csi-block-vanilla-parallelized] CSI - Windows - verify invalid fstype", func() {
+	ginkgo.It("[csi-windows] CSI - Windows - verify invalid fstype", func() {
 		invokeTestForInvalidFstype(f, client, namespace, invalidNtfsFSType, storagePolicyName, profileID)
 	})
 })
@@ -157,7 +157,12 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
-
+	var podExecCmd string
+	if windowsEnv {
+		podExecCmd = windowsExecCmd
+	} else {
+		podExecCmd = execCommand
+	}
 	ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -179,12 +184,8 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
 
 	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	var pod *v1.Pod
-	if windowsEnv {
-		pod, _ = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsExecCmd)
-	} else {
-		pod, _ = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
-	}
+	pod, _ := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, podExecCmd)
+
 	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

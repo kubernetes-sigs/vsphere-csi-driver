@@ -166,6 +166,12 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	var pvclaim *v1.PersistentVolumeClaim
 	var svcPVCName string // PVC Name in the Supervisor Cluster
 	var err error
+	var podExecCmd string
+	if windowsEnv {
+		podExecCmd = windowsPodCmd
+	} else {
+		podExecCmd = ""
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// decide which test setup is available to run
@@ -215,13 +221,8 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(storagePolicyExists).To(gomega.BeTrue(), "storage policy verification failed")
 
-	var pod *v1.Pod
 	ginkgo.By("Creating pod to attach PV to the node")
-	if windowsEnv {
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsPodCmd)
-	} else {
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
-	}
+	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, podExecCmd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	var vmUUID string

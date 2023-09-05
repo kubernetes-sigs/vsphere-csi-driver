@@ -31,7 +31,6 @@ const (
 	adminUser                                  = "Administrator@vsphere.local"
 	apiServerIPs                               = "API_SERVER_IPS"
 	attacherContainerName                      = "csi-attacher"
-	windowsLTSC2019Image                       = "harbor-repo.vmware.com/csi/windows-servercore:ltsc2019"
 	nginxImage                                 = "registry.k8s.io/nginx-slim:0.26"
 	nginxImage4upg                             = "registry.k8s.io/nginx-slim:0.27"
 	retainClaimPolicy                          = "Retain"
@@ -224,7 +223,6 @@ const (
 	vsphereTKGSystemNamespace                 = "vmware-system-tkg"
 	waitTimeForCNSNodeVMAttachmentReconciler  = 30 * time.Second
 	wcpServiceName                            = "wcp"
-	windowsUser                               = "Administrator"
 	vmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant
 	devopsTKG                                 = "test-cluster-e2e-script-2"
 	cloudadminTKG                             = "test-cluster-e2e-script-3"
@@ -395,6 +393,12 @@ var (
 var (
 	envVolSnapClassDel = "VOLUME_SNAPSHOT_CLASS_DELETE"
 	deletionPolicy     = "Delete"
+)
+
+// windows env variables
+var (
+	envWindowsUser    = "WINDOWS_USER"
+	windowsImageOnMcr = "servercore"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.

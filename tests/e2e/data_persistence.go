@@ -124,6 +124,12 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
+		var podExecCmd string
+		if windowsEnv {
+			podExecCmd = windowsPodCmd
+		} else {
+			podExecCmd = ""
+		}
 		ginkgo.By("Creating Storage Class and PVC")
 		// Decide which test setup is available to run.
 		if vanillaCluster {
@@ -173,14 +179,8 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		}()
 
 		ginkgo.By("Creating pod")
-		var pod *v1.Pod
-		if windowsEnv {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, windowsPodCmd)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, podExecCmd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -241,13 +241,8 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		}
 
 		ginkgo.By("Creating a new pod using the same volume")
-		if windowsEnv {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, windowsPodCmd)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
+		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, podExecCmd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))

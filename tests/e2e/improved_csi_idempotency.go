@@ -641,6 +641,12 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 	var pvclaims []*v1.PersistentVolumeClaim
 	var err error
 	var fullSyncWaitTime int
+	var podExecCmd string
+	if windowsEnv {
+		podExecCmd = windowsPodCmd
+	} else {
+		podExecCmd = ""
+	}
 	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 
 	// Decide which test setup is available to run
@@ -733,15 +739,8 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 	}()
 
 	ginkgo.By("Create POD")
-	var pod *v1.Pod
-	if windowsEnv {
-		pod, err = createPod(client, namespace, nil, pvclaims, false, windowsPodCmd)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	} else {
-		pod, err = createPod(client, namespace, nil, pvclaims, false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
-
+	pod, err := createPod(client, namespace, nil, pvclaims, false, podExecCmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(client, pod)

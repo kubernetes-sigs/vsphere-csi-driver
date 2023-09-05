@@ -1898,15 +1898,14 @@ func getWindowsDiskSize(client clientset.Interface, pod *v1.Pod) (int64, error) 
 	defer cancel()
 	nodeName := pod.Spec.NodeName
 	windowsWorkerIP := getk8sWindowsWorkerIP(ctx, client, nodeName)
-	framework.Logf("windows worker ip %s", windowsWorkerIP)
 	var err error
 	var size string
 	nimbusGeneratedVcPwd := GetAndExpectStringEnvVar(nimbusVcPwd)
+	windowsUser := GetAndExpectStringEnvVar(envWindowsUser)
 	sshClient, err := simplessh.ConnectWithPassword(windowsWorkerIP, windowsUser, nimbusGeneratedVcPwd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer sshClient.Close()
 	cmd := "Get-Disk | Format-List -Property Manufacturer,Size"
-	framework.Logf("command to be executed on windows node %s", cmd)
 	output, err := sshClient.Exec(cmd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("GetDisk output %s\n%s", string(output))
@@ -2471,6 +2470,11 @@ func GetStatefulSetFromManifest(ns string) *appsv1.StatefulSet {
 	framework.Logf("Parsing statefulset from %v", ssManifestFilePath)
 	ss, err := manifest.StatefulSetFromManifest(ssManifestFilePath, ns)
 	framework.ExpectNoError(err)
+	if windowsEnv {
+		ss.Spec.Template.Spec.Containers[0].Image = windowsImageOnMcr
+		ss.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
+		ss.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
+	}
 	return ss
 }
 
@@ -4069,9 +4073,9 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 func createPod(client clientset.Interface, namespace string, nodeSelector map[string]string,
 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
-	commands := []string{"Powershell.exe", "-Command", command}
 	if windowsEnv {
-		pod.Spec.Containers[0].Image = windowsLTSC2019Image
+		commands := []string{"Powershell.exe", "-Command", command}
+		pod.Spec.Containers[0].Image = windowsImageOnMcr
 		pod.Spec.Containers[0].Command = commands
 		pod.Spec.Containers[0].VolumeMounts[0].MountPath = pod.Spec.Containers[0].VolumeMounts[0].MountPath + "/"
 	} else {
@@ -4166,7 +4170,7 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	deploymentSpec := getDeploymentSpec(ctx, client, replicas, podLabels, nodeSelector, namespace,
 		pvclaims, command, isPrivileged, image)
 	if windowsEnv {
-		deploymentSpec.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
+		deploymentSpec.Spec.Template.Spec.Containers[0].Image = windowsImageOnMcr
 		deploymentSpec.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
 		deploymentSpec.Spec.Template.Spec.Containers[0].Args = []string{"-Command", command}
 	}
@@ -4594,7 +4598,11 @@ func statefulSetFromManifest(fileName string, ss *appsv1.StatefulSet) (*appsv1.S
 	newSize := currentSize.DeepCopy()
 	newSize.Add(resource.MustParse("1Gi"))
 	ss.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[v1.ResourceStorage] = newSize
-
+	if windowsEnv {
+		ss.Spec.Template.Spec.Containers[0].Image = windowsImageOnMcr
+		ss.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
+		ss.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
+	}
 	return ss, nil
 }
 

@@ -29,7 +29,6 @@ import (
 	"github.com/vmware/govmomi/object"
 	"golang.org/x/crypto/ssh"
 
-	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -70,7 +69,17 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defaultDatastore           *object.Datastore
 		defaultDatacenter          *object.Datacenter
 		isVsanHealthServiceStopped bool
+		podImage                   string
+		execCommandPod1            string
 	)
+
+	if windowsEnv {
+		podImage = windowsImageOnMcr
+		execCommandPod1 = windowsExecRWXCommandPod1
+	} else {
+		podImage = busyBoxImageOnGcr
+		execCommandPod1 = execRWXCommandPod1
+	}
 
 	ginkgo.BeforeEach(func() {
 		bootstrap()
@@ -1093,17 +1102,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		var pod *v1.Pod
-		if windowsEnv {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false,
-				windowsExecRWXCommandPod1)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false,
-				execRWXCommandPod1)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false,
+			execCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
@@ -1125,17 +1126,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		var pod2 *v1.Pod
-		if windowsEnv {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim3}, false,
-				windowsExecRWXCommandPod1)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim3}, false,
-				execRWXCommandPod1)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
+		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim3}, false,
+			execCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
@@ -1353,7 +1346,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false,
 			execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
@@ -1442,7 +1434,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pod2, err := createPod(client, namespace, nodeSelector, []*v1.PersistentVolumeClaim{pvclaim2}, false,
 			execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
@@ -2279,11 +2270,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &scName
 		*statefulset.Spec.Replicas = 2
-		if windowsEnv {
-			statefulset.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
-			statefulset.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
-			statefulset.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
-		}
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		defer func() {
@@ -3163,18 +3149,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		labelsMap := make(map[string]string)
 		labelsMap["app"] = "test"
-		ginkgo.By("Creating a Deployment using pvc1")
-		var dep *appsv1.Deployment
-		if windowsEnv {
-			dep, err = createDeployment(ctx, client, 1, labelsMap, nil, namespace,
-				[]*v1.PersistentVolumeClaim{pvclaim}, windowsExecRWXCommandPod1, false, windowsLTSC2019Image)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			dep, err = createDeployment(ctx, client, 1, labelsMap, nil, namespace,
-				[]*v1.PersistentVolumeClaim{pvclaim}, execRWXCommandPod1, false, busyBoxImageOnGcr)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
 
+		ginkgo.By("Creating a Deployment using pvc1")
+		dep, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace,
+			[]*v1.PersistentVolumeClaim{pvclaim}, execCommandPod1, false, podImage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete Deployment")
 			err := client.AppsV1().Deployments(namespace).Delete(ctx, dep.Name, metav1.DeleteOptions{})
@@ -3244,17 +3223,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		labelsMap2 := make(map[string]string)
 		labelsMap2["app2"] = "test2"
 
-		var dep2 *appsv1.Deployment
-		if windowsEnv {
-			dep, err = createDeployment(ctx, client, 1, labelsMap2, nil, namespace,
-				[]*v1.PersistentVolumeClaim{pvclaim2}, "", false, windowsLTSC2019Image)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			dep, err = createDeployment(ctx, client, 1, labelsMap2, nil, namespace,
-				[]*v1.PersistentVolumeClaim{pvclaim2}, "", false, busyBoxImageOnGcr)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
+		dep2, err := createDeployment(ctx, client, 1, labelsMap2, nil, namespace,
+			[]*v1.PersistentVolumeClaim{pvclaim2}, "", false, podImage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete Deployment-2")
 			err := client.AppsV1().Deployments(namespace).Delete(ctx, dep2.Name, metav1.DeleteOptions{})
@@ -3509,17 +3480,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Creating pod to attach PV to the node")
-		var pod *v1.Pod
-		if windowsEnv {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
-				false, windowsExecRWXCommandPod1)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
-				false, execRWXCommandPod1)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
+			false, execCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
@@ -3899,19 +3862,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		labelsMap := make(map[string]string)
 		labelsMap["app"] = "test"
+
 		ginkgo.By("Creating a Deployment using pvc1")
-
-		var dep *appsv1.Deployment
-		if windowsEnv {
-			dep, err = createDeployment(ctx, client, 1, labelsMap, nil, namespace,
-				pvclaims, windowsExecRWXCommandPod1, false, windowsLTSC2019Image)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			dep, err = createDeployment(ctx, client, 1, labelsMap, nil, namespace,
-				[]*v1.PersistentVolumeClaim{pvclaim}, execRWXCommandPod1, false, busyBoxImageOnGcr)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
+		dep, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace,
+			[]*v1.PersistentVolumeClaim{pvclaim}, execCommandPod1, false, podImage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete Deployment")
 			err := client.AppsV1().Deployments(namespace).Delete(ctx, dep.Name, metav1.DeleteOptions{})
@@ -4048,17 +4003,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		labelsMap2 := make(map[string]string)
 		labelsMap2["app2"] = "test2"
 
-		var dep2 *appsv1.Deployment
-		if windowsEnv {
-			dep, err = createDeployment(ctx, client, 1, labelsMap2, nil, namespace,
-				restoredpvclaims, "", false, windowsLTSC2019Image)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			dep, err = createDeployment(ctx, client, 1, labelsMap2, nil, namespace,
-				restoredpvclaims, "", false, busyBoxImageOnGcr)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
+		dep2, err := createDeployment(ctx, client, 1, labelsMap2, nil, namespace,
+			restoredpvclaims, "", false, podImage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete Deployment-2")
 			err := client.AppsV1().Deployments(namespace).Delete(ctx, dep2.Name, metav1.DeleteOptions{})
@@ -4849,17 +4796,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Creating pod to attach PV to the node")
-		var pod *v1.Pod
-		if windowsEnv {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
-				false, windowsExecRWXCommandPod1)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
-				false, execRWXCommandPod1)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
+			false, execCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
 			err = fpod.DeletePodWithWait(client, pod)

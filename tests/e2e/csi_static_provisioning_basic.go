@@ -76,8 +76,14 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ctx                        context.Context
 		nonSharedDatastoreURL      string
 		fullSyncWaitTime           int
+		podExecCmd                 string
 	)
 
+	if windowsEnv {
+		podExecCmd = windowsPodCmd
+	} else {
+		podExecCmd = ""
+	}
 	ginkgo.BeforeEach(func() {
 		bootstrap()
 		client = f.ClientSet
@@ -283,9 +289,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 9. Verify volume is detached from the node.
 	// 10. Delete PVC.
 	// 11. Verify PV is deleted automatically.
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] A-Verify basic static provisioning workflow", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify basic static provisioning workflow", func() {
 		var err error
-		var pod *v1.Pod
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -334,14 +339,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Creating the Pod")
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvc)
-		if windowsEnv {
-			pod, err = createPod(client, namespace, nil, pvclaims, false, windowsPodCmd)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		} else {
-			pod, err = createPod(client, namespace, nil, pvclaims, false, "")
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
+		pod, err := createPod(client, namespace, nil, pvclaims, false, podExecCmd)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)
@@ -351,9 +350,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		ginkgo.By("Verify the volume is accessible and available to the pod by creating an empty file")
 		if windowsEnv {
-			time.Sleep(sleepTimeOut * time.Second)
 			_, err = framework.LookForStringInPodExec(namespace, pod.Name,
-				[]string{"powershell.exe", "Get-Content 'C:\\mnt\\volume1\\data.txt'"}, "", time.Minute)
+				[]string{"powershell.exe", "New-Item -Path 'C:\\mnt\\volume1\\emptyFile.txt' -ItemType File"}, "", time.Minute)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		} else {

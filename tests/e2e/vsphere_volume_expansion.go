@@ -1410,7 +1410,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		defer func() {
 			ginkgo.By("Deleting the pod")
 			err = fpod.DeletePodWithWait(client, pod)
@@ -1673,7 +1672,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		defer func() {
 			ginkgo.By("Deleting the pod")
 			err = fpod.DeletePodWithWait(client, pod)
@@ -1824,7 +1822,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		defer func() {
 			ginkgo.By("Deleting the pod")
 			err = fpod.DeletePodWithWait(client, pod)
@@ -2791,14 +2788,15 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(ctx context.Context, f *framew
 func createPODandVerifyVolumeMount(ctx context.Context, f *framework.Framework, client clientset.Interface,
 	namespace string, pvclaim *v1.PersistentVolumeClaim, volHandle string, expectedContent string) (*v1.Pod, string) {
 	// Create a Pod to use this PVC, and verify volume has been attached
-	var pod *v1.Pod
 	var err error
-	ginkgo.By("Creating pod to attach PV to the node")
+	var podExecCmd string
 	if windowsEnv {
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsExecCmd)
+		podExecCmd = windowsExecCmd
 	} else {
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+		podExecCmd = execCommand
 	}
+	ginkgo.By("Creating pod to attach PV to the node")
+	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, podExecCmd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	var exists bool
@@ -2901,8 +2899,12 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
-	var pod *v1.Pod
-
+	var podExecCmd string
+	if windowsEnv {
+		podExecCmd = windowsExecCmd
+	} else {
+		podExecCmd = execCommand
+	}
 	// Create a StorageClass that sets allowVolumeExpansion to true
 	if guestCluster {
 		scParameters[svStorageClassName] = storagePolicyName
@@ -3048,11 +3050,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 
 	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	if windowsEnv {
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsExecCmd)
-	} else {
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
-	}
+	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, podExecCmd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	defer func() {
@@ -3159,9 +3157,13 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
-	var pod *v1.Pod
 	var originalFsSize int64
-
+	var podExecCmd string
+	if windowsEnv {
+		podExecCmd = windowsExecCmd
+	} else {
+		podExecCmd = execCommand
+	}
 	// Create a StorageClass that sets allowVolumeExpansion to true
 	if guestCluster {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
@@ -3237,13 +3239,8 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 
 	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	if windowsEnv {
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsExecCmd)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	} else {
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
+	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, podExecCmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	var vmUUID string
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, pod.Spec.NodeName))
@@ -3345,11 +3342,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 
 	// Create a new Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating a new pod to attach PV again to the node")
-	if windowsEnv {
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsExecCmd)
-	} else {
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
-	}
+	pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, podExecCmd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By(fmt.Sprintf("Verify volume after expansion: %s is attached to the node: %s",
@@ -3727,6 +3720,12 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
 	var pod *v1.Pod
+	var podExecCmd string
+	if windowsEnv {
+		podExecCmd = windowsExecCmd
+	} else {
+		podExecCmd = execCommand
+	}
 
 	// Create a StorageClass that sets allowVolumeExpansion to true
 	if guestCluster {
@@ -3879,13 +3878,8 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 
 	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	if windowsEnv {
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, windowsExecCmd)
-	} else {
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
-	}
+	pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, podExecCmd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	defer func() {
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(client, pod)

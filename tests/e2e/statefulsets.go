@@ -137,11 +137,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 		}()
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
-		if windowsEnv {
-			statefulset.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
-			statefulset.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
-			statefulset.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
-		}
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
@@ -346,11 +341,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 		statefulset.Spec.PodManagementPolicy = apps.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storageClassName
-		if windowsEnv {
-			statefulset.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
-			statefulset.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
-			statefulset.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
-		}
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
@@ -560,11 +550,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storageClassName
-		if windowsEnv {
-			statefulset.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
-			statefulset.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
-			statefulset.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
-		}
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
@@ -645,11 +630,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storageClassName
-		if windowsEnv {
-			statefulset.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
-			statefulset.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
-			statefulset.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
-		}
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas = *(statefulset.Spec.Replicas)
 
@@ -785,11 +765,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storageClassName
-		if windowsEnv {
-			statefulset.Spec.Template.Spec.Containers[0].Image = windowsLTSC2019Image
-			statefulset.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
-			statefulset.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsPodCmd}
-		}
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready

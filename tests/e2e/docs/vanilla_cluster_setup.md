@@ -95,6 +95,10 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     # If CSI controller is running on a different k8s cluster, we need to pass the kubeconfig for that cluster using
     export CONTROLLER_CLUSTER_KUBECONFIG="/path/to/remote/kubeconfig"
 
+    # To run windows testcases, need to set the following env variable
+    export WORKER_TYPE="WINDOWS"
+    export WINDOWS_LTSC_2019_IMAGE="harbor-repo.vmware.com/csi/windows-servercore:ltsc2019" 
+
 ### To run full sync test, need do extra following steps
 
 #### Setting SSH keys for VC with your local machine to run full sync test
