@@ -148,6 +148,10 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		// fetching list of datatstores shared between vm's
 		shareddatastoreListMap, err = getListOfSharedDatastoresBetweenVMs(masterIp, sshClientConfig, dataCenters)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Shared datastore list map *******")
+		for key, value := range shareddatastoreListMap {
+			framework.Logf("Key: %s, Value: %s", key, value)
+		}
 
 		// fetching list of datastores available in different racks
 		rack1DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0])

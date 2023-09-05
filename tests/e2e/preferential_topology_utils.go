@@ -55,6 +55,7 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 	dataCenter []*object.Datacenter) ([]string, error) {
 	var clusterList, clusList, clusFolderTemp, clusterGroupRes []string
 	var clusterFolderName string
+	var cluster string
 	for i := 0; i < len(dataCenter); i++ {
 		clusterFolder := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
 		framework.Logf("cmd: %s ", clusterFolder)
@@ -84,8 +85,18 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 		if clusterGroupResult.Stdout != "" {
 			clusterGroupRes = strings.Split(clusterGroupResult.Stdout, "\n")
 		}
-		cluster := govcLoginCmd() + "govc ls " + clusterGroupRes[0] + " | sort"
-		framework.Logf("cmd: %s ", cluster)
+		hciMount := GetAndExpectStringEnvVar(envHciMountRemoteDs)
+		if hciMount == "YES" {
+			for i := 0; i < len(clusterGroupRes); i++ {
+				if strings.Contains(clusterGroupRes[i], "clustergroup") {
+					cluster = govcLoginCmd() + "govc ls " + clusterGroupRes[i] + " | sort"
+					framework.Logf("cmd: %s ", cluster)
+				}
+			}
+		} else {
+			cluster = govcLoginCmd() + "govc ls " + clusterGroupRes[0] + " | sort"
+			framework.Logf("cmd: %s ", cluster)
+		}
 		clusterResult, err := sshExec(sshClientConfig, masterIp, cluster)
 		if err != nil && clusterResult.Code != 0 {
 			fssh.LogResult(clusterResult)
@@ -167,6 +178,8 @@ func getListOfSharedDatastoresBetweenVMs(masterIp string, sshClientConfig *ssh.C
 	var clusFolderTemp []string
 	var clusterFolderName string
 	shareddatastoreListMap := make(map[string]string)
+	hciMount := GetAndExpectStringEnvVar(envHciMountRemoteDs)
+
 	for i := 0; i < len(dataCenter); i++ {
 		clusterFolder := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
 		framework.Logf("cmd: %s ", clusterFolder)
@@ -197,10 +210,20 @@ func getListOfSharedDatastoresBetweenVMs(masterIp string, sshClientConfig *ssh.C
 			listOfSharedDatastores, masterIp, err)
 	}
 	sharedDatastoreList := strings.Split(result.Stdout, "\n")
-	for i := 0; i < len(sharedDatastoreList)-1; i = i + 2 {
-		key := strings.ReplaceAll(sharedDatastoreList[i], " Path: ", "")
-		value := strings.ReplaceAll(sharedDatastoreList[i+1], " URL: ", "")
-		shareddatastoreListMap[key] = value
+	if hciMount == "YES" {
+		for i := 0; i < len(sharedDatastoreList)-1; i = i + 2 {
+			if strings.Contains(sharedDatastoreList[i], "remote") {
+				key := strings.ReplaceAll(sharedDatastoreList[i], " Path: ", "")
+				value := strings.ReplaceAll(sharedDatastoreList[i+1], " URL: ", "")
+				shareddatastoreListMap[key] = value
+			}
+		}
+	} else {
+		for i := 0; i < len(sharedDatastoreList)-1; i = i + 2 {
+			key := strings.ReplaceAll(sharedDatastoreList[i], " Path: ", "")
+			value := strings.ReplaceAll(sharedDatastoreList[i+1], " URL: ", "")
+			shareddatastoreListMap[key] = value
+		}
 	}
 	return shareddatastoreListMap, nil
 }
@@ -212,6 +235,7 @@ specific cluster
 func getListOfDatastoresByClusterName(masterIp string, sshClientConfig *ssh.ClientConfig,
 	cluster string) (map[string]string, error) {
 	ClusterdatastoreListMap := make(map[string]string)
+	//hciMount := GetAndExpectStringEnvVar(envHciMountRemoteDs)
 	datastoreListByCluster := govcLoginCmd() +
 		"govc object.collect -s -d ' ' " + cluster + " host | xargs govc datastore.info -H | " +
 		"grep 'Path\\|URL' | tr -s [:space:]"
@@ -228,7 +252,6 @@ func getListOfDatastoresByClusterName(masterIp string, sshClientConfig *ssh.Clie
 		value := strings.ReplaceAll(datastoreList[i+1], " URL: ", "")
 		ClusterdatastoreListMap[key] = value
 	}
-
 	return ClusterdatastoreListMap, nil
 }
 

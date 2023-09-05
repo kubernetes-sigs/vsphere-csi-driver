@@ -124,6 +124,9 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		clusters, err = getTopologyLevel5ClusterGroupNames(masterIp, sshClientConfig, dataCenters)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		clientIndex = 0
+		//hciMount = GetAndExpectStringEnvVar(envHciMountRemoteDs)
+
 		// creating level-5 allowed topology map
 		topologyLength, leafNode, leafNodeTag0, leafNodeTag1, leafNodeTag2 = 5, 4, 0, 1, 2
 		topologyMap := GetAndExpectStringEnvVar(topologyMap)
@@ -139,6 +142,10 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 		// fetching list of datatstores shared between vm's
 		shareddatastoreListMap, err = getListOfSharedDatastoresBetweenVMs(masterIp, sshClientConfig, dataCenters)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Shared datastore list map *******")
+		for key, value := range shareddatastoreListMap {
+			framework.Logf("Key: %s, Value: %s", key, value)
+		}
 
 		// fetching list of datastores available in different racks
 		rack1DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0])
@@ -174,8 +181,6 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 
 		//set preferred datatsore time interval
 		setPreferredDatastoreTimeInterval(client, ctx, csiNamespace, csiReplicas, false)
-
-		clientIndex = 0
 
 	})
 

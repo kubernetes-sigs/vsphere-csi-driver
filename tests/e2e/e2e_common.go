@@ -361,6 +361,7 @@ var (
 	nfstoragePolicyDatastoreUrl           = "NFS_STORAGE_POLICY_DATASTORE_URL"
 	workerClusterMap                      = "WORKER_CLUSTER_MAP"
 	datastoreClusterMap                   = "DATASTORE_CLUSTER_MAP"
+	envHciMountRemoteDs                   = "USE_HCI_MESH_DS"
 )
 
 // For multivc
