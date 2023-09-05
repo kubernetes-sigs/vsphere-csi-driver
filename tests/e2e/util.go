@@ -6501,6 +6501,11 @@ func dumpSvcNsEventsOnTestFailure(client clientset.Interface, namespace string) 
 	if !ginkgo.CurrentSpecReport().Failed() {
 		return
 	}
+	dumpEventsInNs(client, namespace)
+}
+
+// dumpEventsInNs dumps events from the given namespace
+func dumpEventsInNs(client clientset.Interface, namespace string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	events, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
