@@ -568,12 +568,15 @@ var _ = ginkgo.Describe("statefulset", func() {
 					gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-
+					//Minimum Version of k8s Support for Resize migrated volume is k8s 1.26 and
+					//CSI by default migrates volume.Hence Manual Migration is not needed
 					if vcptocsi {
 						ginkgo.By("Verify annotations on PVCs created after migration")
-						waitForPvcMigAnnotations(ctx, client, pvclaimName, pvclaim.Namespace, false)
+						_, err := waitForPvcMigAnnotations(ctx, client, pvclaimName, pvclaim.Namespace, false)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 						ginkgo.By("Verify annotations on PV created after migration")
-						waitForPvMigAnnotations(ctx, client, pv.Name, false)
+						_, err = waitForPvMigAnnotations(ctx, client, pv.Name, false)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 						vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvclaimName)
 						crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -648,9 +651,11 @@ var _ = ginkgo.Describe("statefulset", func() {
 
 					if vcptocsi {
 						ginkgo.By("Verify annotations on PVCs created after migration")
-						waitForPvcMigAnnotations(ctx, client, pvclaimName, pvclaim.Namespace, false)
+						_, err = waitForPvcMigAnnotations(ctx, client, pvclaimName, pvclaim.Namespace, false)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 						ginkgo.By("Verify annotations on PV created after migration")
-						waitForPvMigAnnotations(ctx, client, pv.Name, false)
+						_, err = waitForPvMigAnnotations(ctx, client, pv.Name, false)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
 
 					sizeAfterExpansion := pvclaim.Status.Capacity[v1.ResourceStorage]

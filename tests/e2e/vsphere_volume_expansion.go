@@ -2659,9 +2659,8 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(ctx context.Context, f *framew
 	client clientset.Interface, dsurl string, storagePolicyName string, namespace string,
 	fstype string) (string, *v1.PersistentVolumeClaim, *v1.PersistentVolume, *storagev1.StorageClass) {
 	scParameters := make(map[string]string)
-	scParameters[scParamFsType] = fstype
 	if vcptocsi {
-		scParameters[vcpScParamFstype] = "xfs"
+		scParameters[vcpScParamFstype] = fstype
 	} else {
 		scParameters[scParamFsType] = fstype
 	}
@@ -3327,7 +3326,7 @@ func invokeTestForInvalidVolumeExpansion(f *framework.Framework, client clientse
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	} else {
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", true, "")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 

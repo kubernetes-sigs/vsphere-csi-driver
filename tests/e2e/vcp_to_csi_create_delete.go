@@ -560,9 +560,11 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 	//     FCD ID noted in step 8 and SC2.
 	// 13. Create PVC2 using PV2 and SC2.
 	// 14. Verify CNS entries for PVC2 and PV2.
-	// 15. Delete PVC2.
-	// 16. verify PVC2, PV2 and the cns volume(vmdk) get deleted.
-	// 17. Delete SC1 and SC2.
+	// 15. Create POD on PVC2
+	// 16. Increase PVC size and verify online volume resize
+	// 17. Delete PVC2 , POD.
+	// 18. verify PVC2, PV2 and the cns volume(vmdk) get deleted.
+	// 19. Delete SC1 and SC2.
 	ginkgo.It("Statically provision VMDK used by a PV provisioned by VCP using CSI", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -674,7 +676,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 			err := fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
-
+		//Online volume resize of migrated volume is supported on k8s1.26 onwards.
 		ginkgo.By("Increase PVC size and verify online volume resize")
 		increaseSizeOfPvcAttachedToPod(f, client, namespace, pvc2, pod)
 	})

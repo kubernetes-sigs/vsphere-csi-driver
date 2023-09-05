@@ -405,7 +405,7 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 		rwxAccessMode = true
 	}
 
-	// Check if the access mode is set for File volume setups
+	// Check if its the vcptocsi tesbed
 	mode := os.Getenv("VCPTOCSI")
 	if strings.TrimSpace(string(mode)) == "1" {
 		vcptocsi = true
