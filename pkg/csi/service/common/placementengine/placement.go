@@ -175,7 +175,6 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 func getExpandedTopologySegments(ctx context.Context, requestedSegments map[string]string,
 	nodeMgr node.Manager) ([]map[string]string, error) {
 	log := logger.GetLogger(ctx)
-
 	var (
 		vcHost                   string
 		completeTopologySegments []map[string]string

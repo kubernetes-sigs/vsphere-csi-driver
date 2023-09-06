@@ -7,7 +7,6 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/object"
-	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -126,16 +125,16 @@ func GetHostsForSegment(ctx context.Context, topoSegment map[string]string, vCen
 	[]*cnsvsphere.HostSystem, error) {
 	log := logger.GetLogger(ctx)
 	var (
-		targetEntityPref   int
-		targetEntityMorefs []mo.Reference
-		hostList           []*cnsvsphere.HostSystem
+		allhostSlices [][]*cnsvsphere.HostSystem
 	)
 
 	// Get the entity MoRefs for each tag.
-	for _, tag := range topoSegment {
+	for key, tag := range topoSegment {
+		var hostList []*cnsvsphere.HostSystem
 		entityMorefs, exists := areEntityMorefsPresentForTag(tag, vCenter.Config.Host)
 		if !exists {
 			// Refresh cache to see if the tag has been added recently.
+			log.Infof("Refresh cache to see if the tag has been added recently")
 			err := DiscoverTagEntities(ctx)
 			if err != nil {
 				return nil, logger.LogNewErrorf(log,
@@ -147,69 +146,74 @@ func GetHostsForSegment(ctx context.Context, topoSegment map[string]string, vCen
 			}
 		}
 		log.Infof("Tag %q is applied on entities %+v", tag, entityMorefs)
-		// Find the entity morefs belonging to the topology segment which are lower in hierarchy.
+		log.Debugf("Fetching hosts for entities %+v", entityMorefs)
 		for _, entity := range entityMorefs {
-			var entityPref int
-			switch entity.Reference().Type {
-			case "rootFolder":
-				entityPref = 1
-			case "Folder":
-				folder := mo.Folder{}
-				err := property.DefaultCollector(vCenter.Client.Client).RetrieveOne(ctx, entity.Reference(),
-					[]string{"childType"}, &folder)
-				if err != nil {
-					return nil, logger.LogNewErrorf(log, ""+
-						"failed to retrieve childType property for folder %+v", entity.Reference())
-				}
-				for _, childType := range folder.ChildType {
-					switch childType {
-					case "Datacenter":
-						entityPref = 2
-					case "ComputeResource":
-						entityPref = 4
-					case "Folder":
-						continue
-					default:
-						return nil, logger.LogNewErrorf(log, "unrecognised childType for Folder %+v",
-							entity.Reference())
-					}
-				}
-			case "Datacenter":
-				entityPref = 3
-			case "ClusterComputeResource":
-				entityPref = 5
-			case "HostSystem":
-				entityPref = 6
-			default:
-				return nil, logger.LogNewErrorf(log,
-					"unrecognised entity type %q found while checking preference.", entity.Reference().Type)
+			hosts, err := fetchHosts(ctx, entity, vCenter)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log, "failed to fetch hosts from entity %+v. Error: %+v",
+					entity.Reference(), err)
 			}
+			hostList = append(hostList, hosts...)
+		}
+		log.Infof("Hosts returned for topology category: %q and tag: %q are %v", key, tag, hostList)
+		allhostSlices = append(allhostSlices, hostList)
+	}
+	commonHosts := findCommonHostsforAllTopologyKeys(ctx, allhostSlices)
+	log.Infof("common hosts: %v for all segments: %v", commonHosts, topoSegment)
+	return commonHosts, nil
+}
 
-			// If the entity preference is higher than the previously found entity, replace the values.
-			switch {
-			case entityPref > targetEntityPref:
-				targetEntityPref = entityPref
-				targetEntityMorefs = []mo.Reference{entity.Reference()}
-			case entityPref == targetEntityPref:
-				// If the entity preference is equal to the previously found
-				// entity, append the entity to the already existing list.
-				targetEntityMorefs = append(targetEntityMorefs, entity.Reference())
+// findCommonHostsforAllTopologyKeys helps find common hosts across all slices in hostLists
+func findCommonHostsforAllTopologyKeys(ctx context.Context,
+	hostLists [][]*cnsvsphere.HostSystem) []*cnsvsphere.HostSystem {
+	log := logger.GetLogger(ctx)
+	log.Infof("finding common hosts for hostlists: %v", hostLists)
+	if len(hostLists) == 0 {
+		return []*cnsvsphere.HostSystem{}
+	}
+	// Create a map to store hosts and their occurrence count
+	hostCount := make(map[string]int)
+	// Count occurrences of elements in the first slice
+	for _, host := range hostLists[0] {
+		hostCount[host.String()]++
+	}
+	log.Debugf("hostCount after setting count in the first slice : %v", hostCount)
+	// Iterate through the remaining slices and update the hostCount map
+	for i := 1; i < len(hostLists); i++ {
+		for _, host := range hostLists[i] {
+			// If the host exists in the map, increment its count
+			if count, exists := hostCount[host.String()]; exists {
+				hostCount[host.String()] = count + 1
 			}
 		}
 	}
-	log.Debugf("Fetching hosts under entities %+v", targetEntityMorefs)
+	log.Debugf("hostCount after iterate through the remaining slices and updated hostCount map : %v", hostCount)
+	// Create a slice to store the intersection
+	var commonHosts []string
 
-	// targetEntityMorefs contains the list of entities at the leaf level of topology hierarchy.
-	// Club all the hosts associated with the entities at the leaf level.
-	for _, entity := range targetEntityMorefs {
-		hosts, err := fetchHosts(ctx, entity, vCenter)
-		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to fetch hosts from entity %+v. Error: %+v",
-				entity.Reference(), err)
+	// Check if each hosts occurred in all slices
+	for hostMoRefName, count := range hostCount {
+		if count == len(hostLists) {
+			commonHosts = append(commonHosts, hostMoRefName)
 		}
-		hostList = append(hostList, hosts...)
 	}
-	return hostList, nil
+	log.Debugf("common hosts: %v", commonHosts)
+
+	// Iterate through the all slices and get common hosts
+	var commonHostSystem []*cnsvsphere.HostSystem
+	for _, host := range commonHosts {
+	out:
+		for i := 0; i < len(hostLists); i++ {
+			for _, hostSystem := range hostLists[i] {
+				if hostSystem.String() == host {
+					commonHostSystem = append(commonHostSystem, hostSystem)
+					break out
+				}
+			}
+		}
+	}
+	log.Debugf("commonHostSystem: %v", commonHostSystem)
+	return commonHostSystem
 }
 
 // fetchHosts gives a list of hosts under the entity given as input.
@@ -217,7 +221,7 @@ func fetchHosts(ctx context.Context, entity mo.Reference, vCenter *cnsvsphere.Vi
 	[]*cnsvsphere.HostSystem, error) {
 	log := logger.GetLogger(ctx)
 	var hosts []*cnsvsphere.HostSystem
-
+	log.Infof("fetching hosts for entity: %v on vCenter: %q", entity, vCenter.Config.Host)
 	switch entity.Reference().Type {
 	case "rootFolder":
 		folder := object.NewFolder(vCenter.Client.Client, entity.Reference())
@@ -244,7 +248,7 @@ func fetchHosts(ctx context.Context, entity mo.Reference, vCenter *cnsvsphere.Vi
 			return nil, logger.LogNewErrorf(log, ""+
 				"failed to retrieve hostFolder property for datacenter %+v", dc.Reference())
 		}
-		hostList, err := fetchHosts(ctx, dcMo, vCenter)
+		hostList, err := fetchHosts(ctx, dcMo.HostFolder, vCenter)
 		if err != nil {
 			return nil, logger.LogNewErrorf(log, "failed to fetch hosts from entity %+v. Error: %+v",
 				dcMo, err)
