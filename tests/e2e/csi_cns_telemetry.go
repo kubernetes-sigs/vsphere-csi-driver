@@ -34,7 +34,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanilla-parallelized] "+
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanilla-serialized] "+
 	"CNS-CSI Cluster Distribution Telemetry", func() {
 
 	f := framework.NewDefaultFramework("csi-cns-telemetry")
@@ -43,6 +43,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		namespace    string
 		scParameters map[string]string
 		datastoreURL string
+		csiNamespace string
+		csiReplicas  int32
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -59,8 +61,17 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
+			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicas = *csiDeployment.Spec.Replicas
 		// Reset the cluster distribution value to default value "CSI-Vanilla".
 		setClusterDistribution(ctx, client, vanillaClusterDistribution)
+		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	ginkgo.AfterEach(func() {
@@ -68,6 +79,9 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		defer cancel()
 		// Reset the cluster distribution value to default value "CSI-Vanilla".
 		setClusterDistribution(ctx, client, vanillaClusterDistribution)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	// Test to verify cluster distribution set in PVC is being honored during
@@ -138,6 +152,10 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 
 		ginkgo.By("Setting the cluster-distribution value to empty")
 		setClusterDistribution(ctx, client, "")
+		ginkgo.By("Restart CSI driver")
+		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			// Reset the cluster distribution value to default value "CSI-Vanilla".
@@ -179,7 +197,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		framework.Logf("Cluster-distribution value on CNS is %s",
 			queryResult2.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution)
 		gomega.Expect(queryResult2.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution).Should(
-			gomega.Equal(""), "Wrong/empty cluster-distribution name present on CNS")
+			gomega.Equal("VanillaK8S"), "Wrong/empty cluster-distribution name present on CNS")
 
 		// For Old PVCs to reflect the latest Cluster-Distribution Value, wait for
 		// full sync.
@@ -201,10 +219,13 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		framework.Logf("Cluster-distribution value on CNS is %s",
 			queryResult3.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution)
 		gomega.Expect(queryResult3.Volumes[0].Metadata.ContainerClusterArray[0].ClusterDistribution).Should(
-			gomega.Equal(""), "Wrong/empty cluster-distribution name present on CNS")
+			gomega.Equal("VanillaK8S"), "Wrong/empty cluster-distribution name present on CNS")
 
 		ginkgo.By("Setting the cluster-distribution value with escape character and special characters")
 		setClusterDistribution(ctx, client, vanillaClusterDistributionWithSpecialChar)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
+		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// For Old PVCs to reflect the latest Cluster-Distribution Value, wait for
 		// full sync.
