@@ -8,10 +8,10 @@ parameters:
   storagepolicyname: "vSAN Default Storage Policy"  # Optional Parameter
 allowedTopologies:
   - matchLabelExpressions:
-      - key: topology.kubernetes.io/zone
+      - key: topology.csi.vmware.com/k8s-zone
         values:
           - us-west-WA
           - us-west-CA
-      - key: topology.kubernetes.io/region
+      - key: topology.csi.vmware.com/k8s-region
         values:
           - us-west
