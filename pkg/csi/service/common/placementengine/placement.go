@@ -116,11 +116,13 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 					}
 				}
 				if len(compatibleDatastores) == 0 {
-					return nil, logger.LogNewErrorf(log,
-						"No compatible shared datastores found for storage policy %q on vCenter: %q",
+					log.Infof("No compatible shared datastores found for storage policy %q on vCenter: %q",
 						params.StoragePolicyID, params.Vcenter.Config.Host)
+				} else {
+					log.Infof("Shared datastores compatible with storage policy %q are %+v for vCenter: %q",
+						params.StoragePolicyID, compatibleDatastores, params.Vcenter.Config.Host)
+					sharedDatastoresInTopologySegment = compatibleDatastores
 				}
-				sharedDatastoresInTopologySegment = compatibleDatastores
 			}
 
 			// 3. Filter the shared datastores with preferential datastores, if any.
