@@ -260,6 +260,12 @@ spec:
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
         - name: csi-resizer
           image: registry.k8s.io/sig-storage/csi-resizer:v1.8.0
           args:
@@ -279,6 +285,12 @@ spec:
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
         - name: vsphere-csi-controller
           image: gcr.io/cloud-provider-vsphere/csi/ci/driver:latest
           args:
@@ -331,6 +343,12 @@ spec:
             timeoutSeconds: 10
             periodSeconds: 180
             failureThreshold: 3
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
         - name: liveness-probe
           image: registry.k8s.io/sig-storage/livenessprobe:v2.10.0
           args:
@@ -339,6 +357,12 @@ spec:
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
+          resources:
+            limits:
+              memory: 100Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
         - name: vsphere-syncer
           image: gcr.io/cloud-provider-vsphere/csi/ci/syncer:latest
           args:
@@ -378,6 +402,12 @@ spec:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
               readOnly: true
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
         - name: csi-provisioner
           image: registry.k8s.io/sig-storage/csi-provisioner:v3.5.0
           args:
@@ -418,6 +448,12 @@ spec:
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
       volumes:
         - name: vsphere-config-volume
           secret:
@@ -474,6 +510,12 @@ spec:
               - --kubelet-registration-path=/var/lib/kubelet/plugins/csi.vsphere.vmware.com/csi.sock
               - --mode=kubelet-registration-probe
             initialDelaySeconds: 3
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
         - name: vsphere-csi-node
           image: gcr.io/cloud-provider-vsphere/csi/ci/driver:latest
           args:
@@ -536,6 +578,12 @@ spec:
             timeoutSeconds: 5
             periodSeconds: 5
             failureThreshold: 3
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
         - name: liveness-probe
           image: registry.k8s.io/sig-storage/livenessprobe:v2.10.0
           args:
@@ -544,6 +592,12 @@ spec:
           volumeMounts:
             - name: plugin-dir
               mountPath: /csi
+          resources:
+            limits:
+              memory: 100Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
       volumes:
         - name: registration-dir
           hostPath:
@@ -621,6 +675,12 @@ spec:
               - --kubelet-registration-path=C:\\var\\lib\\kubelet\\plugins\\csi.vsphere.vmware.com\\csi.sock
               - --mode=kubelet-registration-probe
             initialDelaySeconds: 3
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
         - name: vsphere-csi-node
           image: gcr.io/cloud-provider-vsphere/csi/ci/driver:latest
           args:
@@ -678,6 +738,12 @@ spec:
             timeoutSeconds: 5
             periodSeconds: 5
             failureThreshold: 3
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
         - name: liveness-probe
           image: registry.k8s.io/sig-storage/livenessprobe:v2.10.0
           args:
@@ -686,6 +752,12 @@ spec:
           volumeMounts:
             - name: plugin-dir
               mountPath: /csi
+          resources:
+            limits:
+              memory: 100Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
       volumes:
         - name: registration-dir
           hostPath:

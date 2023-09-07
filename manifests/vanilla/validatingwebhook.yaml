@@ -157,6 +157,12 @@ spec:
             - mountPath: /run/secrets/tls
               name: webhook-certs
               readOnly: true
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
       volumes:
         - name: socket-dir
           emptyDir: {}
