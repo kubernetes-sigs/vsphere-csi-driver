@@ -153,4 +153,10 @@ var (
 	},
 		// Possible status - "pass", "fail"
 		[]string{"status"})
+
+	RequestOpsMetric = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "vsphere_request_ops_seconds",
+		Help:    "Histogram vector for individual request to vCenter",
+		Buckets: []float64{2, 5, 10, 15, 20, 25, 30, 60, 120, 180},
+	}, []string{"request", "client", "status"})
 )
