@@ -57,6 +57,9 @@ func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID
 		log.Errorf("failed to get devices from vm: %s", vm.InventoryPath)
 		return "", err
 	}
+	if len(vmDevices) == 0 {
+		return "", logger.LogNewErrorf(log, "virtual devices list is empty for the vm: %s", vm.InventoryPath)
+	}
 	// Build a map of NVME Controller key : NVME controller name.
 	// This is needed to check if disk in contention is attached to a NVME
 	// controller. The virtual disk devices do not contain the controller type
