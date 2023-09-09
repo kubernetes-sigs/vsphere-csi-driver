@@ -192,7 +192,6 @@ func (m *defaultManager) GetNodeByNameOrUUID(
 		log.Errorf("failed to get node UUID from node: %q. Err: %v", nodeNameOrUUID, err)
 		return nil, err
 	}
-	m.nodeNameToUUID.Store(nodeNameOrUUID, k8snodeUUID)
 	return m.GetNode(ctx, k8snodeUUID, nil)
 }
 
