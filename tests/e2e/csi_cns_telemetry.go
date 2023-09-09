@@ -69,6 +69,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		// Reset the cluster distribution value to default value "CSI-Vanilla".
 		setClusterDistribution(ctx, client, vanillaClusterDistribution)
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
+		collectPodLogs(ctx, client, csiSystemNamespace)
 		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -79,6 +80,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		defer cancel()
 		// Reset the cluster distribution value to default value "CSI-Vanilla".
 		setClusterDistribution(ctx, client, vanillaClusterDistribution)
+		collectPodLogs(ctx, client, csiSystemNamespace)
 		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -153,6 +155,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		ginkgo.By("Setting the cluster-distribution value to empty")
 		setClusterDistribution(ctx, client, "")
 		ginkgo.By("Restart CSI driver")
+		collectPodLogs(ctx, client, csiSystemNamespace)
 		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -223,6 +226,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 
 		ginkgo.By("Setting the cluster-distribution value with escape character and special characters")
 		setClusterDistribution(ctx, client, vanillaClusterDistributionWithSpecialChar)
+		collectPodLogs(ctx, client, csiSystemNamespace)
 		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
