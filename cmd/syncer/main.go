@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/cns-lib/node"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v2/pkg/csi/service/common"
 
@@ -195,14 +194,6 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}()
 		}
 		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-			// Initialize node manager so that syncer components can
-			// retrieve NodeVM using the NodeID.
-			nodeMgr := &node.Nodes{}
-			err = nodeMgr.Initialize(ctx)
-			if err != nil {
-				log.Errorf("failed to initialize nodeManager. Error: %+v", err)
-				os.Exit(1)
-			}
 			if configInfo.Cfg.Global.ClusterDistribution == "" {
 				config, err := rest.InClusterConfig()
 				if err != nil {
