@@ -518,6 +518,7 @@ func formatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) 
 		"sudo chmod -R 777 " + volFolder,
 		fmt.Sprintf("bash -c 'df -Th %s | tee %s/fstype'", partitionDev, volFolder),
 		"grep -c ext4 " + volFolder + "/fstype",
+		"sync",
 	})
 	gomega.Expect(strings.TrimSpace(results[5].Stdout)).To(gomega.Equal("1"))
 	return volFolder
@@ -656,9 +657,11 @@ func wait4PvcAttachmentFailure(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, vol := range vm.Status.Volumes {
 			if vol.Name == pvc.Name {
-				gomega.Expect(vol.Attached).To(gomega.BeFalse())
-				returnErr = fmt.Errorf(vol.Error)
-				return true, nil
+				if !vol.Attached {
+					returnErr = fmt.Errorf(vol.Error)
+					return true, nil
+				}
+				break
 			}
 		}
 		return false, nil
@@ -682,12 +685,11 @@ func mountFormattedVol2Vm(diskUuid string, mountIndex int, vmIp string) string {
 	results = execSshOnVmThroughGatewayVm(vmIp, []string{
 		"sudo mkdir -p " + volMountPath,
 		"sudo mount " + partitionDev + " " + volMountPath,
-		"sudo mkdir -p " + volFolder,
 		"sudo chmod -R 777 " + volFolder,
 		"ls -lR " + volFolder,
 		"grep -c ext4 " + volFolder + "/fstype",
 	})
-	gomega.Expect(strings.TrimSpace(results[5].Stdout)).To(gomega.Equal("1"))
+	gomega.Expect(strings.TrimSpace(results[4].Stdout)).To(gomega.Equal("1"))
 	return volFolder
 }
 
@@ -772,6 +774,22 @@ func wait4VmSvcVm2BeDeleted(ctx context.Context, c ctlrclient.Client, vm *vmopv1
 			return true, nil
 		}
 		return false, nil
+	})
+	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
+}
+
+// wait4Pvc2Detach waits for PVC to detach from given VM
+func wait4Pvc2Detach(
+	ctx context.Context, vmopC ctlrclient.Client, vm *vmopv1.VirtualMachine, pvc *v1.PersistentVolumeClaim) {
+	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
+		vm, err := getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, vol := range vm.Status.Volumes {
+			if vol.Name == pvc.Name {
+				return false, nil
+			}
+		}
+		return true, nil
 	})
 	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
 }
