@@ -25,6 +25,8 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/object"
 	"golang.org/x/crypto/ssh"
 
 	v1 "k8s.io/api/core/v1"
@@ -34,6 +36,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
@@ -63,6 +66,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		snapc                  *snapclient.Clientset
 		storagePolicyName      string
 		clientIndex            int
+		defaultDatastore       *object.Datastore
+		defaultDatacenter      *object.Datacenter
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -118,17 +123,31 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, rqLimit)
+
+			datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
+			var datacenters []string
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			finder := find.NewFinder(e2eVSphere.Client.Client, false)
+			cfg, err := getConfig()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			dcList := strings.Split(cfg.Global.Datacenters, ",")
+			for _, dc := range dcList {
+				dcName := strings.TrimSpace(dc)
+				if dcName != "" {
+					datacenters = append(datacenters, dcName)
+				}
+			}
+
+			for _, dc := range datacenters {
+				defaultDatacenter, err = finder.Datacenter(ctx, dc)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				finder.SetDatacenter(defaultDatacenter)
+				defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}
 
-		if !guestCluster {
-			restConfig = getRestConfigClient()
-			snapc, err = snapclient.NewForConfig(restConfig)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			guestClusterRestConfig = getRestConfigClientForGuestCluster(guestClusterRestConfig)
-			snapc, err = snapclient.NewForConfig(guestClusterRestConfig)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
 	})
 
 	ginkgo.AfterEach(func() {
@@ -1533,30 +1552,33 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	})
 
 	/*
-	   Delete the namespace hosting the pvcs and volume-snapshots and
-	       recover the data using snapshot-content
-	   1. Create a sc, create a pvc using this sc on a non-default namesapce
-	   2. create a dynamic snapshot using the pvc as source
-	   3. verify volume-snapshot is ready-to-use and volumesnapshotcontent is auto-created
-	   4. Delete the non-default namespace which should delete all namespaced objects such as pvc, volume-snapshot
-	   5. Ensure the volumesnapshotcontent object which is cluster-scoped does not get deleted
-	   6. Also verify we can re-provision a snapshot and restore a volume using
-	       this object on another namespace (could be default too)
-	   7. This VolumeSnapshotContent is dynamically created. we can't use it for pre-provisioned snapshot.
-	       we would be creating a new VolumeSnapshotContent pointing to the same snapshotHandle
-	       and then create a new VolumeSnapshot to bind with it
-	   8. Ensure the pvc with source as snapshot creates successfully and is bound
-	   9. Cleanup the snapshot, pvcs and ns
+		Testcase-11
+		Delete the namespace hosting the pvcs and volume-snapshots and recover the data using snapshot-content
+		1. Create a sc, create a pvc using this sc on a non-default namesapce
+		2. create a dynamic snapshot using the pvc as source
+		3. verify volume-snapshot is ready-to-use and volumesnapshotcontent is auto-created
+		4. Delete the non-default namespace which should delete all namespaced objects such as pvc, volume-snapshot
+		5. Ensure the volumesnapshotcontent object which is cluster-scoped does not get deleted
+		6. Also verify we can re-provision a snapshot and restore a volume using
+			this object on another namespace (could be default too)
+		7. This VolumeSnapshotContent is dynamically created. we can't use it for pre-provisioned snapshot.
+			we would be creating a new VolumeSnapshotContent pointing to the same snapshotHandle
+			and then create a new VolumeSnapshot to bind with it
+		8. Ensure the pvc with source as snapshot creates successfully and is bound
+		9. Cleanup the snapshot, pvcs and ns
 	*/
-	ginkgo.It("[block-vanilla-snapshot] Delete the namespace hosting the pvcs and "+
+	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Delete the namespace hosting the pvcs and "+
 		"volume-snapshots and recover the data using snapshot-content", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
 		var pvclaim *v1.PersistentVolumeClaim
-		var pvclaims []*v1.PersistentVolumeClaim
 		var err error
 		var snapshotContentCreated = false
+		var snapshotContentCreated2 = false
+		var snapshotId, snapshotHandle, claimPolicy string
+		var snapshotcontent2 *snapV1.VolumeSnapshotContent
+		var svcVolumeSnapshotName, staticSnapshotId string
 
 		ginkgo.By("Creating new namespace for the test")
 		namespace1, err := framework.CreateTestingNS(f.BaseName, client, nil)
@@ -1566,6 +1588,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		defer func() {
 			if !isNamespaceDeleted {
+				framework.Logf("Collecting new GC namespace before performing PV/PVC cleanup")
+				newEventList, err := client.CoreV1().Events(newNamespaceName).List(ctx, metav1.ListOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				for _, item := range newEventList.Items {
+					framework.Logf(fmt.Sprintf(item.Message))
+				}
 				ginkgo.By("Delete namespace")
 				err = client.CoreV1().Namespaces().Delete(ctx, newNamespaceName, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1573,22 +1601,37 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			}
 		}()
 
-		ginkgo.By("Create storage class and PVC")
-		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
-			newNamespaceName, nil, scParameters, diskSize, nil, "", false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if vanillaCluster {
+			scParameters[scParamDatastoreURL] = datastoreURL
+		} else if guestCluster {
+			scParameters[svStorageClassName] = storagePolicyName
+		}
 
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+		if vanillaCluster {
+			ginkgo.By("Create storage class and PVC")
+			scParameters[scParamDatastoreURL] = datastoreURL
+			storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
-		ginkgo.By("Expect claim to provision volume successfully")
-		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		} else {
+			ginkgo.By("Get storage class and create PVC")
+			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+
+		ginkgo.By("Create PVC")
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, newNamespaceName, nil, "",
+			diskSize, storageclass, true)
+		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
+		if guestCluster {
+			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
+		}
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
@@ -1600,80 +1643,65 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			}
 		}()
 
-		// Verify using CNS Query API if VolumeID retrieved from PV is present.
-		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
-		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
-		gomega.Expect(queryResult.Volumes[0].VolumeId.Id).To(gomega.Equal(volHandle))
+		if vanillaCluster {
+			claimPolicy = retainClaimPolicy
+		} else if guestCluster {
+			claimPolicy = deletionPolicy
+		}
 
-		ginkgo.By("Create volume snapshot class")
-		volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
-			getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Retain"), nil), metav1.CreateOptions{})
+		ginkgo.By("Create/Get volume snapshot class")
+		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, claimPolicy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			ginkgo.By("Delete volume snapshot class")
-			err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx,
-				volumeSnapshotClass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Create a volume snapshot")
-		snapshot1, err := snapc.SnapshotV1().VolumeSnapshots(newNamespaceName).Create(ctx,
-			getVolumeSnapshotSpec(newNamespaceName, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("Volume snapshot name is : %s", snapshot1.Name)
-		snapshotCreated := true
-		var snapshotContent1Name = ""
-		defer func() {
-			if !isNamespaceDeleted {
-				if snapshotCreated {
-					framework.Logf("Deleting volume snapshot")
-					deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, snapshot1.Name, pandoraSyncWaitTime)
-				}
-				if snapshotContentCreated {
-					framework.Logf("Deleting volume snapshot content")
-					deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
-						*snapshot1.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
-
-					framework.Logf("Wait till the volume snapshot content is deleted")
-					err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *snapshot1.Status.BoundVolumeSnapshotContentName)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				}
-			}
-			if snapshotContentCreated {
-				framework.Logf("Deleting volume snapshot content")
-				deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
-					snapshotContent1Name, pandoraSyncWaitTime)
-
-				framework.Logf("Wait till the volume snapshot content is deleted")
-				err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *snapshot1.Status.BoundVolumeSnapshotContentName)
+			if vanillaCluster {
+				ginkgo.By("Delete volume snapshot class")
+				err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx,
+					volumeSnapshotClass.Name, metav1.DeleteOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
-		ginkgo.By("Verify volume snapshot is Ready to use")
-		snapshot1_updated, err := waitForVolumeSnapshotReadyToUse(*snapc, ctx, newNamespaceName, snapshot1.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(snapshot1_updated.Status.RestoreSize.Cmp(resource.MustParse(diskSize))).To(gomega.BeZero())
+		ginkgo.By("Create a volume snapshot")
+		volumeSnapshot, snapshotContent, snapshotCreated,
+			snapshotContentCreated, snapshotId, err := createDynamicVolumeSnapshot(ctx, newNamespaceName, snapc,
+			volumeSnapshotClass, pvclaim, volHandle, diskSize)
+		framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
+		snapshotContentName := snapshotContent.Name
 
-		ginkgo.By("Verify volume snapshot content is created")
-		snapshotContent1, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
-			*snapshot1_updated.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		snapshotContentCreated = true
-		snapshotContent1Name = snapshotContent1.Name
+		if guestCluster {
+			framework.Logf("Get volume snapshot handle from Supervisor Cluster")
+			staticSnapshotId, _, svcVolumeSnapshotName, err = getSnapshotHandleFromSupervisorCluster(ctx, volumeSnapshotClass,
+				*snapshotContent.Status.SnapshotHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("svcVolumeSnapshotName: %s", svcVolumeSnapshotName)
+			framework.Logf("Change the deletion policy of VolumeSnapshotContent from Delete to Retain " +
+				"in Guest Cluster")
+			refreshedSnapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx, snapshotContent.Name,
+				metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			snapshotContent, err = changeDeletionPolicyOfVolumeSnapshotContent(ctx, refreshedSnapshotContent,
+				snapc, snapV1.VolumeSnapshotContentRetain)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
-		gomega.Expect(*snapshotContent1.Status.ReadyToUse).To(gomega.BeTrue())
+		defer func() {
+			if !isNamespaceDeleted {
+				if snapshotCreated {
+					framework.Logf("Deleting volume snapshot")
+					deleteVolumeSnapshotWithPandoraWait(ctx, snapc, newNamespaceName, volumeSnapshot.Name, pandoraSyncWaitTime)
+				}
+				if snapshotContentCreated {
+					framework.Logf("Deleting volume snapshot content")
+					deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
+						*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
 
-		framework.Logf("Get volume snapshot ID from snapshot handle")
-		snapshothandle := *snapshotContent1.Status.SnapshotHandle
-		snapshotId := strings.Split(snapshothandle, "+")[1]
-
-		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					framework.Logf("Wait till the volume snapshot content is deleted")
+					err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}
+		}()
 
 		ginkgo.By("Delete namespace")
 		err = client.CoreV1().Namespaces().Delete(ctx, newNamespaceName, *metav1.NewDeleteOptions(0))
@@ -1685,13 +1713,19 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Verify volume snapshot is deleted")
 		_, err = snapc.SnapshotV1().VolumeSnapshots(newNamespaceName).Get(ctx,
-			snapshot1.Name, metav1.GetOptions{})
+			volumeSnapshot.Name, metav1.GetOptions{})
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		snapshotCreated = false
 
-		_, err = snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
-			snapshotContent1.Name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if vanillaCluster {
+			_, err = snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
+				snapshotContentName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else if guestCluster {
+			framework.Logf("Delete VolumeSnapshotContent from Guest Cluster explicitly")
+			err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, newNamespaceName, pandoraSyncWaitTime)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By("Creating another new namespace for the test")
 		namespace2, err := framework.CreateTestingNS(f.BaseName, client, nil)
@@ -1699,31 +1733,42 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		f.AddNamespacesToDelete(namespace2)
 		namespace2Name := namespace2.Name
 
-		snapshotHandle := volHandle + "+" + snapshotId
-		ginkgo.By(fmt.Sprintf("Creating volume snapshot content by snapshotHandle %s", snapshotHandle))
-		snapshotcontent2, err := snapc.SnapshotV1().VolumeSnapshotContents().Create(ctx,
-			getVolumeSnapshotContentSpec(snapV1.DeletionPolicy("Delete"), snapshotHandle,
-				"static-vs-cns", namespace2Name), metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+		if vanillaCluster {
+			snapshotHandle = volHandle + "+" + snapshotId
+			ginkgo.By(fmt.Sprintf("Creating volume snapshot content by snapshotHandle %s", snapshotHandle))
+			snapshotcontent2, err = snapc.SnapshotV1().VolumeSnapshotContents().Create(ctx,
+				getVolumeSnapshotContentSpec(snapV1.DeletionPolicy("Delete"), snapshotHandle,
+					"static-vsc-cns", namespace2Name), metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else if guestCluster {
+			framework.Logf(fmt.Sprintf("Creating static VolumeSnapshotContent in Guest Cluster using "+
+				"supervisor VolumeSnapshotName %s", svcVolumeSnapshotName))
+			snapshotcontent2, err = snapc.SnapshotV1().VolumeSnapshotContents().Create(ctx,
+				getVolumeSnapshotContentSpec(snapV1.DeletionPolicy("Delete"), svcVolumeSnapshotName,
+					"static-vsc-cns", namespace2Name), metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 		ginkgo.By("Verify volume snapshot content is created or not")
-		snapshotContent2_updated, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
+		snapshotcontent2, err = snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
 			snapshotcontent2.ObjectMeta.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		snapshotContentCreated2 := true
-		framework.Logf("Snapshotcontent name is  %s", snapshotContent2_updated.ObjectMeta.Name)
+		snapshotContentCreated2 = true
+		framework.Logf("Snapshotcontent name is  %s", snapshotcontent2.ObjectMeta.Name)
+
+		snapshotcontent2, err = waitForVolumeSnapshotContentReadyToUse(*snapc, ctx, snapshotcontent2.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			if snapshotContentCreated2 {
 				deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
-					snapshotContent2_updated.ObjectMeta.Name, pandoraSyncWaitTime)
+					snapshotcontent2.ObjectMeta.Name, pandoraSyncWaitTime)
 			}
 		}()
 
 		ginkgo.By("Create a volume snapshot by snapshotcontent")
 		volumeSnapshot2, err := snapc.SnapshotV1().VolumeSnapshots(namespace2Name).Create(ctx,
-			getVolumeSnapshotSpecByName(namespace2Name, "static-vs-cns",
-				snapshotContent2_updated.ObjectMeta.Name), metav1.CreateOptions{})
+			getVolumeSnapshotSpecByName(namespace2Name, "static-vsc-cns",
+				snapshotcontent2.Name), metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Volume snapshot name is : %s", volumeSnapshot2.Name)
 		snapshotCreated2 := true
@@ -1739,11 +1784,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Verify volume snapshot2 is created and Ready to use")
-		volumeSnapshot2_updated, err := waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace2Name,
+		volumeSnapshot2, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace2Name,
 			volumeSnapshot2.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(volumeSnapshot2_updated.Status.RestoreSize.Cmp(resource.MustParse(diskSize))).To(gomega.BeZero())
-		framework.Logf("Snapshot details is %+v", volumeSnapshot2_updated)
+		gomega.Expect(volumeSnapshot2.Status.RestoreSize.Cmp(resource.MustParse(diskSize))).To(gomega.BeZero())
+		framework.Logf("Snapshot details is %+v", volumeSnapshot2)
+		snapshotContentCreated2 = true
 
 		ginkgo.By("Create PVC from snapshot")
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace2Name, diskSize, storageclass, nil,
@@ -1758,46 +1804,46 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
-		defer func() {
-			if snapshotCreated2 {
-				framework.Logf("Deleting volume snapshot2")
-				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace2Name, volumeSnapshot2.Name, pandoraSyncWaitTime)
-
-				err = e2eVSphere.deleteVolumeSnapshotInCNS(volHandle, volumeSnapshot2.Name)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				snapshotCreated2 = false
-			}
+		/*defer func() {
 			framework.Logf("Deleting restored PVC")
 			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace2Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		}()*/
 
-		ginkgo.By("Deleted volume snapshot is created above")
-		deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace2Name, volumeSnapshot2.Name, pandoraSyncWaitTime)
-		snapshotCreated2 = false
+		if vanillaCluster {
+			ginkgo.By("Deleted volume snapshot is created above")
+			deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace2Name, volumeSnapshot2.Name, pandoraSyncWaitTime)
+			snapshotCreated2 = false
 
-		framework.Logf("Wait till the volume snapshot content is deleted")
-		deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
-			volumeSnapshot2_updated.ObjectMeta.Name, pandoraSyncWaitTime)
+			framework.Logf("Wait till the volume snapshot content is deleted")
+			deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
+				volumeSnapshot2.ObjectMeta.Name, pandoraSyncWaitTime)
 
-		err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, volumeSnapshot2_updated.ObjectMeta.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		snapshotContentCreated2 = false
+			err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, volumeSnapshot2.ObjectMeta.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			snapshotContentCreated2 = false
 
-		framework.Logf("Deleting volume snapshot content 1")
-		deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
-			snapshotContent1Name, pandoraSyncWaitTime)
+			framework.Logf("Deleting volume snapshot content 1")
+			deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
+				snapshotContent.Name, pandoraSyncWaitTime)
 
-		err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc,
-			snapshot1_updated.ObjectMeta.Name, pandoraSyncWaitTime)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		snapshotContentCreated = false
+			err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc,
+				snapshotContent.ObjectMeta.Name, pandoraSyncWaitTime)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			snapshotContentCreated = false
 
-		ginkgo.By("Verify snapshot entry is deleted from CNS")
-		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId, false)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Verify snapshot entry is deleted from CNS")
+			err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId, false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else if guestCluster {
+			framework.Logf("Deleting volume snapshot 2: %s", volumeSnapshot2.Name)
+			snapshotCreated2, _, err = deleteVolumeSnapshot(ctx, snapc, namespace,
+				volumeSnapshot2, pandoraSyncWaitTime, volHandle, staticSnapshotId)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 	})
 
 	/*
@@ -4732,289 +4778,55 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	})
 
 	/*
-	   Volume provision and snapshot creation on VVOL Datastore
-	   1. Create a SC for VVOL datastore and provision a PVC
-	   2. Create Snapshot class and take a snapshot of the volume
-	   3. Cleanup of snapshot, pvc and sc
+		Volume provision and snapshot creation on VVOL Datastore
+		1. Create a SC for VVOL datastore and provision a PVC
+		2. Create Snapshot class and take a snapshot of the volume
+		3. Cleanup of snapshot, pvc and sc
 	*/
-	ginkgo.It("[block-vanilla-snapshot] Volume provision and snapshot creation/restore on VVOL Datastore", func() {
+	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot]Volume provision and "+
+		"snapshot creation/restore on VVOL Datastore", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		var storageclass *storagev1.StorageClass
-		var pvclaim *v1.PersistentVolumeClaim
-		var pvclaims []*v1.PersistentVolumeClaim
-		var err error
-		var snapshotContentCreated = false
-		var snapshotCreated = false
+		invokeSnapshotOperationsOnSharedDatastore(client, ctx, namespace, scParameters, snapc, "VVOL", pandoraSyncWaitTime)
 
-		ginkgo.By("Create storage class and PVC")
-
-		sharedVVOLdatastoreURL := os.Getenv(envSharedVVOLDatastoreURL)
-		if sharedVVOLdatastoreURL == "" {
-			ginkgo.Skip("Skipping the test because SHARED_VVOL_DATASTORE_URL is not set. " +
-				"This may be due to testbed is not having shared VVOL datastore.")
-		}
-
-		scParameters[scParamDatastoreURL] = sharedVVOLdatastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
-			namespace, nil, scParameters, diskSize, nil, "", false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Expect claim to provision volume successfully")
-		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
-		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-
-		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		// Verify using CNS Query API if VolumeID retrieved from PV is present.
-		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
-		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
-		gomega.Expect(queryResult.Volumes[0].VolumeId.Id).To(gomega.Equal(volHandle))
-
-		ginkgo.By("Create volume snapshot class")
-		volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
-			getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil), metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		defer func() {
-			err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name,
-				metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Create a volume snapshot")
-		volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
-			getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
-
-		defer func() {
-			if snapshotContentCreated {
-				framework.Logf("Deleting volume snapshot content")
-				deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
-					*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
-
-				framework.Logf("Wait till the volume snapshot is deleted")
-				err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-
-			if snapshotCreated {
-				framework.Logf("Deleting volume snapshot")
-				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
-			}
-		}()
-
-		ginkgo.By("Verify volume snapshot is created")
-		volumeSnapshot, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, volumeSnapshot.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		snapshotCreated = true
-		gomega.Expect(volumeSnapshot.Status.RestoreSize.Cmp(resource.MustParse(diskSize))).To(gomega.BeZero())
-
-		ginkgo.By("Verify volume snapshot content is created")
-		snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
-			*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		snapshotContentCreated = true
-		gomega.Expect(*snapshotContent.Status.ReadyToUse).To(gomega.BeTrue())
-
-		framework.Logf("Get volume snapshot ID from snapshot handle")
-		snapshothandle := *snapshotContent.Status.SnapshotHandle
-		snapshotId := strings.Split(snapshothandle, "+")[1]
-
-		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Create PVC from snapshot")
-		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
-			v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
-
-		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
-			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
-		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
-
-		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		framework.Logf("Deleting volume snapshot")
-		deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
-		snapshotCreated = false
-
-		err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, snapshotContent.ObjectMeta.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		snapshotContentCreated = false
-
-		ginkgo.By("Verify snapshot entry is deleted from CNS")
-		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId, false)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	/*
-	   Volume provision and snapshot creation on VMFS Datastore
-	   1. Create a SC for VMFS datastore and provision a PVC
-	   2. Create Snapshot class and take a snapshot of the volume
-	   3. Cleanup of snapshot, pvc and sc
+		Volume provision and snapshot creation on VMFS Datastore
+		1. Create a SC for VMFS datastore and provision a PVC
+		2. Create Snapshot class and take a snapshot of the volume
+		3. Cleanup of snapshot, pvc and sc
 	*/
-	ginkgo.It("[block-vanilla-snapshot] Volume provision and snapshot creation/restore on VMFS Datastore", func() {
+	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Volume provision and "+
+		"snapshot creation/restore on VMFS Datastore", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		var storageclass *storagev1.StorageClass
-		var pvclaim *v1.PersistentVolumeClaim
-		var pvclaims []*v1.PersistentVolumeClaim
-		var err error
-		var snapshotContentCreated = false
-		var snapshotCreated = false
+		invokeSnapshotOperationsOnSharedDatastore(client, ctx, namespace, scParameters, snapc, "VMFS", pandoraSyncWaitTime)
+	})
 
-		ginkgo.By("Create storage class and PVC")
+	/*
+		Volume provision and snapshot creation on NFS Datastore
+		1. Create a SC for VMFS datastore and provision a PVC
+		2. Create Snapshot class and take a snapshot of the volume
+		3. Cleanup of snapshot, pvc and sc
+	*/
+	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Volume provision and "+
+		"snapshot creation/restore on NFS Datastore", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		invokeSnapshotOperationsOnSharedDatastore(client, ctx, namespace, scParameters, snapc, "NFS", pandoraSyncWaitTime)
+	})
 
-		sharedVMFSdatastoreURL := os.Getenv(envSharedVMFSDatastoreURL)
-		if sharedVMFSdatastoreURL == "" {
-			ginkgo.Skip("Skipping the test because envSharedVMFSDatastoreURL is not set. " +
-				"This may be due to testbed is not having shared VMFS datastore.")
-		}
-
-		scParameters[scParamDatastoreURL] = sharedVMFSdatastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
-			namespace, nil, scParameters, diskSize, nil, "", false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Expect claim to provision volume successfully")
-		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
-		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-
-		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		// Verify using CNS Query API if VolumeID retrieved from PV is present.
-		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
-		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
-		gomega.Expect(queryResult.Volumes[0].VolumeId.Id).To(gomega.Equal(volHandle))
-
-		ginkgo.By("Create volume snapshot class")
-		volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
-			getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil), metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		defer func() {
-			err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name,
-				metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Create a volume snapshot")
-		volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
-			getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
-
-		defer func() {
-			if snapshotContentCreated {
-				framework.Logf("Deleting volume snapshot content")
-				deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
-					*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
-
-				framework.Logf("Wait till the volume snapshot is deleted")
-				err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-
-			if snapshotCreated {
-				framework.Logf("Deleting volume snapshot")
-				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
-			}
-		}()
-
-		ginkgo.By("Verify volume snapshot is created")
-		volumeSnapshot, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, volumeSnapshot.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		snapshotCreated = true
-		gomega.Expect(volumeSnapshot.Status.RestoreSize.Cmp(resource.MustParse(diskSize))).To(gomega.BeZero())
-
-		ginkgo.By("Verify volume snapshot content is created")
-		snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
-			*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		snapshotContentCreated = true
-		gomega.Expect(*snapshotContent.Status.ReadyToUse).To(gomega.BeTrue())
-
-		framework.Logf("Get volume snapshot ID from snapshot handle")
-		snapshothandle := *snapshotContent.Status.SnapshotHandle
-		snapshotId := strings.Split(snapshothandle, "+")[1]
-
-		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Create PVC from snapshot")
-		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
-			v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
-
-		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
-			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
-		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
-
-		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		framework.Logf("Deleting volume snapshot")
-		deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
-		snapshotCreated = false
-
-		err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, snapshotContent.ObjectMeta.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		snapshotContentCreated = false
-
-		ginkgo.By("Verify snapshot entry is deleted from CNS")
-		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId, false)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	/*
+		Volume provision and snapshot creation on VSAN2 Datastore
+		1. Create a SC for VMFS datastore and provision a PVC
+		2. Create Snapshot class and take a snapshot of the volume
+		3. Cleanup of snapshot, pvc and sc
+	*/
+	ginkgo.It("[tkg-snapshot] Volume provision and snapshot creation/restore on VSAN2 Datastore", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		invokeSnapshotOperationsOnSharedDatastore(client, ctx, namespace, scParameters, snapc, "VSAN", pandoraSyncWaitTime)
 	})
 
 	/*
@@ -5690,7 +5502,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		framework.Logf("Change the deletion policy of VolumeSnapshotContent from Delete to Retain " +
 			"in Guest Cluster")
 		updatedSnapshotContent, err := changeDeletionPolicyOfVolumeSnapshotContent(ctx,
-			snapshotContent, snapc, namespace, snapV1.VolumeSnapshotContentRetain)
+			snapshotContent, snapc, snapV1.VolumeSnapshotContentRetain)
 
 		framework.Logf("Delete dynamic volume snapshot from Guest Cluster")
 		deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
@@ -6651,4 +6463,529 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			volumeSnapshot1, pandoraSyncWaitTime, volHandle1, snapshotId1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
+
+	/*
+		Detach volume with snapshot
+		1. Create a Storage Class, PVC and Pod. Write data on it.
+		2. Create Dynamic Provisioned snapshot on above PVC.
+		3. Verify VolumeSnapshot and VolumeSnapshotContent status.
+		4. Delete the Pod. Verify the volume should be detached and in release state.
+		5. Create new volumes using the snapshots created in step #2
+		6. Verify new volumes created successfully. Attached it to a Pod.
+		7. Verify the older data. It should be intact and write new data.
+		8. Perform cleanup.
+	*/
+	ginkgo.It("[tkg-snapshot] Detach volume with snapshot", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var storageclass *storagev1.StorageClass
+		var pvclaim *v1.PersistentVolumeClaim
+		var err error
+		var snapshotContentCreated = false
+		var snapshotCreated = false
+		var vmUUID string
+
+		scParameters[svStorageClassName] = storagePolicyName
+
+		ginkgo.By("Get storage class")
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Create PVC")
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+			diskSize, storageclass, true)
+		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
+		if guestCluster {
+			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
+		}
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create Pod to attach to Pvc")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false,
+			execRWXCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		nodeName := pod.Spec.NodeName
+		if vanillaCluster {
+			vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
+		} else if guestCluster {
+			vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, nodeName))
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+
+		defer func() {
+			// Delete POD
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+			err = fpod.DeletePodWithWait(client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create/Get volume snapshot class")
+		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			if vanillaCluster {
+				err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name,
+					metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Create a dynamic volume snapshot")
+		volumeSnapshot, _, snapshotCreated,
+			snapshotContentCreated, snapshotId, err := createDynamicVolumeSnapshot(ctx, namespace, snapc,
+			volumeSnapshotClass, pvclaim, volHandle, diskSize)
+
+		defer func() {
+			if snapshotContentCreated {
+				framework.Logf("Deleting volume snapshot content")
+				deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
+					*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
+
+				framework.Logf("Wait till the volume snapshot is deleted")
+				err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			if snapshotCreated {
+				framework.Logf("Deleting volume snapshot")
+				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
+			}
+		}()
+
+		ginkgo.By("Deleting pod and wait for it to be detached from node")
+		deletePodAndWaitForVolsToDetach(ctx, client, pod)
+
+		pvclaim2, persistentVolumes2, pod2 := verifyVolumeRestoreOperation(ctx, client,
+			namespace, storageclass, volumeSnapshot, true)
+		volHandle2 := persistentVolumes2[0].Spec.CSI.VolumeHandle
+		if guestCluster {
+			volHandle2 = getVolumeIDFromSupervisorCluster(volHandle2)
+		}
+		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
+
+		defer func() {
+			// Delete POD
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
+			err = fpod.DeletePodWithWait(client, pod2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Delete Dynamic snapshot")
+		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
+			volumeSnapshot, pandoraSyncWaitTime, volHandle, snapshotId)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	})
+
+	// This test verifies the static provisioning workflow in guest cluster.
+	//
+	// Test Steps:
+	// 1. Create FCD with valid storage policy on gc-svc.
+	// 2. Create Resource quota.
+	// 3. Create CNS register volume with above created FCD on SVC.
+	// 4. verify PV, PVC got created , check the bidirectional reference on svc.
+	// 5. On GC create a PV by pointing volume handle got created by static
+	//    provisioning on gc-svc (in step 4).
+	// 6. On GC create a PVC pointing to above created PV.
+	// 7. Wait for PV , PVC to get bound.
+	// 8. Create POD, verify the status.
+	// 9. Delete all the above created PV, PVC and resource quota.
+	ginkgo.It("[tkg-snapshot] Provisioning of static volume on guest cluster using FCD with snapshot creation", func() {
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var snapshotContentCreated = false
+		var snapshotCreated = false
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val := strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring := strconv.FormatInt(curtime, 10)
+		svpvcName := "cns-pvc-" + curtimestring + val
+		framework.Logf("pvc name :%s", svpvcName)
+		namespace = getNamespaceToRunTests(f)
+
+		// Get supvervisor cluster client.
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+
+		// Get restConfig.
+		var restConfig *restclient.Config
+		if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+			restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Creating FCD (CNS Volume)")
+		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
+			"staticfcd"+curtimestring, profileID, diskSizeInMb, defaultDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		//deleteFCDRequired = false
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
+			pandoraSyncWaitTime, fcdID))
+		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+		ginkgo.By("Create CNS register volume with above created FCD")
+		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, svNamespace, fcdID, "", svpvcName, v1.ReadWriteOnce)
+		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
+			restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
+		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+		framework.Logf("CNS register volume name : %s", cnsRegisterVolumeName)
+
+		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
+		svcPVC, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, svpvcName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+		volumeID := svcPV.Spec.CSI.VolumeHandle
+		framework.Logf("volumeID: %s", volumeID)
+		verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
+		// TODO: add volume health check after PVC creation.
+
+		volumeHandle := svcPVC.GetName()
+		framework.Logf("Volume Handle :%s", volumeHandle)
+
+		ginkgo.By("Creating PV in guest cluster")
+		gcPV := getPersistentVolumeSpecWithStorageclass(volumeHandle,
+			v1.PersistentVolumeReclaimRetain, storageclass.Name, nil, diskSize)
+		gcPV, err = client.CoreV1().PersistentVolumes().Create(ctx, gcPV, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gcPVName := gcPV.GetName()
+		time.Sleep(time.Duration(10) * time.Second)
+		framework.Logf("PV name in GC : %s", gcPVName)
+
+		ginkgo.By("Creating PVC in guest cluster")
+		gcPVC := getPVCSpecWithPVandStorageClass(svpvcName, namespace, nil, gcPVName, storageclass.Name, diskSize)
+		gcPVC, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, gcPVC, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for claim to be in bound phase")
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+			namespace, gcPVC.Name, framework.Poll, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("PVC name in GC : %s", gcPVC.GetName())
+
+		volHandleFromGcPv := gcPV.Spec.CSI.VolumeHandle
+		if guestCluster {
+			volHandleFromGcPv = getVolumeIDFromSupervisorCluster(volHandleFromGcPv)
+		}
+		gomega.Expect(volHandleFromGcPv).NotTo(gomega.BeEmpty())
+		framework.Logf("volHandleFromGcPv: %s", volHandleFromGcPv)
+
+		ginkgo.By("Create/Get volume snapshot class")
+		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			if vanillaCluster {
+				err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name,
+					metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Create a dynamic volume snapshot")
+		volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+			getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, gcPVC.Name), metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
+
+		ginkgo.By("Verify volume snapshot is created")
+		volumeSnapshot, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, volumeSnapshot.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		snapshotCreated = true
+		if volumeSnapshot.Status.RestoreSize.Cmp(resource.MustParse(diskSize)) != 0 {
+			framework.Failf("unexpected restore size")
+		}
+
+		ginkgo.By("Verify volume snapshot content is created")
+		snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
+			*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		snapshotContentCreated = true
+		snapshotContent, err = waitForVolumeSnapshotContentReadyToUse(*snapc, ctx, snapshotContent.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			if snapshotContentCreated {
+				framework.Logf("Deleting volume snapshot content")
+				deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
+					*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
+
+				framework.Logf("Wait till the volume snapshot is deleted")
+				err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			if snapshotCreated {
+				framework.Logf("Deleting volume snapshot")
+				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
+			}
+		}()
+
+		framework.Logf("Get volume snapshot handle from Supervisor Cluster")
+		_, _, svcVolumeSnapshotName, err := getSnapshotHandleFromSupervisorCluster(ctx, volumeSnapshotClass,
+			*snapshotContent.Status.SnapshotHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		_, staticSnapshot, staticSnapshotContentCreated,
+			staticSnapshotCreated, err := createPreProvisionedSnapshotInGuestCluster(ctx, volumeSnapshot,
+			snapshotContent, snapc, namespace, pandoraSyncWaitTime, svcVolumeSnapshotName, diskSize)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			if staticSnapshotCreated {
+				framework.Logf("Deleting static volume snapshot")
+				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
+
+				framework.Logf("Wait till the volume snapshot is deleted")
+				err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc,
+					*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			if staticSnapshotContentCreated {
+				framework.Logf("Deleting static volume snapshot content")
+				deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
+					*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
+
+				framework.Logf("Wait till the volume snapshot is deleted")
+				err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		framework.Logf("snapshot name: %s", staticSnapshot.Name)
+		framework.Logf("snapshot details: %s", staticSnapshot)
+		pvclaim2, persistentVolumes2, pod2 := verifyVolumeRestoreOperation(ctx, client,
+			namespace, storageclass, staticSnapshot, true)
+		volHandle2 := persistentVolumes2[0].Spec.CSI.VolumeHandle
+		if guestCluster {
+			volHandle2 = getVolumeIDFromSupervisorCluster(volHandle2)
+		}
+		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
+
+		defer func() {
+			// Delete POD
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
+			err = fpod.DeletePodWithWait(client, pod2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Delete Preprovisioned snapshot")
+		framework.Logf("Delete volume snapshot and verify the snapshot content is deleted")
+		deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, staticSnapshot.Name, pandoraSyncWaitTime)
+		staticSnapshotCreated = false
+
+		framework.Logf("Wait until the volume snapshot content is deleted")
+		err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *staticSnapshot.Status.BoundVolumeSnapshotContentName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		staticSnapshotContentCreated = false
+
+		ginkgo.By("Deleting the PV Claim")
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, gcPVC.Name, namespace),
+			"Failed to delete PVC ", gcPVC.Name)
+
+		ginkgo.By("Verify PV should be released not deleted")
+		framework.Logf("Waiting for PV to move to released state")
+		// TODO: replace sleep with polling mechanism.
+		time.Sleep(time.Duration(100) * time.Second)
+		gcPV, err = client.CoreV1().PersistentVolumes().Get(ctx, gcPVName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gcPVStatus := gcPV.Status.Phase
+		if gcPVStatus != "Released" {
+			framework.Logf("gcPVStatus: %s", gcPVStatus)
+			gomega.Expect(gcPVStatus).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Verify volume is not deleted in Supervisor Cluster")
+		volumeExists := verifyVolumeExistInSupervisorCluster(svcPVC.GetName())
+		gomega.Expect(volumeExists).NotTo(gomega.BeFalse())
+
+		ginkgo.By("Deleting the PV Claim in supervisor cluster")
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(svcClient,
+			svcPVC.Name, svNamespace), "Failed to delete PVC", svcPVC.Name)
+
+		ginkgo.By("Verify PV should be deleted automatically from SVC")
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(svcClient, svcPV.Name,
+			poll, supervisorClusterOperationsTimeout))
+
+	})
 })
+
+// invokeSnapshotOperationsOnSharedDatastore is a wrapper method which invokes creation of volume snapshot
+// and restore of volume snapshot on shared datastore
+func invokeSnapshotOperationsOnSharedDatastore(client clientset.Interface, ctx context.Context, namespace string,
+	scParameters map[string]string, snapc *snapclient.Clientset, sharedDatastoreType string,
+	pandoraSyncWaitTime int) {
+	var storageclass *storagev1.StorageClass
+	var err error
+	var snapshotContentCreated = false
+	var snapshotCreated = false
+	var sharedDatastoreURL, storagePolicyName, snapshotId string
+
+	if sharedDatastoreType == "VMFS" {
+		if vanillaCluster {
+			sharedDatastoreURL = os.Getenv(envSharedVMFSDatastoreURL)
+			if sharedDatastoreURL == "" {
+				ginkgo.Skip("Skipping the test because SHARED_VMFS_DATASTORE_URL is not set. " +
+					"This may be due to testbed is not having shared VMFS datastore.")
+			}
+		} else {
+			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForVmfsDatastores)
+		}
+	} else if sharedDatastoreType == "NFS" {
+		if vanillaCluster {
+			sharedDatastoreURL = os.Getenv(envSharedNFSDatastoreURL)
+			if sharedDatastoreURL == "" {
+				ginkgo.Skip("Skipping the test because SHARED_NFS_DATASTORE_URL is not set. " +
+					"This may be due to testbed is not having shared NFS datastore.")
+			}
+		} else {
+			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForNfsDatastores)
+		}
+	} else if sharedDatastoreType == "VVOL" {
+		if vanillaCluster {
+			sharedDatastoreURL = os.Getenv(envSharedVVOLDatastoreURL)
+			if sharedDatastoreURL == "" {
+				ginkgo.Skip("Skipping the test because SHARED_VVOL_DATASTORE_URL is not set. " +
+					"This may be due to testbed is not having shared VVOL datastore.")
+			}
+		} else {
+			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForVvolDatastores)
+		}
+	} else {
+		if vanillaCluster {
+			sharedDatastoreURL = os.Getenv(envSharedDatastoreURL)
+			if sharedDatastoreURL == "" {
+				ginkgo.Skip("Skipping the test because SHARED_VSPHERE_DATASTORE_URL is not set. " +
+					"This may be due to testbed is not having shared VSAN datastore.")
+			}
+		} else {
+			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+		}
+	}
+
+	if vanillaCluster {
+		ginkgo.By("Create storage class")
+		scParameters[scParamDatastoreURL] = sharedDatastoreURL
+		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+	} else {
+		ginkgo.By("Get storage class and create PVC")
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	}
+	ginkgo.By("Create PVC")
+	pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		diskSize, storageclass, true)
+	volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
+	if guestCluster {
+		volHandle = getVolumeIDFromSupervisorCluster(volHandle)
+	}
+	gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+
+	defer func() {
+		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+
+	ginkgo.By("Create/Get volume snapshot class")
+	volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	defer func() {
+		if vanillaCluster {
+			err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name,
+				metav1.DeleteOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	}()
+
+	ginkgo.By("Create a dynamic volume snapshot")
+	volumeSnapshot, _, snapshotCreated,
+		snapshotContentCreated, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc,
+		volumeSnapshotClass, pvclaim, volHandle, diskSize)
+	framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
+
+	defer func() {
+		if snapshotContentCreated {
+			framework.Logf("Deleting volume snapshot content")
+			deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc,
+				*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
+
+			framework.Logf("Wait till the volume snapshot is deleted")
+			err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		if snapshotCreated {
+			framework.Logf("Deleting volume snapshot")
+			deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
+		}
+	}()
+
+	pvclaim2, persistentVolumes2, pod2 := verifyVolumeRestoreOperation(ctx, client,
+		namespace, storageclass, volumeSnapshot, true)
+	volHandle2 := persistentVolumes2[0].Spec.CSI.VolumeHandle
+	if guestCluster {
+		volHandle2 = getVolumeIDFromSupervisorCluster(volHandle2)
+	}
+	gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
+
+	defer func() {
+		// Delete POD
+		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
+		err = fpod.DeletePodWithWait(client, pod2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+
+	ginkgo.By("Delete Dynamic snapshot")
+	snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
+		volumeSnapshot, pandoraSyncWaitTime, volHandle, snapshotId)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
