@@ -413,7 +413,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		ginkgo.By("Expect claim to fail as invalid storage policy is specified in Storage Class")
 		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
 			client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout))
-		expectedErrMsg := "waiting for a volume to be created"
+		expectedErrMsg := "Waiting for a volume to be created"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
 	})
@@ -952,7 +952,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		ginkgo.By("Expect claim to fail as invalid storage policy is specified in Storage Class")
 		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
 			client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout))
-		expectedErrMsg := "waiting for a volume to be created"
+		expectedErrMsg := "Waiting for a volume to be created"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
 	})
@@ -1051,7 +1051,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		ginkgo.By("Expect claim to fail as invalid storage policy is specified in Storage Class")
 		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
 			client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout))
-		expectedErrMsg := "waiting for a volume to be created"
+		expectedErrMsg := "Waiting for a volume to be created"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
 	})
