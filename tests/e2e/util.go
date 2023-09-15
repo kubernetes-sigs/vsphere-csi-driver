@@ -5986,14 +5986,14 @@ func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service strin
 
 // assignPolicyToWcpNamespace assigns a set of storage policies to a wcp namespace
 func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
-	namespace string, policyNames []string) {
+	namespace string, policyNames []string, resourceQuotaLimit string) {
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
 	vcAddress := vcIp + ":" + sshdPort
 	sessionId := createVcSession4RestApis()
 
 	curlStr := ""
 	policyNamesArrLength := len(policyNames)
-	defRqLimit := strings.Split(rqLimit, "Gi")[0]
+	defRqLimit := strings.Split(resourceQuotaLimit, "Gi")[0]
 	limit, err := strconv.Atoi(defRqLimit)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	limit *= 953 //to convert gb to mebibytes
@@ -6331,142 +6331,166 @@ func cleaupStatefulset(client clientset.Interface, ctx context.Context, namespac
 	}
 }
 
-// getVsanDPersistentVolumeClaimSpecWithStorageClass return the PersistentVolumeClaim
-// spec for vsanDirect datastore with specified storage class.
-func getVsanDPersistentVolumeClaimSpecWithStorageClass(namespace string, ds string,
-	storageclass *storagev1.StorageClass, pvcName string, podName string,
-	accessMode v1.PersistentVolumeAccessMode) *v1.PersistentVolumeClaim {
-	pvcAnnotations := make(map[string]string)
-	pvcAnnotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
-	pvcAnnotations["placement.beta.vmware.com/storagepool_antiAffinityRequired"] = podName
-
-	pvclaimlabels := make(map[string]string)
-	pvclaimlabels["supervisor"] = "true"
-
-	disksize := diskSize
-	if ds != "" {
-		disksize = ds
+// createVsanDPvcAndPod is a wrapper method which creates vsand pvc and pod on svc master IP
+func createVsanDPvcAndPod(sshClientConfig *ssh.ClientConfig, svcMasterIP string, svcNamespace string,
+	pvcName string, podName string, storagePolicyName string, pvcSize string) error {
+	err := applyVsanDirectPvcYaml(sshClientConfig, svcMasterIP, svcNamespace, pvcName, podName, storagePolicyName, pvcSize)
+	if err != nil {
+		return err
 	}
-	if accessMode == "" {
-		// If accessMode is not specified, set the default accessMode.
-		accessMode = v1.ReadWriteOnce
+	err = applyVsanDirectPodYaml(sshClientConfig, svcMasterIP, svcNamespace, pvcName, podName)
+	if err != nil {
+		return err
 	}
-
-	claim := &v1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pvcName,
-			Namespace: namespace,
-		},
-		Spec: v1.PersistentVolumeClaimSpec{
-			AccessModes: []v1.PersistentVolumeAccessMode{
-				accessMode,
-			},
-			Resources: v1.ResourceRequirements{
-				Requests: v1.ResourceList{
-					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
-				},
-			},
-			StorageClassName: &(storageclass.Name),
-		},
-	}
-	claim.Labels = pvclaimlabels
-	claim.Annotations = pvcAnnotations
-	framework.Logf("pvc spec: %v", claim)
-	return claim
+	return nil
 }
 
-// getVsanDPodSpec returns pod spec for vsan direct datastore for a given persistentVolumeClaim
-func getVsanDPodSpec(ns string, nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim,
-	isPrivileged bool, command string, podName string) *v1.Pod {
+// applyVsanDirectPvcYaml creates specific pvc spec and applies vsan direct pvc  yaml on svc master
+func applyVsanDirectPvcYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP string, svcNamespace string,
+	pvcName string, podName string, storagePolicyName string, pvcSize string) error {
 
-	podlabels := make(map[string]string)
-	podlabels["psp.vmware.com/pod-placement-opt-in"] = "true"
-	podSpec := &v1.Pod{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Pod",
-			APIVersion: "v1",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
-			Namespace: ns,
-		},
-		Spec: v1.PodSpec{
-			Containers: []v1.Container{
-				{
-					Name:            "write-pod",
-					Image:           nginxImage,
-					SecurityContext: fpod.GenerateContainerSecurityContext(isPrivileged),
-				},
-			},
-			RestartPolicy: v1.RestartPolicyOnFailure,
-		},
+	if pvcSize == "" {
+		pvcSize = diskSize
 	}
-	var volumeMounts = make([]v1.VolumeMount, len(pvclaims))
-	var volumes = make([]v1.Volume, len(pvclaims))
-	for index, pvclaim := range pvclaims {
-		volumename := "data0"
-		volumeMounts[index] = v1.VolumeMount{Name: volumename, MountPath: "/data0"}
-		volumes[index] = v1.Volume{Name: volumename, VolumeSource: v1.VolumeSource{
-			PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: false}}}
-	}
-	podSpec.Spec.Containers[0].VolumeMounts = volumeMounts
-	podSpec.Spec.Volumes = volumes
-	if nodeSelector != nil {
-		podSpec.Spec.NodeSelector = nodeSelector
+	cmd := fmt.Sprintf("sed -r"+
+		" -i 's/^(\\s*)(namespace\\s*:\\s*.*\\s*$)/\\1namespace: %s/' pvc.yaml", svcNamespace)
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		svcMasterIP)
+	cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
+		cmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, svcMasterIP, err)
 	}
 
-	podSpec.Labels = podlabels
-	podSpec.Spec.ServiceAccountName = "default"
-	podSpec.Spec.RestartPolicy = v1.RestartPolicyAlways
-	taintKeys := []string{v1.TaintNodeNotReady, v1.TaintNodeUnreachable}
-	podSpec.Spec.Subdomain = "sample-pe-svc"
-	var x int64 = 300
-	var tolerations []v1.Toleration
-	for _, taintkey := range taintKeys {
-		var toleration v1.Toleration
-		toleration.Key = taintkey
-		toleration.Operator = v1.TolerationOpExists
-		toleration.TolerationSeconds = &x
-		toleration.Effect = v1.TaintEffectNoExecute
-		framework.Logf("toleration: %v", toleration)
-		tolerations = append(tolerations, toleration)
+	cmd = fmt.Sprintf("sed -r "+
+		"-i 's/^(\\s*)(storageClassName\\s*:\\s*.*\\s*$)/\\1storageClassName: %s/' pvc.yaml", storagePolicyName)
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, svcMasterIP, err)
 	}
-	podSpec.Spec.Tolerations = tolerations
-	framework.Logf("pod spec: %v", podSpec)
-	return podSpec
+
+	cmd = fmt.Sprintf("sed -r"+
+		" -i 's/^(\\s*)(name\\s*:\\s*.*\\s*$)/\\1name: %s/' pvc.yaml", pvcName)
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, svcMasterIP, err)
+	}
+
+	cmd = fmt.Sprintf("sed -r"+
+		" -i 's/^(\\s*)(storage\\s*:\\s*.*\\s*$)/\\1storage: %s/' pvc.yaml", pvcSize)
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, svcMasterIP, err)
+	}
+
+	cmd = fmt.Sprintf("sed -r -i "+
+		"'s/^(\\s*)(volume\\.beta\\.kubernetes\\.io\\/storage-class\\s*:\\s*.*\\s*$)"+
+		"/\\1volume\\.beta\\.kubernetes\\.io\\/storage-class: %s/' pvc.yaml", storagePolicyName)
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, svcMasterIP, err)
+	}
+
+	cmd = fmt.Sprintf("sed -r -i "+
+		"'s/^(\\s*)(placement\\.beta\\.vmware\\.com\\/storagepool_antiAffinityRequired\\s*:\\s*.*\\s*$)"+
+		"/\\1placement\\.beta\\.vmware\\.com\\/storagepool_antiAffinityRequired: %s/' pvc.yaml", podName)
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, svcMasterIP, err)
+	}
+
+	cmd = "kubectl apply -f pvc.yaml"
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, svcMasterIP, err)
+	}
+	return nil
 }
 
-// createVsanDPvcAndPod creates pvc and pod for vsan direct as per wffc policy.
-// It ensures that pvc and pod is in in healthy state.
-func createVsanDPvcAndPod(client clientset.Interface, ctx context.Context,
-	namespace string, sc *storagev1.StorageClass, pvcName string,
-	podName string) (*v1.PersistentVolumeClaim, *v1.Pod) {
-	framework.Logf("Creating pvc %s with storage class %s", pvcName, sc.Name)
-	pvclaim, err := fpv.CreatePVC(client, namespace,
-		getVsanDPersistentVolumeClaimSpecWithStorageClass(namespace,
-			diskSize, sc, pvcName, podName, ""))
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// applyVsanDirectPodYaml creates specific pod spec and applies vsan direct pod yaml on svc master
+func applyVsanDirectPodYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP string, svcNamespace string,
+	pvcName string, podName string) error {
+	framework.Logf("POD yaML")
+	cmd := fmt.Sprintf("sed -i -e "+
+		"'/^metadata:/,/namespace:/{/^\\([[:space:]]*namespace: \\).*/s//\\1%s/}' pod.yaml", svcNamespace)
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		svcMasterIP)
+	cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
+		cmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, svcMasterIP, err)
+	}
 
-	ginkgo.By("Expect claim status to be in Pending state")
-	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-		namespace, pvclaim.Name, framework.Poll, time.Minute)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-		"Failed to find the volume: %s in pending state with err: %v", pvcName, err)
+	cmd = fmt.Sprintf("sed -i -e "+
+		"'/^metadata:/,/claimName:/{/^\\([[:space:]]*claimName: \\).*/s//\\1%s/}' pod.yaml", pvcName)
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, svcMasterIP, err)
+	}
 
-	ginkgo.By("Creating a pod")
-	podSpec := getVsanDPodSpec(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand, podName)
-	pod, err := client.CoreV1().Pods(namespace).Create(ctx, podSpec, metav1.CreateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	cmd = fmt.Sprintf("sed -i -e "+
+		"'/^metadata:/,/name:/{/^\\([[:space:]]*name: \\).*/s//\\1%s/}' pod.yaml", podName)
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, svcMasterIP, err)
+	}
 
-	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	cmd = "kubectl apply -f pod.yaml"
+	framework.Logf("Invoking command '%v' on host %v", cmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmd, svcMasterIP, err)
+	}
+	return nil
 
-	ginkgo.By("Expect claim to be in Bound state and provisioning volume passes")
-	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
-		namespace, pvclaim.Name, framework.Poll, time.Minute)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume with err: %v", err)
-
-	return pvclaim, pod
 }
 
 // writeDataToMultipleFilesOnPodInParallel writes data to multiple files
@@ -6514,4 +6538,13 @@ func dumpSvcNsEventsOnTestFailure(client clientset.Interface, namespace string) 
 		framework.Logf(
 			"At %v - event for %v: %v %v: %v", e.FirstTimestamp, e.InvolvedObject.Name, e.Source, e.Reason, e.Message)
 	}
+}
+
+// getAllPodsFromNamespace lists  and returns all pods from a given namespace
+func getAllPodsFromNamespace(ctx context.Context, client clientset.Interface, namespace string) *v1.PodList {
+	podList, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(podList).NotTo(gomega.BeNil())
+
+	return podList
 }
