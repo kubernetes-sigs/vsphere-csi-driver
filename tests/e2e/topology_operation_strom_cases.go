@@ -146,7 +146,9 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 	*/
 
 	ginkgo.It("Volume provisioning when multiple statefulsets creation is in "+
-		"progress and in between zones hosts are down", func() {
+		"progress and in between zones hosts are down", ginkgo.Label(p1, block,
+		vanilla, level5, flaky, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
@@ -416,7 +418,9 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 	*/
 
 	ginkgo.It("Volume provisioning when multiple statefulsets creation in progress and in "+
-		"between zones hosts and container nodes are down", func() {
+		"between zones hosts and container nodes are down", ginkgo.Label(p1, block,
+		vanilla, level5, flaky, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3

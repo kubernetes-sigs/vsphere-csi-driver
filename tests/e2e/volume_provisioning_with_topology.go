@@ -166,7 +166,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 		8. Delete PVC
 		9. Delete Storage Class
 	*/
-	ginkgo.It("Verify provisioning with valid topology specified in Storage Class passes", func() {
+	ginkgo.It("Verify provisioning with valid topology specified in Storage "+
+		"Class passes", ginkgo.Label(p0, block, vanilla, level2, stable), func() {
 		verifyBasicTopologyBasedVolumeProvisioning(f, client, namespace, nil, allowedTopologies)
 		testCleanUpUtil()
 	})
@@ -191,7 +192,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 	// 8. Delete PVC.
 	// 9. Delete Storage Class.
 	ginkgo.It("Verify provisioning with valid topology and accessible shared datastore "+
-		"specified in Storage Class passes", func() {
+		"specified in Storage Class passes", ginkgo.Label(p0, block, vanilla, level2, stable), func() {
+
 		sharedDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		scParameters := make(map[string]string)
 		scParameters[scParamDatastoreURL] = sharedDatastoreURL
@@ -219,7 +221,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 	// 8. Delete PVC.
 	// 9. Delete Storage Class.
 	ginkgo.It("Verify dynamic volume provisioning works when allowed topology and "+
-		"storage policy is specified in the storageclass", func() {
+		"storage policy is specified in the storageclass", ginkgo.Label(p0, block, vanilla, level2,
+		stable), func() {
+
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		scParameters := make(map[string]string)
 		scParameters[scParamStoragePolicyName] = storagePolicyNameForSharedDatastores
@@ -237,7 +241,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 	// 3. Verify PVC creation fails with “Not Accessible” error.
 	// 4. Delete PVC.
 	ginkgo.It("Verify provisioning volume with valid zone and region fails "+
-		"when an inaccessible non-shared datastore url is specified in Storage Class", func() {
+		"when an inaccessible non-shared datastore url is specified "+
+		"in Storage Class", ginkgo.Label(p0, block, vanilla, level2, stable), func() {
+
 		nonSharedDatastoreURLInZone := GetAndExpectStringEnvVar(envInaccessibleZoneDatastoreURL)
 		scParameters := make(map[string]string)
 		scParameters[scParamDatastoreURL] = nonSharedDatastoreURLInZone
@@ -257,7 +263,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 	// 3. Verify PVC creation fails with “Not Accessible” error.
 	// 4. Delete PVC.
 	ginkgo.It("Verify provisioning volume with valid zone and region fails "+
-		"when storage policy from different zone is specified in Storage Class", func() {
+		"when storage policy from different zone is specified "+
+		"in Storage Class", ginkgo.Label(p0, block, vanilla, level2, stable), func() {
+
 		storagePolicyNameFromOtherZone := GetAndExpectStringEnvVar(envStoragePolicyNameFromInaccessibleZone)
 		scParameters := make(map[string]string)
 		scParameters[scParamStoragePolicyName] = storagePolicyNameFromOtherZone
@@ -279,7 +287,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 		6. Delete PVC
 		7. Delete Storage Class
 	*/
-	ginkgo.It("Verify provisioning with no topology specified in Storage Class passes", func() {
+	ginkgo.It("Verify provisioning with no topology specified in "+
+		"Storage Class passes", ginkgo.Label(p0, block, vanilla, level2, stable), func() {
 		verifyBasicTopologyBasedVolumeProvisioning(f, client, namespace, nil, nil)
 		testCleanUpUtil()
 	})

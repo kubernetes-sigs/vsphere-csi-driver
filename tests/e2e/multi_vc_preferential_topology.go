@@ -204,10 +204,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 	    9. The volumes should get provision on the datastores which has the preference
 	    10. Clear the data
 	*/
-	ginkgo.It("Tag one datastore as preferred each in VC1 and VC2 and verify it is honored", func() {
+	ginkgo.It("Tag one datastore as preferred each in VC1 and VC2 and verify it is honored", ginkgo.Label(p0,
+		block, vanilla, multiVc, newTest, preferential), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		parallelStatefulSetCreation = true
 		preferredDatastoreChosen = 1
 		preferredDatastorePaths = nil
@@ -362,7 +363,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 	*/
 
 	ginkgo.It("Create SC with storage policy available in VC1 and VC2 and set the "+
-		"preference in VC1 datastore only", func() {
+		"preference in VC1 datastore only", ginkgo.Label(p0, block, vanilla, multiVc, newTest,
+		preferential), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -508,10 +510,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 	18. Remove datastore preference tags as part of cleanup.
 	*/
 
-	ginkgo.It("Assign preferred datatsore to any one VC and verify create restore snapshot", func() {
+	ginkgo.It("Assign preferred datatsore to any one VC and verify create restore snapshot", ginkgo.Label(p0,
+		block, vanilla, multiVc, newTest, snapshot, preferential), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		preferredDatastoreChosen = 1
 		preferredDatastorePaths = nil
 		var dsUrls []string
@@ -654,10 +657,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 	*/
 
 	ginkgo.It("Assign preferred datatsore to any one VC and verify create restore snapshot "+
-		"and later change datastore preference", func() {
+		"and later change datastore preference", ginkgo.Label(p1, block, vanilla, multiVc,
+		newTest, snapshot, negative, preferential), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		preferredDatastoreChosen = 1
 		preferredDatastorePaths = nil
 		var dsUrls []string

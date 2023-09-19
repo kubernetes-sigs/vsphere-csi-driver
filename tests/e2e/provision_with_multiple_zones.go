@@ -98,9 +98,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		8. Delete PVC
 		9. Delete Storage Class
 	*/
-	ginkgo.It("Verify provisioning with multiple zones and with only one zone associated with shared datastore", func() {
+	ginkgo.It("Verify provisioning with multiple zones and with only one zone associated with "+
+		"shared datastore", ginkgo.Label(p0, block, vanilla, level2, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		storageclass, pvclaim, err = createPVCAndStorageClass(client,
 			namespace, nil, nil, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -180,9 +183,11 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		7. Delete POD,PVC,PV
 	*/
 	ginkgo.It("Provisioning volume using storage policy with multiple zone and region "+
-		"details in the allowed topology", func() {
+		"details in the allowed topology", ginkgo.Label(p0, block, vanilla, level2, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		// Took Region1, Zone1 of Cluster1 and Region2, Zone2 of Cluster2
 		topologyLabelsCluster1 := GetAndExpectStringEnvVar(envRegionZoneWithSharedDS)
 		topologyLabelsCluster2 := GetAndExpectStringEnvVar(envRegionZoneWithNoSharedDS)

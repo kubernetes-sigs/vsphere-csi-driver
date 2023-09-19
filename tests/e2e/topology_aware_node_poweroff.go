@@ -75,7 +75,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	// 10. Delete Stateful set and wait for disk to be detached.
 	// 11. Delete PVC.
 	// 12. Delete SC.
-	ginkgo.It("Verify if stateful set is scheduled on a node within the topology after node power off", func() {
+	ginkgo.It("Verify if stateful set is scheduled on a node within the topology "+
+		"after node power off", ginkgo.Label(p1, block, vanilla, level2, stable, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Preparing allowedTopologies using topologies with shared and non shared datastores
@@ -208,7 +210,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	// 10. Delete PVC.
 	// 11. Delete SC.
 	ginkgo.It("Verify if stateful set do not get scheduled on other zone "+
-		"after powering off the only node in current zone", func() {
+		"after powering off the only node in current zone", ginkgo.Label(p1, block, vanilla, level2,
+		stable, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		topologyValue := GetAndExpectStringEnvVar(envTopologyWithOnlyOneNode)
@@ -322,5 +326,4 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 			}
 		}
 	})
-
 })

@@ -135,10 +135,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-replica] Multi-VC-Replica", func() {
 	*/
 
 	ginkgo.It("Verify behaviour when CSI-Provisioner, CSI-Attacher, Vsphere-Syncer is "+
-		"deleted repeatedly during workload creation in multivc", func() {
+		"deleted repeatedly during workload creation in multivc", ginkgo.Label(p1,
+		block, vanilla, multiVc, newTest), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		sts_count := 3
 		statefulSetReplicaCount = 5
 

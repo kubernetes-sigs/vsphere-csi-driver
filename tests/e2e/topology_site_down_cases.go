@@ -133,7 +133,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		20. Delete above created STS, PVC's and SC
 	*/
 
-	ginkgo.It("Volume provisioning when partial sites zone1 and zone2 hosts are down", func() {
+	ginkgo.It("Volume provisioning when partial sites zone1 and zone2 hosts are down", ginkgo.Label(p1,
+		block, vanilla, level5, flaky, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
@@ -341,7 +343,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		20. Delete above created STS, PVC's and SC
 	*/
 
-	ginkgo.It("Volume provisioning when partial sites zone2 and zone3 hosts are down", func() {
+	ginkgo.It("Volume provisioning when partial sites zone2 and zone3 hosts are "+
+		"down", ginkgo.Label(p1, block, vanilla, level5, flaky, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
@@ -541,7 +545,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		20. Delete above created STS, PVC's and SC
 	*/
 
-	ginkgo.It("Volume provisioning when partial sites zone1 zone2 and zone3 hosts are down", func() {
+	ginkgo.It("Volume provisioning when partial sites zone1 zone2 and zone3 hosts "+
+		"are down", ginkgo.Label(p1, block, vanilla, level5, flaky, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
@@ -736,7 +742,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		20. Delete above created STS, PVC's and SC
 	*/
 
-	ginkgo.It("Volume provisioning when zone2 hosts are down", func() {
+	ginkgo.It("Volume provisioning when zone2 hosts are down", ginkgo.Label(p1, block, vanilla, level5,
+		flaky, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
@@ -931,7 +939,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			20. Delete above created STS, PVC's and SC
 	*/
 
-	ginkgo.It("Volume provisioning when zone3 hosts are down", func() {
+	ginkgo.It("Volume provisioning when zone3 hosts are down", ginkgo.Label(p1, block, vanilla,
+		level5, flaky, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3
@@ -1124,7 +1134,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		18. Delete above created STS, PVC's and SC
 	*/
 
-	ginkgo.It("Volume provisioning when zone2 is completely down", func() {
+	ginkgo.It("Volume provisioning when zone2 is completely down", ginkgo.Label(p1, block,
+		vanilla, level5, flaky, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sts_count = 3

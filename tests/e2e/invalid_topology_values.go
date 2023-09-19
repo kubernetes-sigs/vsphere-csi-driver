@@ -75,10 +75,13 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		4. Delete PVC
 		5. Delete SC
 	*/
-	ginkgo.It("Verify provisioning fails with region and zone having no nodes specified in the storage class", func() {
+	ginkgo.It("Verify provisioning fails with region and zone having no nodes specified "+
+		"in the storage class", ginkgo.Label(p1, block, vanilla, level2, stable, negative), func() {
+
 		var cancel context.CancelFunc
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		topologyWithNoNodes := NonExistingRegion + ":" + NonExistingZone
 		_, _, allowedTopologies = topologyParameterForStorageClass(topologyWithNoNodes)
 		storageclass, pvclaim, err = createPVCAndStorageClass(client,
@@ -112,7 +115,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		4. Delete PVC
 		5. Delete SC
 	*/
-	ginkgo.It("Verify provisioning fails with non existing region specified in the storage class", func() {
+	ginkgo.It("Verify provisioning fails with non existing region specified in "+
+		"the storage class", ginkgo.Label(p1, block, vanilla, level2, stable, negative), func() {
+
 		// Topology value = <NonExistingRegion>:<zone-with-shared-datastore>
 		var cancel context.CancelFunc
 		ctx, cancel := context.WithCancel(context.Background())
@@ -153,7 +158,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		4. Delete PVC
 		5. Delete SC
 	*/
-	ginkgo.It("Verify provisioning fails with valid region and non existing zone specified in the storage class", func() {
+	ginkgo.It("Verify provisioning fails with valid region and non existing zone specified "+
+		"in the storage class", ginkgo.Label(p1, block, vanilla, level2, stable, negative), func() {
+
 		var cancel context.CancelFunc
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

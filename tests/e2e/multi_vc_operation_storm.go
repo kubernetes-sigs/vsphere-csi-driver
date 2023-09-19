@@ -186,11 +186,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm
 	*/
 
 	ginkgo.It("Create statefulset pods in scale and in between bring down datatsore, esxi hosts "+
-		"and kill containers", func() {
+		"and kill containers", ginkgo.Label(p1, block, vanilla, multiVc, newTest, flaky,
+		disruptive), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		sts_count := 5
 		statefulSetReplicaCount = 10
 		noOfHostToBringDown := 1

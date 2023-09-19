@@ -267,12 +267,11 @@ const (
 	wcp                 = "wcp"
 	tkg                 = "tkg"
 	vanilla             = "vanilla"
-	topology            = "topology"
 	preferential        = "preferential"
 	vsphereConfigSecret = "vsphereConfigSecret"
 	snapshot            = "snapshot"
 	stable              = "stable"
-	newTests            = "newTests"
+	newTest             = "newTest"
 	multiVc             = "multiVc"
 	block               = "block"
 	file                = "file"
@@ -291,6 +290,7 @@ const (
 	semiAutomated       = "semiAutomated"
 	level2              = "level2"
 	level5              = "level5"
+	negative            = "negative"
 )
 
 // The following variables are required to know cluster type to run common e2e

@@ -74,9 +74,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		8. Delete PVC
 		9. Delete SC
 	*/
-	ginkgo.It("Verify if stateful set is scheduled on a node within the topology after deleting the pod", func() {
+	ginkgo.It("Verify if stateful set is scheduled on a node within the topology "+
+		"after deleting the pod", ginkgo.Label(p0, block, vanilla, level2, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -144,9 +147,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		7. Delete statefulset
 		8. Delete PVC and SC
 	*/
-	ginkgo.It("Storage policy with single zone and region details in the allowed topology", func() {
+	ginkgo.It("Storage policy with single zone and region details in "+
+		"the allowed topology", ginkgo.Label(p0, block, vanilla, level2, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		// Creating StorageClass with topology details
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies, "", "", false)
