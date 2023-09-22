@@ -169,10 +169,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 	9. Clean up the data
 	*/
 
-	ginkgo.It("Bring down few esx on VC2 availability zones in a multi-vc setup", func() {
+	ginkgo.It("Bring down few esx on VC2 availability zones in a multi-vc setup", ginkgo.Label(p1,
+		block, vanilla, multiVc, newTest, flaky, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		sts_count := 3
 		statefulSetReplicaCount = 5
 		noOfHostToBringDown := 1
@@ -317,10 +318,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 	    13. Clean up the data
 	*/
 
-	ginkgo.It("Bring down few esx on VC1 availability zones in a multi-vc setup", func() {
+	ginkgo.It("Bring down few esx on VC1 availability zones in a multi-vc setup", ginkgo.Label(p1,
+		block, vanilla, multiVc, newTest, flaky, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		statefulSetReplicaCount = 10
 		scParameters[scParamStoragePolicyName] = storagePolicyInVc1Vc2
 		topValStartIndex = 0
@@ -420,10 +422,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 	    9. Clean up the data
 	*/
 
-	ginkgo.It("Bring down full site VC2 in a multi setup", func() {
+	ginkgo.It("Bring down full site VC2 in a multi setup", ginkgo.Label(p1,
+		block, vanilla, multiVc, newTest, flaky, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		statefulSetReplicaCount = 5
 		topValStartIndex = 0
 		topValEndIndex = 2
@@ -558,10 +561,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 	    9. Clean up the data
 	*/
 
-	ginkgo.It("Bring down full site VC1 in a multi setup", func() {
+	ginkgo.It("Bring down full site VC1 in a multi setup", ginkgo.Label(p1,
+		block, vanilla, multiVc, newTest, flaky, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		statefulSetReplicaCount = 5
 		topValStartIndex = 0
 		topValEndIndex = 2
@@ -696,10 +700,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 	    8. Clean up the data
 	*/
 
-	ginkgo.It("TestBring down datastores in a multi vc setup", func() {
+	ginkgo.It("Bring down datastores in a multi vc setup", ginkgo.Label(p2,
+		block, vanilla, multiVc, newTest, flaky, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		statefulSetReplicaCount = 10
 		parallelPodPolicy = true
 		clientIndex := 1

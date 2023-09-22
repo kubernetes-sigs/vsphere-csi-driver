@@ -134,10 +134,11 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 	   9. Describe PV-2 and verify node affinity details, and verify POD should come up on same node as mentioned in PV2
 	   10. Perform Cleanup. Delete Snapshot, Pod, PVC, SC, volume-snapshot and VolumeSnapshot class.
 	*/
-	ginkgo.It("On a topology enabled testbed , create snapshot on dynamic PVC", func() {
+	ginkgo.It("On a topology enabled testbed , create snapshot on dynamic PVC", ginkgo.Label(p0,
+		block, vanilla, level5, snapshot, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		var storageclass *storagev1.StorageClass
 		var pvclaim *v1.PersistentVolumeClaim
 		var err error
@@ -321,7 +322,9 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		8. Verify the node affinity details of all PV's and validate POD is up on appropriate node
 		9. Cleanup the sts and the snapshot  PVC's
 	*/
-	ginkgo.It("Topology Snapshot workflow for statefulset", func() {
+	ginkgo.It("Topology Snapshot workflow for statefulset", ginkgo.Label(p0,
+		block, vanilla, level5, snapshot, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var err error

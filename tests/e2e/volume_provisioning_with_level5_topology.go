@@ -154,10 +154,12 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 	*/
 
 	ginkgo.It("Provisioning volume when no topology details specified in storage class "+
-		"and using default pod management policy for statefulset", ginkgo.Label(p0, topology, block,
-		vanilla, level5), func() {
+		"and using default pod management policy for statefulset", ginkgo.Label(p0, block,
+		vanilla, level5, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		// Creating StorageClass when no topology details are specified using WFC Binding mode
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, nil, "",
@@ -228,9 +230,12 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 	*/
 
 	ginkgo.It("Provisioning volume when no topology details specified in storage class "+
-		"and using parallel pod management policy for statefulset", func() {
+		"and using parallel pod management policy for statefulset", ginkgo.Label(p0, block,
+		vanilla, level5, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		// Creating StorageClass when no topology details are specified using WFC Binding mode
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, nil, "",
@@ -316,9 +321,12 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 	*/
 
 	ginkgo.It("Provisioning volume when storage class specified with WFC Binding mode "+
-		"with allowed topologies and using parallel pod management policy for statefulset", func() {
+		"with allowed topologies and using parallel pod management policy for statefulset", ginkgo.Label(p1,
+		block, vanilla, level5, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		/* Get allowed topologies for Storage Class
 		(region1 > zone1 > building1 > level1 > rack > rack3) */
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -411,9 +419,12 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 	*/
 
 	ginkgo.It("Provisioning volume when storage class specified with Immediate BindingMode "+
-		"with higher level allowed topologies and using default pod management policy for statefulset", func() {
+		"with higher level allowed topologies and using default pod management policy "+
+		"for statefulset", ginkgo.Label(p0, block, vanilla, level5, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		// Get allowed topologies for Storage Class (region1 > zone1 > building1)
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 3)
 
@@ -509,9 +520,11 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 
 	ginkgo.It("Provisioning volume when storage class specified with Immediate Bindingmode "+
 		"shared datastore url between multiple topology labels and using parallel pod management "+
-		"policy for statefulset", func() {
+		"policy for statefulset", ginkgo.Label(p1, block, vanilla, level5, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		sharedDataStoreUrlBetweenClusters := GetAndExpectStringEnvVar(datstoreSharedBetweenClusters)
 
 		/* Get allowed topologies for Storage Class
@@ -609,7 +622,9 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 	   8. Delete PVC and SC
 	*/
 	ginkgo.It("Provisioning volume when storage class specified with "+
-		"Immediate BindingMode with multiple allowed topologies and using DeploymentSet pod", func() {
+		"Immediate BindingMode with multiple allowed topologies and using DeploymentSet "+
+		"pod", ginkgo.Label(p1, block, vanilla, level5, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var lables = make(map[string]string)
@@ -694,9 +709,11 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 
 	ginkgo.It("Provisioning volume when storage class specified with multiple labels "+
 		"without specifying datastore url and using default pod management policy "+
-		"for statefulset", ginkgo.Label(p2, topology, block, vanilla, level5), func() {
+		"for statefulset", ginkgo.Label(p2, block, vanilla, level5, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		// Get allowed topologies for Storage Class rack > (rack1,rack2,rack3)
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
 			topologyLength)[4:]
@@ -759,9 +776,12 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		4. Delete PVC and SC.
 	*/
 
-	ginkgo.It("Verify volume provisioning when storage class specified with invalid topology label", func() {
+	ginkgo.It("Verify volume provisioning when storage class specified with invalid "+
+		"topology label", ginkgo.Label(p2, block, vanilla, level5, stable, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
 			topologyLength)
@@ -809,7 +829,9 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 	*/
 
 	ginkgo.It("Verify volume provisioning when storage class specified with Immediate "+
-		"BindingMode and pvc specified with ReadWriteMany access mode", func() {
+		"BindingMode and pvc specified with "+
+		"ReadWriteMany access mode", ginkgo.Label(p2, block, vanilla, level5, stable, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Get allowed topologies for Storage Class for all 5 levels
@@ -861,9 +883,11 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 	*/
 
 	ginkgo.It("Verify volume provisioning when storage class specified with one level "+
-		"topology along with datstore url", func() {
+		"topology along with datstore url", ginkgo.Label(p2, block, vanilla, level5, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		// Get allowed topologies for Storage Class (rack > rack2)
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
 			topologyLength, leafNode, leafNodeTag1)[4:]
@@ -951,9 +975,12 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		5. Delete POD, PVC and SC
 	*/
 	ginkgo.It("Verify volume provisioning when storage class specified with single "+
-		"level topology without datstore url", func() {
+		"level topology without datstore url", ginkgo.Label(p1, block, vanilla, level5,
+		stable, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		// Get allowed topologies for Storage Class (rack > rack1)
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
 			topologyLength, leafNode, leafNodeTag0)[4:]
@@ -1038,9 +1065,12 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		the storage class.
 		9. Delete POD, PVC, PV and SC.
 	*/
-	ginkgo.It("Verify static volume provisioning with FCD and storage class with allowed topologies", func() {
+	ginkgo.It("Verify static volume provisioning with FCD and storage class with allowed "+
+		"topologies", ginkgo.Label(p1, block, vanilla, level5, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		/* Get allowed topologies for Storage Class
 		region1 > zone1 > building1 > level1 > rack > rack2 */
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -1177,9 +1207,12 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 
 	*/
 	ginkgo.It("Verify static volume provisioning with FCD and storage class specified "+
-		"with datastore url and set of allowed topologies", func() {
+		"with datastore url and set of allowed "+
+		"topologies", ginkgo.Label(p1, block, vanilla, level5, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		/* Get allowed topologies for Storage Class
 		zone1 > building1 > level1 > rack > rack1/rack2/rack3 */
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,

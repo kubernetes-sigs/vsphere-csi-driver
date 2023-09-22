@@ -70,7 +70,9 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 		from all the categories mentioned under `topology-categories`
 	*/
 
-	ginkgo.It("Verify volume provisioning when storage class created with different tag and category", func() {
+	ginkgo.It("Verify volume provisioning when storage class created with "+
+		"different tag and category", ginkgo.Label(p1, block, vanilla, level2, stable), func() {
+
 		var cancel context.CancelFunc
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -126,7 +128,9 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 		8. Delete POD, PVC,SC
 	*/
 
-	ginkgo.It("Verify volume provisioning when storage class created with different tag under a known category", func() {
+	ginkgo.It("Verify volume provisioning when storage class created with "+
+		"different tag under a known category", ginkgo.Label(p1, block, vanilla, level2, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		StoragePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameForNonSharedDatastores)

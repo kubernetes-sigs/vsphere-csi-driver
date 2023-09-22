@@ -235,7 +235,9 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		13.Remove datastore preference tags as part of cleanup.
 	*/
 
-	ginkgo.It("Create restore snapshot of pvc using single datastore preference", func() {
+	ginkgo.It("Create restore snapshot of pvc using single datastore preference", ginkgo.Label(p0,
+		block, vanilla, level5, preferential, stable, snapshot), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pvclaim *v1.PersistentVolumeClaim
@@ -363,7 +365,9 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		11. Remove datastore preference tags as part of cleanup.
 	*/
 
-	ginkgo.It("Create restore snapshot of pvc when datastore preference gets changed", func() {
+	ginkgo.It("Create restore snapshot of pvc when datastore preference gets changed", ginkgo.Label(p1,
+		block, vanilla, level5, preferential, stable, snapshot, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pvclaim *v1.PersistentVolumeClaim
@@ -515,7 +519,9 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 	*/
 
 	ginkgo.It("Create restore snapshot of pvc when multiple preferred datastores are tagged "+
-		"and datastore preference is changed", func() {
+		"and datastore preference is changed", ginkgo.Label(p0,
+		block, vanilla, level5, preferential, stable, snapshot), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		preferredDatastoreChosen = 1
@@ -922,7 +928,9 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		19. Perform Cleanup. Delete StatefulSet, PVC,PV
 		20. Remove datastore preference tags as part of cleanup.
 	*/
-	ginkgo.It("Tag preferred datatsore and verify snapshot workflow for statefulset", func() {
+	ginkgo.It("Tag preferred datatsore and verify snapshot workflow for statefulset", ginkgo.Label(p0,
+		block, vanilla, level5, preferential, stable, snapshot), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		preferredDatastoreChosen = 1
