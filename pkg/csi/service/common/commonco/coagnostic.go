@@ -81,6 +81,9 @@ type COCommonInterface interface {
 	GetCSINodeTopologyInstancesList() []interface{}
 	// GetCSINodeTopologyInstanceByName fetches the CSINodeTopology instance for a given node name in the cluster.
 	GetCSINodeTopologyInstanceByName(nodeName string) (item interface{}, exists bool, err error)
+	// GetPVNameFromCSIVolumeID retrieves the pv name from the volumeID.
+	// This method will not return pv name in case of in-tree migrated volumes
+	GetPVNameFromCSIVolumeID(volumeID string) (string, bool)
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given
