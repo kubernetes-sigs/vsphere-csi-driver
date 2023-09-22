@@ -760,7 +760,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	*/
 
 	ginkgo.It("Deploy workload with allowed topology details in SC specific to VC3 with "+
-		"parallel pod management policy", ginkgo.Label(p1, block, vanilla, multiVc,
+		"parallel pod management policy", ginkgo.Label(p0, block, vanilla, multiVc,
 		newTest), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
