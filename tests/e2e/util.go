@@ -533,6 +533,14 @@ func getVSphereStorageClassSpec(scName string, scParameters map[string]string,
 	if bindingMode == "" {
 		bindingMode = storagev1.VolumeBindingImmediate
 	}
+	p := map[string]string{}
+
+	if scParameters == nil && os.Getenv(envHciMountRemoteDs) != "" {
+		p[scParamStoragePolicyName] = os.Getenv(envStoragePolicyNameForSharedDatastores)
+		scParameters = p
+	} else if scParameters != nil && os.Getenv(envHciMountRemoteDs) != "" {
+		scParameters[scParamStoragePolicyName] = os.Getenv(envStoragePolicyNameForSharedDatastores)
+	}
 	var sc = &storagev1.StorageClass{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "StorageClass",
@@ -819,6 +827,12 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 	var storageclass *storagev1.StorageClass
 	var err error
 	isStorageClassPresent := false
+	p := map[string]string{}
+
+	if scParameters == nil && os.Getenv(envHciMountRemoteDs) != "" {
+		p[scParamStoragePolicyName] = os.Getenv(envStoragePolicyNameForSharedDatastores)
+		scParameters = p
+	}
 	ginkgo.By(fmt.Sprintf("Creating StorageClass %s with scParameters: %+v and allowedTopologies: %+v "+
 		"and ReclaimPolicy: %+v and allowVolumeExpansion: %t",
 		scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
