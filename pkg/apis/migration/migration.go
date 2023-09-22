@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	migrationconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/config"
 
 	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
@@ -67,8 +68,12 @@ type VolumeMigrationService interface {
 	GetVolumeID(ctx context.Context, volumeSpec *VolumeSpec, registerIfNotFound bool) (string, error)
 
 	// GetVolumePath returns VolumePath for a given VolumeID.
-	// Returns an error if not able to retrieve VolumePath.
+	// It will also create a CnsVSphereVolumeMigration CR if it's not present.
 	GetVolumePath(ctx context.Context, volumeID string) (string, error)
+
+	// GetVolumePathFromMigrationServiceCache checks the in-memory cache for a volumeID
+	// a cache hit means that the volume is a migrated in-tree volume
+	GetVolumePathFromMigrationServiceCache(ctx context.Context, volumeID string) (string, error)
 
 	// DeleteVolumeInfo helps delete mapping of volumePath to VolumeID for
 	// specified volumeID.
@@ -360,6 +365,26 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 		return "", err
 	}
 	return fileBackingInfo.FilePath, nil
+}
+
+// GetVolumePathFromMigrationServiceCache checks the in-memory cache for a volumeID
+// a cache hit means that the volume is a migrated in-tree volume
+func (volumeMigration *volumeMigration) GetVolumePathFromMigrationServiceCache(ctx context.Context,
+	volumeID string) (string, error) {
+	log := logger.GetLogger(ctx)
+	var volumePath string
+	volumeMigration.volumePathToVolumeID.Range(func(key, value interface{}) bool {
+		if value.(string) == volumeID {
+			volumePath = key.(string)
+			log.Infof("Found VolumePath %v for VolumeID: %q in the cache", volumePath, volumeID)
+			return false
+		}
+		return true
+	})
+	if volumePath != "" {
+		return volumePath, nil
+	}
+	return "", common.ErrNotFound
 }
 
 // saveVolumeInfo helps create CR for given cnsVSphereVolumeMigration. This func
