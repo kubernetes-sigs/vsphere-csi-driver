@@ -2433,6 +2433,20 @@ func verifyFilesExistOnVSphereVolume(namespace string, podName string, filePaths
 	}
 }
 
+func verifyFsTypeOnVsphereVolume(namespace string, podName string, expectedContent string, filePaths ...string) {
+	for _, filePath := range filePaths {
+		if windowsEnv {
+			_, err := framework.LookForStringInPodExec(namespace, podName,
+				[]string{"powershell.exe", "Get-Content", filePath}, expectedContent, time.Minute)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			_, err := framework.LookForStringInPodExec(namespace, podName,
+				[]string{"/bin/cat", filePath}, expectedContent, time.Minute)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	}
+}
+
 func createEmptyFilesOnVSphereVolume(namespace string, podName string, filePaths []string) {
 	for _, filePath := range filePaths {
 		err := framework.CreateEmptyFileOnPod(namespace, podName, filePath)
@@ -3294,7 +3308,7 @@ func writeDataOnFileFromPod(namespace string, podName string, filePath string, d
 func readFileFromPod(namespace string, podName string, filePath string) string {
 	if windowsEnv {
 		output, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
-			podName, "--", "Powershell.exe", "-Command", fmt.Sprintf("cat %s", filePath))
+			podName, "--", "Powershell.exe", "-Command", fmt.Sprintf("Get-Content %s", filePath))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		return output
 	} else {
@@ -4086,11 +4100,7 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 		return nil, fmt.Errorf("pod Create API error: %v", err)
 	}
 	// Waiting for pod to be running.
-	if windowsEnv {
-		err = fpod.WaitForPodRunningInNamespaceSlow(client, pod.Name, namespace)
-	} else {
-		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
-	}
+	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
 	if err != nil {
 		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
 	}

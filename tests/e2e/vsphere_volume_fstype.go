@@ -19,7 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -157,11 +156,13 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
-	var podExecCmd string
+	var podExecCmd, filePath string
 	if windowsEnv {
 		podExecCmd = windowsExecCmd
+		filePath = "/mnt/volume1/fstype.txt"
 	} else {
 		podExecCmd = execCommand
+		filePath = "/mnt/volume1/fstype"
 	}
 	ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 	storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, "", nil, "", false, "")
@@ -198,17 +199,7 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	if windowsEnv {
-		time.Sleep(sleepTimeOut * time.Second)
-		_, err = framework.LookForStringInPodExec(namespace, pod.Name,
-			[]string{"powershell.exe", "Get-Content 'C:\\mnt\\volume1\\fstype.txt'"}, expectedContent, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	} else {
-		_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
-			expectedContent, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
+	verifyFsTypeOnVsphereVolume(namespace, pod.Name, expectedContent, filePath)
 
 	// Delete POD
 	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))

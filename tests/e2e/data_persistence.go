@@ -208,13 +208,8 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		var newEmptyFileName string
 		// Create an empty file on the mounted volumes on the pod.
 		ginkgo.By(fmt.Sprintf("Creating an empty file on the volume mounted on: %v", pod.Name))
-		if windowsEnv {
-			newEmptyFileName = fmt.Sprintf("c:\\mnt\\volume1\\%v_file_A.txt", namespace)
-			volumeFiles = append(volumeFiles, newEmptyFileName)
-		} else {
-			newEmptyFileName = fmt.Sprintf("/mnt/volume1/%v_file_A.txt", namespace)
-			volumeFiles = append(volumeFiles, newEmptyFileName)
-		}
+		newEmptyFileName = fmt.Sprintf("/mnt/volume1/%v_file_A.txt", namespace)
+		volumeFiles = append(volumeFiles, newEmptyFileName)
 		createAndVerifyFilesOnVolume(namespace, pod.Name, []string{newEmptyFileName}, volumeFiles)
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(client, pod)
@@ -269,13 +264,8 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		// verify newly and previously created files present on the volume
 		// mounted on the pod.
 		ginkgo.By(fmt.Sprintf("Creating a second empty file on the same volume mounted on: %v", pod.Name))
-		if windowsEnv {
-			newEmptyFileName = fmt.Sprintf("c:\\mnt\\volume1\\%v_file_B.txt", namespace)
-			volumeFiles = append(volumeFiles, newEmptyFileName)
-		} else {
-			newEmptyFileName = fmt.Sprintf("/mnt/volume1/%v_file_B.txt", namespace)
-			volumeFiles = append(volumeFiles, newEmptyFileName)
-		}
+		newEmptyFileName = fmt.Sprintf("/mnt/volume1/%v_file_B.txt", namespace)
+		volumeFiles = append(volumeFiles, newEmptyFileName)
 		createAndVerifyFilesOnVolume(namespace, pod.Name, []string{newEmptyFileName}, volumeFiles)
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(client, pod)

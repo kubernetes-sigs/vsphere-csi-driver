@@ -97,8 +97,8 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
 
     # To run windows testcases, need to set the following env variable
     export WORKER_TYPE="WINDOWS"
-    export WINDOWS_LTSC_2019_IMAGE="harbor-repo.vmware.com/csi/windows-servercore:ltsc2019" 
-
+    export WINDOWS_LTSC_2019_IMAGE="<harbor_repo_path_for_windows_mcr_image>"
+    export WINDOWS_USER="<windows_user>"
 ### To run full sync test, need do extra following steps
 
 #### Setting SSH keys for VC with your local machine to run full sync test

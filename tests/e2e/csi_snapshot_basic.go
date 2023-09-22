@@ -1149,51 +1149,19 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(isDiskAttached2).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		var cmd []string
-		if windowsEnv {
-			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "Powershell.exe", "-Command",
-				"cat C:\\mnt\\volume1\\Pod1.html"}
-		} else {
-			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-				"cat /mnt/volume1/Pod1.html "}
-		}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := readFileFromPod(namespace, pod.Name, "/mnt/volume1/Pod1.html")
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
-		var writecmd []string
-		if windowsEnv {
-			writecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "Powershell.exe", "-Command",
-				"Add-Content C:\\mnt\\volume1\\Pod1.html 'Hello message from test into Pod1'"}
-		} else {
-			writecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-				"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
-		}
-		framework.RunKubectlOrDie(namespace, writecmd...)
-		output = framework.RunKubectlOrDie(namespace, cmd...)
+		writeDataOnFileFromPod(namespace, pod.Name, "/mnt/volume1/Pod1.html", "Hello message from test into Pod1")
+		output = readFileFromPod(namespace, pod.Name, "/mnt/volume1/Pod1.html")
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		var cmd2 []string
-		if windowsEnv {
-			cmd2 = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "Powershell.exe", "-Command",
-				"cat C:\\mnt\\volume1\\Pod1.html"}
-		} else {
-			cmd2 = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-				"cat /mnt/volume1/Pod1.html "}
-		}
-		output2 := framework.RunKubectlOrDie(namespace, cmd2...)
+		output2 := readFileFromPod(namespace, pod2.Name, "/mnt/volume1/Pod1.html")
 		gomega.Expect(strings.Contains(output2, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
-		var writecmd2 []string
-		if windowsEnv {
-			writecmd2 = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "Powershell.exe", "-Command",
-				"Add-Content C:\\mnt\\volume1\\Pod1.html 'Hello message from test into Pod1'"}
-		} else {
-			writecmd2 = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-				"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
-		}
-		framework.RunKubectlOrDie(namespace, writecmd2...)
-		output2 = framework.RunKubectlOrDie(namespace, cmd2...)
+		writeDataOnFileFromPod(namespace, pod2.Name, "/mnt/volume1/Pod1.html", "Hello message from test into Pod1")
+		output2 = readFileFromPod(namespace, pod2.Name, "/mnt/volume1/Pod1.html")
 		gomega.Expect(strings.Contains(output2, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Create a volume snapshot")
@@ -2280,7 +2248,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 		if windowsEnv {
-			framework.Logf("Not required for windows")
+			framework.Logf("Not Yet implemented for windows")
 		} else {
 			gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 		}
@@ -3240,15 +3208,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		var cmd []string
-		if windowsEnv {
-			cmd = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "Powershell.exe", "-Command",
-				"cat C:\\mnt\\volume1\\Pod1.html"}
-		} else {
-			cmd = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-				"cat /mnt/volume1/Pod1.html "}
-		}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := readFileFromPod(namespace, pod2.Name, "/mnt/volume1/Pod1.html")
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Delete dynamic volume snapshot")
@@ -4020,15 +3980,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		var cmd []string
-		if windowsEnv {
-			cmd = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "Powershell.exe", "-Command",
-				"cat C:\\mnt\\volume1\\Pod1.html"}
-		} else {
-			cmd = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-				"cat /mnt/volume1/Pod1.html "}
-		}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := readFileFromPod(namespace, pod2.Name, "/mnt/volume1/Pod1.html")
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 	})
 
