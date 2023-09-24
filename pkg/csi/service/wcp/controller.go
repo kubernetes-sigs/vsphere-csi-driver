@@ -1014,6 +1014,17 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
+		volumeAttachment, err := commonco.ContainerOrchestratorUtility.GetVolumeAttachment(ctx, req.VolumeId, req.NodeId)
+		if err != nil {
+			log.Warnf("failed to retrieve volumeAttachment from API server Err: %v", err)
+		} else {
+			if volumeAttachment != nil && volumeAttachment.Status.Attached {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"volumeAttachment %v already has the attached status as true. "+
+						"Assuming the attach volume is due to incorrect force sync Attach from CSI Attacher",
+					volumeAttachment)
+			}
+		}
 
 		vmuuid, err := getVMUUIDFromK8sCloudOperatorService(ctx, req.VolumeId, req.NodeId)
 		if err != nil {
