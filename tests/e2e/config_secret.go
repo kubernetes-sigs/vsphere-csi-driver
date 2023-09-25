@@ -337,9 +337,9 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvclaim3.Namespace, pvclaim3.Name, framework.Poll, time.Minute)
+			pvclaim3.Namespace, pvclaim3.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+			"Failed to find the volume in pending state with err: ", err.Error())
 		defer func() {
 			ginkgo.By("Deleting the PVC")
 			err = fpv.DeletePersistentVolumeClaim(client, pvclaim3.Name, namespace)
@@ -692,9 +692,9 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+			"Failed to find the volume in pending state with err: ", err.Error())
 		defer func() {
 			ginkgo.By("Deleting the PVC")
 			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
@@ -813,9 +813,9 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+			"Failed to find the volume in pending state with err: "+err.Error())
 		defer func() {
 			ginkgo.By("Deleting the PVC")
 			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
@@ -931,9 +931,10 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvclaim1.Namespace, pvclaim1.Name, framework.Poll, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+			pvclaim1.Namespace, pvclaim1.Name, framework.Poll, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to find the volume in pending state "+
+			"with err: "+err.Error())
+
 		defer func() {
 			ginkgo.By("Deleting the PVC")
 			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
@@ -1049,9 +1050,9 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+			"Failed to find the volume in pending state with err: "+err.Error())
 		defer func() {
 			ginkgo.By("Deleting the PVC")
 			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
@@ -1258,9 +1259,9 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvclaim1.Namespace, pvclaim1.Name, framework.Poll, time.Minute)
+			pvclaim1.Namespace, pvclaim1.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+			"Failed to find the volume in pending state with err: "+err.Error())
 		var pvclaims1 []*v1.PersistentVolumeClaim
 		pvclaims1 = append(pvclaims1, pvclaim1)
 		defer func() {
@@ -1401,9 +1402,8 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to find the volume in pending state with err: "+err.Error())
 		defer func() {
 			ginkgo.By("Deleting the PVC")
 			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)

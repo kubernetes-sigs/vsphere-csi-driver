@@ -19,7 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -101,8 +100,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 
 		ginkgo.By("Expect claim to pass provisioning volume")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
-			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume with err: "+err.Error())
 
 		ginkgo.By("Verify if volume is provisioned in specified zone and region")
 		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)

@@ -2561,9 +2561,9 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 
 		ginkgo.By("Expect claim status to be in Pending state since sps service is down")
 		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
-			pvc.Namespace, pvc.Name, framework.Poll, time.Minute)
+			pvc.Namespace, pvc.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err.Error()))
 
 		ginkgo.By("Bringup SPS service")
 		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
