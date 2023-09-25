@@ -99,6 +99,14 @@ func IsVimFaultNotFoundError(err error) bool {
 	return isNotFoundError
 }
 
+func IsVimFaultTimedOutError(err error) bool {
+	isTimedOutError := false
+	if soap.IsVimFault(err) {
+		_, isTimedOutError = soap.ToVimFault(err).(*types.Timedout)
+	}
+	return isTimedOutError
+}
+
 // IsCnsSnapshotNotFoundError checks if err is the CnsSnapshotNotFoundFault fault returned by CNS QuerySnapshots API
 func IsCnsSnapshotNotFoundError(err error) bool {
 	isCnsSnapshotNotFoundError := false

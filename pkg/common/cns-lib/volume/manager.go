@@ -59,6 +59,7 @@ const (
 	VolumeOperationTimeoutInSeconds = 300
 
 	listviewAdditionError = "failed to add task to list view"
+	timeoutError          = "time out for task"
 
 	// defaultOpsExpirationTimeInHours is expiration time for create volume operations.
 	// TODO: This timeout will be configurable in future releases
@@ -1196,6 +1197,10 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		// be persisted.
 		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
 	)
+	var vCenterServerForVolumeOperationCR string
+	if m.multivCenterTopologyDeployment {
+		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host
+	}
 	var faultType string
 	if m.operationStore == nil {
 		return csifault.CSIInternalFault, logger.LogNewError(log, "operation store cannot be nil")
@@ -1225,7 +1230,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		}
 	case apierrors.IsNotFound(err):
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, metav1.Now(),
-			"", "", "", taskInvocationStatusInProgress, "")
+			"", vCenterServerForVolumeOperationCR, "", taskInvocationStatusInProgress, "")
 	default:
 		return csifault.CSIInternalFault, err
 	}
@@ -1261,7 +1266,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 			if cnsvsphere.IsNotFoundError(err) {
 				log.Infof("VolumeID: %q, not found, thus returning success", volumeID)
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
-					metav1.Now(), "", "",
+					metav1.Now(), "", vCenterServerForVolumeOperationCR,
 					"", taskInvocationStatusSuccess, "")
 				err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 				if err != nil {
@@ -1271,7 +1276,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 			}
 			log.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
-				metav1.Now(), "", "",
+				metav1.Now(), "", vCenterServerForVolumeOperationCR,
 				"", taskInvocationStatusError, err.Error())
 			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 			if err != nil {
@@ -1280,7 +1285,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 			return faultType, err
 		}
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, metav1.Now(),
-			task.Reference().Value, "",
+			task.Reference().Value, vCenterServerForVolumeOperationCR,
 			"", taskInvocationStatusInProgress, "")
 		err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 		if err != nil {
@@ -1304,7 +1309,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 				// Mark the volumeOperationRequest as an error if the corresponding VC task is missing/NotFound.
 				msg := fmt.Sprintf("DeleteVolume task %s not found in vCenter.", task.Reference().Value)
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
-					metav1.Now(), task.Reference().Value, "",
+					metav1.Now(), task.Reference().Value, vCenterServerForVolumeOperationCR,
 					"", taskInvocationStatusError, msg)
 				return faultType, logger.LogNewError(log, msg)
 			}
@@ -1344,7 +1349,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-			task.Reference().Value, "",
+			task.Reference().Value, vCenterServerForVolumeOperationCR,
 			taskInfo.ActivationId, taskInvocationStatusError, msg)
 		return faultType, logger.LogNewError(log, msg)
 	}
@@ -1352,7 +1357,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		volumeID, taskInfo.ActivationId)
 	volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
-		"", taskInfo.ActivationId, taskInvocationStatusSuccess, "")
+		vCenterServerForVolumeOperationCR, taskInfo.ActivationId, taskInvocationStatusSuccess, "")
 	return "", nil
 }
 
@@ -1569,6 +1574,10 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		instanceName = "expand-" + volumeID
 		err          error
 	)
+	var vCenterServerForVolumeOperationCR string
+	if m.multivCenterTopologyDeployment {
+		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host
+	}
 	var faultType string
 	if m.operationStore == nil {
 		return csifault.CSIInternalFault, logger.LogNewError(log, "operation store cannot be nil")
@@ -1595,7 +1604,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		}
 	case apierrors.IsNotFound(err):
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", size, metav1.Now(),
-			"", "", "", "", "")
+			"", vCenterServerForVolumeOperationCR, "", "", "")
 	default:
 		return csifault.CSIInternalFault, err
 	}
@@ -1636,11 +1645,11 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 			log.Errorf("CNS ExtendVolume failed from the vCenter %q with err: %v",
 				m.virtualCenter.Config.Host, err)
 			volumeOperationDetails = createRequestDetails(instanceName, "", "", size, metav1.Now(),
-				"", "", "", taskInvocationStatusError, err.Error())
+				"", vCenterServerForVolumeOperationCR, "", taskInvocationStatusError, err.Error())
 			return faultType, err
 		}
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", size, metav1.Now(),
-			task.Reference().Value, "", "", taskInvocationStatusInProgress, "")
+			task.Reference().Value, vCenterServerForVolumeOperationCR, "", taskInvocationStatusInProgress, "")
 		err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 		if err != nil {
 			log.Warnf("failed to store ExpandVolume details with error: %v", err)
@@ -1663,7 +1672,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 					volumeOperationDetails.Capacity, volumeID, task.Reference().Value)
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", volumeOperationDetails.Capacity,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
-					"",
+					vCenterServerForVolumeOperationCR,
 					volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusSuccess, "")
 				return "", nil
 			}
@@ -1676,7 +1685,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		log.Errorf("failed to expand volume with ID %s with error %+v", volumeID, err)
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", volumeOperationDetails.Capacity,
 			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
-			"",
+			vCenterServerForVolumeOperationCR,
 			volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusError, err.Error())
 		return ExtractFaultTypeFromErr(ctx, err), err
 	}
@@ -1707,7 +1716,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 					volumeOperationDetails.Capacity, volumeID, task.Reference().Value)
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", volumeOperationDetails.Capacity,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
-					"",
+					vCenterServerForVolumeOperationCR,
 					volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusSuccess, "")
 				return "", nil
 			}
@@ -1715,7 +1724,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", volumeOperationDetails.Capacity,
 			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
-			"",
+			vCenterServerForVolumeOperationCR,
 			taskInfo.ActivationId, taskInvocationStatusError, volumeOperationRes.Fault.LocalizedMessage)
 		return faultType, logger.LogNewErrorf(log, "failed to extend volume: %q, fault: %q, opID: %q",
 			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
@@ -1725,7 +1734,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		volumeOperationDetails.Capacity, volumeID, taskInfo.ActivationId)
 	volumeOperationDetails = createRequestDetails(instanceName, "", "", volumeOperationDetails.Capacity,
 		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
-		"",
+		vCenterServerForVolumeOperationCR,
 		taskInfo.ActivationId, taskInvocationStatusSuccess, "")
 	if volumeOperationDetails.Capacity >= size {
 		return "", nil
@@ -2192,6 +2201,10 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		// error
 		err error
 	)
+	var vCenterServerForVolumeOperationCR string
+	if m.multivCenterTopologyDeployment {
+		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host
+	}
 
 	if m.idempotencyHandlingEnabled {
 		if m.operationStore == nil {
@@ -2215,8 +2228,11 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 					SnapshotCreationTimestamp: volumeOperationDetails.OperationDetails.TaskInvocationTimestamp.Time,
 				}, nil
 			}
-			// Validate if previous operation is pending.
-			if IsTaskPending(volumeOperationDetails) {
+			// Validate if previous operation is pending or was marked as failed due to timeout
+			// and re-check for that operation.
+			if IsTaskPending(volumeOperationDetails) ||
+				(volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusError &&
+					strings.Contains(volumeOperationDetails.OperationDetails.Error, timeoutError)) {
 				log.Infof("Snapshot with name %s has CreateSnapshot task %s pending on CNS.",
 					instanceName,
 					volumeOperationDetails.OperationDetails.TaskID)
@@ -2256,8 +2272,8 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		if err != nil {
 			if m.idempotencyHandlingEnabled {
 				volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0,
-					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "", "", "",
-					taskInvocationStatusError, err.Error())
+					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "",
+					vCenterServerForVolumeOperationCR, "", taskInvocationStatusError, err.Error())
 			}
 			return nil, logger.LogNewErrorf(log, "failed to create snapshot with error: %v", err)
 		}
@@ -2266,7 +2282,8 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 			// Persist the volume operation details.
 			volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0,
 				volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-				createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusInProgress, "")
+				createSnapshotsTask.Reference().Value, vCenterServerForVolumeOperationCR,
+				"", taskInvocationStatusInProgress, "")
 			if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
 				// Don't return if CreateSnapshot details can't be stored.
 				log.Warnf("failed to store CreateSnapshot details with error: %v", err)
@@ -2296,8 +2313,10 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		createSnapshotsTaskInfo, err = cns.GetTaskInfo(ctx, createSnapshotsTask)
 	}
 	if err != nil {
-		if cnsvsphere.IsManagedObjectNotFound(err, createSnapshotsTask.Reference()) {
-			log.Infof("CreateSnapshot task %s not found in vCenter. Querying CNS "+
+		if cnsvsphere.IsManagedObjectNotFound(err, createSnapshotsTask.Reference()) ||
+			(cnsvsphere.IsVimFaultTimedOutError(err) &&
+				createSnapshotsTaskInfo.State == vim25types.TaskInfoStateError) {
+			log.Infof("CreateSnapshot task %s either not found or timed out. Querying CNS "+
 				"to determine if the snapshot %s was successfully created.",
 				createSnapshotsTask.Reference().Value, instanceName)
 			queriedCnsSnapshot, ok := queryCreatedSnapshotByName(ctx, m, volumeID, instanceName)
@@ -2306,7 +2325,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 				volumeOperationDetails = createRequestDetails(
 					instanceName, volumeID, queriedCnsSnapshot.SnapshotId.Id, 0,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-					createSnapshotsTask.Reference().Value, "",
+					createSnapshotsTask.Reference().Value, vCenterServerForVolumeOperationCR,
 					"", taskInvocationStatusSuccess, "")
 
 				log.Infof("CreateSnapshot: Snapshot with name %s on volume %q is confirmed to be created "+
@@ -2323,13 +2342,23 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 					"Marking task %s as failed.", snapshotName, volumeID, createSnapshotsTask.Reference().Value)
 				volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-					createSnapshotsTask.Reference().Value, "",
+					createSnapshotsTask.Reference().Value, vCenterServerForVolumeOperationCR,
 					"", taskInvocationStatusError, errMsg)
 				return nil, logger.LogNewError(log, errMsg)
 			}
 		}
-		return nil, logger.LogNewErrorf(log, "Failed to get taskInfo for CreateSnapshots task "+
+		// waitOnTask can fail for many reasons, including:
+		// - CNS restarted and marked "InProgress" tasks as "Failed".
+		// - Any failures from CNS.
+		// - Any failures at lower layers like FCD and SPS.
+		// In all cases, mark task as failed and retry.
+		errMsg := fmt.Sprintf("Failed to get taskInfo for CreateSnapshots task "+
 			"from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0,
+			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+			createSnapshotsTask.Reference().Value, vCenterServerForVolumeOperationCR,
+			"", taskInvocationStatusError, errMsg)
+		return nil, logger.LogNewErrorf(log, errMsg)
 	}
 	log.Infof("CreateSnapshots: VolumeID: %q, opId: %q", volumeID, createSnapshotsTaskInfo.ActivationId)
 
@@ -2352,7 +2381,8 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		if m.idempotencyHandlingEnabled {
 			volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0,
 				volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
-				"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
+				vCenterServerForVolumeOperationCR, createSnapshotsTaskInfo.ActivationId,
+				taskInvocationStatusError, errMsg)
 		} else {
 			// Remove the task details from map when the current task fails
 			_, ok := snapshotTaskMap[instanceName]
@@ -2386,7 +2416,8 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		volumeOperationDetails = createRequestDetails(
 			instanceName, cnsSnapshotInfo.SourceVolumeID, cnsSnapshotInfo.SnapshotID, 0,
 			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
-			"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusSuccess, "")
+			vCenterServerForVolumeOperationCR,
+			createSnapshotsTaskInfo.ActivationId, taskInvocationStatusSuccess, "")
 	}
 
 	log.Infof("CreateSnapshot: Snapshot created successfully. VolumeID: %q, SnapshotID: %q, "+
@@ -2445,6 +2476,10 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 		// error
 		err error
 	)
+	var vCenterServerForVolumeOperationCR string
+	if m.multivCenterTopologyDeployment {
+		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host
+	}
 
 	if m.idempotencyHandlingEnabled {
 		if m.operationStore == nil {
@@ -2472,7 +2507,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 			}
 		case apierrors.IsNotFound(err):
 			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, metav1.Now(),
-				"", "", "", taskInvocationStatusInProgress, "")
+				"", vCenterServerForVolumeOperationCR, "", taskInvocationStatusInProgress, "")
 		default:
 			return err
 		}
@@ -2499,7 +2534,8 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 					snapshotID, volumeID)
 				if m.idempotencyHandlingEnabled {
 					volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
-						metav1.Now(), "", "", "", taskInvocationStatusSuccess, "")
+						metav1.Now(), "", vCenterServerForVolumeOperationCR,
+						"", taskInvocationStatusSuccess, "")
 					if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
 						log.Warnf("failed to store DeleteSnapshot operation details with error: %v", err)
 					}
@@ -2509,7 +2545,8 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 
 			if m.idempotencyHandlingEnabled {
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
-					metav1.Now(), "", "", "", taskInvocationStatusError, err.Error())
+					metav1.Now(), "", vCenterServerForVolumeOperationCR,
+					"", taskInvocationStatusError, err.Error())
 				if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
 					log.Warnf("failed to store DeleteSnapshot operation details with error: %v", err)
 				}
@@ -2520,7 +2557,8 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 
 		if m.idempotencyHandlingEnabled {
 			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
-				metav1.Now(), deleteSnapshotTask.Reference().Value, "", "", taskInvocationStatusInProgress, "")
+				metav1.Now(), deleteSnapshotTask.Reference().Value, vCenterServerForVolumeOperationCR,
+				"", taskInvocationStatusInProgress, "")
 			if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
 				log.Warnf("failed to store DeleteSnapshot operation details with error: %v", err)
 			}
@@ -2544,7 +2582,8 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 					// Create the volumeOperationDetails object for persistence
 					volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 						volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-						deleteSnapshotTask.Reference().Value, "", volumeOperationDetails.OperationDetails.OpID,
+						deleteSnapshotTask.Reference().Value, vCenterServerForVolumeOperationCR,
+						volumeOperationDetails.OperationDetails.OpID,
 						taskInvocationStatusSuccess, "")
 				}
 
@@ -2554,9 +2593,14 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 				return nil
 			}
 		}
-
+		// waitOnTask can fail for many reasons, including:
+		// - CNS restarted and marked "InProgress" tasks as "Failed".
+		// - Any failures from CNS.
+		// - Any failures at lower layers like FCD and SPS.
+		// In all cases, mark task as failed and retry.
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
-			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value, "",
+			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value,
+			vCenterServerForVolumeOperationCR,
 			volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusError, err.Error())
 
 		return logger.LogNewErrorf(log, "Failed to get taskInfo for DeleteSnapshots task from vCenter %q with err: %v",
@@ -2605,7 +2649,8 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 			if m.idempotencyHandlingEnabled {
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value,
-					"", deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
+					vCenterServerForVolumeOperationCR,
+					deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
 			}
 
 			return logger.LogNewError(log, errMsg)
@@ -2615,7 +2660,8 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 	if m.idempotencyHandlingEnabled {
 		// create the volumeOperationDetails object for persistence
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
-			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value, "",
+			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value,
+			vCenterServerForVolumeOperationCR,
 			deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusSuccess, "")
 	}
 
