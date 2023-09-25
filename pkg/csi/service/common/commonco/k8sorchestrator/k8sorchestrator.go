@@ -1544,3 +1544,8 @@ func (c *K8sOrchestrator) CreateConfigMap(ctx context.Context, name string, name
 
 	return nil
 }
+
+// GetPVNameFromCSIVolumeID retrieves the pv name from volumeID using volumeIDToNameMap.
+func (c *K8sOrchestrator) GetPVNameFromCSIVolumeID(volumeID string) (string, bool) {
+	return c.volumeIDToNameMap.get(volumeID)
+}
