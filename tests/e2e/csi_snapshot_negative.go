@@ -174,7 +174,9 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		2. Try creating a snapshot on this pvc
 		3. Should fail with an appropriate error
 	*/
-	ginkgo.It("Volume snapshot creation on a file-share volume", func() {
+	ginkgo.It("Volume snapshot creation on a file-share volume", ginkgo.Label(p1, block, vanilla, snapshot,
+		negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -246,37 +248,49 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 	   6. k8s side: csi pod restarts with improved_idempotency enabled as well
 	       as run a scenario with improved_idempotency disabled
 	*/
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when hostd goes down", func() {
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when "+
+		"hostd goes down", ginkgo.Label(p0, block, vanilla, tkg, snapshot, disruptive), func() {
+
 		serviceName = hostdServiceName
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
 			csiNamespace, fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when CSI restarts", func() {
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when CSI "+
+		"restarts", ginkgo.Label(p0, block, vanilla, tkg, snapshot, disruptive), func() {
+
 		serviceName = "CSI"
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
 			csiNamespace, fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when VPXD goes down", func() {
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when VPXD "+
+		"goes down", ginkgo.Label(p0, block, vanilla, tkg, snapshot, disruptive), func() {
+
 		serviceName = vpxdServiceName
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
 			csiNamespace, fullSyncWaitTime, isServiceStopped, false, csiReplicas, pandoraSyncWaitTime)
 	})
 
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when CNS goes down", func() {
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when CNS goes "+
+		"down", ginkgo.Label(p0, block, vanilla, tkg, snapshot, disruptive), func() {
+
 		serviceName = vsanhealthServiceName
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
 			csiNamespace, fullSyncWaitTime, isServiceStopped, false, csiReplicas, pandoraSyncWaitTime)
 	})
 
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when SPS goes down", func() {
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when SPS "+
+		"goes down", ginkgo.Label(p0, block, vanilla, tkg, snapshot, disruptive), func() {
+
 		serviceName = spsServiceName
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
 			csiNamespace, fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 
-	ginkgo.It("[tkg-snapshot] create volume snapshot when SVC CSI restarts", func() {
+	ginkgo.It("[tkg-snapshot] create volume snapshot when SVC CSI restarts", ginkgo.Label(p0,
+		tkg, snapshot, disruptive, newTest), func() {
+
 		serviceName = "WCP CSI"
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
 			csiNamespace, fullSyncWaitTime, isServiceStopped, true, svcCsiReplicas, pandoraSyncWaitTime)

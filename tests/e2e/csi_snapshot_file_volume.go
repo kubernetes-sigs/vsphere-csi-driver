@@ -79,7 +79,9 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 		2. Try creating a snapshot on this pvc
 		3. Should fail with an appropriate error
 	*/
-	ginkgo.It("Snapshot creation on a file-share volume - expect to fail", func() {
+	ginkgo.It("Snapshot creation on a file-share volume - expect to fail", ginkgo.Label(p1, block, vanilla,
+		snapshot, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

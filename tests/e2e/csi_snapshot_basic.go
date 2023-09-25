@@ -189,7 +189,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		12. Query the snapshot from CNS side - should return 0 entries
 		13. Cleanup: Delete PVC, SC (validate they are removed)
 	*/
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Verify snapshot dynamic provisioning workflow", func() {
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Verify snapshot dynamic provisioning "+
+		"workflow", ginkgo.Label(p0, block, tkg, vanilla, snapshot, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -278,7 +280,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			volume snapshot as the policy is delete
 		10. Cleanup the pvc
 	*/
-	ginkgo.It("[block-vanilla-snapshot] Verify snapshot static provisioning through K8s API workflow", func() {
+	ginkgo.It("[block-vanilla-snapshot] Verify snapshot static provisioning through K8s "+
+		"API workflow", ginkgo.Label(p0, block, vanilla, snapshot, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -437,7 +441,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		11. The snapshot that was created via CNS in step-2 should be deleted as part of k8s snapshot delete
 		12. Delete the pvc
 	*/
-	ginkgo.It("[block-vanilla-snapshot] Verify snapshot static provisioning via CNS", func() {
+	ginkgo.It("[block-vanilla-snapshot] Verify snapshot static provisioning "+
+		"via CNS", ginkgo.Label(p0, block, vanilla, snapshot, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -577,7 +583,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		12. Delete volume snapshot content 2
 		13. Cleanup the pvc, volume snapshot class and storage class
 	*/
-	ginkgo.It("[block-vanilla-snapshot] Verify snapshot static provisioning with deletion policy Retain", func() {
+	ginkgo.It("[block-vanilla-snapshot] Verify snapshot static provisioning with "+
+		"deletion policy Retain", ginkgo.Label(p0, block, vanilla, snapshot, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -757,7 +765,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		9. Query the Snasphot from CNS side using the volumeId
 		10. Cleanup the snapshot and delete the volume
 	*/
-	ginkgo.It("[block-vanilla-snapshot] Verify snapshot static provisioning with deletion policy Retain - test2", func() {
+	ginkgo.It("[block-vanilla-snapshot] Verify snapshot static provisioning with deletion "+
+		"policy Retain - test2", ginkgo.Label(p0, block, vanilla, snapshot, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -905,7 +915,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	*/
 
 	ginkgo.It("[block-vanilla-snapshot] Volume restore using snapshot a dynamic snapshot b "+
-		"pre-provisioned snapshot", func() {
+		"pre-provisioned snapshot", ginkgo.Label(p0, block, vanilla, snapshot, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -1254,7 +1265,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   17. Delete SC and VolumeSnapshotClass
 	*/
 	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Volume snapshot creation and restoration workflow "+
-		"with xfs filesystem", func() {
+		"with xfs filesystem", ginkgo.Label(p0, block, vanilla, tkg, snapshot, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1453,7 +1465,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			while the source pvc was created usig thin provisioned psp-operatorlicy
 		6. cleanup spbm policies, sc's, pvc's
 	*/
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Volume restore using snapshot on a different storageclass", func() {
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Volume restore using snapshot on a different "+
+		"storageclass", ginkgo.Label(p0, block, vanilla, snapshot, tkg, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1576,7 +1590,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		9. Cleanup the snapshot, pvcs and ns
 	*/
 	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Delete the namespace hosting the pvcs and "+
-		"volume-snapshots and recover the data using snapshot-content", func() {
+		"volume-snapshots and recover the data "+
+		"using snapshot-content", ginkgo.Label(p0, block, vanilla, snapshot, tkg, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -1864,7 +1880,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		6. Delete would return a pass from CSI side (this is expected because CSI is
 			designed to return success even though it cannot find a snapshot in the backend)
 	*/
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Delete a non-existent snapshot", func() {
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Delete a non-existent snapshot", ginkgo.Label(p0, block,
+		vanilla, snapshot, tkg, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1949,10 +1967,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		3. Validate the fields after snapshot creation succeeds (snapshotClass, retentionPolicy)
 	*/
 	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Create snapshots using default "+
-		"VolumeSnapshotClass", func() {
+		"VolumeSnapshotClass", ginkgo.Label(p0, block, vanilla, snapshot, tkg), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		var volumeSnapshotClass *snapV1.VolumeSnapshotClass
 
 		if vanillaCluster {
@@ -2058,7 +2076,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		3. Verify the error
 		4. Create with exact size and ensure it succeeds
 	*/
-	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Create Volume from snapshot with different size", func() {
+	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Create Volume from snapshot with "+
+		"different size", ginkgo.Label(p1, block, vanilla, snapshot, tkg, stable, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -2181,7 +2201,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   10. Verify if the new pod attaches to the PV created in step-8
 	   11. Cleanup the sts and the snapshot + pv that was left behind in step-7
 	*/
-	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Snapshot workflow for statefulsets", func() {
+	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Snapshot workflow for statefulsets", ginkgo.Label(p0, block,
+		vanilla, snapshot, tkg), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -2532,7 +2554,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		5. Expect VolumeFailedDelete error with an appropriate err-msg
 		6. Run cleanup - delete the snapshots and then delete pv
 	*/
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Volume deletion with existing snapshots", func() {
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Volume deletion with existing snapshots", ginkgo.Label(p0,
+		block, vanilla, snapshot, tkg, stable, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -2638,7 +2662,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		5. Ensure this provisioning fails with appropriate error: SnapshotContentMismatch error
 	*/
 	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Create a pre-provisioned snapshot using "+
-		"VolumeSnapshotContent as source", func() {
+		"VolumeSnapshotContent as source", ginkgo.Label(p1, block, vanilla, snapshot, tkg, stable,
+		negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -2739,7 +2765,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	       (note the snapshotHandle its pointing to has been deleted)
 	   9. Volume Create should fail with an appropriate error on k8s side
 	*/
-	ginkgo.It("[block-vanilla-snapshot] Pre-provisioned snapshot using incorrect/non-existing static snapshot", func() {
+	ginkgo.It("[block-vanilla-snapshot] Pre-provisioned snapshot using incorrect/non-existing "+
+		"static snapshot", ginkgo.Label(p0, block, vanilla, snapshot, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -2896,7 +2924,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		7. Validate the pvc is Bound
 		8. Cleanup the snapshot and pvc
 	*/
-	ginkgo.It("[block-vanilla-snapshot] Create a volume from a snapshot that is still not ready-to-use", func() {
+	ginkgo.It("[block-vanilla-snapshot] Create a volume from a snapshot that is still not "+
+		"ready-to-use", ginkgo.Label(p0, block, vanilla, snapshot, stable, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -3048,7 +3078,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		6. The deployment should succeed and should have the file that was created in step.2
 		7. Cleanup dep-1 pv snapshots and pvs, delete dep-2
 	*/
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Snapshot workflow for deployments", func() {
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Snapshot workflow for deployments", ginkgo.Label(p0,
+		block, vanilla, tkg, snapshot, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -3196,7 +3228,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		6. Run resize and it should succeed
 		7. Cleanup the pvc
 	*/
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Volume offline resize of a volume having snapshots", func() {
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Volume offline resize of a volume "+
+		"having snapshots", ginkgo.Label(p0, block, vanilla, tkg, snapshot, stable, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -3369,7 +3403,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		6. Run resize and it should succeed
 		7. Cleanup the pvc
 	*/
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Volume online resize of a volume having snapshots", func() {
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Volume online resize of a volume having "+
+		"snapshots", ginkgo.Label(p0, block, vanilla, tkg, snapshot, stable, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -3585,7 +3621,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		7. bring the host back up
 		8. cleanup the snapshots, restore-pvc and source-pvc
 	*/
-	ginkgo.It("[block-vanilla-snapshot] Snapshot restore while the Host is Down", func() {
+	ginkgo.It("[block-vanilla-snapshot] Snapshot restore while the Host "+
+		"is Down", ginkgo.Label(p0, block, vanilla, snapshot, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -3729,7 +3767,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   8. Ensure the data written in step-4 is intanct
 	   9. Delete both deployments and. the pvcs
 	*/
-	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] VC reboot with deployment pvcs having snapshot", func() {
+	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] VC reboot with deployment pvcs "+
+		"having snapshot", ginkgo.Label(p0, block, vanilla, tkg, snapshot, disruptive, flaky), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -3962,7 +4002,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   8. Delete snapshot
 	   9. Cleanup pvc/sc
 	*/
-	ginkgo.It("[block-vanilla-snapshot] VC password reset during snapshot creation", func() {
+	ginkgo.It("[block-vanilla-snapshot] VC password reset during snapshot creation", ginkgo.Label(p1, block,
+		vanilla, snapshot, disruptive), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -4192,7 +4234,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   7. Verify pvcs all are in Bound state.
 	   8. Cleanup all the snapshots and the pvc.
 	*/
-	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Multi-master and snapshot workflow", func() {
+	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Multi-master and snapshot workflow", ginkgo.Label(p1, block,
+		vanilla, tkg, snapshot), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -4452,7 +4496,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   5. Validate creation of additional snapshots beyond the configured
 	       max-snapshots per volume fails - check error returned
 	*/
-	ginkgo.It("[block-vanilla-snapshot] Max Snapshots per volume test", func() {
+	ginkgo.It("[block-vanilla-snapshot] Max Snapshots per volume test", ginkgo.Label(p1, block,
+		vanilla, snapshot), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -4667,7 +4713,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   3. Expected behavior: resize operation should succeed and the
 	       snapshot creation should succeed after resize completes
 	*/
-	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Volume snapshot creation when resize is in progress", func() {
+	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Volume snapshot creation when "+
+		"resize is in progress", ginkgo.Label(p1, block, vanilla, snapshot, tkg, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -4819,10 +4867,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		3. Cleanup of snapshot, pvc and sc
 	*/
 	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot]Volume provision and "+
-		"snapshot creation/restore on VVOL Datastore", func() {
+		"snapshot creation/restore on VVOL Datastore", ginkgo.Label(p0, block, vanilla, snapshot, tkg), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		invokeSnapshotOperationsOnSharedDatastore(client, ctx, namespace, scParameters, snapc, "VVOL", pandoraSyncWaitTime)
+		invokeSnapshotOperationsOnSharedDatastore(client, ctx, namespace, scParameters, snapc, "VVOL",
+			pandoraSyncWaitTime)
 
 	})
 
@@ -4833,7 +4882,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		3. Cleanup of snapshot, pvc and sc
 	*/
 	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Volume provision and "+
-		"snapshot creation/restore on VMFS Datastore", func() {
+		"snapshot creation/restore on VMFS Datastore", ginkgo.Label(p0, block, vanilla, snapshot, tkg), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		invokeSnapshotOperationsOnSharedDatastore(client, ctx, namespace, scParameters, snapc, "VMFS", pandoraSyncWaitTime)
@@ -4846,7 +4895,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		3. Cleanup of snapshot, pvc and sc
 	*/
 	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Volume provision and "+
-		"snapshot creation/restore on NFS Datastore", func() {
+		"snapshot creation/restore on NFS Datastore", ginkgo.Label(p0, block, vanilla, snapshot, tkg), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		invokeSnapshotOperationsOnSharedDatastore(client, ctx, namespace, scParameters, snapc, "NFS", pandoraSyncWaitTime)
@@ -4858,7 +4907,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		2. Create Snapshot class and take a snapshot of the volume
 		3. Cleanup of snapshot, pvc and sc
 	*/
-	ginkgo.It("[tkg-snapshot] Volume provision and snapshot creation/restore on VSAN2 Datastore", func() {
+	ginkgo.It("[tkg-snapshot] Volume provision and snapshot creation/restore on "+
+		"VSAN2 Datastore", ginkgo.Label(p0, snapshot, tkg, newTest), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		invokeSnapshotOperationsOnSharedDatastore(client, ctx, namespace, scParameters, snapc, "VSAN", pandoraSyncWaitTime)
@@ -4886,7 +4936,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   4. Volume restore
 	   5. snapshot create/delete workflow
 	*/
-	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Scale-up creation of snapshots across multiple volumes", func() {
+	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot] Scale-up creation of snapshots across multiple "+
+		"volumes", ginkgo.Label(p0, block, vanilla, snapshot, tkg, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -5030,7 +5082,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   5. Perform cleanup
 	*/
 
-	ginkgo.It("[tkg-snapshot] Verify pre-provisioned static snapshot workflow", func() {
+	ginkgo.It("[tkg-snapshot] Verify pre-provisioned static snapshot workflow", ginkgo.Label(p0, snapshot, tkg,
+		newTest), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -5147,10 +5201,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   10. Run cleanup: Delete snapshots, restored-volumes, pods
 	*/
 
-	ginkgo.It("[tkg-snapshot] Volume restore using dynamic and pre-provisioned snapshot on guest cluster", func() {
+	ginkgo.It("[tkg-snapshot] Volume restore using dynamic and pre-provisioned snapshot on "+
+		"guest cluster", ginkgo.Label(p0, snapshot, tkg, newTest, flaky), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		var staticSnapshotCreated, staticSnapshotContentCreated bool
 
 		if vanillaCluster {
@@ -5337,10 +5392,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	       (note the snapshotHandle its pointing to has been deleted)
 	   8. Volume Create should fail with an appropriate error on k8s side
 	*/
-	ginkgo.It("[tkg-snapshot] Restore volume using non-existing static snapshot", func() {
+	ginkgo.It("[tkg-snapshot] Restore volume using non-existing static snapshot", ginkgo.Label(p0, snapshot, tkg,
+		newTest), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		var staticSnapshotCreated, staticSnapshotContentCreated bool
 
 		if vanillaCluster {
@@ -5470,7 +5526,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   7. Validate the pvc is Bound
 	   8. Cleanup the snapshot and pvc
 	*/
-	ginkgo.It("[tkg-snapshot] Restore volume from a static snapshot that is still not ready-to-use", func() {
+	ginkgo.It("[tkg-snapshot] Restore volume from a static snapshot that is still not "+
+		"ready-to-use", ginkgo.Label(p0, snapshot, tkg, newTest), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -5642,7 +5700,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   Cleanup the snapshots, PVC and SC
 	*/
 
-	ginkgo.It("[tkg-snapshot] Verify Snapshot creation should fail on supervisor cluster", func() {
+	ginkgo.It("[tkg-snapshot] Verify Snapshot creation should fail on supervisor cluster", ginkgo.Label(p0,
+		snapshot, tkg, newTest, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -5696,7 +5756,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   8.  Verify snapshot size. It should be same as that of restored volume size.
 	   9.  Run cleanup: Delete snapshots, restored-volumes, pods.
 	*/
-	ginkgo.It("[tkg-snapshot] Perform online resize on restored volume", func() {
+	ginkgo.It("[tkg-snapshot] Perform online resize on restored volume", ginkgo.Label(p0,
+		snapshot, tkg, newTest, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -5840,7 +5902,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   6.  Create new volume using this snapshot as source, use the same SC and attach it to a Pod.
 	   7.  Run cleanup: Delete snapshots, restored-volumes, pods.
 	*/
-	ginkgo.It("[tkg-snapshot] Offline relocation of FCD with snapshots", func() {
+	ginkgo.It("[tkg-snapshot] Offline relocation of FCD with snapshots", ginkgo.Label(p0, snapshot, tkg,
+		newTest, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -5975,7 +6039,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   5.  Run cleanup: Delete snapshots, restored-volumes, pods.
 	*/
 	ginkgo.It("[tkg-snapshot] Dynamic snapshot created in one guest cluster "+
-		"and restore it on another guest cluster", func() {
+		"and restore it on another guest cluster", ginkgo.Label(p0, snapshot, tkg, newTest, negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -6102,7 +6167,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		5.  Restore PVC creation should fail and be stuck in Pending state with appropriate error message.
 		6.  Perform Cleanup.
 	*/
-	ginkgo.It("[tkg-snapshot] Volume mode conversion", func() {
+	ginkgo.It("[tkg-snapshot] Volume mode conversion", ginkgo.Label(p0, snapshot, tkg, newTest, stable,
+		negative), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -6212,10 +6279,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		    Should fail with an appropriate error
 	*/
 
-	ginkgo.It("[tkg-snapshot] Volume snapshot creation on a file-share volume on a guest cluster", func() {
+	ginkgo.It("[tkg-snapshot] Volume snapshot creation on a file-share volume on a guest "+
+		"cluster", ginkgo.Label(p1, snapshot, tkg, newTest, negative, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		scParameters[svStorageClassName] = storagePolicyName
 
 		ginkgo.By("Create storage class and PVC")
@@ -6256,7 +6324,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		Run cleanup: Delete snapshots, restored-volumes, pods.
 	*/
 
-	ginkgo.It("[tkg-snapshot] Create restore volume snapshot in consistent order", func() {
+	ginkgo.It("[tkg-snapshot] Create restore volume snapshot in consistent order", ginkgo.Label(p0, snapshot,
+		tkg, newTest, stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -6510,7 +6580,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		7. Verify the older data. It should be intact and write new data.
 		8. Perform cleanup.
 	*/
-	ginkgo.It("[tkg-snapshot] Detach volume with snapshot", func() {
+	ginkgo.It("[tkg-snapshot] Detach volume with snapshot", ginkgo.Label(p1, snapshot, tkg, newTest,
+		stable), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
@@ -6645,7 +6717,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	// 7. Wait for PV , PVC to get bound.
 	// 8. Create POD, verify the status.
 	// 9. Delete all the above created PV, PVC and resource quota.
-	ginkgo.It("[tkg-snapshot] Provisioning of static volume on guest cluster using FCD with snapshot creation", func() {
+
+	ginkgo.It("[tkg-snapshot] Provisioning of static volume on guest cluster using FCD with snapshot "+
+		"creation", ginkgo.Label(p0, snapshot, tkg, newTest, stable), func() {
+
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -6889,7 +6964,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			c) Restart services
 	*/
 	ginkgo.It("[tkg-snapshot] Scale up snapshot creation by increasing the volume counts and "+
-		"in between restart services", func() {
+		"in between restart services", ginkgo.Label(p1, snapshot, tkg, newTest), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
