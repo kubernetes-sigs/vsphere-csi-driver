@@ -301,6 +301,7 @@ var (
 	guestCluster         bool
 	rwxAccessMode        bool
 	wcpVsanDirectCluster bool
+	vcptocsi             bool
 )
 
 // For busybox pod image
@@ -421,5 +422,11 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	kind := os.Getenv("ACCESS_MODE")
 	if strings.TrimSpace(string(kind)) == "RWX" {
 		rwxAccessMode = true
+	}
+
+	// Check if its the vcptocsi tesbed
+	mode := os.Getenv("VCPTOCSI")
+	if strings.TrimSpace(string(mode)) == "1" {
+		vcptocsi = true
 	}
 }

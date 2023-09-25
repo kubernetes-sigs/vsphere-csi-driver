@@ -798,7 +798,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		ginkgo.By("create a pvc pvc1, wait for pvc bound to pv")
 		volHandle, pvc, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			f, client, "", storagePolicyName, namespace, ext4FSType)
+			ctx, f, client, "", storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))

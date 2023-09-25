@@ -82,6 +82,8 @@ list of datastore URLs where you want to deploy file share volumes. Retrieve thi
     # SHARED_VSPHERE_DATASTORE_NAME and SHARED_VSPHERE_DATASTORE_URL should correspond to same shared datastore
     # To run e2e test for VCP to CSI migration, need to set the following env variable
     export GINKGO_FOCUS="csi-vcp-mig"
+    # To run volume resize testcases of VCP to CSI migrated Volumes
+    export VCPTOCSI="1"
 
     # For vsan stretched cluster tests
     export TESTBEDINFO_JSON="/path/to/nimbus_testbedinfo.json"
