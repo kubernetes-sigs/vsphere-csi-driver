@@ -294,3 +294,8 @@ func (c *FakeK8SOrchestrator) GetCSINodeTopologyInstanceByName(nodeName string) 
 	item interface{}, exists bool, err error) {
 	return nil, false, nil
 }
+
+// GetPVCNamespaceFromVolumeID retrieves the pv name from volumeID.
+func (c *FakeK8SOrchestrator) GetPVNameFromCSIVolumeID(volumeID string) (string, bool) {
+	return "", false
+}

@@ -1804,7 +1804,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	createVolumeInternal := func() (
 		*csi.CreateVolumeResponse, string, error) {
 		log.Infof("CreateVolume: called with args %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
@@ -1884,7 +1884,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	deleteVolumeInternal := func() (
 		*csi.DeleteVolumeResponse, string, error) {
 		log.Infof("DeleteVolume: called with args: %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
@@ -2024,7 +2024,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	controllerPublishVolumeInternal := func() (
 		*csi.ControllerPublishVolumeResponse, string, error) {
 		log.Infof("ControllerPublishVolume: called with args %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
@@ -2174,7 +2174,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		*csi.ControllerUnpublishVolumeResponse, string, error) {
 		var faultType string
 		log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
-		//TODO: If the err is returned by invoking CNS API, then faultType should be
+		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
@@ -2488,6 +2488,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			querySelection := cnstypes.CnsQuerySelection{
 				Names: []string{
 					string(cnstypes.QuerySelectionNameTypeVolumeType),
+					string(cnstypes.QuerySelectionNameTypeVolumeName),
 				},
 			}
 			// For multi-VC configuration, query volumes from all vCenters
@@ -2636,9 +2637,17 @@ func (c *controller) processQueryResultsListVolumes(ctx context.Context, startin
 			nodeVMUUID, found := volumeIDToNodeUUIDMap[blockVolID]
 			if found {
 				volCounter += 1
-				//Populate csi.Volume info for the given volume
+				volumeId := blockVolID
+				migratedVolumePath, err := volumeMigrationService.GetVolumePathFromMigrationServiceCache(ctx, blockVolID)
+				if err != nil && err == common.ErrNotFound {
+					log.Debugf("volumeID: %v not found in migration service in-memory cache "+
+						"so it's not a migrated in-tree volume", blockVolID)
+				} else if migratedVolumePath != "" {
+					volumeId = migratedVolumePath
+				}
+				// Populate csi.Volume info for the given volume
 				blockVolumeInfo := &csi.Volume{
-					VolumeId: blockVolID,
+					VolumeId: volumeId,
 				}
 				// Getting published nodes
 				volStatus := &csi.ListVolumesResponse_VolumeStatus{
@@ -3199,7 +3208,7 @@ func queryAllVolumeSnapshotsForMultiVC(ctx context.Context, c *controller, token
 			CNSSnapshotsForListSnapshots = snapQueryEntries
 			CNSVolumeDetailsMap = cnsVolumeDetailsMap
 		} else {
-			//fetch snapshots
+			// fetch snapshots
 			snapQueryEntries, volumeDetails, err := getSnapshotsAndSourceVolumeDetails(ctx, vCenterManager,
 				c.manager.VolumeManager, c.manager.VcenterConfig.Host)
 			if err != nil {
