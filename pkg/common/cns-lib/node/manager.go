@@ -60,6 +60,9 @@ type Manager interface {
 	// GetNodeByName refreshes and returns the VirtualMachine for a registered
 	// node given its name.
 	GetNodeByName(ctx context.Context, nodeName string) (*vsphere.VirtualMachine, error)
+	// GetNodeByNameReadOnly returns the VirtualMachine for a registered node
+	// given its name without refreshing cache the nodes.
+	GetNodeByNameReadOnly(ctx context.Context, nodeName string) (*vsphere.VirtualMachine, error)
 	// GetNodeNameByUUID fetches the name of the node given the VM UUID.
 	GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error)
 	// GetAllNodes refreshes and returns VirtualMachine for all registered
@@ -168,6 +171,29 @@ func (m *defaultManager) GetNodeByName(ctx context.Context, nodeName string) (*v
 		return nil, err
 	}
 	m.nodeNameToUUID.Store(nodeName, k8snodeUUID)
+	return m.GetNode(ctx, k8snodeUUID, nil)
+
+}
+
+// GetNodeByNameReadOnly returns the VirtualMachine for a registered node
+// given its name without refreshing cache the nodes.
+func (m *defaultManager) GetNodeByNameReadOnly(ctx context.Context, nodeName string) (*vsphere.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
+	nodeUUID, found := m.nodeNameToUUID.Load(nodeName)
+	if !found {
+		log.Errorf("Node not found with nodeName %s", nodeName)
+		return nil, ErrNodeNotFound
+	}
+	if nodeUUID != nil && nodeUUID.(string) != "" {
+		return m.GetNode(ctx, nodeUUID.(string), nil)
+	}
+	log.Infof("Empty nodeUUID observed in cache for the node: %q", nodeName)
+	k8snodeUUID, err := k8s.GetNodeUUID(ctx, m.k8sClient, nodeName,
+		m.useNodeUuid)
+	if err != nil {
+		log.Errorf("failed to get node UUID from node: %q. Err: %v", nodeName, err)
+		return nil, err
+	}
 	return m.GetNode(ctx, k8snodeUUID, nil)
 
 }

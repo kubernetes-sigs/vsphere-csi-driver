@@ -192,6 +192,14 @@ func (nodes *Nodes) GetNodeByName(ctx context.Context, nodeName string) (
 	return nodes.cnsNodeManager.GetNodeByName(ctx, nodeName)
 }
 
+// GetNodeByNameReadOnly returns VirtualMachine object for given nodeName.
+// This is called by ControllerPublishVolume and ControllerUnpublishVolume
+// to perform attach and detach operations.
+func (nodes *Nodes) GetNodeByNameReadOnly(ctx context.Context, nodeName string) (
+	*cnsvsphere.VirtualMachine, error) {
+	return nodes.cnsNodeManager.GetNodeByNameReadOnly(ctx, nodeName)
+}
+
 // GetNodeNameByUUID fetches the name of the node given the VM UUID.
 func (nodes *Nodes) GetNodeNameByUUID(ctx context.Context, nodeUUID string) (
 	string, error) {
