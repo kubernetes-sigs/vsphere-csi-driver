@@ -246,6 +246,30 @@ func (f *FakeNodeManager) GetNodeByName(ctx context.Context, nodeName string) (*
 	return vm, nil
 }
 
+func (f *FakeNodeManager) GetNodeByNameReadOnly(ctx context.Context,
+	nodeName string) (*cnsvsphere.VirtualMachine, error) {
+	var vm *cnsvsphere.VirtualMachine
+	var t *testing.T
+	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
+		nodeUUID, err := k8s.GetNodeUUID(ctx, f.k8sClient, nodeName, false)
+		if err != nil {
+			t.Errorf("failed to get providerId from node: %q. Err: %v", nodeName, err)
+			return nil, err
+		}
+		vm, err = cnsvsphere.GetVirtualMachineByUUID(ctx, nodeUUID, false)
+		if err != nil {
+			t.Errorf("Couldn't find VM instance with nodeUUID %s, failed to discover with err: %v", nodeUUID, err)
+			return nil, err
+		}
+	} else {
+		obj := simulator.Map.Any("VirtualMachine").(*simulator.VirtualMachine)
+		vm = &cnsvsphere.VirtualMachine{
+			VirtualMachine: object.NewVirtualMachine(f.client, obj.Reference()),
+		}
+	}
+	return vm, nil
+}
+
 func (f *FakeNodeManager) GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error) {
 	return "", nil
 }
