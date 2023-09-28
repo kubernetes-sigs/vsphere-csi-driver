@@ -392,6 +392,8 @@ const (
 	CSIInternalGeneratedClusterID = "csi-internal-generated-cluster-id"
 	// ListViewPerf uses govmomi ListView to wait for CNS tasks
 	ListViewPerf = "listview-tasks"
-	// TopologyAwareFileVolume enables provisioning of file volumes in a topology emabled environment
+	// TopologyAwareFileVolume enables provisioning of file volumes in a topology enabled environment
 	TopologyAwareFileVolume = "topology-aware-file-volume"
+	// PodVMOnStretchedSupervisor enables Pod Vm Support on stretched supervisor cluster
+	PodVMOnStretchedSupervisor = "podvm-on-stretched-supervisor"
 )

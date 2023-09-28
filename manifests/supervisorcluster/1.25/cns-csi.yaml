@@ -457,6 +457,7 @@ data:
   "list-volumes": "true"
   "cnsmgr-suspend-create-volume": "true"
   "listview-tasks": "true"
+  "podvm-on-stretched-supervisor": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
