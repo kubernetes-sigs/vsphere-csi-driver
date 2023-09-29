@@ -280,7 +280,7 @@ func getSnapshotHandleFromSupervisorCluster(ctx context.Context,
 	return snapshotID, svcSnapshotHandle, svcVolumeSnapshotName, nil
 }
 
-// getRestConfigClient returns  rest config client for Guest Cluster
+// getRestConfigClientForGuestCluster returns  rest config client for Guest Cluster
 func getRestConfigClientForGuestCluster(guestClusterRestConfig *rest.Config) *rest.Config {
 	var err error
 	if guestClusterRestConfig == nil {
@@ -391,7 +391,8 @@ func createVolumeSnapshotClass(ctx context.Context, snapc *snapclient.Clientset,
 // createDynamicVolumeSnapshot util creates dynamic volume snapshot for a volume
 func createDynamicVolumeSnapshot(ctx context.Context, namespace string,
 	snapc *snapclient.Clientset, volumeSnapshotClass *snapV1.VolumeSnapshotClass,
-	pvclaim *v1.PersistentVolumeClaim, volHandle string, diskSize string) (*snapV1.VolumeSnapshot,
+	pvclaim *v1.PersistentVolumeClaim, volHandle string, diskSize string,
+	performCnsQueryVolumeSnapshot bool) (*snapV1.VolumeSnapshot,
 	*snapV1.VolumeSnapshotContent, bool, bool, string, error) {
 
 	volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
@@ -431,10 +432,12 @@ func createDynamicVolumeSnapshot(ctx context.Context, namespace string,
 		return nil, nil, false, false, "", err
 	}
 
-	ginkgo.By("Query CNS and check the volume snapshot entry")
-	err = waitForCNSSnapshotToBeCreated(volHandle, snapshotId)
-	if err != nil {
-		return nil, nil, false, false, snapshotId, err
+	if performCnsQueryVolumeSnapshot {
+		ginkgo.By("Query CNS and check the volume snapshot entry")
+		err = waitForCNSSnapshotToBeCreated(volHandle, snapshotId)
+		if err != nil {
+			return nil, nil, false, false, snapshotId, err
+		}
 	}
 
 	return volumeSnapshot, snapshotContent, snapshotCreated, snapshotContentCreated, snapshotId, nil
@@ -601,7 +604,7 @@ func createPreProvisionedSnapshotInGuestCluster(ctx context.Context, volumeSnaps
 // and creates pod and checks attach volume operation if verifyPodCreation is set to true
 func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interface,
 	namespace string, storageclass *storagev1.StorageClass,
-	volumeSnapshot *snapV1.VolumeSnapshot,
+	volumeSnapshot *snapV1.VolumeSnapshot, diskSize string,
 	verifyPodCreation bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume, *v1.Pod) {
 
 	ginkgo.By("Create PVC from snapshot")
