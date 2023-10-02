@@ -10,7 +10,7 @@ require (
 	github.com/evanphx/json-patch/v5 v5.6.0
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/golang/protobuf v1.5.2
-	github.com/google/uuid v1.3.0
+	github.com/google/uuid v1.3.1
 	github.com/hashicorp/go-version v1.6.0
 	github.com/kubernetes-csi/csi-lib-utils v0.11.0
 	github.com/kubernetes-csi/csi-proxy/client v1.0.1
@@ -18,9 +18,9 @@ require (
 	github.com/onsi/ginkgo/v2 v2.8.3
 	github.com/onsi/gomega v1.27.0
 	github.com/prometheus/client_golang v1.14.0
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.8.4
 	github.com/vmware-tanzu/vm-operator-api v0.1.4-0.20211202183846-992b48c128ae
-	github.com/vmware/govmomi v0.30.4
+	github.com/vmware/govmomi v0.32.0
 	go.uber.org/zap v1.24.0
 	golang.org/x/crypto v0.12.0
 	golang.org/x/net v0.14.0
@@ -131,7 +131,7 @@ require (
 	github.com/thecodeteam/gofsutil v0.1.2 // indirect
 	github.com/vishvananda/netlink v1.1.0 // indirect
 	github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae // indirect
-	github.com/xlab/treeprint v1.1.0 // indirect
+	github.com/xlab/treeprint v1.2.0 // indirect
 	go.opencensus.io v0.23.0 // indirect
 	go.opentelemetry.io/contrib v0.20.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/github.com/emicklei/go-restful/otelrestful v0.20.0 // indirect
