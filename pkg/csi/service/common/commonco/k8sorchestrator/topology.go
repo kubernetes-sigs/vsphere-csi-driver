@@ -35,6 +35,7 @@ import (
 	"github.com/vmware/govmomi/vim25/mo"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -624,7 +625,7 @@ func topoCRDeleted(obj interface{}) {
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &nodeTopoObj)
 	if err != nil {
 		log.Errorf("topoCRDeleted: failed to cast object %+v to %s type. Error: %+v",
-			csinodetopology.CRDSingular, err)
+			obj, csinodetopology.CRDSingular, err)
 		return
 	}
 	// Delete node name from domainNodeMap if the status of the CR was set to Success.
@@ -1544,36 +1545,10 @@ func (volTopology *wcpControllerVolumeTopology) GetSharedDatastoresInTopology(ct
 		} else {
 			// This code block adds support for multiple vSphere Clusters Per AZ
 			// sharedDatastores will be calculated for all clusters within AZ
-			var sharedDatastoresForclusterMorefs []*cnsvsphere.DatastoreInfo
-			for index, clusterMoref := range clusterMorefs {
-				accessibleDs, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, params.Vc, clusterMoref)
-				if err != nil {
-					return nil, logger.LogNewErrorf(log,
-						"failed to find candidate datastores to place volume in cluster %q. Error: %v",
-						clusterMoref, err)
-				}
-				if len(accessibleDs) == 0 {
-					return nil, logger.LogNewErrorf(log,
-						"could not find accessible datastore for the cluster %v", clusterMoref)
-				}
-				if index == 0 {
-					sharedDatastoresForclusterMorefs = append(sharedDatastoresForclusterMorefs, accessibleDs...)
-				} else {
-					var sharedAccessibleDatastores []*cnsvsphere.DatastoreInfo
-					for _, sharedDatastore := range sharedDatastoresForclusterMorefs {
-						for _, accessibleDsInCluster := range accessibleDs {
-							if sharedDatastore.Info.Url == accessibleDsInCluster.Info.Url {
-								sharedAccessibleDatastores = append(sharedAccessibleDatastores, accessibleDsInCluster)
-								break
-							}
-						}
-					}
-					if len(sharedAccessibleDatastores) == 0 {
-						return nil, logger.LogNewErrorf(log,
-							"no shared datastore found among clusters %v in AZ %v", clusterMorefs, segments)
-					}
-					sharedDatastoresForclusterMorefs = sharedAccessibleDatastores
-				}
+			sharedDatastoresForclusterMorefs, err := getSharedDatastoresInClusters(ctx, clusterMorefs, params.Vc)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log, "failed to get shared datastores "+
+					"for clusters: %v, err: %v", clusterMorefs, err)
 			}
 			sharedDatastores = append(sharedDatastores, sharedDatastoresForclusterMorefs...)
 		}
@@ -1620,8 +1595,45 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 
 	switch strings.ToLower(params.StorageTopologyType) {
 	case "zonal":
-		// If the topology requirement received has just one zone, use the same zone as node affinity terms on PV.
-		if len(params.TopologyRequirement.GetPreferred()) == 1 {
+		if params.TopologyRequirement == nil {
+			// This case is for static volume provisioning using CNSRegisterVolume API
+			if !isPodVMOnStretchedSupervisorEnabled {
+				return nil, logger.LogNewErrorf(log, "topology requirement should not be nil. invalid params: %v", params)
+			} else {
+				// If the topology requirement received is nil, then identify topology of the datastore by looking into
+				// azClustersMap
+				var selectedSegments []map[string]string
+				for az, clusters := range azClustersMap {
+					sharedDatastoresForclusters, err := getSharedDatastoresInClusters(ctx, clusters, params.Vc)
+					if err != nil {
+						return nil, logger.LogNewErrorf(log, "failed to get shared datastores "+
+							"for clusters: %v, err: %v", clusters, err)
+					}
+					for _, ds := range sharedDatastoresForclusters {
+						if ds.Info.Url == params.DatastoreURL {
+							selectedSegments = append(selectedSegments, map[string]string{v1.LabelTopologyZone: az})
+							break
+						}
+					}
+				}
+				numSelectedSegments := len(selectedSegments)
+				switch {
+				case numSelectedSegments == 0:
+					return nil, logger.LogNewErrorf(log,
+						"could not find the topology of the volume provisioned on datastore %q", params.DatastoreURL)
+				case numSelectedSegments > 1:
+					// This situation will arise when datastore belongs to multiple zones but the
+					// storageTopologyType is `zonal`. This seems like a configuration error.
+					return nil, &common.InvalidTopologyProvisioningError{ErrMsg: fmt.Sprintf(
+						"zonal volume is provisioned on %q datastore which is accessible from multiple zones: %+v. "+
+							"Kindly check the configuration of the storage policy used in the StorageClass.",
+						params.DatastoreURL, selectedSegments)}
+				default:
+					topologySegments = selectedSegments
+				}
+			}
+		} else if len(params.TopologyRequirement.GetPreferred()) == 1 {
+			// If the topology requirement received has just one zone, use the same zone as node affinity terms on PV.
 			topologySegments = append(topologySegments, params.TopologyRequirement.GetPreferred()[0].GetSegments())
 		} else {
 			// If multiple zones are provided as input in the topology requirement, find the zone
@@ -1690,4 +1702,42 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 	}
 	log.Infof("Topology of the provisioned volume detected as %+v", topologySegments)
 	return topologySegments, nil
+}
+
+// getSharedDatastoresInClusters helps find shared datastores accessible to all given clusters
+func getSharedDatastoresInClusters(ctx context.Context, clusterMorefs []string,
+	vc *cnsvsphere.VirtualCenter) ([]*cnsvsphere.DatastoreInfo, error) {
+	log := logger.GetLogger(ctx)
+	var sharedDatastoresForclusterMorefs []*cnsvsphere.DatastoreInfo
+	for index, clusterMoref := range clusterMorefs {
+		accessibleDs, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterMoref)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log,
+				"failed to find candidate datastores to place volume in cluster %q. Error: %v",
+				clusterMoref, err)
+		}
+		if len(accessibleDs) == 0 {
+			return nil, logger.LogNewErrorf(log,
+				"no accessibleDs candidate datastores found to place volume for cluster %v", clusterMoref)
+		}
+		if index == 0 {
+			sharedDatastoresForclusterMorefs = append(sharedDatastoresForclusterMorefs, accessibleDs...)
+		} else {
+			var sharedAccessibleDatastores []*cnsvsphere.DatastoreInfo
+			for _, sharedDatastore := range sharedDatastoresForclusterMorefs {
+				for _, accessibleDsInCluster := range accessibleDs {
+					if sharedDatastore.Info.Url == accessibleDsInCluster.Info.Url {
+						sharedAccessibleDatastores = append(sharedAccessibleDatastores, accessibleDsInCluster)
+						break
+					}
+				}
+			}
+			if len(sharedAccessibleDatastores) == 0 {
+				return nil, logger.LogNewErrorf(log,
+					"no shared candidate datastores found to place volume for clusters %v", clusterMorefs)
+			}
+			sharedDatastoresForclusterMorefs = sharedAccessibleDatastores
+		}
+	}
+	return sharedDatastoresForclusterMorefs, nil
 }
