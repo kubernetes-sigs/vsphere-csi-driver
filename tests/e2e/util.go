@@ -2418,15 +2418,21 @@ func getPvFromSupervisorCluster(pvcName string) *v1.PersistentVolume {
 	return svcPV
 }
 
-func verifyFilesExistOnVSphereVolume(namespace string, podName string, filePaths ...string) {
+func verifyFilesExistOnVSphereVolume(namespace string, podName string, poll, timeout time.Duration, filePaths ...string) {
+	var err error
 	for _, filePath := range filePaths {
 		if windowsEnv {
-			_, err := framework.LookForStringInPodExec(namespace, podName,
-				[]string{"powershell.exe", "ls", filePath}, "", time.Minute)
+			for start := time.Now(); time.Since(start) < timeout; time.Sleep(poll) {
+				_, err = framework.LookForStringInPodExec(namespace, podName,
+					[]string{"powershell.exe", "ls", filePath}, "", time.Minute)
+				if err != nil {
+					framework.Logf("File %s doesn't exist", filePath)
+					continue
+				}
+			}
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		} else {
-			_, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
+			_, err = framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
 				podName, "--", "/bin/ls", filePath)
 			framework.ExpectNoError(err, fmt.Sprintf("failed to verify file: %q on the pod: %q", filePath, podName))
 		}

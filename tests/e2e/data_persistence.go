@@ -595,5 +595,5 @@ func createAndVerifyFilesOnVolume(namespace string, podname string,
 		createEmptyFilesOnVSphereVolume(namespace, podname, newEmptyfilesToCreate)
 	}
 	ginkgo.By(fmt.Sprintf("Verify files exist on volume mounted on: %v", podname))
-	verifyFilesExistOnVSphereVolume(namespace, podname, filesToCheck...)
+	verifyFilesExistOnVSphereVolume(namespace, podname, poll, pollTimeoutShort, filesToCheck...)
 }
