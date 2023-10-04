@@ -152,6 +152,128 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		"which is deleted, when the Pod has pvc statically provisoned on same vsan file share", func() {
 		invokeTestForCreateFileVolumeAndMount(f, client, namespace, accessMode, filePath1, filePath2, true, false, true)
 	})
+
+	/*
+		Verify provisioning of PVC fails for RWX PVC with xfs fstype
+		    1.Create StorageClass with fsType as "xfs"
+		    2.Create a PVC with "ReadWriteMany" using the SC from above
+		    3.Verify for pvc to not come to Bound state as provisioning of pvc fails with xfs fstype
+		Cleanup:
+		    1.Delete all the pvcs and storage class and verify the deletion
+	*/
+	ginkgo.It("[csi-file-vanilla] Verify provisioning of PVC fails for RWX PVC with xfs fstype", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// Create Storage class and PVC
+		ginkgo.By("Creating Storage Class and PVC with xfs fstype")
+		scParameters := map[string]string{}
+		scParameters[scParamFsType] = xfsFSType
+
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		var pvclaims []*v1.PersistentVolumeClaim
+		pvclaim, err := createPVC(client, namespace, nil, "", sc, accessMode)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvclaims = append(pvclaims, pvclaim)
+		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		framework.Logf("Error from provisioning of pvc is: %v", err)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+
+		// clean up for pvc
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+	})
+
+	/*
+		Verify mounting of volume for RWX PVC with ext4 fstype passes
+		    1.Create StorageClass with fsType as "ext4"
+		    2.Create a PVC with "ReadWriteMany" using the SC from above
+		    3.Wait for PVC to be Bound
+		    4.Get the VolumeID from PV
+		    5.Verify using CNS Query API if VolumeID retrieved from PV is present. Also verify
+			Name, Capacity, VolumeType, Health matches
+		    6.Verify if VolumeID is created on one of the VSAN datastores from list of datacenters provided in vsphere.conf
+		    7.Create Pod using PVC created above at a mount path specified in PodSpec
+		    8.Verify if pod comes to Running state as CSI driver ignores the ext4 and default to nfs4 fstype
+			while mounting the file volume
+		Cleanup:
+		    1.Delete all the Pods, pvcs and storage class and verify the deletion
+	*/
+	ginkgo.It("[csi-file-vanilla] Verify mounting of volume for RWX PVC with ext4 fstype passes", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// Create Storage class and PVC
+		ginkgo.By("Creating Storage Class and PVC with xfs fstype")
+		scParameters := map[string]string{}
+		scParameters[scParamFsType] = ext4FSType
+
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		var pvclaims []*v1.PersistentVolumeClaim
+		pvclaim, err := createPVC(client, namespace, nil, "", sc, accessMode)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvclaims = append(pvclaims, pvclaim)
+		ginkgo.By("Waiting for all claims to be in bound state")
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+
+		// clean up for pvc
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pv := persistentvolumes[0]
+			err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+				pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			volumeHandle := pv.Spec.CSI.VolumeHandle
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+				fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+					"kubernetes", volumeHandle))
+		}()
+
+		// Verify various properties Capacity, VolumeType, datastore and datacenter of volume using CNS Query API
+		verifyVolPropertiesFromCnsQueryResults(e2eVSphere, volHandle)
+
+		// Create Pod
+		ginkgo.By(fmt.Sprintf("Create pod with pvc: %s", pvclaim.Name))
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaims[0]}, false, execCommand)
+		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting the pod : %s in namespace %s", pod.Name, namespace))
+			err = fpod.DeletePodWithWait(client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+		framework.Logf("Error from creating pod: %v", err)
+		// CSI driver ignores the ext4 and default to nfs4 fstype while mounting the file volume.
+		// Hence, mounting of file volume should pass with ext4 fstype
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	})
+
 	/*
 		Verify File Volume is created without specifying fstype in pv spec
 

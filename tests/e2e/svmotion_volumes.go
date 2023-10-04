@@ -22,6 +22,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -61,19 +62,20 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 	f := framework.NewDefaultFramework("svmotion-disk")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client          clientset.Interface
-		namespace       string
-		scParameters    map[string]string
-		datastoreURL    string
-		sourceDatastore *object.Datastore
-		destDatastore   *object.Datastore
-		datacenter      *object.Datacenter
-		destDsURL       string
-		pvclaims        []*v1.PersistentVolumeClaim
-		fcdID           string
-		labelKey        string
-		labelValue      string
-		pvc10g          string
+		client              clientset.Interface
+		namespace           string
+		scParameters        map[string]string
+		datastoreURL        string
+		sourceDatastore     *object.Datastore
+		destDatastore       *object.Datastore
+		datacenter          *object.Datacenter
+		destDsURL           string
+		pvclaims            []*v1.PersistentVolumeClaim
+		fcdID               string
+		labelKey            string
+		labelValue          string
+		pvc10g              string
+		pandoraSyncWaitTime int
 	)
 	ginkgo.BeforeEach(func() {
 		bootstrap()
@@ -90,6 +92,13 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 		labelKey = "app"
 		labelValue = "e2e-labels"
 		pvc10g = "10Gi"
+
+		if os.Getenv(envPandoraSyncWaitTime) != "" {
+			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+		}
 	})
 
 	// Test for relocating volume being detached state
@@ -1343,8 +1352,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 		defer func() {
 			if len(snaps) > 0 {
 				framework.Logf("Delete volume snapshot %v", volumeSnapshot.Name)
-				err = snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(
-					ctx, volumeSnapshot.Name, metav1.DeleteOptions{})
+				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				framework.Logf("Verify snapshot entry %v is deleted from CNS for volume %v", snapIDs[0], volumeID)

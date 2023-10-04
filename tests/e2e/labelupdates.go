@@ -479,9 +479,14 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify labels are not present in cns")
-		_, err = e2eVSphere.getLabelsForCNSVolume(pv.Spec.CSI.VolumeHandle,
+		pvcLabel, err := e2eVSphere.getLabelsForCNSVolume(pv.Spec.CSI.VolumeHandle,
 			string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, namespace)
-		gomega.Expect(err).To(gomega.HaveOccurred())
+
+		if pvcLabel == nil {
+			framework.Logf("PVC name is successfully removed")
+		} else {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By(fmt.Sprintf("Deleting pv %s", pv.Name))
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))

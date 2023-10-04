@@ -6548,3 +6548,17 @@ func getAllPodsFromNamespace(ctx context.Context, client clientset.Interface, na
 
 	return podList
 }
+
+// getVmdkPathFromVolumeHandle returns VmdkPath associated with a given volumeHandle
+// by running govc command
+func getVmdkPathFromVolumeHandle(sshClientConfig *ssh.ClientConfig, masterIp string,
+	datastoreName string, volHandle string) string {
+	cmd := govcLoginCmd() + fmt.Sprintf("govc disk.ls -L=true -ds=%s -l  %s", datastoreName, volHandle)
+	result, err := sshExec(sshClientConfig, masterIp, cmd)
+	if err != nil && result.Code != 0 {
+		fssh.LogResult(result)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	vmdkPath := result.Stdout
+	return vmdkPath
+}

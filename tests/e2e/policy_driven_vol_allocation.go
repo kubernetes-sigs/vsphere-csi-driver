@@ -56,18 +56,19 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 	f := framework.NewDefaultFramework("e2e-spbm-policy")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client             clientset.Interface
-		namespace          string
-		labelKey           string
-		labelValue         string
-		eztVsandPvcName    = "pvc-vsand-ezt-"
-		lztVsandPvcName    = "pvc-vsand-lzt-"
-		eztVsandPodName    = "pod-vsand-ezt-"
-		lztVsandPodName    = "pod-vsand-lzt-"
-		resourceQuotaLimit = "300Gi"
-		svcMasterIp        string
-		sshWcpConfig       *ssh.ClientConfig
-		svcNamespace       string
+		client              clientset.Interface
+		namespace           string
+		labelKey            string
+		labelValue          string
+		eztVsandPvcName     = "pvc-vsand-ezt-"
+		lztVsandPvcName     = "pvc-vsand-lzt-"
+		eztVsandPodName     = "pod-vsand-ezt-"
+		lztVsandPodName     = "pod-vsand-lzt-"
+		resourceQuotaLimit  = "300Gi"
+		svcMasterIp         string
+		sshWcpConfig        *ssh.ClientConfig
+		svcNamespace        string
+		pandoraSyncWaitTime int
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -107,6 +108,13 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				},
 				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 			}
+		}
+
+		if os.Getenv(envPandoraSyncWaitTime) != "" {
+			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
 	})
 
@@ -3466,8 +3474,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 			defer func() {
 				framework.Logf("Delete volume snapshot %v", volumeSnapshot.Name)
-				err = snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(
-					ctx, volumeSnapshot.Name, metav1.DeleteOptions{})
+				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				framework.Logf("Verify snapshot entry %v is deleted from CNS for volume %v", snapshotId,
