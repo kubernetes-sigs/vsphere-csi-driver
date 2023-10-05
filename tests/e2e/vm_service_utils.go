@@ -24,11 +24,14 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/onsi/gomega"
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
@@ -265,10 +268,10 @@ func waitNGetVmiForImageName(ctx context.Context, c ctlrclient.Client, namespace
 }
 
 // createVmServiceVmWithPvcs creates VM via VM service with given ns, sc, vmi, pvc(s) and bootstrap data for cloud init
-func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespace string,
+func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
 	pvcs []*v1.PersistentVolumeClaim, vmi string, storageClassName string, secretName string) *vmopv1.VirtualMachine {
 
-	r := rand.New(rand.NewSource(time.Now().Unix()))
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	vols := []vmopv1.VirtualMachineVolume{}
 	vmName := fmt.Sprintf("csi-test-vm-%d", r.Intn(10000))
 	for _, pvc := range pvcs {
@@ -278,10 +281,6 @@ func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespa
 				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
 			},
 		})
-	}
-	vmClass := GetAndExpectStringEnvVar(envVMClass)
-	if vmClass == "" {
-		vmClass = vmClassBestEffortSmall
 	}
 	vm := vmopv1.VirtualMachine{
 		ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: namespace},
@@ -464,7 +463,7 @@ func verifyPvcsAreAttachedToVmsvcVm(ctx context.Context, cnsc ctlrclient.Client,
 			match = false
 		}
 	}
-
+	framework.Logf("Given PVCs '%v' are attached to VM %s", reflect.ValueOf(pvcmap).MapKeys(), vm.Name)
 	return match
 }
 
@@ -501,19 +500,19 @@ func waitNverifyPvcsAreAttachedToVmsvcVm(ctx context.Context, vmopC ctlrclient.C
 // permissions under the mount point
 func formatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) string {
 	p := "/dev/disk/by-id/wwn-0x" + strings.ReplaceAll(strings.ToLower(diskUuid), "-", "")
-	results := execSshThroughGatewayVm(vmIp, []string{"ls -l /dev/disk/by-id/", "ls -l " + p})
+	results := execSshOnVmThroughGatewayVm(vmIp, []string{"ls -l /dev/disk/by-id/", "ls -l " + p})
 	dev := "/dev/" + strings.TrimSpace(strings.Split(results[1].Stdout, "/")[6])
 	gomega.Expect(dev).ShouldNot(gomega.Equal("/dev/"))
 	framework.Logf("Found %s dev for disk with uuid %s", dev, diskUuid)
 
 	partitionDev := dev + "1"
-	_ = execSshThroughGatewayVm(vmIp, []string{"sudo parted --script " + dev + " mklabel gpt",
-		"sudo parted --script -a optimal " + dev + " mkpart primary 0% 100%",
+	_ = execSshOnVmThroughGatewayVm(vmIp, []string{"sudo parted --script " + dev + " mklabel gpt",
+		"sudo parted --script -a optimal " + dev + " mkpart primary 0% 100%", "lsblk -l",
 		"sudo mkfs.ext4 " + partitionDev})
 
 	volMountPath := "/mnt/volume" + strconv.Itoa(mountIndex)
 	volFolder := volMountPath + "/data"
-	results = execSshThroughGatewayVm(vmIp, []string{
+	results = execSshOnVmThroughGatewayVm(vmIp, []string{
 		"sudo mkdir -p " + volMountPath,
 		"sudo mount " + partitionDev + " " + volMountPath,
 		"sudo mkdir -p " + volFolder,
@@ -527,7 +526,7 @@ func formatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) 
 
 // verifyDataIntegrityOnVmDisk verifies data integrity with 100m random data on given FS path inside a vm
 func verifyDataIntegrityOnVmDisk(vmIp, volFolder string) {
-	results := execSshThroughGatewayVm(vmIp, []string{"dd count=100 bs=1M if=/dev/urandom of=/tmp/file1",
+	results := execSshOnVmThroughGatewayVm(vmIp, []string{"dd count=100 bs=1M if=/dev/urandom of=/tmp/file1",
 		"dd count=100 bs=1M if=/tmp/file1 of=" + volFolder + "/vmfile",
 		"dd count=100 bs=1M if=" + volFolder + "/vmfile of=/tmp/file2", "md5sum /tmp/file1 /tmp/file2",
 	})
@@ -535,36 +534,13 @@ func verifyDataIntegrityOnVmDisk(vmIp, volFolder string) {
 	gomega.Expect(strings.Fields(lines[0])[0]).To(gomega.Equal(strings.Fields(lines[1])[0]))
 }
 
-// execSshThroughGatewayVm executes cmd(s) on VM via gateway(bastion) host and returns the result(s)
-func execSshThroughGatewayVm(vmIp string, cmds []string) []fssh.Result {
+// execSshOnVmThroughGatewayVm executes cmd(s) on VM via gateway(bastion) host and returns the result(s)
+func execSshOnVmThroughGatewayVm(vmIp string, cmds []string) []fssh.Result {
 	results := []fssh.Result{}
-	gatewayConfig := &ssh.ClientConfig{
-		User: GetAndExpectStringEnvVar(envGatewayVmUser),
-		Auth: []ssh.AuthMethod{
-			ssh.Password(GetAndExpectStringEnvVar(envGatewayVmPasswd)),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-	vmConfig := &ssh.ClientConfig{
-		User: "worker",
-		Auth: []ssh.AuthMethod{
-			ssh.Password("ca$hc0w"),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
 
-	gatewayClient, err := ssh.Dial("tcp", GetAndExpectStringEnvVar(envGatewayVmIp)+":22", gatewayConfig)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	defer gatewayClient.Close()
-
-	conn, err := gatewayClient.Dial("tcp", vmIp+":22")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	ncc, chans, reqs, err := ssh.NewClientConn(conn, vmIp, vmConfig)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	sshClient := ssh.NewClient(ncc, chans, reqs)
+	gatewayClient, sshClient := getSshClientForVmThroughGatewayVm(vmIp)
 	defer sshClient.Close()
+	defer gatewayClient.Close()
 
 	for _, cmd := range cmds {
 		sshSession, err := sshClient.NewSession()
@@ -583,11 +559,169 @@ func execSshThroughGatewayVm(vmIp string, cmds []string) []fssh.Result {
 		result.Stderr = bytesStderr.String()
 		result.Code = code
 
-		framework.Logf("host: %v, command: %v, return code: %v, stdout:\n%v\nstderr:\n%v",
-			vmIp, cmd, code, bytesStdout.String(), bytesStderr.String())
+		fssh.LogResult(result)
 		sshSession.Close()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		results = append(results, result)
 	}
 	return results
+}
+
+// copyFileToVm copies a local file to a VM via gateway host
+func copyFileToVm(vmIp string, localFilePath string, vmFilePath string) {
+	gatewayClient, sshClient := getSshClientForVmThroughGatewayVm(vmIp)
+	defer sshClient.Close()
+	defer gatewayClient.Close()
+
+	sftp, err := sftp.NewClient(sshClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer sftp.Close()
+
+	// Open the source file
+	localFile, err := os.Open(localFilePath)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer localFile.Close()
+
+	// Create the destination file
+	vmFile, err := sftp.Create(vmFilePath)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer vmFile.Close()
+
+	// write to file
+	n, err := vmFile.ReadFrom(localFile)
+	framework.Logf("Read %d bytes", n)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// copyFileToVm copies a file from VM via gateway host
+func copyFileFromVm(vmIp string, vmFilePath string, localFilePath string) {
+	gatewayClient, sshClient := getSshClientForVmThroughGatewayVm(vmIp)
+	defer sshClient.Close()
+	defer gatewayClient.Close()
+
+	sftp, err := sftp.NewClient(sshClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer sftp.Close()
+
+	// Open the source file
+	localFile, err := os.Create(localFilePath)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer localFile.Close()
+
+	// Create the destination file
+	vmFile, err := sftp.Open(vmFilePath)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer vmFile.Close()
+
+	// write to file
+	n, err := localFile.ReadFrom(vmFile)
+	framework.Logf("Read %d bytes", n)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// getSshClientForVmThroughGatewayVm return a ssh client via gateway host for the given VM
+func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
+	gatewayConfig := &ssh.ClientConfig{
+		User: GetAndExpectStringEnvVar(envGatewayVmUser),
+		Auth: []ssh.AuthMethod{
+			ssh.Password(GetAndExpectStringEnvVar(envGatewayVmPasswd)),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+	vmConfig := &ssh.ClientConfig{
+		User: "worker",
+		Auth: []ssh.AuthMethod{
+			ssh.Password("ca$hc0w"),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	gatewayClient, err := ssh.Dial("tcp", GetAndExpectStringEnvVar(envGatewayVmIp)+":22", gatewayConfig)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	conn, err := gatewayClient.Dial("tcp", vmIp+":22")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ncc, chans, reqs, err := ssh.NewClientConn(conn, vmIp, vmConfig)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return gatewayClient, ssh.NewClient(ncc, chans, reqs)
+}
+
+// wait4PvcAttachmentFailure waits for PVC attachment to given VM to fail
+func wait4PvcAttachmentFailure(
+	ctx context.Context, vmopC ctlrclient.Client, vm *vmopv1.VirtualMachine, pvc *v1.PersistentVolumeClaim) error {
+	var returnErr error
+	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
+		vm, err := getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, vol := range vm.Status.Volumes {
+			if vol.Name == pvc.Name {
+				gomega.Expect(vol.Attached).To(gomega.BeFalse())
+				returnErr = fmt.Errorf(vol.Error)
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
+	return returnErr
+}
+
+// mountFormattedVol2Vm mounts a preformatted volume inside the VM
+func mountFormattedVol2Vm(diskUuid string, mountIndex int, vmIp string) string {
+	p := "/dev/disk/by-id/wwn-0x" + strings.ReplaceAll(strings.ToLower(diskUuid), "-", "")
+	results := execSshOnVmThroughGatewayVm(vmIp, []string{"ls -l /dev/disk/by-id/", "ls -l " + p})
+	dev := "/dev/" + strings.TrimSpace(strings.Split(results[1].Stdout, "/")[6])
+	gomega.Expect(dev).ShouldNot(gomega.Equal("/dev/"))
+	framework.Logf("Found %s dev for disk with uuid %s", dev, diskUuid)
+
+	partitionDev := dev + "1"
+
+	volMountPath := "/mnt/volume" + strconv.Itoa(mountIndex)
+	volFolder := volMountPath + "/data"
+	results = execSshOnVmThroughGatewayVm(vmIp, []string{
+		"sudo mkdir -p " + volMountPath,
+		"sudo mount " + partitionDev + " " + volMountPath,
+		"sudo mkdir -p " + volFolder,
+		"sudo chmod -R 777 " + volFolder,
+		"ls -lR " + volFolder,
+		"grep -c ext4 " + volFolder + "/fstype",
+	})
+	gomega.Expect(strings.TrimSpace(results[5].Stdout)).To(gomega.Equal("1"))
+	return volFolder
+}
+
+// setVmPowerState sets expected power state for the VM
+func setVmPowerState(
+	ctx context.Context, c ctlrclient.Client, vm *vmopv1.VirtualMachine,
+	powerState vmopv1.VirtualMachinePowerState) *vmopv1.VirtualMachine {
+
+	vm, err := getVmsvcVM(ctx, c, vm.Namespace, vm.Name) // refresh vm info
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	vm.Spec.PowerState = powerState
+	err = c.Update(ctx, vm)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	vm, err = getVmsvcVM(ctx, c, vm.Namespace, vm.Name) // refresh vm info
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return vm
+}
+
+// wait4Vm2ReachPowerStateInSpec wait for VM to reach expected power state
+func wait4Vm2ReachPowerStateInSpec(
+	ctx context.Context, c ctlrclient.Client, vm *vmopv1.VirtualMachine) (*vmopv1.VirtualMachine, error) {
+
+	var err error
+	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
+		vm, err = getVmsvcVM(ctx, c, vm.Namespace, vm.Name) // refresh vm info
+		if err != nil {
+			return false, err
+		}
+		if vm.Status.PowerState == vm.Spec.PowerState {
+			return true, nil
+		}
+		return false, nil
+	})
+	framework.Logf("VM %s reached the power state %v requested in the spec", vm.Name, vm.Spec.PowerState)
+	return vm, waitErr
 }
