@@ -90,6 +90,7 @@ const (
 	envVsanDirectSetup                         = "USE_VSAN_DIRECT_DATASTORE_IN_WCP"
 	envVsanDDatastoreURL                       = "SHARED_VSAND_DATASTORE_URL"
 	envVsanDDatastore2URL                      = "SHARED_VSAND_DATASTORE2_URL"
+	envStoragePolicyNameForNkpEncryption       = "STORAGE_POLICY_FOR_NKP_ENCRYPTION"
 	envStoragePolicyNameForNonSharedDatastores = "STORAGE_POLICY_FOR_NONSHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores    = "STORAGE_POLICY_FOR_SHARED_DATASTORES"
 	envStoragePolicyNameForVsanVmfsDatastores  = "STORAGE_POLICY_FOR_VSAN_VMFS_DATASTORES"
