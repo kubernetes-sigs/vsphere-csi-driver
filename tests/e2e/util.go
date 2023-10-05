@@ -819,6 +819,12 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 	var storageclass *storagev1.StorageClass
 	var err error
 	isStorageClassPresent := false
+	p := map[string]string{}
+
+	if scParameters == nil && os.Getenv(envStoragePolicyNameForNkpEncryption) != "" {
+		p[scParamStoragePolicyName] = os.Getenv(envStoragePolicyNameForNkpEncryption)
+		scParameters = p
+	}
 	ginkgo.By(fmt.Sprintf("Creating StorageClass %s with scParameters: %+v and allowedTopologies: %+v "+
 		"and ReclaimPolicy: %+v and allowVolumeExpansion: %t",
 		scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
