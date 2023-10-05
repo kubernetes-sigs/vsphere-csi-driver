@@ -2644,12 +2644,16 @@ func (c *controller) processQueryResultsListVolumes(ctx context.Context, startin
 			if found {
 				volCounter += 1
 				volumeId := blockVolID
-				migratedVolumePath, err := volumeMigrationService.GetVolumePathFromMigrationServiceCache(ctx, blockVolID)
-				if err != nil && err == common.ErrNotFound {
-					log.Debugf("volumeID: %v not found in migration service in-memory cache "+
-						"so it's not a migrated in-tree volume", blockVolID)
-				} else if migratedVolumePath != "" {
-					volumeId = migratedVolumePath
+				// this check is required as volumeMigrationService is not initialized
+				// when multi-vc is enabled and there is more than 1 vc
+				if volumeMigrationService != nil {
+					migratedVolumePath, err := volumeMigrationService.GetVolumePathFromMigrationServiceCache(ctx, blockVolID)
+					if err != nil && err == common.ErrNotFound {
+						log.Debugf("volumeID: %v not found in migration service in-memory cache "+
+							"so it's not a migrated in-tree volume", blockVolID)
+					} else if migratedVolumePath != "" {
+						volumeId = migratedVolumePath
+					}
 				}
 				// Populate csi.Volume info for the given volume
 				blockVolumeInfo := &csi.Volume{
