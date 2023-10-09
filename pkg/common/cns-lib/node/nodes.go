@@ -147,7 +147,7 @@ func (nodes *Nodes) GetNodeNameByUUID(ctx context.Context, nodeUUID string) (
 // This is called by ControllerPublishVolume and ControllerUnpublishVolume
 // to perform attach and detach operations.
 func (nodes *Nodes) GetNodeByUuid(ctx context.Context, nodeUuid string) (*cnsvsphere.VirtualMachine, error) {
-	return nodes.cnsNodeManager.GetNode(ctx, nodeUuid, nil)
+	return nodes.cnsNodeManager.GetNodeVM(ctx, nodeUuid)
 }
 
 // GetAllNodes returns VirtualMachine objects for all registered nodes in cluster.

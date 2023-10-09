@@ -53,6 +53,9 @@ type Manager interface {
 	// datacenter given its UUID. If not, it will search in all registered
 	// datacenters.
 	GetNode(ctx context.Context, nodeUUID string, dc *vsphere.Datacenter) (*vsphere.VirtualMachine, error)
+	// GetNodeVM returns the VirtualMachine for a registered node
+	// given its UUID.
+	GetNodeVM(ctx context.Context, nodeUUID string) (*vsphere.VirtualMachine, error)
 	// GetNodeByName refreshes and returns the VirtualMachine for a registered
 	// node given its name.
 	GetNodeByName(ctx context.Context, nodeName string) (*vsphere.VirtualMachine, error)
@@ -247,6 +250,26 @@ func (m *defaultManager) GetNode(ctx context.Context,
 	}
 
 	log.Debugf("VM %v was successfully renewed with nodeUUID %q", vm, nodeUUID)
+	return vm, nil
+}
+
+// GetNodeVM returns the VirtualMachine for a registered node
+// given its UUID.
+func (m *defaultManager) GetNodeVM(ctx context.Context,
+	nodeUUID string) (*vsphere.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
+	vmInf, discovered := m.nodeVMs.Load(nodeUUID)
+	if !discovered {
+		log.Infof("Node VM not found with nodeUUID %s", nodeUUID)
+		vm, err := vsphere.GetVirtualMachineByUUID(ctx, nodeUUID, false)
+		if err != nil {
+			log.Errorf("Couldn't find VM instance with nodeUUID %s, failed to discover with err: %v", nodeUUID, err)
+			return nil, err
+		}
+		log.Infof("Node was successfully found with nodeUUID %s in vm %v", nodeUUID, vm)
+		return vm, nil
+	}
+	vm := vmInf.(*vsphere.VirtualMachine)
 	return vm, nil
 }
 
