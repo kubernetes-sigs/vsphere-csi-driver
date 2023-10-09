@@ -362,6 +362,13 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 		if snapshotCreated {
 			framework.Logf("Deleting volume snapshot")
 			deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, snapshot.Name, pandoraSyncWaitTime)
+		}
+	}()
+
+	defer func() {
+		if snapshotCreated {
+			framework.Logf("Deleting volume snapshot")
+			deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, snapshot.Name, pandoraSyncWaitTime)
 
 			framework.Logf("Wait till the volume snapshot is deleted")
 			err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, snapshot.ObjectMeta.Name)

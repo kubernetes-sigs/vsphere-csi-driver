@@ -2280,7 +2280,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if dataStoreType != "vsan" {
 			ginkgo.Skip("Skipping static provisioning - import VMDK test Since the testbed dont have vSAN datastore - " +
-				"Because for this test uses vSAN default datastore policy ")
+				"Because for this test needs a shared datastore ")
 		}
 
 		if vanillaCluster {
@@ -2381,6 +2381,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		}
 
 		framework.Logf("Get vmdk path from volume handle")
+		framework.Logf("datastore Name: %v", defaultDatastore)
+		framework.Logf("datastore Name: %s", defaultDatastore.Name())
 		if vanillaCluster {
 			vmdk = getVmdkPathFromVolumeHandle(sshClientConfig, masterIP, defaultDatastore.Name(), pv.Spec.CSI.VolumeHandle)
 		}
