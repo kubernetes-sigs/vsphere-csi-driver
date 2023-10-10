@@ -272,13 +272,13 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		nodeID = instance.Spec.NodeUUID
 		if nodeID != "" {
-			nodeVM, err = nodeManager.GetNode(ctx, nodeID, nil)
+			nodeVM, err = nodeManager.GetNodeVMAndUpdateCache(ctx, nodeID, nil)
 		} else {
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	} else {
 		nodeID = instance.Spec.NodeID
-		nodeVM, err = nodeManager.GetNodeByName(ctx, nodeID)
+		nodeVM, err = nodeManager.GetNodeVMByNameAndUpdateCache(ctx, nodeID)
 	}
 	if err != nil {
 		if err == node.ErrNodeNotFound {

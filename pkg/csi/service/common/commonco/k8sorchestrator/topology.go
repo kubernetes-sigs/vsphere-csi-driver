@@ -1233,10 +1233,10 @@ func (volTopology *controllerVolumeTopology) getTopologySegmentsWithMatchingNode
 		if isMatch {
 			var nodeVM *cnsvsphere.VirtualMachine
 			if volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-				nodeVM, err = volTopology.nodeMgr.GetNode(ctx,
+				nodeVM, err = volTopology.nodeMgr.GetNodeVMAndUpdateCache(ctx,
 					nodeTopologyInstance.Spec.NodeUUID, nil)
 			} else {
-				nodeVM, err = volTopology.nodeMgr.GetNodeByName(ctx,
+				nodeVM, err = volTopology.nodeMgr.GetNodeVMByNameAndUpdateCache(ctx,
 					nodeTopologyInstance.Spec.NodeID)
 			}
 			if err != nil {
@@ -1303,10 +1303,10 @@ func (volTopology *controllerVolumeTopology) getNodesMatchingTopologySegment(ctx
 		if isMatch {
 			var nodeVM *cnsvsphere.VirtualMachine
 			if volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-				nodeVM, err = volTopology.nodeMgr.GetNode(ctx,
+				nodeVM, err = volTopology.nodeMgr.GetNodeVMAndUpdateCache(ctx,
 					nodeTopologyInstance.Spec.NodeUUID, nil)
 			} else {
-				nodeVM, err = volTopology.nodeMgr.GetNodeByName(ctx,
+				nodeVM, err = volTopology.nodeMgr.GetNodeVMByNameAndUpdateCache(ctx,
 					nodeTopologyInstance.Spec.NodeID)
 			}
 			if err != nil {
