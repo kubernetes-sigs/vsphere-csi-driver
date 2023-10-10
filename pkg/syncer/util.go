@@ -9,12 +9,14 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 
+	"github.com/davecgh/go-spew/spew"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -566,7 +568,7 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 				pv.Spec.VsphereVolume != nil {
 				return nil, logger.LogNewErrorf(log,
 					"In-tree volumes are not supported on a multi VC set up."+
-						"Found in-tree volume %s.", pv.Name)
+						"Found in-tree volume %q.", pv.Name)
 			}
 			return nil, logger.LogNewErrorf(log,
 				"Invalid PV %s with empty volume handle.", pv.Name)
@@ -576,7 +578,7 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 		if IsMultiAttachAllowed(pv) {
 			return nil, logger.LogNewErrorf(log,
 				"File share volumes are not supported on a multi VC set up."+
-					"Found file share volume %s.", pv.Name)
+					"Found file share volume %q.", pv.Name)
 		}
 
 		if volumeInfoService == nil {
@@ -622,4 +624,93 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 	log.Debugf("List of K8s volumes for VC %s: %+v", vc, k8svolumeIDs)
 
 	return k8svolumes, nil
+}
+
+// createVolumeOnMultiVc attempts to create a static volume on each VC until it gets SUCCESS.
+// If while creating the volume, CNS returns CnsAlreadyRegisteredFault,
+// it means that the volume does not need to be re-created.
+func createVolumeOnMultiVc(ctx context.Context, pv *v1.PersistentVolume,
+	metadataSyncer *metadataSyncInformer, volumeType string, metadataList []cnstypes.BaseCnsEntityMetadata,
+	volumeHandle string) (string, volumes.Manager, error) {
+	log := logger.GetLogger(ctx)
+
+	vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, metadataSyncer.configInfo.Cfg)
+	if err != nil {
+		return "", nil, logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err: %v", err)
+	}
+
+	for _, vcconfig := range vcconfigs {
+		log.Debugf("Attempting to create volume on VC %s", vcconfig.Host)
+		volManager, err := getVolManagerForVcHost(ctx, vcconfig.Host, metadataSyncer)
+		if err != nil {
+			continue
+		}
+		err = createCnsVolume(ctx, pv, metadataSyncer, volManager, volumeType, vcconfig.Host, metadataList, volumeHandle)
+		if err == nil {
+			return vcconfig.Host, volManager, nil
+		}
+		log.Debugf("Failed to create volume %q on VC %s", volumeHandle, vcconfig.Host)
+	}
+	return "", nil, logger.LogNewErrorf(log,
+		"Failed to create volume %s on any of the VCs", volumeHandle)
+}
+
+func createCnsVolume(ctx context.Context, pv *v1.PersistentVolume,
+	metadataSyncer *metadataSyncInformer, cnsVolumeMgr volumes.Manager, volumeType string,
+	vcHost string, metadataList []cnstypes.BaseCnsEntityMetadata, volumeHandle string) error {
+	log := logger.GetLogger(ctx)
+
+	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+	if !vcHostObjFound {
+		return logger.LogNewErrorf(log,
+			"Failed to find VC host for given volume: %q.", volumeHandle)
+	}
+
+	containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
+		vcHostObj.User, metadataSyncer.clusterFlavor,
+		metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
+
+	createSpec := &cnstypes.CnsVolumeCreateSpec{
+		Name:       pv.Name,
+		VolumeType: volumeType,
+		Metadata: cnstypes.CnsVolumeMetadata{
+			ContainerCluster:      containerCluster,
+			ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
+			EntityMetadata:        metadataList,
+		},
+	}
+
+	if volumeType == common.BlockVolumeType {
+		createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{
+			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{},
+			BackingDiskId:           pv.Spec.CSI.VolumeHandle,
+		}
+	} else {
+		createSpec.BackingObjectDetails = &cnstypes.CnsVsanFileShareBackingDetails{
+			CnsFileBackingDetails: cnstypes.CnsFileBackingDetails{
+				BackingFileId: pv.Spec.CSI.VolumeHandle,
+			},
+		}
+	}
+	log.Debugf("vSphere CSI Driver is creating volume %q with create spec %+v",
+		pv.Name, spew.Sdump(createSpec))
+	_, _, err := cnsVolumeMgr.CreateVolume(ctx, createSpec)
+	if err != nil {
+		log.Errorf("Failed to create disk %s with error %+v", pv.Name, err)
+		return err
+	} else {
+		log.Infof("vSphere CSI Driver has successfully marked volume: %q as the container volume.",
+			pv.Spec.CSI.VolumeHandle)
+
+		if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+			// Create CNSVolumeInfo CR for the volume ID.
+			err = volumeInfoService.CreateVolumeInfo(ctx, pv.Spec.CSI.VolumeHandle, vcHost)
+			if err != nil {
+				log.Errorf("Failed to store volumeID %q for vCenter %q in CNSVolumeInfo CR. Error: %+v",
+					pv.Spec.CSI.VolumeHandle, vcHost, err)
+				return err
+			}
+		}
+	}
+	return nil
 }

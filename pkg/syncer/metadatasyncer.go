@@ -1753,11 +1753,12 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 		string(cnstypes.CnsKubernetesEntityTypePV), "", clusterIDforVolumeMetadata, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
 	var (
-		volumeHandle     string
-		err              error
-		containerCluster cnstypes.CnsContainerCluster
-		cnsVolumeMgr     volumes.Manager
-		vcHost           string
+		volumeHandle                     string
+		err                              error
+		containerCluster                 cnstypes.CnsContainerCluster
+		cnsVolumeMgr                     volumes.Manager
+		vcHost                           string
+		isTopologyAwareFileVolumeEnabled bool
 	)
 
 	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && newPv.Spec.VsphereVolume != nil {
@@ -1791,19 +1792,26 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 	if newPv.Spec.CSI != nil {
 		_, isdynamicCSIPV = newPv.Spec.CSI.VolumeAttributes[attribCSIProvisionerID]
 	}
+
+	isTopologyAwareFileVolumeEnabled = metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
+		common.TopologyAwareFileVolume)
+
 	if oldPv.Status.Phase == v1.VolumePending &&
 		(newPv.Status.Phase == v1.VolumeAvailable || newPv.Status.Phase == v1.VolumeBound) &&
 		!isdynamicCSIPV && newPv.Spec.CSI != nil {
 		// Static PV is Created.
 		var volumeType string
 		if IsMultiAttachAllowed(oldPv) {
-			// If it is a multi VC setup, then skip this volume as we do not support file share volumes
-			// on a multi VC deployment.
+
 			if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
-				log.Infof("PVUpdated: %q is a vSphere volume claim in namespace %q."+
-					"File share volumes are not supported in a multi VC setup."+
-					"Skipping PV update.", newPv.Name, newPv.Namespace)
-				return
+				// If it is a multi VC setup, then skip this volume as we do not support file share volumes
+				// on a multi VC deployment if TopologyAwareFileVolume FSS is not enabled.
+				if !isTopologyAwareFileVolumeEnabled {
+					log.Infof("PVUpdated: %q is a vSphere volume claim in namespace %q."+
+						"File share volumes are not supported in a multi VC setup."+
+						"Skipping PV update.", newPv.Name, newPv.Namespace)
+					return
+				}
 			}
 			volumeType = common.FileVolumeType
 		} else {
@@ -1815,13 +1823,45 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 			VolumeIds: []cnstypes.CnsVolumeId{{Id: oldPv.Spec.CSI.VolumeHandle}},
 		}
 
-		// If it is a multi VC deployment, figure out FCD's location based on PV's nodeAffinity rules.
 		if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
-			vcHost, cnsVolumeMgr, err = getVcHostAndVolumeManagerFromPvNodeAffinity(ctx, newPv, metadataSyncer)
-			if err != nil {
-				log.Errorf("PVUpdated: Failed to get VC host and volume manager for multi VC setup. "+
-					"Error occoured: %+v", err)
-				return
+			if volumeType == common.BlockVolumeType {
+				// If it is a multi VC deployment, figure out FCD's location based on PV's nodeAffinity rules.
+				vcHost, cnsVolumeMgr, err = getVcHostAndVolumeManagerFromPvNodeAffinity(ctx, newPv, metadataSyncer)
+				if err != nil {
+					log.Errorf("PVUpdated: Failed to get VC host and volume manager for multi VC setup. "+
+						"Error occurred: %+v", err)
+					return
+				}
+			} else {
+				// File Volume in Multi VC
+				if !isTopologyAwareFileVolumeEnabled {
+					log.Infof("PVUpdated: %q is a vSphere volume claim in namespace %q."+
+						"File share volumes are not supported in a multi VC setup as TopologyAwareFileVolume FSS is disabled."+
+						"Skipping PV update.", newPv.Name, newPv.Namespace)
+					return
+				}
+
+				// If VolumeID to VC mappping is found, volume is already created.
+				// PV metadata needs to be updated
+				vcHost, cnsVolumeMgr, err = getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, volumeHandle)
+				if err != nil {
+					log.Errorf("PVUpdated: Failed to get VC host and volume manager. "+
+						"Error occurred: %+v", err)
+
+					// Could not find vcHost mapping, attempt to create the volume on all VCs utill successful
+					vcHost, _, err = createVolumeOnMultiVc(ctx, oldPv, metadataSyncer,
+						volumeType, metadataList, volumeHandle)
+					if err == nil {
+						log.Infof("PVUpdated: Successfully created static file volume %q on VC %s", newPv.Name, vcHost)
+					} else {
+						// Failed to create static PV
+						log.Errorf("PVUpdated: Failed to create static file volume %q. Error: %+v", newPv.Name, err)
+						return
+					}
+					return
+				}
+				// Volume to VC mapping already exists.
+				// PV is required to be updated.
 			}
 		} else {
 			// In case of a single VC set up, no need to look up topology segments.
@@ -1846,71 +1886,33 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 			vcHostObj.User, metadataSyncer.clusterFlavor,
 			metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 
-		// QueryAll with no selection will return only the volume ID.
-		queryResult, err := cnsVolumeMgr.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
-		if err != nil {
-			log.Errorf("PVUpdated: QueryVolume failed for volume %q with err=%+v", oldPv.Spec.CSI.VolumeHandle, err.Error())
-			return
-		}
-		if len(queryResult.Volumes) == 0 {
-			log.Infof("PVUpdated: Verified volume: %q is not marked as container volume in CNS. "+
-				"Calling CreateVolume with BackingID to mark volume as Container Volume.", oldPv.Spec.CSI.VolumeHandle)
-			// Call CreateVolume for Static Volume Provisioning.
-			createSpec := &cnstypes.CnsVolumeCreateSpec{
-				Name:       oldPv.Name,
-				VolumeType: volumeType,
-				Metadata: cnstypes.CnsVolumeMetadata{
-					ContainerCluster:      containerCluster,
-					ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
-					EntityMetadata:        metadataList,
-				},
-			}
-
-			if volumeType == common.BlockVolumeType {
-				createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{
-					CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{},
-					BackingDiskId:           oldPv.Spec.CSI.VolumeHandle,
-				}
-			} else {
-				createSpec.BackingObjectDetails = &cnstypes.CnsVsanFileShareBackingDetails{
-					CnsFileBackingDetails: cnstypes.CnsFileBackingDetails{
-						BackingFileId: oldPv.Spec.CSI.VolumeHandle,
-					},
-				}
-			}
-			log.Debugf("PVUpdated: vSphere CSI Driver is creating volume %q with create spec %+v",
-				oldPv.Name, spew.Sdump(createSpec))
-			_, _, err := cnsVolumeMgr.CreateVolume(ctx, createSpec)
+		if volumeType == common.BlockVolumeType || len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
+			// QueryAll with no selection will return only the volume ID.
+			queryResult, err := cnsVolumeMgr.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
 			if err != nil {
-				log.Errorf("PVUpdated: Failed to create disk %s with error %+v", oldPv.Name, err)
-			} else {
-				log.Infof("PVUpdated: vSphere CSI Driver has successfully marked volume: %q as the container volume.",
-					oldPv.Spec.CSI.VolumeHandle)
-
-				if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
-					// Create CNSVolumeInfo CR for the volume ID.
-					err = volumeInfoService.CreateVolumeInfo(ctx, oldPv.Spec.CSI.VolumeHandle, vcHost)
-					if err != nil {
-						log.Errorf("failed to store volumeID %q for vCenter %q in CNSVolumeInfo CR. Error: %+v",
-							oldPv.Spec.CSI.VolumeHandle, vcHost, err)
-					}
-				}
+				log.Errorf("PVUpdated: QueryVolume failed for volume %q with err=%+v", oldPv.Spec.CSI.VolumeHandle, err.Error())
+				return
 			}
-			// Volume is successfully created so returning from here.
-			return
-		} else if queryResult.Volumes[0].VolumeId.Id == oldPv.Spec.CSI.VolumeHandle {
-			log.Infof("PVUpdated: Verified volume: %q is already marked as container volume in CNS.",
-				oldPv.Spec.CSI.VolumeHandle)
-			// Volume is already present in the CNS, so continue with the
-			// UpdateVolumeMetadata.
-		} else {
-			log.Infof("PVUpdated: Queried volume: %q is other than requested volume: %q.",
-				oldPv.Spec.CSI.VolumeHandle, queryResult.Volumes[0].VolumeId.Id)
-			// unknown Volume is returned from the CNS, so returning from here.
-			return
+			if len(queryResult.Volumes) == 0 {
+				log.Infof("PVUpdated: Verified volume: %q is not marked as container volume in CNS. "+
+					"Calling CreateVolume with BackingID to mark volume as Container Volume.", oldPv.Spec.CSI.VolumeHandle)
+				// Call CreateVolume for Static Volume Provisioning.
+				_ = createCnsVolume(ctx, oldPv, metadataSyncer, cnsVolumeMgr, volumeType, vcHost, metadataList, volumeHandle)
+				return
+			} else if queryResult.Volumes[0].VolumeId.Id == oldPv.Spec.CSI.VolumeHandle {
+				log.Infof("PVUpdated: Verified volume: %q is already marked as container volume in CNS.",
+					oldPv.Spec.CSI.VolumeHandle)
+				// Volume is already present in the CNS, so continue with the
+				// UpdateVolumeMetadata.
+			} else {
+				log.Infof("PVUpdated: Queried volume: %q is other than requested volume: %q.",
+					oldPv.Spec.CSI.VolumeHandle, queryResult.Volumes[0].VolumeId.Id)
+				// unknown Volume is returned from the CNS, so returning from here.
+				return
+			}
 		}
 	} else {
-		// This is the case where updates are detcted on an existing PV.
+		// This is the case where updates are detected on an existing PV.
 		// Look up VC for the given volume from in-memory map.
 		vcHost, cnsVolumeMgr, err = getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, volumeHandle)
 		if err != nil {
