@@ -214,12 +214,12 @@ const (
 	waitTimeForCNSNodeVMAttachmentReconciler  = 30 * time.Second
 	wcpServiceName                            = "wcp"
 	vmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant
-	devopsTKG                                 = "test-cluster-e2e-script-2"
-	cloudadminTKG                             = "test-cluster-e2e-script-3"
+	devopsTKG                                 = "test-cluster-e2e-script"
+	cloudadminTKG                             = "test-cluster-e2e-script-1"
 	vmOperatorAPI                             = "/apis/vmoperator.vmware.com/v1alpha1/"
 	devopsUser                                = "testuser"
 	zoneKey                                   = "failure-domain.beta.kubernetes.io/zone"
-	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha1/namespaces" +
+	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha3/namespaces" +
 		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"
 	topologykey                                = "topology.csi.vmware.com"
 	topologyMap                                = "TOPOLOGY_MAP"
