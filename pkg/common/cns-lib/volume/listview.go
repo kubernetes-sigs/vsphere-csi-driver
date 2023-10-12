@@ -3,12 +3,15 @@ package volume
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/view"
+	"github.com/vmware/govmomi/vim25/methods"
+	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -59,6 +62,8 @@ type TaskResult struct {
 	TaskInfo *types.TaskInfo
 	Err      error
 }
+
+var ErrListViewTaskAddition = errors.New("failure to add task to listview")
 
 // NewListViewImpl creates a new listView object and starts a goroutine to listen to property collector task updates
 func NewListViewImpl(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter,
@@ -126,11 +131,30 @@ func (l *ListViewImpl) AddTask(ctx context.Context, taskMoRef types.ManagedObjec
 	})
 	log.Debugf("task %+v added to map", taskMoRef)
 
-	err := l.listView.Add(l.ctx, []types.ManagedObjectReference{taskMoRef})
+	req := types.ModifyListView{
+		This: l.listView.Reference(),
+		Add:  []types.ManagedObjectReference{taskMoRef},
+	}
+	response, err := methods.ModifyListView(ctx, l.listView.Client(), &req)
 	if err != nil {
 		l.taskMap.Delete(taskMoRef)
-		return logger.LogNewErrorf(log, "failed to add task to ListView. error: %+v", err)
+		return fmt.Errorf("%w. task: %v, err: %v", ErrListViewTaskAddition, taskMoRef, err)
 	}
+	if response != nil && len(response.Returnval) > 0 {
+		for _, unresolvedTaskRef := range response.Returnval {
+			l.taskMap.Delete(unresolvedTaskRef)
+			fault := &soap.Fault{
+				Code: "ServerFaultCode",
+				String: fmt.Sprintf("The object %v has already been deleted "+
+					"or has not been completely created", taskMoRef),
+			}
+			fault.Detail.Fault = types.ManagedObjectNotFound{
+				Obj: taskMoRef,
+			}
+			return soap.WrapSoapFault(fault)
+		}
+	}
+
 	log.Infof("task %+v added to listView", taskMoRef)
 	return nil
 }
