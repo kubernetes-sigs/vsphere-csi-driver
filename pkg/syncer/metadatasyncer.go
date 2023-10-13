@@ -738,7 +738,7 @@ func startTopologyCRInformer(ctx context.Context, cfg *restclient.Config) error 
 // in the MetadataSyncer.topologyVCMap parameter.
 func addLabelsToTopologyVCMap(ctx context.Context, nodeTopoObj csinodetopologyv1alpha1.CSINodeTopology) {
 	log := logger.GetLogger(ctx)
-	nodeVM, err := nodeMgr.GetNode(ctx, nodeTopoObj.Spec.NodeUUID, nil)
+	nodeVM, err := nodeMgr.GetNodeVMAndUpdateCache(ctx, nodeTopoObj.Spec.NodeUUID, nil)
 	if err != nil {
 		log.Errorf("Node %q is not yet registered in the node manager. Error: %+v",
 			nodeTopoObj.Spec.NodeUUID, err)
@@ -855,7 +855,7 @@ func topoCRDeleted(obj interface{}) {
 // instance in the MetadataSyncer.topologyVCMap parameter.
 func removeLabelsFromTopologyVCMap(ctx context.Context, nodeTopoObj csinodetopologyv1alpha1.CSINodeTopology) {
 	log := logger.GetLogger(ctx)
-	nodeVM, err := nodeMgr.GetNode(ctx, nodeTopoObj.Spec.NodeUUID, nil)
+	nodeVM, err := nodeMgr.GetNodeVMAndUpdateCache(ctx, nodeTopoObj.Spec.NodeUUID, nil)
 	if err != nil {
 		log.Errorf("Node %q is not yet registered in the node manager. Error: %+v",
 			nodeTopoObj.Spec.NodeUUID, err)
