@@ -223,7 +223,8 @@ func (f *FakeNodeManager) GetSharedDatastoresInK8SCluster(ctx context.Context) (
 	}, nil
 }
 
-func (f *FakeNodeManager) GetNodeByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error) {
+func (f *FakeNodeManager) GetNodeVMByNameAndUpdateCache(ctx context.Context,
+	nodeName string) (*cnsvsphere.VirtualMachine, error) {
 	var vm *cnsvsphere.VirtualMachine
 	var t *testing.T
 	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
@@ -246,7 +247,7 @@ func (f *FakeNodeManager) GetNodeByName(ctx context.Context, nodeName string) (*
 	return vm, nil
 }
 
-func (f *FakeNodeManager) GetNodeByNameReadOnly(ctx context.Context,
+func (f *FakeNodeManager) GetNodeVMByName(ctx context.Context,
 	nodeName string) (*cnsvsphere.VirtualMachine, error) {
 	var vm *cnsvsphere.VirtualMachine
 	var t *testing.T
@@ -274,7 +275,7 @@ func (f *FakeNodeManager) GetNodeNameByUUID(ctx context.Context, nodeUUID string
 	return "", nil
 }
 
-func (f *FakeNodeManager) GetNodeByUuid(ctx context.Context, nodeUuid string) (*cnsvsphere.VirtualMachine, error) {
+func (f *FakeNodeManager) GetNodeVMByUuid(ctx context.Context, nodeUuid string) (*cnsvsphere.VirtualMachine, error) {
 	var vm *cnsvsphere.VirtualMachine
 	var t *testing.T
 	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
