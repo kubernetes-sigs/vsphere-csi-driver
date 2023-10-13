@@ -241,7 +241,7 @@ func AddLabelsToTopologyVCMap(ctx context.Context, nodeTopoObj csinodetopologyv1
 	log := logger.GetLogger(ctx)
 	// Get node manager instance.
 	nodeManager := node.GetManager(ctx)
-	nodeVM, err := nodeManager.GetNode(ctx, nodeTopoObj.Spec.NodeUUID, nil)
+	nodeVM, err := nodeManager.GetNodeVMAndUpdateCache(ctx, nodeTopoObj.Spec.NodeUUID, nil)
 	if err != nil {
 		log.Errorf("Node %q is not yet registered in the node manager. Error: %+v",
 			nodeTopoObj.Spec.NodeUUID, err)
@@ -267,7 +267,7 @@ func RemoveLabelsFromTopologyVCMap(ctx context.Context, nodeTopoObj csinodetopol
 	log := logger.GetLogger(ctx)
 	// Get node manager instance.
 	nodeManager := node.GetManager(ctx)
-	nodeVM, err := nodeManager.GetNode(ctx, nodeTopoObj.Spec.NodeUUID, nil)
+	nodeVM, err := nodeManager.GetNodeVMAndUpdateCache(ctx, nodeTopoObj.Spec.NodeUUID, nil)
 	if err != nil {
 		log.Errorf("Node %q is not yet registered in the node manager. Error: %+v",
 			nodeTopoObj.Spec.NodeUUID, err)
