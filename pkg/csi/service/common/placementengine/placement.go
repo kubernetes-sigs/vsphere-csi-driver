@@ -216,7 +216,7 @@ func getExpandedTopologySegments(ctx context.Context, requestedSegments map[stri
 		// If there is a match, check if each compatible NodeVM belongs to the same VC. If not,
 		// error out as we do not support cross-zonal volume provisioning.
 		if isMatch {
-			nodeVM, err := nodeMgr.GetNode(ctx, nodeTopologyInstance.Spec.NodeUUID, nil)
+			nodeVM, err := nodeMgr.GetNodeVMAndUpdateCache(ctx, nodeTopologyInstance.Spec.NodeUUID, nil)
 			if err != nil {
 				return nil, logger.LogNewErrorf(log,
 					"failed to retrieve NodeVM %q. Error - %+v", nodeTopologyInstance.Spec.NodeID, err)
