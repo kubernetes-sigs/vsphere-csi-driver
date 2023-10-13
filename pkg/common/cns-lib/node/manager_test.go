@@ -24,7 +24,7 @@ func TestDefaultManager_GetNodeByName(t *testing.T) {
 	k8sClient := k8sClientWithNodes(nodeName)
 	m.SetKubernetesClient(k8sClient)
 
-	vm, _ := m.GetNodeByName(context.TODO(), nodeName)
+	vm, _ := m.GetNodeVMByNameAndUpdateCache(context.TODO(), nodeName)
 	if vm != nil {
 		t.Errorf("Unexpected vm found:%v", vm)
 	}

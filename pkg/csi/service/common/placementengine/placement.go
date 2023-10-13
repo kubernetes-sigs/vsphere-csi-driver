@@ -183,7 +183,7 @@ func getTopologySegmentsWithMatchingNodes(ctx context.Context, requestedSegments
 		}
 		// If there is a match, fetch the nodeVM object and add it to matchingNodeVMs.
 		if isMatch {
-			nodeVM, err := nodeMgr.GetNode(ctx, nodeTopologyInstance.Spec.NodeUUID, nil)
+			nodeVM, err := nodeMgr.GetNodeVMAndUpdateCache(ctx, nodeTopologyInstance.Spec.NodeUUID, nil)
 			if err != nil {
 				return nil, nil, logger.LogNewErrorf(log,
 					"failed to retrieve NodeVM %q. Error - %+v", nodeTopologyInstance.Spec.NodeID, err)
