@@ -58,10 +58,10 @@ type NodeManagerInterface interface {
 	GetSharedDatastoresInTopology(ctx context.Context, topologyRequirement *csi.TopologyRequirement,
 		tagManager *tags.Manager, zoneKey string, regionKey string) ([]*cnsvsphere.DatastoreInfo,
 		map[string][]map[string]string, error)
-	GetNodeByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error)
-	GetNodeByNameReadOnly(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error)
+	GetNodeVMByNameAndUpdateCache(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error)
+	GetNodeVMByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error)
 	GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error)
-	GetNodeByUuid(ctx context.Context, nodeUuid string) (*cnsvsphere.VirtualMachine, error)
+	GetNodeVMByUuid(ctx context.Context, nodeUuid string) (*cnsvsphere.VirtualMachine, error)
 	GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error)
 }
 
@@ -1112,14 +1112,14 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
 				// if node is not yet updated to run the release of the driver publishing Node VM UUID as Node ID
 				// look up Node by name
-				nodevm, err = c.nodeMgr.GetNodeByNameReadOnly(ctx, req.NodeId)
+				nodevm, err = c.nodeMgr.GetNodeVMByName(ctx, req.NodeId)
 				if err == node.ErrNodeNotFound {
 					log.Infof("Performing node VM lookup using node VM UUID: %q", req.NodeId)
-					nodevm, err = c.nodeMgr.GetNodeByUuid(ctx, req.NodeId)
+					nodevm, err = c.nodeMgr.GetNodeVMByUuid(ctx, req.NodeId)
 				}
 
 			} else {
-				nodevm, err = c.nodeMgr.GetNodeByNameReadOnly(ctx, req.NodeId)
+				nodevm, err = c.nodeMgr.GetNodeVMByName(ctx, req.NodeId)
 			}
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1243,13 +1243,13 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
 			// if node is not yet updated to run the release of the driver publishing Node VM UUID as Node ID
 			// look up Node by name
-			nodevm, err = c.nodeMgr.GetNodeByNameReadOnly(ctx, req.NodeId)
+			nodevm, err = c.nodeMgr.GetNodeVMByName(ctx, req.NodeId)
 			if err == node.ErrNodeNotFound {
 				log.Infof("Performing node VM lookup using node VM UUID: %q", req.NodeId)
-				nodevm, err = c.nodeMgr.GetNodeByUuid(ctx, req.NodeId)
+				nodevm, err = c.nodeMgr.GetNodeVMByUuid(ctx, req.NodeId)
 			}
 		} else {
-			nodevm, err = c.nodeMgr.GetNodeByNameReadOnly(ctx, req.NodeId)
+			nodevm, err = c.nodeMgr.GetNodeVMByName(ctx, req.NodeId)
 		}
 		if err != nil {
 			if err == cnsvsphere.ErrVMNotFound {
@@ -1547,7 +1547,7 @@ func (c *controller) processQueryResultsListVolumes(ctx context.Context, startin
 			publishedNodeIds := commonco.ContainerOrchestratorUtility.GetNodesForVolumes(ctx, []string{fileVolID})
 			for volID, nodeName := range publishedNodeIds {
 				if volID == fileVolID && len(nodeName) != 0 {
-					nodeVMObj, err := c.nodeMgr.GetNodeByName(ctx, publishedNodeIds[fileVolID][0])
+					nodeVMObj, err := c.nodeMgr.GetNodeVMByNameAndUpdateCache(ctx, publishedNodeIds[fileVolID][0])
 					if err != nil {
 						log.Errorf("Failed to get node vm object from the node name, err:%v", err)
 						return entries, nextToken, volumeType, err
