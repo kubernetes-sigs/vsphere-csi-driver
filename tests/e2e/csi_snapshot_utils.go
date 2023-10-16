@@ -728,3 +728,16 @@ func waitForCNSSnapshotToBeCreated(volumeId string, snapshotId string) error {
 	})
 	return waitErr
 }
+
+// getRestConfigClient returns  rest config client for second Guest Cluster
+func getRestConfigClientForGuestCluster2(guestClusterRestConfig *rest.Config) *rest.Config {
+	var err error
+	if guestClusterRestConfig == nil {
+		if k8senv := GetAndExpectStringEnvVar("NEW_GUEST_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+			guestClusterRestConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	}
+	return guestClusterRestConfig
+}
