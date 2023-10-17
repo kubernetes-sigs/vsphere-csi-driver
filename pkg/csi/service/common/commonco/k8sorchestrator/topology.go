@@ -98,7 +98,9 @@ var (
 	domainNodeMapInstanceLock = &sync.RWMutex{}
 	// azClusterMap maintains a cache of AZ instance name to the clusterMoref in that zone.
 	azClusterMap = make(map[string]string)
-	// azClusterMapInstanceLock guards the azClusterMap instance from concurrent writes.
+	// azClustersMap maintains a cache of AZ instance name to the clusterMorefs in that zone.
+	azClustersMap = make(map[string][]string)
+	// azClusterMapInstanceLock guards the azClusterMap and azClustersMap instances from concurrent writes.
 	azClusterMapInstanceLock = &sync.RWMutex{}
 	// preferredDatastoresMap is a map of topology domain to list of
 	// datastore URLs preferred in that domain.
@@ -110,6 +112,9 @@ var (
 	// is enabled. isMultivCenterCluster is set to true only when the MultiVCenterCSITopology FSS
 	// is enabled and the K8s cluster involves multiple VCs.
 	isMultiVCSupportEnabled bool
+	// isPodVMOnStretchedSupervisorEnabled is set to true only when the podvm-on-stretched-supervisor FSS
+	// is enabled
+	isPodVMOnStretchedSupervisorEnabled bool
 	// csiNodeTopologyInformer refers to a shared K8s informer listening on CSINodeTopology instances
 	// in the cluster.
 	csiNodeTopologyInformer *cache.SharedIndexInformer
@@ -247,6 +252,8 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 		}
 		return controllerVolumeTopologyInstance, nil
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		// Set isPodVMOnStretchedSupervisorEnabled if podvm-on-stretched-supervisor fss is enabled
+		isPodVMOnStretchedSupervisorEnabled = c.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor)
 		controllerVolumeTopologyInstanceLock.RLock()
 		if wcpControllerVolumeTopologyInstance == nil {
 			controllerVolumeTopologyInstanceLock.RUnlock()
@@ -441,9 +448,7 @@ func azCRAdded(obj interface{}) {
 		return
 	}
 	// Add to cache.
-	// TODO: For VC 8.0 release, zone to CCR is a 1:1 mapping.
-	// Update this when one vSphere zone can span across multiple CCRs.
-	addToAZClusterMap(ctx, azName, clusterComputeResourceMoIds[0])
+	addToAZClusterMap(ctx, azName, clusterComputeResourceMoIds)
 }
 
 // azCRUpdated handles deleting AZ name in the cache.
@@ -460,12 +465,17 @@ func azCRDeleted(obj interface{}) {
 }
 
 // Adds the CR instance name and cluster moref to the azClusterMap.
-func addToAZClusterMap(ctx context.Context, azName, clusterMoref string) {
+func addToAZClusterMap(ctx context.Context, azName string, clusterMorefs []string) {
 	log := logger.GetLogger(ctx)
 	azClusterMapInstanceLock.Lock()
 	defer azClusterMapInstanceLock.Unlock()
-	azClusterMap[azName] = clusterMoref
-	log.Infof("Added %q cluster to %q zone in azClusterMap", clusterMoref, azName)
+	if isPodVMOnStretchedSupervisorEnabled {
+		azClustersMap[azName] = clusterMorefs
+		log.Infof("Added clusters %v to %q zone in azClustersMap", clusterMorefs, azName)
+	} else {
+		azClusterMap[azName] = clusterMorefs[0]
+		log.Infof("Added %q cluster to %q zone in azClusterMap", clusterMorefs[0], azName)
+	}
 }
 
 // Removes the provided zone and clusterMoref from the azClusterMap.
@@ -473,8 +483,13 @@ func removeFromAZClusterMap(ctx context.Context, azName string) {
 	log := logger.GetLogger(ctx)
 	azClusterMapInstanceLock.Lock()
 	defer azClusterMapInstanceLock.Unlock()
-	delete(azClusterMap, azName)
-	log.Infof("Removed %q zone from azClusterMap", azName)
+	if isPodVMOnStretchedSupervisorEnabled {
+		delete(azClustersMap, azName)
+		log.Infof("Removed %q zone from azClustersMap", azName)
+	} else {
+		delete(azClusterMap, azName)
+		log.Infof("Removed %q zone from azClusterMap", azName)
+	}
 }
 
 // startTopologyCRInformer creates and starts an informer for CSINodeTopology custom resource.
@@ -1517,16 +1532,54 @@ func (volTopology *wcpControllerVolumeTopology) GetSharedDatastoresInTopology(ct
 		}
 
 		// Call GetCandidateDatastores for each cluster moref. Ignore the vsanDirectDatastores for now.
-		for _, clusterMoref := range clusterMorefs {
-			accessibleDs, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, params.Vc, clusterMoref)
+		if !isPodVMOnStretchedSupervisorEnabled {
+			// This code block assume we have 1 Cluster Per AZ
+			accessibleDs, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, params.Vc, clusterMorefs[0])
 			if err != nil {
 				return nil, logger.LogNewErrorf(log,
 					"failed to find candidate datastores to place volume in cluster %q. Error: %v",
-					clusterMoref, err)
+					clusterMorefs[0], err)
 			}
 			sharedDatastores = append(sharedDatastores, accessibleDs...)
+		} else {
+			// This code block adds support for multiple vSphere Clusters Per AZ
+			// sharedDatastores will be calculated for all clusters within AZ
+			var sharedDatastoresForclusterMorefs []*cnsvsphere.DatastoreInfo
+			for index, clusterMoref := range clusterMorefs {
+				accessibleDs, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, params.Vc, clusterMoref)
+				if err != nil {
+					return nil, logger.LogNewErrorf(log,
+						"failed to find candidate datastores to place volume in cluster %q. Error: %v",
+						clusterMoref, err)
+				}
+				if len(accessibleDs) == 0 {
+					return nil, logger.LogNewErrorf(log,
+						"could not find accessible datastore for the cluster %v", clusterMoref)
+				}
+				if index == 0 {
+					sharedDatastoresForclusterMorefs = append(sharedDatastoresForclusterMorefs, accessibleDs...)
+				} else {
+					var sharedAccessibleDatastores []*cnsvsphere.DatastoreInfo
+					for _, sharedDatastore := range sharedDatastoresForclusterMorefs {
+						for _, accessibleDsInCluster := range accessibleDs {
+							if sharedDatastore.Info.Url == accessibleDsInCluster.Info.Url {
+								sharedAccessibleDatastores = append(sharedAccessibleDatastores, accessibleDsInCluster)
+								break
+							}
+						}
+					}
+					if len(sharedAccessibleDatastores) == 0 {
+						return nil, logger.LogNewErrorf(log,
+							"no shared datastore found among clusters %v in AZ %v", clusterMorefs, segments)
+					}
+					sharedDatastoresForclusterMorefs = sharedAccessibleDatastores
+				}
+			}
+			sharedDatastores = append(sharedDatastores, sharedDatastoresForclusterMorefs...)
 		}
 	}
+	log.Infof("Shared datastores %v for topologyRequirement: %+v", sharedDatastores,
+		params.TopologyRequirement)
 	return sharedDatastores, nil
 }
 
@@ -1537,12 +1590,21 @@ func (volTopology *wcpControllerVolumeTopology) getClustersMatchingTopologySegme
 	log := logger.GetLogger(ctx)
 	var matchingClusterMorefs []string
 	for _, zone := range segments {
-		clusterMoref, exists := azClusterMap[zone]
-		if !exists || clusterMoref == "" {
-			return nil, logger.LogNewErrorf(log, "could not find the cluster MoID for zone %q in "+
-				"AvailabilityZone resources", zone)
+		if isPodVMOnStretchedSupervisorEnabled {
+			clusterMorefs, exists := azClustersMap[zone]
+			if !exists || len(clusterMorefs) == 0 {
+				return nil, logger.LogNewErrorf(log, "could not find the cluster MoIDs for zone %q in "+
+					"AvailabilityZone resources", zone)
+			}
+			matchingClusterMorefs = append(matchingClusterMorefs, clusterMorefs...)
+		} else {
+			clusterMoref, exists := azClusterMap[zone]
+			if !exists || clusterMoref == "" {
+				return nil, logger.LogNewErrorf(log, "could not find the cluster MoID for zone %q in "+
+					"AvailabilityZone resources", zone)
+			}
+			matchingClusterMorefs = append(matchingClusterMorefs, clusterMoref)
 		}
-		matchingClusterMorefs = append(matchingClusterMorefs, clusterMoref)
 	}
 	log.Infof("Clusters matching topology requirement %+v are %+v", segments, matchingClusterMorefs)
 	return matchingClusterMorefs, nil
@@ -1568,15 +1630,33 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 			var selectedSegments []map[string]string
 			for _, topology := range params.TopologyRequirement.GetPreferred() {
 				for label, value := range topology.GetSegments() {
-					clusterMoref, exists := azClusterMap[value]
-					if !exists || clusterMoref == "" {
-						return nil, logger.LogNewErrorf(log, "could not find the cluster MoID for zone %q in "+
-							"AvailabilityZone resources", value)
-					}
-					datastores, err := params.Vc.GetDatastoresByCluster(ctx, clusterMoref)
-					if err != nil {
-						return nil, logger.LogNewErrorf(log,
-							"failed to fetch datastores associated with cluster %q", clusterMoref)
+					var datastores []*cnsvsphere.DatastoreInfo
+					var err error
+					if isPodVMOnStretchedSupervisorEnabled {
+						clusterMorefs, exists := azClustersMap[value]
+						if !exists || len(clusterMorefs) == 0 {
+							return nil, logger.LogNewErrorf(log, "could not find the cluster MoIDs for zone %q in "+
+								"AvailabilityZone resources", value)
+						}
+						for _, clusterMoref := range clusterMorefs {
+							datastoresforClusterMoRef, err := params.Vc.GetDatastoresByCluster(ctx, clusterMoref)
+							if err != nil {
+								return nil, logger.LogNewErrorf(log,
+									"failed to fetch datastores associated with cluster %q", clusterMoref)
+							}
+							datastores = append(datastores, datastoresforClusterMoRef...)
+						}
+					} else {
+						clusterMoref, exists := azClusterMap[value]
+						if !exists || clusterMoref == "" {
+							return nil, logger.LogNewErrorf(log, "could not find the cluster MoID for zone %q in "+
+								"AvailabilityZone resources", value)
+						}
+						datastores, err = params.Vc.GetDatastoresByCluster(ctx, clusterMoref)
+						if err != nil {
+							return nil, logger.LogNewErrorf(log,
+								"failed to fetch datastores associated with cluster %q", clusterMoref)
+						}
 					}
 					for _, ds := range datastores {
 						if ds.Info.Url == params.DatastoreURL {
