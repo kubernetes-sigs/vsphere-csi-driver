@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -88,7 +89,7 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 	log.Debugf("nodeStageBlockVolume: Disk %q attached at %q", diskID, volPath)
 
 	// Check that block device looks good.
-	dev, err := osUtils.GetDevice(volPath)
+	dev, err := osUtils.GetDevice(ctx, volPath)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"error getting block device for volume: %q. Parameters: %v err: %v",
@@ -316,6 +317,17 @@ func (osUtils *OsUtils) IsBlockVolumePublished(ctx context.Context, volID string
 	}
 
 	if dev == nil {
+		// check if target is mount point
+		notMountPoint, err := mount.IsNotMountPoint(osUtils.Mounter, target)
+		if err != nil {
+			log.Errorf("error while checking target path %q is mount point err: %v", target, err)
+			return false, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to verify mount point %q. Error: %v", target, err)
+		}
+		if !notMountPoint {
+			log.Infof("target %q is mount point", target)
+			return true, nil
+		}
 		// Nothing is mounted, so unpublish is already done. However, we also know
 		// that the target path exists, and it is our job to remove it.
 		log.Debugf("isBlockVolumePublished: No device found. Assuming Unpublish is "+
@@ -587,10 +599,26 @@ func (osUtils *OsUtils) PublishFileVol(
 
 // GetDevice returns a Device struct with info about the given device, or
 // an error if it doesn't exist or is not a block device.
-func (osUtils *OsUtils) GetDevice(path string) (*Device, error) {
-
+func (osUtils *OsUtils) GetDevice(ctx context.Context, path string) (*Device, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("check path exits %s", path)
 	fi, err := os.Lstat(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			err = syscall.Access(path, syscall.F_OK)
+			if err == nil {
+				// The access syscall says the file exists, the stat syscall says it doesn't.
+				// fake error and treat the path as existing but corrupted.
+				log.Debugf("Potential stale file handle detected: %s", path)
+				return nil, syscall.ESTALE
+			}
+			log.Infof("path: %v does not exists", err)
+			return nil, nil
+		} else if mount.IsCorruptedMnt(err) {
+			log.Infof("mount is currupted %v", err)
+			return nil, err
+		}
+		log.Infof("error checking path %v", err)
 		return nil, err
 	}
 
@@ -899,7 +927,7 @@ func (osUtils *OsUtils) GetDevFromMount(ctx context.Context, target string) (*De
 			if m.Device == "udev" || m.Device == "devtmpfs" {
 				d = m.Source
 			}
-			dev, err := osUtils.GetDevice(d)
+			dev, err := osUtils.GetDevice(ctx, d)
 			if err != nil {
 				return nil, err
 			}
@@ -984,7 +1012,7 @@ func (osUtils *OsUtils) VerifyVolumeAttachedAndFillParams(ctx context.Context,
 	}
 
 	// Get underlying block device.
-	*dev, err = osUtils.GetDevice(volPath)
+	*dev, err = osUtils.GetDevice(ctx, volPath)
 	log.Debugf("Device: %v", dev)
 	if err != nil {
 		return logger.LogNewErrorCodef(log, codes.Internal,
