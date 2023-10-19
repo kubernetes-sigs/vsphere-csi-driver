@@ -46,6 +46,7 @@ import (
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -65,6 +66,10 @@ var (
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
+var topologyMgr commoncotypes.ControllerTopologyService
+var isPodVMOnStretchedSupervisorEnabled bool
+var clusterComputeResourceMoIds []string
+
 // Add creates a new CnsRegisterVolume Controller and adds it to the Manager,
 // ConfigurationInfo and VirtualCenterTypes. The Manager will set fields on
 // the Controller and Start it when the Manager is Started.
@@ -77,14 +82,25 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	}
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-			clusterComputeResourceMoIds, err := common.GetClusterComputeResourceMoIds(ctx)
+			var err error
+			clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
 			if err != nil {
 				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
 				return err
 			}
-			if len(clusterComputeResourceMoIds) > 1 {
-				log.Infof("Not initializing the CnsRegisterVolume Controller as stretched supervisor is detected.")
-				return nil
+			isPodVMOnStretchedSupervisorEnabled =
+				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor)
+			if isPodVMOnStretchedSupervisorEnabled {
+				topologyMgr, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
+				if err != nil {
+					log.Errorf("failed to init topology manager. err: %v", err)
+					return err
+				}
+			} else {
+				if len(clusterComputeResourceMoIds) > 1 {
+					log.Infof("Not initializing the CnsRegisterVolume Controller as stretched supervisor is detected.")
+					return nil
+				}
 			}
 		}
 	}
@@ -222,8 +238,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 	var (
-		volumeID string
-		pvName   string
+		volumeID       string
+		pvName         string
+		pvNodeAffinity *v1.VolumeNodeAffinity
 	)
 	// Create Volume for the input CnsRegisterVolume instance.
 	createSpec := constructCreateSpecForInstance(r, instance, vc.Config.Host, isTKGSHAEnabled)
@@ -292,6 +309,39 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
+	if isPodVMOnStretchedSupervisorEnabled && len(clusterComputeResourceMoIds) > 1 {
+		// Calculate accessible topology for the provisioned volume.
+		datastoreAccessibleTopology, err := topologyMgr.GetTopologyInfoFromNodes(ctx,
+			commoncotypes.WCPRetrieveTopologyInfoParams{
+				DatastoreURL:        volume.DatastoreUrl,
+				StorageTopologyType: "zonal",
+				TopologyRequirement: nil,
+				Vc:                  vc})
+		if err != nil {
+			msg := fmt.Sprintf("failed to find volume topology. Error: %v", err)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		matchExpressions := make([]v1.NodeSelectorRequirement, 0)
+		for key, value := range datastoreAccessibleTopology[0] {
+			matchExpressions = append(matchExpressions, v1.NodeSelectorRequirement{
+				Key:      key,
+				Operator: v1.NodeSelectorOpIn,
+				Values:   []string{value},
+			})
+		}
+		pvNodeAffinity = &v1.VolumeNodeAffinity{
+			Required: &v1.NodeSelector{
+				NodeSelectorTerms: []v1.NodeSelectorTerm{
+					{
+						MatchExpressions: matchExpressions,
+					},
+				},
+			},
+		}
+	}
+
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
 		log.Errorf("Failed to initialize K8S client when registering the CnsRegisterVolume "+
@@ -300,8 +350,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	// Get K8S storageclass name mapping the storagepolicy id.
-	storageClassName, err := getK8sStorageClassName(ctx, k8sclient, volume.StoragePolicyId, request.Namespace)
+	// Get K8S storageclass name mapping the storagepolicy id with Immediate volume binding mode
+	storageClassName, err := getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx, k8sclient,
+		volume.StoragePolicyId, request.Namespace, isPodVMOnStretchedSupervisorEnabled)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to find K8S Storageclass mapping storagepolicyId: %s and assigned to namespace: %s",
 			volume.StoragePolicyId, request.Namespace)
@@ -331,6 +382,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			}
 			pvSpec := getPersistentVolumeSpec(pvName, volumeID, capacityInMb,
 				accessMode, storageClassName, claimRef)
+			pvSpec.Spec.NodeAffinity = pvNodeAffinity
 			log.Debugf("PV spec is: %+v", pvSpec)
 			pv, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})
 			if err != nil {
