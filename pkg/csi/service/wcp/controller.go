@@ -17,6 +17,7 @@ limitations under the License.
 package wcp
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -33,7 +34,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/units"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"

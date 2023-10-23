@@ -17,13 +17,13 @@ limitations under the License.
 package service
 
 import (
+	"context"
 	"os"
 	"strconv"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/units"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
