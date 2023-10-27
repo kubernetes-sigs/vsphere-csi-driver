@@ -402,7 +402,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-snapshotter
-          image: registry.k8s.io/sig-storage/csi-snapshotter:v6.2.2
+          image: registry.k8s.io/sig-storage/csi-snapshotter:v6.3.1
           args:
             - "--v=4"
             - "--kube-api-qps=100"
