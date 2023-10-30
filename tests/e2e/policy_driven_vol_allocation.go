@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		pvclaims2d := [][]*v1.PersistentVolumeClaim{}
 		scs := []*storagev1.StorageClass{}
 
-		rand.Seed(time.Now().UnixNano())
+		rand.New(rand.NewSource(time.Now().UnixNano()))
 		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
 		categoryName := "category" + suffix
 		tagName := "tag" + suffix
