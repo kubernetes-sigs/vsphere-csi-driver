@@ -184,12 +184,20 @@ func (nodes *Nodes) csiNodeDelete(obj interface{}) {
 	}
 }
 
-// GetNodeByName returns VirtualMachine object for given nodeName.
+// GetNodeVMByNameAndUpdateCache returns VirtualMachine object for given nodeName.
 // This is called by ControllerPublishVolume and ControllerUnpublishVolume
 // to perform attach and detach operations.
-func (nodes *Nodes) GetNodeByName(ctx context.Context, nodeName string) (
+func (nodes *Nodes) GetNodeVMByNameAndUpdateCache(ctx context.Context, nodeName string) (
 	*cnsvsphere.VirtualMachine, error) {
-	return nodes.cnsNodeManager.GetNodeByName(ctx, nodeName)
+	return nodes.cnsNodeManager.GetNodeVMByNameAndUpdateCache(ctx, nodeName)
+}
+
+// GetNodeVMByName returns VirtualMachine object for given nodeName.
+// This is called by ControllerPublishVolume and ControllerUnpublishVolume
+// to perform attach and detach operations.
+func (nodes *Nodes) GetNodeVMByName(ctx context.Context, nodeName string) (
+	*cnsvsphere.VirtualMachine, error) {
+	return nodes.cnsNodeManager.GetNodeVMByName(ctx, nodeName)
 }
 
 // GetNodeNameByUUID fetches the name of the node given the VM UUID.
@@ -198,11 +206,11 @@ func (nodes *Nodes) GetNodeNameByUUID(ctx context.Context, nodeUUID string) (
 	return nodes.cnsNodeManager.GetNodeNameByUUID(ctx, nodeUUID)
 }
 
-// GetNodeByUuid returns VirtualMachine object for given nodeUuid.
+// GetNodeVMByUuid returns VirtualMachine object for given nodeUuid.
 // This is called by ControllerPublishVolume and ControllerUnpublishVolume
 // to perform attach and detach operations.
-func (nodes *Nodes) GetNodeByUuid(ctx context.Context, nodeUuid string) (*cnsvsphere.VirtualMachine, error) {
-	return nodes.cnsNodeManager.GetNode(ctx, nodeUuid, nil)
+func (nodes *Nodes) GetNodeVMByUuid(ctx context.Context, nodeUuid string) (*cnsvsphere.VirtualMachine, error) {
+	return nodes.cnsNodeManager.GetNodeVMByUuid(ctx, nodeUuid)
 }
 
 // GetAllNodes returns VirtualMachine for all registered.
