@@ -217,5 +217,5 @@ replace (
 	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.26.10
 	k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin v0.26.10
 	k8s.io/sample-controller => k8s.io/sample-controller v0.26.10
-	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.13.0
+	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.14.5
 )
