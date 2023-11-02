@@ -38,14 +38,14 @@ var ContainerOrchestratorUtility COCommonInterface
 // COCommonInterface provides functionality to define container orchestrator
 // related implementation to read resources/objects.
 type COCommonInterface interface {
-	// Check if feature state switch is enabled for the given feature indicated
+	// IsFSSEnabled checks if feature state switch is enabled for the given feature indicated
 	// by featureName.
 	IsFSSEnabled(ctx context.Context, featureName string) bool
-	// Check if the passed volume can be fake attached.
+	// IsFakeAttachAllowed checks if the passed volume can be fake attached.
 	IsFakeAttachAllowed(ctx context.Context, volumeID string, volumeManager cnsvolume.Manager) (bool, error)
-	// Mark the volume as fake attached.
+	// MarkFakeAttached marks the volume as fake attached.
 	MarkFakeAttached(ctx context.Context, volumeID string) error
-	// Check if the volume was fake attached, and unmark it as not fake attached.
+	// ClearFakeAttached checks if the volume was fake attached, and unmark it as not fake attached.
 	ClearFakeAttached(ctx context.Context, volumeID string) error
 	// InitTopologyServiceInController initializes the necessary resources
 	// required for topology related functionality in the controller.
@@ -84,6 +84,8 @@ type COCommonInterface interface {
 	// GetPVNameFromCSIVolumeID retrieves the pv name from the volumeID.
 	// This method will not return pv name in case of in-tree migrated volumes
 	GetPVNameFromCSIVolumeID(volumeID string) (string, bool)
+	// InitializeCSINodes creates CSINode instances for each K8s node with the appropriate topology keys.
+	InitializeCSINodes(ctx context.Context) error
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given

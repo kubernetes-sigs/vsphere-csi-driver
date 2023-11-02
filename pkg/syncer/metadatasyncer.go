@@ -213,6 +213,13 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 			clusterIDforVolumeMetadata = configInfo.Cfg.Global.SupervisorID
 		}
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+			// Start watching on nodes to create CSINodes, if not already present.
+			err = commonco.ContainerOrchestratorUtility.InitializeCSINodes(ctx)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to initialize CSINodes creation. Error: %+v", err)
+			}
+		}
 	}
 
 	// Initialize cnsDeletionMap used by Full Sync.
