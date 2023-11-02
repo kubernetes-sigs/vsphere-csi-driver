@@ -35,7 +35,7 @@ func init() {
 	defer cancel()
 	idealVCConfig = map[string]*VirtualCenterConfig{
 		"1.1.1.1": {
-			User:         "Admin",
+			User:         "Administrator@vsphere.local",
 			Password:     "Password",
 			VCenterPort:  "443",
 			Datacenters:  "dc1",
@@ -156,6 +156,66 @@ func TestValidateConfigWithInvalidClusterId(t *testing.T) {
 	err := validateConfig(ctx, cfg)
 	if err == nil {
 		t.Errorf("Expected error due to invalid cluster id. Config given - %+v", *cfg)
+	}
+}
+
+func TestValidateConfigWithInvalidUsername(t *testing.T) {
+	vcConfigInvalidUsername := map[string]*VirtualCenterConfig{
+		"1.1.1.1": {
+			User:         "Administrator",
+			Password:     "Password",
+			VCenterPort:  "443",
+			Datacenters:  "dc1",
+			InsecureFlag: true,
+		},
+	}
+	cfg := &Config{
+		VirtualCenter: vcConfigInvalidUsername,
+	}
+
+	err := validateConfig(ctx, cfg)
+	if err == nil {
+		t.Errorf("Expected error due to invalid username. Config given - %+v", *cfg)
+	}
+}
+
+func TestValidateConfigWithValidUsername1(t *testing.T) {
+	vcConfigValidUsername := map[string]*VirtualCenterConfig{
+		"1.1.1.1": {
+			User:         "Administrator@vsphere.local",
+			Password:     "Password",
+			VCenterPort:  "443",
+			Datacenters:  "dc1",
+			InsecureFlag: true,
+		},
+	}
+	cfg := &Config{
+		VirtualCenter: vcConfigValidUsername,
+	}
+
+	err := validateConfig(ctx, cfg)
+	if err != nil {
+		t.Errorf("Unexpected error, as valid username is specified. Config given - %+v", *cfg)
+	}
+}
+
+func TestValidateConfigWithValidUsername2(t *testing.T) {
+	vcConfigValidUsername := map[string]*VirtualCenterConfig{
+		"1.1.1.1": {
+			User:         "vsphere.local\\Administrator",
+			Password:     "Password",
+			VCenterPort:  "443",
+			Datacenters:  "dc1",
+			InsecureFlag: true,
+		},
+	}
+	cfg := &Config{
+		VirtualCenter: vcConfigValidUsername,
+	}
+
+	err := validateConfig(ctx, cfg)
+	if err != nil {
+		t.Errorf("Unexpected error, as valid username is specified. Config given - %+v", *cfg)
 	}
 }
 
