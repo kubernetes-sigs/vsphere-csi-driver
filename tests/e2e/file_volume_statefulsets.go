@@ -89,7 +89,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		8. Delete all PVCs from the tests namespace.
 		9. Delete the storage class.
 	*/
-	ginkgo.It("Statefulset with file volume testing with default podManagementPolicy", func() {
+	ginkgo.It("Statefulset with file volume testing with default"+
+		"podManagementPolicy", ginkgo.Label(p0, file, vanilla, core), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
 		val := strconv.FormatInt(int64(randomValue), 10)
@@ -252,7 +253,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		8. Delete all PVCs from the tests namespace.
 		9. Delete the storage class.
 	*/
-	ginkgo.It("Statefulset with file volume testing with parallel podManagementPolicy", func() {
+	ginkgo.It("Statefulset with file volume testing with parallel"+
+		"podManagementPolicy", ginkgo.Label(p0, file, vanilla, core), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
 		val := strconv.FormatInt(int64(randomValue), 10)
@@ -414,7 +416,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		7. Delete all PVCs from the tests namespace.
 		8. Delete the storage class.
 	*/
-	ginkgo.It("Statefulset with file volume testing scale-up first and scale-down", func() {
+	ginkgo.It("Statefulset with file volume testing scale-up first and"+
+		"scale-down", ginkgo.Label(p0, file, vanilla, core), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
 		val := strconv.FormatInt(int64(randomValue), 10)
@@ -529,7 +532,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 	   9. Delete all PVCs from the tests namespace.
 	   10. Delete the storage class.
 	*/
-	ginkgo.It("Statefulset with file volume testing with CSI daemonset restart", func() {
+	ginkgo.It("Statefulset with file volume testing with CSI daemonset"+
+		"restart", ginkgo.Label(p1, file, vanilla, core), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
 		val := strconv.FormatInt(int64(randomValue), 10)
@@ -719,7 +723,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 	  10. Increase the CSI driver  replica to 3
 
 	*/
-	ginkgo.It("List-volumeResponseFor-fileVolumes", func() {
+	ginkgo.It("List-volumeResponseFor-fileVolumes", ginkgo.Label(p1, listVolume, file, vanilla, core), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
 		val := strconv.FormatInt(int64(randomValue), 10)
