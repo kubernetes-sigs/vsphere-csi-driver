@@ -302,18 +302,30 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 				(controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
 					k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes))) &&
 				(operationMode != operationModeWebHookServer) {
-				initVolumeHandleToPvcMap(ctx, controllerClusterFlavor)
+				err := initVolumeHandleToPvcMap(ctx, controllerClusterFlavor)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create volume handle to PVC map. Error: %v", err)
+				}
 			}
 
 			if (controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload) &&
 				(operationMode != operationModeWebHookServer) {
 				// Initialize the map for volumeName to nodes, as it is needed for WCP detach volume handling
-				initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
-				initNodeIDToNameMap(ctx)
+				err := initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create PV name to node names map. Error: %v", err)
+				}
+				err = initNodeIDToNameMap(ctx)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create node ID to name map. Error: %v", err)
+				}
 			} else if operationMode != operationModeWebHookServer {
 				// Initialize the map for volumeName to nodes, for non-WCP flavors and when ListVolume FSS is on
 				if k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes) {
-					initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
+					err := initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
+					if err != nil {
+						return nil, fmt.Errorf("failed to create PV name to node names map. Error: %v", err)
+					}
 				}
 			}
 
@@ -503,7 +515,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 					break
 				}
 				// Set up namespaced listener for cnscsisvfeaturestate CR.
-				dynInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+				_, err = dynInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 					// Add.
 					AddFunc: func(obj interface{}) {
 						fssCRAdded(obj)
@@ -517,6 +529,11 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 						fssCRDeleted(obj)
 					},
 				})
+				if err != nil {
+					log.Errorf("failed to add event handler for informer on %q CR. Error: %v",
+						featurestates.CRDPlural, err)
+					os.Exit(1)
+				}
 				stopCh := make(chan struct{})
 				log.Infof("Informer to watch on %s CR starting..", featurestates.CRDSingular)
 				dynInformer.Informer().Run(stopCh)
@@ -549,7 +566,10 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 		}
 	}
 	// Set up kubernetes configmap listener for CSI namespace.
-	k8sOrchestratorInstance.informerManager.AddConfigMapListener(ctx, k8sClient, configMapNamespaceToListen,
+	err = k8sOrchestratorInstance.informerManager.AddConfigMapListener(
+		ctx,
+		k8sClient,
+		configMapNamespaceToListen,
 		// Add.
 		func(obj interface{}) {
 			configMapAdded(obj)
@@ -562,6 +582,10 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 		func(obj interface{}) {
 			configMapDeleted(obj)
 		})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to listen on configmaps in namespace %q. Error: %v",
+			configMapNamespaceToListen, err)
+	}
 	return nil
 }
 
@@ -820,7 +844,7 @@ func fssCRDeleted(obj interface{}) {
 // initVolumeHandleToPvcMap performs all the operations required to initialize
 // the volume id to PVC name map. It also watches for PV update & delete
 // operations, and updates the map accordingly.
-func initVolumeHandleToPvcMap(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor) {
+func initVolumeHandleToPvcMap(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor) error {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Initializing volume ID to PVC name map")
 	k8sOrchestratorInstance.volumeIDToPvcMap = &volumeIDToPvcMap{
@@ -838,7 +862,8 @@ func initVolumeHandleToPvcMap(ctx context.Context, controllerClusterFlavor cnsty
 	if (controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla && serviceMode != "node") ||
 		(controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload) {
 
-		k8sOrchestratorInstance.informerManager.AddPVListener(
+		err := k8sOrchestratorInstance.informerManager.AddPVListener(
+			ctx,
 			func(obj interface{}) { // Add.
 				pvAdded(obj)
 			},
@@ -848,15 +873,23 @@ func initVolumeHandleToPvcMap(ctx context.Context, controllerClusterFlavor cnsty
 			func(obj interface{}) { // Delete.
 				pvDeleted(obj)
 			})
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to listen on PVs. Error: %v", err)
+		}
 
-		k8sOrchestratorInstance.informerManager.AddPVCListener(
+		err = k8sOrchestratorInstance.informerManager.AddPVCListener(
+			ctx,
 			func(obj interface{}) { // Add.
 				pvcAdded(obj)
 			},
 			nil, // Update.
 			nil, // Delete.
 		)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to listen on PVCs. Error: %v", err)
+		}
 	}
+	return nil
 }
 
 // Since informerManager's sharedInformerFactory is started with no resync
@@ -1187,7 +1220,7 @@ func (c *K8sOrchestrator) ClearFakeAttached(ctx context.Context, volumeID string
 // initVolumeNameToNodesMap performs all the operations required to initialize
 // the PVName to node names map. It also watches for volume attachment add,
 // update & delete operations, and updates the map accordingly.
-func initVolumeNameToNodesMap(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor) {
+func initVolumeNameToNodesMap(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor) error {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Initializing volumeName/pvName to node name map")
 	k8sOrchestratorInstance.volumeNameToNodesMap = &volumeNameToNodesMap{
@@ -1199,7 +1232,8 @@ func initVolumeNameToNodesMap(ctx context.Context, controllerClusterFlavor cnsty
 	if (controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla && serviceMode != "node") ||
 		(controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload) {
 
-		k8sOrchestratorInstance.informerManager.AddVolumeAttachmentListener(
+		err := k8sOrchestratorInstance.informerManager.AddVolumeAttachmentListener(
+			ctx,
 			func(obj interface{}) { // Add.
 				volumeAttachmentAdded(obj)
 			},
@@ -1209,7 +1243,11 @@ func initVolumeNameToNodesMap(ctx context.Context, controllerClusterFlavor cnsty
 			func(obj interface{}) { // Delete.
 				volumeAttachmentDeleted(obj)
 			})
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to listen on volume attachment instances. Error: %v", err)
+		}
 	}
+	return nil
 }
 
 // volumeAttachmentAdded adds a new entry or updates an existing entry
@@ -1353,7 +1391,7 @@ func (c *K8sOrchestrator) GetNodesForVolumes(ctx context.Context, volumeIDs []st
 // initNodeIDToNameMap performs all the operations required to initialize
 // the node ID to  name map. It also watches for node add, update & delete
 // operations, and updates the map accordingly.
-func initNodeIDToNameMap(ctx context.Context) {
+func initNodeIDToNameMap(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 
 	log.Debugf("Initializing node ID to node name map")
@@ -1363,7 +1401,8 @@ func initNodeIDToNameMap(ctx context.Context) {
 	}
 
 	// Set up kubernetes resource listener to listen events on Node
-	k8sOrchestratorInstance.informerManager.AddNodeListener(
+	err := k8sOrchestratorInstance.informerManager.AddNodeListener(
+		ctx,
 		func(obj interface{}) { // Add.
 			nodeAdd(obj)
 		},
@@ -1373,6 +1412,10 @@ func initNodeIDToNameMap(ctx context.Context) {
 		func(obj interface{}) { // Delete.
 			nodeRemove(obj)
 		})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to listen on nodes. Error: %v", err)
+	}
+	return nil
 }
 
 // nodeAdd adds an entry into nodeIDToNameMap. The node MoID is retrieved from the

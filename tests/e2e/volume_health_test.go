@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
@@ -3024,7 +3025,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		cmd := []string{"rollout", "restart", "statefulset.apps/" + statefulset.Name, "--namespace=" + namespace}
-		framework.RunKubectlOrDie(namespace, cmd...)
+		e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 
 		// Wait for the StatefulSet Pods to be up and Running
 		num_csi_pods := len(list_of_pods)

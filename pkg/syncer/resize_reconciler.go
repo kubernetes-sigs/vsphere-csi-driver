@@ -91,6 +91,8 @@ func newResizeReconciler(
 	informerFactory informers.SharedInformerFactory,
 	pvcRateLimitter workqueue.RateLimiter,
 	stopCh <-chan struct{}) (*resizeReconciler, error) {
+
+	_, log := logger.GetNewContextWithLogger()
 	pvcInformer := informerFactory.Core().V1().PersistentVolumeClaims()
 	pvInformer := informerFactory.Core().V1().PersistentVolumes()
 	claimQueue := workqueue.NewNamedRateLimitingQueue(pvcRateLimitter, "resize-pvc")
@@ -109,9 +111,12 @@ func newResizeReconciler(
 	// FileSystemResizePending is not removed from SV PVC  when syncer is down
 	// and FileSystemResizePending was removed from a TKG PVC.
 	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/591
-	pvcInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
+	_, err := pvcInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
 		UpdateFunc: rc.updatePVC,
 	}, resyncPeriod)
+	if err != nil {
+		return nil, logger.LogNewErrorf(log, "failed to add event handler on PVC informer. Error: %v", err)
+	}
 
 	informerFactory.Start(stopCh)
 	if !cache.WaitForCacheSync(stopCh, rc.pvcSynced, rc.pvSynced) {

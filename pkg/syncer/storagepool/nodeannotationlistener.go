@@ -43,10 +43,14 @@ func InitNodeAnnotationListener(ctx context.Context, informerManager *k8s.Inform
 		scWatch:         scWatch,
 		spController:    spController,
 	}
-	defaultNodeAnnotationListener.informerManager.AddNodeListener(
+	err := defaultNodeAnnotationListener.informerManager.AddNodeListener(
+		ctx,
 		nil,
 		defaultNodeAnnotationListener.nodeUpdated, // Update
 		nil)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to listen on nodes. Error: %v", err)
+	}
 	log.Infof("NodeAnnotationListener initialized.")
 	<-defaultNodeAnnotationListener.informerManager.Listen()
 	return nil
