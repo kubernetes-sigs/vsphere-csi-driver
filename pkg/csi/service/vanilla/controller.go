@@ -3291,3 +3291,11 @@ func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.Controlle
 	log.Infof("ControllerGetVolume: called with args %+v", *req)
 	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "controllerGetVolume")
 }
+
+func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.ControllerModifyVolumeRequest) (
+	*csi.ControllerModifyVolumeResponse, error) {
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerModifyVolume: called with args %+v", *req)
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "ControllerModifyVolume")
+}
