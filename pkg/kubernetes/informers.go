@@ -93,126 +93,166 @@ func NewInformer(ctx context.Context, client clientset.Interface, inClusterClnt 
 }
 
 // AddNodeListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddNodeListener(
-	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddNodeListener(ctx context.Context, add func(obj interface{}),
+	update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
+	log := logger.GetLogger(ctx)
 	if im.nodeInformer == nil {
 		im.nodeInformer = im.informerFactory.Core().V1().Nodes().Informer()
 	}
 
-	im.nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on node listener. Error: %v", err)
+	}
+	return nil
 }
 
-// AddCSINodeNodeListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddCSINodeListener(
-	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+// AddCSINodeListener hooks up add, update, delete callbacks.
+func (im *InformerManager) AddCSINodeListener(ctx context.Context, add func(obj interface{}),
+	update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
+	log := logger.GetLogger(ctx)
 	if im.nodeInformer == nil {
 		im.nodeInformer = im.informerFactory.Storage().V1().CSINodes().Informer()
 	}
 
-	im.nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on CSINode listener. Error: %v", err)
+	}
+	return nil
 }
 
 // AddPVCListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddPVCListener(
-	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddPVCListener(ctx context.Context, add func(obj interface{}),
+	update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
+	log := logger.GetLogger(ctx)
 	if im.pvcInformer == nil {
 		im.pvcInformer = im.informerFactory.Core().V1().PersistentVolumeClaims().Informer()
 	}
 	im.pvcSynced = im.pvcInformer.HasSynced
 
-	im.pvcInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.pvcInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on PVC listener. Error: %v", err)
+	}
+	return nil
 }
 
 // AddPVListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddPVListener(
-	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddPVListener(ctx context.Context, add func(obj interface{}),
+	update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
+	log := logger.GetLogger(ctx)
 	if im.pvInformer == nil {
 		im.pvInformer = im.informerFactory.Core().V1().PersistentVolumes().Informer()
 	}
 	im.pvSynced = im.pvInformer.HasSynced
 
-	im.pvInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.pvInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on PV listener. Error: %v", err)
+	}
+	return nil
 }
 
 // AddNamespaceListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddNamespaceListener(
-	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddNamespaceListener(ctx context.Context, add func(obj interface{}),
+	update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
+	log := logger.GetLogger(ctx)
 	if im.namespaceInformer == nil {
 		im.namespaceInformer = im.informerFactory.Core().V1().Namespaces().Informer()
 	}
 	im.namespaceSynced = im.namespaceInformer.HasSynced
 
-	im.namespaceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.namespaceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on namespace listener. Error: %v", err)
+	}
+	return nil
 }
 
 // AddConfigMapListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddConfigMapListener(
-	ctx context.Context, client clientset.Interface, namespace string,
-	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddConfigMapListener(ctx context.Context, client clientset.Interface, namespace string,
+	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
+	log := logger.GetLogger(ctx)
 	if im.configMapInformer == nil {
 		im.configMapInformer = v1.NewFilteredConfigMapInformer(client, namespace,
 			resyncPeriodConfigMapInformer, cache.Indexers{}, nil)
 	}
 	im.configMapSynced = im.configMapInformer.HasSynced
 
-	im.configMapInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.configMapInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on configmap listener. Error: %v", err)
+	}
 	stopCh := make(chan struct{})
 	// Since NewFilteredConfigMapInformer is not part of the informer factory,
 	// we need to invoke the Run() explicitly to start the shared informer.
 	go im.configMapInformer.Run(stopCh)
+	return nil
 }
 
 // AddPodListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddPodListener(
-	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddPodListener(ctx context.Context, add func(obj interface{}),
+	update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
+	log := logger.GetLogger(ctx)
 	if im.podInformer == nil {
 		im.podInformer = im.informerFactory.Core().V1().Pods().Informer()
 	}
 	im.podSynced = im.podInformer.HasSynced
 
-	im.podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on Pod listener. Error: %v", err)
+	}
+	return nil
 }
 
 // AddVolumeAttachmentListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddVolumeAttachmentListener(
-	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) {
+func (im *InformerManager) AddVolumeAttachmentListener(ctx context.Context, add func(obj interface{}),
+	update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
+	log := logger.GetLogger(ctx)
 	if im.volumeAttachmentInformer == nil {
 		im.volumeAttachmentInformer = im.informerFactory.Storage().V1().VolumeAttachments().Informer()
 	}
 
-	im.volumeAttachmentInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.volumeAttachmentInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on volume attachment listener. Error: %v",
+			err)
+	}
+	return nil
 }
 
 // GetPVLister returns PV Lister for the calling informer manager.

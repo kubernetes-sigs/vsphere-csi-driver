@@ -44,8 +44,11 @@ func (nodes *Nodes) Initialize(ctx context.Context) error {
 	}
 	nodes.cnsNodeManager.SetKubernetesClient(k8sclient)
 	nodes.informMgr = k8s.NewInformer(ctx, k8sclient, true)
-	nodes.informMgr.AddCSINodeListener(nodes.csiNodeAdd,
+	err = nodes.informMgr.AddCSINodeListener(ctx, nodes.csiNodeAdd,
 		nodes.csiNodeUpdate, nodes.csiNodeDelete)
+	if err != nil {
+		return fmt.Errorf("failed to listen on CSINodes. Error: %v", err)
+	}
 	nodes.informMgr.Listen()
 	return nil
 }

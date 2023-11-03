@@ -130,6 +130,8 @@ func NewVolumeHealthReconciler(
 	svcInformerFactory informers.SharedInformerFactory,
 	svcPVCRateLimiter workqueue.RateLimiter,
 	supervisorNamespace string, stopCh <-chan struct{}) (VolumeHealthReconciler, error) {
+
+	ctx, log := logger.GetNewContextWithLogger()
 	svcPVCInformer := svcInformerFactory.Core().V1().PersistentVolumeClaims()
 	tkgPVInformer := tkgInformerFactory.Core().V1().PersistentVolumes()
 
@@ -155,19 +157,23 @@ func NewVolumeHealthReconciler(
 		},
 	}
 
-	svcPVCInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
+	_, err := svcPVCInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
 		AddFunc:    rc.svcAddPVC,
 		UpdateFunc: rc.svcUpdatePVC,
 		DeleteFunc: rc.svcAddPVC,
 	}, resyncPeriod)
+	if err != nil {
+		return nil, logger.LogNewErrorf(log, "failed to add event handler on PVC informer. Error: %v", err)
+	}
 
-	tkgPVInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
+	_, err = tkgPVInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
 		AddFunc:    nil,
 		UpdateFunc: rc.tkgUpdatePV,
 		DeleteFunc: rc.tkgDeletePV,
 	}, resyncPeriod)
-
-	ctx, log := logger.GetNewContextWithLogger()
+	if err != nil {
+		return nil, logger.LogNewErrorf(log, "failed to add event handler on PV informer. Error: %v", err)
+	}
 
 	// Start TKG Informers.
 	tkgInformerFactory.Start(stopCh)

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -162,6 +163,7 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 					metav1.NamespaceNone, config, true)
 				if err != nil {
 					log.Errorf("failed to create dynamic informer for volume migration CRD. Err: %v", err)
+					os.Exit(1)
 				}
 				handlers := cache.ResourceEventHandlerFuncs{
 					AddFunc: func(obj interface{}) {
@@ -192,7 +194,12 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 							volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
 					},
 				}
-				informer.Informer().AddEventHandler(handlers)
+				_, err = informer.Informer().AddEventHandler(handlers)
+				if err != nil {
+					log.Errorf("failed to add event handler on informer for cnsvspherevolumemigrations CR. "+
+						"Error: %v", err)
+					os.Exit(1)
+				}
 				stopCh := make(chan struct{})
 				informer.Informer().Run(stopCh)
 			}()

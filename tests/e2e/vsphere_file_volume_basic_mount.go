@@ -29,6 +29,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 )
@@ -347,7 +348,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 
 		//Create file1.txt on Pod1
 		ginkgo.By("Create file1.txt on Pod1")
-		err = framework.CreateEmptyFileOnPod(namespace, pod1.Name, filePath1)
+		err = e2eoutput.CreateEmptyFileOnPod(namespace, pod1.Name, filePath1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		//Write data on file1.txt on Pod1
@@ -403,7 +404,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		gomega.Expect(output == data).To(gomega.BeTrue(), "Pod2 is able to read file1 written by Pod1")
 
 		//Create a file file2.txt from Pod2
-		err = framework.CreateEmptyFileOnPod(namespace, pod2.Name, filePath2)
+		err = e2eoutput.CreateEmptyFileOnPod(namespace, pod2.Name, filePath2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		//Write to the file
@@ -482,7 +483,7 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 
 	//Create file1.txt on Pod1
 	ginkgo.By("Create file1.txt on Pod1")
-	err = framework.CreateEmptyFileOnPod(namespace, pod1.Name, filePath1)
+	err = e2eoutput.CreateEmptyFileOnPod(namespace, pod1.Name, filePath1)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	//Write data on file1.txt on Pod1
@@ -548,7 +549,7 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 	gomega.Expect(output == data).To(gomega.BeTrue(), "Pod2 is able to read file1 written by Pod1")
 
 	//Create a file file2.txt from Pod2
-	err = framework.CreateEmptyFileOnPod(namespace, pod2.Name, filePath2)
+	err = e2eoutput.CreateEmptyFileOnPod(namespace, pod2.Name, filePath2)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	//Write to the file

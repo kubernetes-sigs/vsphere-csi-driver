@@ -30,6 +30,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 )
@@ -184,7 +185,7 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+	_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
 		expectedContent, time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

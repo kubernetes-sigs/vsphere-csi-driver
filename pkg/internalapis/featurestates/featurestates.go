@@ -125,7 +125,10 @@ func StartSvFSSReplicationService(ctx context.Context, svFeatureStatConfigMapNam
 	// Create k8s Informer and watch on configmaps and namespaces.
 	informer := k8s.NewInformer(ctx, k8sClient, true)
 	// Configmap informer to watch on SV featurestate config-map.
-	informer.AddConfigMapListener(ctx, k8sClient, svFeatureStateConfigMapNamespace,
+	err = informer.AddConfigMapListener(
+		ctx,
+		k8sClient,
+		svFeatureStateConfigMapNamespace,
 		// Add.
 		func(Obj interface{}) {
 			configMapAdded(Obj)
@@ -138,9 +141,14 @@ func StartSvFSSReplicationService(ctx context.Context, svFeatureStatConfigMapNam
 		func(obj interface{}) {
 			configMapDeleted(obj)
 		})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to listen on configmaps in namespace %q. Error: %v",
+			svFeatureStateConfigMapNamespace, err)
+	}
 
 	// Namespace informer to watch on namespaces.
-	informer.AddNamespaceListener(
+	err = informer.AddNamespaceListener(
+		ctx,
 		// Add.
 		func(obj interface{}) {
 			namespaceAdded(obj)
@@ -153,6 +161,9 @@ func StartSvFSSReplicationService(ctx context.Context, svFeatureStatConfigMapNam
 		func(obj interface{}) {
 			namespaceDeleted(obj)
 		})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to listen on namespaces. Error: %v", err)
+	}
 	informer.Listen()
 	log.Infof("Informer on config-map and namespaces started")
 
@@ -163,7 +174,7 @@ func StartSvFSSReplicationService(ctx context.Context, svFeatureStatConfigMapNam
 		log.Errorf("failed to create dynamic informer for %s CR. Error: %+v", CRDPlural, err)
 		return err
 	}
-	dynInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err = dynInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		// Add.
 		AddFunc: nil,
 		// Update.
@@ -173,6 +184,10 @@ func StartSvFSSReplicationService(ctx context.Context, svFeatureStatConfigMapNam
 			fssCRDeleted(obj)
 		},
 	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler for informer on %q CR. Error: %v",
+			CRDPlural, err)
+	}
 	go func() {
 		log.Infof("Informer to watch on %s CR starting..", CRDPlural)
 		dynInformer.Informer().Run(make(chan struct{}))

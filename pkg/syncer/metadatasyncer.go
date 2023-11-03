@@ -447,7 +447,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 	// Set up kubernetes resource listeners for metadata syncer.
 	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sClient, true)
-	metadataSyncer.k8sInformerManager.AddPVCListener(
+	err = metadataSyncer.k8sInformerManager.AddPVCListener(
+		ctx,
 		nil, // Add.
 		func(oldObj interface{}, newObj interface{}) { // Update.
 			pvcUpdated(oldObj, newObj, metadataSyncer)
@@ -455,7 +456,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		func(obj interface{}) { // Delete.
 			pvcDeleted(obj, metadataSyncer)
 		})
-	metadataSyncer.k8sInformerManager.AddPVListener(
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to listen on PVCs. Error: %v", err)
+	}
+	err = metadataSyncer.k8sInformerManager.AddPVListener(
+		ctx,
 		nil, // Add.
 		func(oldObj interface{}, newObj interface{}) { // Update.
 			pvUpdated(oldObj, newObj, metadataSyncer)
@@ -463,7 +468,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		func(obj interface{}) { // Delete.
 			pvDeleted(obj, metadataSyncer)
 		})
-	metadataSyncer.k8sInformerManager.AddPodListener(
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to listen on PVs. Error: %v", err)
+	}
+	err = metadataSyncer.k8sInformerManager.AddPodListener(
+		ctx,
 		func(obj interface{}) { // Add.
 			podAdded(obj, metadataSyncer)
 		},
@@ -473,6 +482,10 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		func(obj interface{}) { // Delete.
 			podDeleted(obj, metadataSyncer)
 		})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to listen on pods. Error: %v", err)
+	}
+
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
 	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
 	metadataSyncer.podLister = metadataSyncer.k8sInformerManager.GetPodLister()
@@ -718,7 +731,7 @@ func startTopologyCRInformer(ctx context.Context, cfg *restclient.Config) error 
 	}
 	csiNodeTopologyInformer := dynInformer.Informer()
 	// TODO: Multi-VC: Use a RWLock to guard simultaneous updates to topologyVCMap
-	csiNodeTopologyInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err = csiNodeTopologyInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			topoCRAdded(obj)
 		},
@@ -729,6 +742,10 @@ func startTopologyCRInformer(ctx context.Context, cfg *restclient.Config) error 
 			topoCRDeleted(obj)
 		},
 	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on informer for %q CR. Error: %v",
+			csinodetopology.CRDPlural, err)
+	}
 	// Start informer.
 	go func() {
 		log.Infof("Informer to watch on %s CR starting..", csinodetopology.CRDSingular)
