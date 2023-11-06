@@ -134,7 +134,7 @@ spec:
       dnsPolicy: "Default"
       containers:
         - name: vsphere-webhook
-          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v3.1.1
+          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v3.1.2-rc.1
           args:
             - "--operation-mode=WEBHOOK_SERVER"
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
