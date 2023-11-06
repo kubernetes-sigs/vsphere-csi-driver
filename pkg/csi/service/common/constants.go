@@ -225,7 +225,7 @@ const (
 	// supposed to provision a volume for this PVC.
 	AnnStorageProvisioner = "volume.kubernetes.io/storage-provisioner"
 
-	// vSphereCSIDriverName vSphere CSI driver name
+	// VSphereCSIDriverName vSphere CSI driver name
 	VSphereCSIDriverName = "csi.vsphere.vmware.com"
 
 	// AnnDynamicallyProvisioned annotation is added to a PV that has been
@@ -325,6 +325,10 @@ const (
 
 	// VolumeSnapshotKind represents the VolumeSnapshot Kind name
 	VolumeSnapshotKind = "VolumeSnapshot"
+
+	// CreateCSINodeAnnotation is the annotation applied by spherelet
+	// to convey to CSI driver to create a CSINode instance for each node.
+	CreateCSINodeAnnotation = "vmware-system/csi-create-csinode-object"
 )
 
 // Supported container orchestrators.

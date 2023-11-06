@@ -305,7 +305,12 @@ func (c *FakeK8SOrchestrator) GetCSINodeTopologyInstanceByName(nodeName string) 
 	return nil, false, nil
 }
 
-// GetPVCNamespaceFromVolumeID retrieves the pv name from volumeID.
+// GetPVNameFromCSIVolumeID retrieves the pv name from volumeID.
 func (c *FakeK8SOrchestrator) GetPVNameFromCSIVolumeID(volumeID string) (string, bool) {
 	return "", false
+}
+
+// InitializeCSINodes creates CSINode instances for each K8s node with the appropriate topology keys.
+func (c *FakeK8SOrchestrator) InitializeCSINodes(ctx context.Context) error {
+	return nil
 }
