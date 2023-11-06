@@ -1872,6 +1872,52 @@ func getWCPSessionId(hostname string, username string, password string) string {
 
 }
 
+// getWindowsFileSystemSize finds the windowsWorkerIp and returns the size of the volume
+func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, error) {
+	var err error
+	var windowsWorkerIP, size string
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	nodeName := pod.Spec.NodeName
+	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, node := range nodes.Items {
+		if node.Name == nodeName {
+			windowsWorkerIP = getK8sNodeIP(&node)
+			break
+		}
+	}
+	nimbusGeneratedWindowsVmPwd := GetAndExpectStringEnvVar(envWindowsPwd)
+	windowsUser := GetAndExpectStringEnvVar(envWindowsUser)
+	sshClientConfig := &ssh.ClientConfig{
+		User: windowsUser,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(nimbusGeneratedWindowsVmPwd),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+	cmd := "Get-Disk | Format-List -Property Manufacturer,Size"
+	output, err := sshExec(sshClientConfig, windowsWorkerIP, cmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	fullStr := strings.Split(strings.TrimSuffix(string(output.Stdout), "\n"), "\n")
+	var originalSizeInbytes int64
+	for index, line := range fullStr {
+		if strings.Contains(line, "VMware") {
+			sizeList := strings.Split(fullStr[index+1], ":")
+			size = strings.TrimSpace(sizeList[1])
+			originalSizeInbytes, err = strconv.ParseInt(size, 10, 64)
+			if err != nil {
+				return -1, fmt.Errorf("failed to parse size %s into int size", size)
+			}
+			if originalSizeInbytes < 96636764160 {
+				break
+			}
+		}
+	}
+	framework.Logf("disk size is  %d", originalSizeInbytes)
+	return originalSizeInbytes, nil
+}
+
 // replacePasswordRotationTime invokes the given command to replace the password
 // rotation time to 0, so that password roation happens immediately on the given
 // vCenter over SSH. Vmon-cli is used to restart the wcp service after changing
@@ -2362,17 +2408,58 @@ func getPvFromSupervisorCluster(pvcName string) *v1.PersistentVolume {
 	return svcPV
 }
 
-func verifyFilesExistOnVSphereVolume(namespace string, podName string, filePaths ...string) {
+// verfiy File exists or not in vSphere Volume
+// TODO : add logic to disable disk caching in windows
+func verifyFilesExistOnVSphereVolume(namespace string, podName string, poll, timeout time.Duration,
+	filePaths ...string) {
+	var err error
 	for _, filePath := range filePaths {
-		_, err := e2ekubectl.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
-			podName, "--", "/bin/ls", filePath)
+		if windowsEnv {
+			for start := time.Now(); time.Since(start) < timeout; time.Sleep(poll) {
+				_, err = e2eoutput.LookForStringInPodExec(namespace, podName,
+					[]string{"powershell.exe", "Test-Path -path", filePath}, "", time.Minute)
+				if err == nil {
+					break
+				} else if err != nil {
+					framework.Logf("File %s doesn't exist", filePath)
+					continue
+				}
+			}
+		} else {
+			_, err = e2ekubectl.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
+				podName, "--", "/bin/ls", filePath)
+		}
 		framework.ExpectNoError(err, fmt.Sprintf("failed to verify file: %q on the pod: %q", filePath, podName))
 	}
 }
 
-func createEmptyFilesOnVSphereVolume(namespace string, podName string, filePaths []string) {
+// verify File System type on vSphere volume
+func verifyFsTypeOnVsphereVolume(namespace string, podName string, expectedContent string, filePaths ...string) {
+	var err error
 	for _, filePath := range filePaths {
-		err := e2eoutput.CreateEmptyFileOnPod(namespace, podName, filePath)
+		if windowsEnv {
+			filePath = filePath + ".txt"
+			// TODO : add logic to disable disk caching in windows
+			verifyFilesExistOnVSphereVolume(namespace, podName, poll, pollTimeoutShort, filePath)
+			_, err = e2eoutput.LookForStringInPodExec(namespace, podName,
+				[]string{"powershell.exe", "cat", filePath}, ntfsFSType, time.Minute)
+		} else {
+			_, err = e2eoutput.LookForStringInPodExec(namespace, podName,
+				[]string{"/bin/cat", filePath}, expectedContent, time.Minute)
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+func createEmptyFilesOnVSphereVolume(namespace string, podName string, filePaths []string) {
+	var err error
+	for _, filePath := range filePaths {
+		if windowsEnv {
+			_, err = e2eoutput.LookForStringInPodExec(namespace, podName,
+				[]string{"powershell.exe", "New-Item", "-Path", filePath, "-ItemType File"}, "", time.Minute)
+		} else {
+			err = e2eoutput.CreateEmptyFileOnPod(namespace, podName, filePath)
+		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -2407,6 +2494,11 @@ func GetStatefulSetFromManifest(ns string) *appsv1.StatefulSet {
 	framework.Logf("Parsing statefulset from %v", ssManifestFilePath)
 	ss, err := manifest.StatefulSetFromManifest(ssManifestFilePath, ns)
 	framework.ExpectNoError(err)
+	if windowsEnv {
+		ss.Spec.Template.Spec.Containers[0].Image = windowsImageOnMcr
+		ss.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
+		ss.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsExecCmd}
+	}
 	return ss
 }
 
@@ -3211,16 +3303,33 @@ func GetPodSpecByUserID(ns string, nodeSelector map[string]string, pvclaims []*v
 
 // writeDataOnFileFromPod writes specified data from given Pod at the given.
 func writeDataOnFileFromPod(namespace string, podName string, filePath string, data string) {
-	_, err := e2ekubectl.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
-		podName, "--", "/bin/sh", "-c", fmt.Sprintf(" echo %s >  %s ", data, filePath))
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var shellExec, cmdArg string
+	if windowsEnv {
+		shellExec = "Powershell.exe"
+		cmdArg = "-Command"
+	} else {
+		shellExec = "/bin/sh"
+		cmdArg = "-c"
+	}
+	wrtiecmd := []string{"exec", podName, "--namespace=" + namespace, "--", shellExec, cmdArg,
+		fmt.Sprintf(" echo '%s' >  %s ", data, filePath)}
+	e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
 }
 
 // readFileFromPod read data from given Pod and the given file.
 func readFileFromPod(namespace string, podName string, filePath string) string {
-	output, err := e2ekubectl.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace),
-		podName, "--", "/bin/sh", "-c", fmt.Sprintf("less  %s", filePath))
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var output string
+	var shellExec, cmdArg string
+	if windowsEnv {
+		shellExec = "Powershell.exe"
+		cmdArg = "-Command"
+	} else {
+		shellExec = "/bin/sh"
+		cmdArg = "-c"
+	}
+	cmd := []string{"exec", podName, "--namespace=" + namespace, "--", shellExec, cmdArg,
+		fmt.Sprintf("cat %s", filePath)}
+	output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 	return output
 }
 
@@ -3992,7 +4101,23 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 func createPod(client clientset.Interface, namespace string, nodeSelector map[string]string,
 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
-	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	if windowsEnv {
+		var commands []string
+		if (len(command) == 0) || (command == execCommand) {
+			commands = []string{"Powershell.exe", "-Command ", windowsExecCmd}
+		} else if command == execRWXCommandPod {
+			commands = []string{"Powershell.exe", "-Command ", windowsExecRWXCommandPod}
+		} else if command == execRWXCommandPod1 {
+			commands = []string{"Powershell.exe", "-Command ", windowsExecRWXCommandPod1}
+		} else {
+			commands = []string{"Powershell.exe", "-Command", command}
+		}
+		pod.Spec.Containers[0].Image = windowsImageOnMcr
+		pod.Spec.Containers[0].Command = commands
+		pod.Spec.Containers[0].VolumeMounts[0].MountPath = pod.Spec.Containers[0].VolumeMounts[0].MountPath + "/"
+	} else {
+		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	}
 	pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("pod Create API error: %v", err)
@@ -4073,6 +4198,11 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	}
 	deploymentSpec := getDeploymentSpec(ctx, client, replicas, podLabels, nodeSelector, namespace,
 		pvclaims, command, isPrivileged, image)
+	if windowsEnv {
+		deploymentSpec.Spec.Template.Spec.Containers[0].Image = windowsImageOnMcr
+		deploymentSpec.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
+		deploymentSpec.Spec.Template.Spec.Containers[0].Args = []string{"-Command", command}
+	}
 	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("deployment %q Create API error: %v", deploymentSpec.Name, err)
@@ -4426,11 +4556,21 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 // getK8sNodeIP returns the IP for the given k8s node.
 func getK8sNodeIP(node *v1.Node) string {
 	var address string
+	addressFound := false
 	addrs := node.Status.Addresses
 	for _, addr := range addrs {
 		if addr.Type == v1.NodeExternalIP && (net.ParseIP(addr.Address)).To4() != nil {
 			address = addr.Address
+			addressFound = true
 			break
+		}
+	}
+	if !addressFound {
+		for _, addr := range addrs {
+			if addr.Type == v1.NodeInternalIP && (net.ParseIP(addr.Address)).To4() != nil {
+				address = addr.Address
+				break
+			}
 		}
 	}
 	gomega.Expect(address).NotTo(gomega.BeNil(), "Unable to find IP for node: "+node.Name)
@@ -4498,6 +4638,11 @@ func statefulSetFromManifest(fileName string, ss *appsv1.StatefulSet) (*appsv1.S
 	newSize.Add(resource.MustParse("1Gi"))
 	ss.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[v1.ResourceStorage] = newSize
 
+	if windowsEnv {
+		ss.Spec.Template.Spec.Containers[0].Image = windowsImageOnMcr
+		ss.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
+		ss.Spec.Template.Spec.Containers[0].Args = []string{"-Command", windowsExecCmd}
+	}
 	return ss, nil
 }
 

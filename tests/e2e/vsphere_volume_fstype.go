@@ -19,7 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -30,7 +29,6 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
-	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 )
@@ -94,6 +92,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func(
 		invokeTestForInvalidFstype(f, client, namespace, invalidFSType, storagePolicyName, profileID)
 	})
 
+	ginkgo.It("[csi-windows] CSI - Windows - verify valid fstype", func() {
+		invokeTestForFstype(f, client, namespace, ntfsFSType, ntfsFSType, storagePolicyName, profileID)
+	})
+
+	ginkgo.It("[csi-windows] CSI - Windows - verify invalid fstype", func() {
+		invokeTestForInvalidFstype(f, client, namespace, invalidNtfsFSType, storagePolicyName, profileID)
+	})
+
 	/*
 		Verify mounting of volume for RWO PVC with nfs4 fstype
 		    1.Create StorageClass with fsType as "nfs4"
@@ -136,6 +142,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func(
 		}()
 
 	})
+
 })
 
 func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
@@ -185,9 +192,7 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
 	gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
-		expectedContent, time.Minute)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	verifyFsTypeOnVsphereVolume(namespace, pod.Name, expectedContent, filePathFsType)
 
 	// Delete POD
 	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
