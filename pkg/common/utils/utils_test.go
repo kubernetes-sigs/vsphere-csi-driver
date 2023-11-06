@@ -69,7 +69,7 @@ func configFromCustomizedSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool)
 
 	cfg.Global.VCenterIP = s.URL.Hostname()
 	cfg.Global.VCenterPort = s.URL.Port()
-	cfg.Global.User = s.URL.User.Username()
+	cfg.Global.User = s.URL.User.Username() + "@vsphere.local"
 	cfg.Global.Password, _ = s.URL.User.Password()
 	cfg.Global.Datacenters = "DC0"
 
