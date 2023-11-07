@@ -582,6 +582,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 						log.Debugf("Starting full sync for Multi VC setup with %d VCs", len(vcconfigs))
 
+						isTopologyAwareFileVolumeEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+							common.TopologyAwareFileVolume)
+						if isTopologyAwareFileVolumeEnabled {
+							createMissingFileVolumeInfoCrs(ctx, metadataSyncer)
+						}
+
 						var csiFulSyncWg sync.WaitGroup
 						for _, vc := range vcconfigs {
 							csiFulSyncWg.Add(1)

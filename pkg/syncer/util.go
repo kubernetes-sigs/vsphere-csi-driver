@@ -576,9 +576,13 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 
 		// Check if the PV is a file share volume.
 		if IsMultiAttachAllowed(pv) {
-			return nil, logger.LogNewErrorf(log,
-				"File share volumes are not supported on a multi VC set up."+
-					"Found file share volume %q.", pv.Name)
+			isTopologyAwareFileVolumeEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
+				common.TopologyAwareFileVolume)
+			if !isTopologyAwareFileVolumeEnabled {
+				return nil, logger.LogNewErrorf(log,
+					"File share volumes are not supported on a multi VC set up."+
+						"Found file share volume %s.", pv.Name)
+			}
 		}
 
 		if volumeInfoService == nil {
@@ -599,19 +603,21 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 		}
 	}
 
-	// Try to locate the VC for all the left out PVs from their nodeAffinity rules.
 	if len(leftOutPvs) != 0 {
 		for _, volume := range leftOutPvs {
-			topologySegments := getTopologySegmentsFromNodeAffinityRules(ctx, volume)
-			vCenter, err := getVcHostFromTopologySegments(ctx, topologySegments, volume.Name)
-			if err != nil {
-				return nil, logger.LogNewErrorf(log,
-					"Failed to find which VC volume %+v belongs to from ndeAffinityrules",
-					volume.Spec.CSI.VolumeHandle)
-			}
+			if !IsMultiAttachAllowed(volume) {
+				// Try to locate the VC for all the left out PVs from their nodeAffinity rules.
+				topologySegments := getTopologySegmentsFromNodeAffinityRules(ctx, volume)
+				vCenter, err := getVcHostFromTopologySegments(ctx, topologySegments, volume.Name)
+				if err != nil {
+					return nil, logger.LogNewErrorf(log,
+						"Failed to find which VC volume %+v belongs to from ndeAffinityrules",
+						volume.Spec.CSI.VolumeHandle)
+				}
 
-			if vCenter == vc {
-				k8svolumes = append(k8svolumes, volume)
+				if vCenter == vc {
+					k8svolumes = append(k8svolumes, volume)
+				}
 			}
 
 		}
@@ -713,4 +719,76 @@ func createCnsVolume(ctx context.Context, pv *v1.PersistentVolume,
 		}
 	}
 	return nil
+}
+
+func createMissingFileVolumeInfoCrs(ctx context.Context, metadataSyncer *metadataSyncInformer) {
+
+	log := logger.GetLogger(ctx)
+
+	// Get all K8s volumes in "Bound", "Available" or "Released" states.
+	allPvs, err := getPVsInBoundAvailableOrReleased(ctx, metadataSyncer)
+	if err != nil {
+		log.Errorf("Failed to get PVs in the cluster. Err: %v", err)
+		return
+	}
+
+	fileVolumes := make([]*v1.PersistentVolume, 0)
+	for _, pv := range allPvs {
+		if pv.Spec.CSI == nil {
+			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) &&
+				pv.Spec.VsphereVolume != nil {
+				log.Errorf("In-tree volumes are not supported on a multi VC set up."+
+					"Found in-tree volume %s.", pv.Name)
+				return
+			}
+			log.Errorf("Invalid PV %s with empty volume handle.", pv.Name)
+			return
+		}
+		// Check if the PV is a file volume.
+		if IsMultiAttachAllowed(pv) {
+			fileVolumes = append(fileVolumes, pv)
+		}
+	}
+
+	if len(fileVolumes) == 0 {
+		log.Debugf("There are no file volumes on the cluster")
+		return
+	}
+
+	fileVolumesWithMissingCrs := make([]*v1.PersistentVolume, 0)
+	if volumeInfoService == nil {
+		log.Errorf("VolumeInfoService is not initialized")
+		return
+	}
+
+	for _, pv := range fileVolumes {
+		crExists, err := volumeInfoService.VolumeInfoCrExistsForVolume(ctx, pv.Spec.CSI.VolumeHandle)
+		if err != nil {
+			log.Errorf("Failed to find VolumeInfo CR for volume %s."+
+				"Error: %+v", pv.Spec.CSI.VolumeHandle, err)
+			continue
+		}
+		// Create VolumeInfo CR if not found.
+		if !crExists {
+			fileVolumesWithMissingCrs = append(fileVolumesWithMissingCrs, pv)
+		}
+	}
+
+	if len(fileVolumesWithMissingCrs) == 0 {
+		log.Debugf("There are no missing volume info CRs for file volumes")
+		return
+	}
+
+	// This is a best effort attempt.
+	// If some of the PVs could not be created, it can be attempted in the next cycle.
+	for _, pv := range fileVolumesWithMissingCrs {
+
+		var metadataList []cnstypes.BaseCnsEntityMetadata
+		pvMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pv.Name, pv.GetLabels(), false,
+			string(cnstypes.CnsKubernetesEntityTypePV), "", clusterIDforVolumeMetadata, nil)
+		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
+
+		_, _, _ = createVolumeOnMultiVc(ctx, pv, metadataSyncer,
+			common.FileVolumeType, metadataList, pv.Spec.CSI.VolumeHandle)
+	}
 }
