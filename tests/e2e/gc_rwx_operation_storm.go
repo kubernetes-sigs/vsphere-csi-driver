@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
@@ -206,7 +207,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		var pods []*v1.Pod
@@ -275,13 +276,13 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 			message := "Hello message from Pod" + strconv.Itoa(i+2)
 			cmd = []string{"exec", writepod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 				"echo '" + message + "'>> /mnt/volume1/Pod1.html"}
-			_, err = framework.RunKubectl(namespace, cmd...)
+			_, err = e2ekubectl.RunKubectl(namespace, cmd...)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output, err = framework.RunKubectl(namespace, cmd...)
+		output, err = e2ekubectl.RunKubectl(namespace, cmd...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Output from the Pod1.html is %s", output)
@@ -471,7 +472,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 				volumePath := "'>> /mnt/volume" + strconv.Itoa(volIndex+1) + "/File.html"
 				cmd := []string{"exec", podArray[index].Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 					"echo '" + message + volumePath}
-				_, err = framework.RunKubectl(namespace, cmd...)
+				_, err = e2ekubectl.RunKubectl(namespace, cmd...)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -481,7 +482,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 			for volIndex := range pvclaims {
 				volumePath := "cat /mnt/volume" + strconv.Itoa(volIndex+1) + "/File.html"
 				cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", volumePath}
-				output, err := framework.RunKubectl(namespace, cmd...)
+				output, err := e2ekubectl.RunKubectl(namespace, cmd...)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				framework.Logf("Output from the File.html is %s", output)
 				gomega.Expect(strings.Contains(output, "Hello message from Pod")).NotTo(gomega.BeFalse())

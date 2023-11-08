@@ -161,6 +161,20 @@ func (mounter *csiProxyMounter) ExistsPath(ctx context.Context, path string) (bo
 	return isExistsResponse.Exists, err
 }
 
+// IsMountPoint: determines if a directory is a mountpoint.
+func (mounter *csiProxyMounter) IsMountPoint(path string) (bool, error) {
+	isNotMnt, err := mounter.IsLikelyNotMountPoint(path)
+	if err != nil {
+		return false, err
+	}
+	return !isNotMnt, nil
+}
+
+// CanSafelySkipMountPointCheck always returns false on Windows
+func (mounter *csiProxyMounter) CanSafelySkipMountPointCheck() bool {
+	return false
+}
+
 // Rmdir - delete the given directory
 func (mounter *csiProxyMounter) Rmdir(ctx context.Context, path string) error {
 	log := logger.GetLogger(ctx)

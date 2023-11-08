@@ -36,8 +36,10 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
@@ -1105,25 +1107,25 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
-		framework.RunKubectlOrDie(namespace, wrtiecmd...)
-		output = framework.RunKubectlOrDie(namespace, cmd...)
+		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output2 := framework.RunKubectlOrDie(namespace, cmd2...)
+		output2 := e2ekubectl.RunKubectlOrDie(namespace, cmd2...)
 		gomega.Expect(strings.Contains(output2, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		wrtiecmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
-		framework.RunKubectlOrDie(namespace, wrtiecmd2...)
-		output2 = framework.RunKubectlOrDie(namespace, cmd2...)
+		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd2...)
+		output2 = e2ekubectl.RunKubectlOrDie(namespace, cmd2...)
 		gomega.Expect(strings.Contains(output2, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Create a volume snapshot")
@@ -1300,7 +1302,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		// Verify filesystem used to mount volume inside pod is xfs
 		ginkgo.By("Verify that filesystem type is xfs as expected")
-		_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+		_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
 			xfsFSType, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1390,7 +1392,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		// Verify filesystem used to mount volume inside pod is xfs
 		ginkgo.By("Verify that filesystem type is xfs inside pod which is using restored PVC")
-		_, err = framework.LookForStringInPodExec(namespace, pod2.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+		_, err = e2eoutput.LookForStringInPodExec(namespace, pod2.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
 			xfsFSType, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -3097,7 +3099,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Delete dynamic volume snapshot")
@@ -3865,7 +3867,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 	})
 
@@ -6469,13 +6471,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod.html "}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod")).NotTo(gomega.BeFalse())
 
 		wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod' > /mnt/volume1/Pod.html"}
-		framework.RunKubectlOrDie(namespace, wrtiecmd...)
-		output = framework.RunKubectlOrDie(namespace, cmd...)
+		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Create volume snapshot class")
@@ -6556,13 +6558,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd = []string{"exec", pod1.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output = framework.RunKubectlOrDie(namespace, cmd...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		wrtiecmd = []string{"exec", pod1.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
-		framework.RunKubectlOrDie(namespace, wrtiecmd...)
-		output = framework.RunKubectlOrDie(namespace, cmd...)
+		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Create a dynamic volume snapshot")
@@ -6632,13 +6634,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod2.html "}
-		output = framework.RunKubectlOrDie(namespace, cmd...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod2")).NotTo(gomega.BeFalse())
 
 		wrtiecmd = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod2' > /mnt/volume1/Pod2.html"}
-		framework.RunKubectlOrDie(namespace, wrtiecmd...)
-		output = framework.RunKubectlOrDie(namespace, cmd...)
+		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod2")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Delete dynamic volume snapshot")

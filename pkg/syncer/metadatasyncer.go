@@ -715,7 +715,7 @@ func startTopologyCRInformer(ctx context.Context, cfg *restclient.Config) error 
 	}
 	csiNodeTopologyInformer := dynInformer.Informer()
 	// TODO: Multi-VC: Use a RWLock to guard simultaneous updates to topologyVCMap
-	csiNodeTopologyInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err = csiNodeTopologyInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			topoCRAdded(obj)
 		},
@@ -726,6 +726,9 @@ func startTopologyCRInformer(ctx context.Context, cfg *restclient.Config) error 
 			topoCRDeleted(obj)
 		},
 	})
+	if err != nil {
+		return err
+	}
 	// Start informer.
 	go func() {
 		log.Infof("Informer to watch on %s CR starting..", csinodetopology.CRDSingular)

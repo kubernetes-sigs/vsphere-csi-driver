@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 	})
 
 	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized]"+
-		"Statefulset testing with default podManagementPolicy", func() {
+		"Statefulset testing with default a podManagementPolicy", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")

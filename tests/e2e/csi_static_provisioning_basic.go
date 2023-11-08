@@ -34,8 +34,6 @@ import (
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
-	admissionapi "k8s.io/pod-security-admission/api"
-
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -44,7 +42,9 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 )
 
@@ -330,7 +330,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		ginkgo.By("Verify the volume is accessible and available to the pod by creating an empty file")
 		filepath := filepath.Join("/mnt/volume1", "/emptyFile.txt")
-		_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/touch", filepath}, "", time.Minute)
+		_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/touch", filepath}, "", time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify container volume metadata is present in CNS cache")
@@ -440,7 +440,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		// Verify that fstype used to mount volume inside pod is xfs.
 		ginkgo.By("Verify that filesystem type used to mount volume is xfs as expected")
-		_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
+		_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/cat", "/mnt/volume1/fstype"},
 			xfsFSType, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

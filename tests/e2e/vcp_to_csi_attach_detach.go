@@ -35,6 +35,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
@@ -1105,7 +1106,7 @@ func createMultiplePods(ctx context.Context, client clientset.Interface,
 					"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
 			}
 			ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-			_, err = framework.LookForStringInPodExec(pvc.Namespace, pod.Name,
+			_, err = e2eoutput.LookForStringInPodExec(pvc.Namespace, pod.Name,
 				[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
