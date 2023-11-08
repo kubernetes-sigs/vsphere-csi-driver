@@ -72,7 +72,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC-Replica", func() {
 				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 		}
 
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -101,7 +101,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC-Replica", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(client, namespace)
+		fss.DeleteAllStatefulSets(ctx, client, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 		if !apierrors.IsNotFound(err) {
@@ -189,14 +189,14 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC-Replica", func() {
 			go createParallelStatefulSets(client, namespace, statefulSets[i], statefulSetReplicaCount, &wg)
 			if i == 1 {
 				ginkgo.By("Kill CSI-Provisioner container")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, csiProvisionerControlIp, provisionerContainerName,
+				err = execDockerPauseNKillOnContainer(ctx, sshClientConfig, csiProvisionerControlIp, provisionerContainerName,
 					k8sVersion)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
 			if i == 2 {
 				ginkgo.By("Kill CSI-Attacher container")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, csiAttacherControlIp, attacherContainerName,
+				err = execDockerPauseNKillOnContainer(ctx, sshClientConfig, csiAttacherControlIp, attacherContainerName,
 					k8sVersion)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
@@ -239,7 +239,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC-Replica", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				framework.Logf("Kill Vsphere-Syncer container")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, vsphereSyncerControlIp, syncerContainerName,
+				err = execDockerPauseNKillOnContainer(ctx, sshClientConfig, vsphereSyncerControlIp, syncerContainerName,
 					k8sVersion)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

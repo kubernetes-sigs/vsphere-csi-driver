@@ -142,7 +142,8 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	backOffDuration = make(map[string]time.Duration)
 
 	// Watch for changes to primary resource CnsNodeVmAttachment.
-	err = c.Watch(&source.Kind{Type: &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}},
+
+	err = c.Watch(source.Kind(mgr.GetCache(), &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}),
 		&handler.EnqueueRequestForObject{})
 	if err != nil {
 		log.Errorf("failed to watch for changes to CnsNodeVmAttachment resource with error: %+v", err)

@@ -245,8 +245,11 @@ func NewCnsFileAccessConfigWatcher(ctx context.Context, config *restclient.Confi
 		Version: cnsoperatorv1alpha1.SchemeGroupVersion.Version,
 		Kind:    cnsfileaccessconfigKind,
 	}
-
-	client, err := apiutils.RESTClientForGVK(gvk, false, config, serializer.NewCodecFactory(scheme))
+	httpClient, err := restclient.HTTPClientFor(config)
+	if err != nil {
+		return nil, err
+	}
+	client, err := apiutils.RESTClientForGVK(gvk, false, config, serializer.NewCodecFactory(scheme), httpClient)
 	if err != nil {
 		log.Errorf("failed to create RESTClient with err: %+v", err)
 		return nil, err
@@ -271,8 +274,11 @@ func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config,
 		Version: vmoperatorv1alpha1.SchemeGroupVersion.Version,
 		Kind:    virtualMachineKind,
 	}
-
-	client, err := apiutils.RESTClientForGVK(gvk, false, config, serializer.NewCodecFactory(scheme))
+	httpClient, err := restclient.HTTPClientFor(config)
+	if err != nil {
+		return nil, err
+	}
+	client, err := apiutils.RESTClientForGVK(gvk, false, config, serializer.NewCodecFactory(scheme), httpClient)
 	if err != nil {
 		log.Errorf("failed to create RESTClient with err: %+v", err)
 		return nil, err
@@ -297,8 +303,11 @@ func NewCSINodeTopologyWatcher(ctx context.Context, config *restclient.Config) (
 		Version: csinodetopologyv1alpha1.Version,
 		Kind:    csiNodeTopologyKind,
 	}
-
-	client, err := apiutils.RESTClientForGVK(gvk, false, config, serializer.NewCodecFactory(scheme))
+	httpClient, err := restclient.HTTPClientFor(config)
+	if err != nil {
+		return nil, err
+	}
+	client, err := apiutils.RESTClientForGVK(gvk, false, config, serializer.NewCodecFactory(scheme), httpClient)
 	if err != nil {
 		log.Errorf("failed to create RESTClient for %s CR with err: %+v", csiNodeTopologyKind, err)
 		return nil, err
@@ -485,7 +494,7 @@ func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1
 func waitForCustomResourceToBeEstablished(ctx context.Context,
 	clientSet apiextensionsclientset.Interface, crdName string) error {
 	log := logger.GetLogger(ctx)
-	err := wait.Poll(pollTime, timeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, pollTime, timeout, false, func(ctx context.Context) (bool, error) {
 		crd, err := clientSet.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
 		if err != nil {
 			log.Errorf("Failed to get %q CRD with err: %+v", crdName, err)

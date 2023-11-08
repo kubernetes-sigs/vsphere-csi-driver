@@ -1215,7 +1215,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 					isStillAttached := false
 					timeout := 4 * time.Minute
 					pollTime := time.Duration(5) * time.Second
-					err = wait.Poll(pollTime, timeout, func() (bool, error) {
+					err = wait.PollUntilContextTimeout(ctx, pollTime, timeout, false, func(ctx context.Context) (bool, error) {
 						diskUUID, err := cnsvolume.IsDiskAttached(ctx, podVM, req.VolumeId, true)
 						if err != nil {
 							log.Infof("retrying the IsDiskAttached check again for volumeId %q. Err: %+v", req.VolumeId, err)

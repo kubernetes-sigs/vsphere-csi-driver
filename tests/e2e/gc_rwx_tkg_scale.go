@@ -57,7 +57,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, rqLimit)
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -69,7 +71,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		defer cancel()
 		if !isSTSDeleted {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}
 		if !isServiceDeleted {
 			ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
@@ -147,15 +149,15 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		defer func() {
 			if !isSTSDeleted {
 				ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-				fss.DeleteAllStatefulSets(client, namespace)
+				fss.DeleteAllStatefulSets(ctx, client, namespace)
 				isSTSDeleted = true
 			}
 		}()
 
 		// Waiting for pods status to be Ready.
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaledown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaledown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaledown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaledown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -188,7 +190,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 					}
 
 					//Add a check to validate CnsVolumeMetadata crd
-					err = waitAndVerifyCnsVolumeMetadata4GCVol(fcdIDInCNS, pvcNameInSV, pvclaim,
+					err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, fcdIDInCNS, pvcNameInSV, pvclaim,
 						persistentvolume, tempPod)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -235,22 +237,22 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 			scaleTKGWorker(wcpHost, wcpToken, devopsTKG, 3)
 
 			ginkgo.By("Wait for the TKG to be Ready")
-			err = getGC(wcpHost, wcpToken, devopsTKG)
+			err = getGC(ctx, wcpHost, wcpToken, devopsTKG)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Wait for the TKG to be Ready")
-		err = getGC(wcpHost, wcpToken, devopsTKG)
+		err = getGC(ctx, wcpHost, wcpToken, devopsTKG)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		replicas += 2
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
-		_, scaleupErr := fss.Scale(client, statefulset, replicas)
+		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
-		ssPodsAfterScaleUp := fss.GetPodList(client, statefulset)
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -259,7 +261,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		// After scale up, verify all vSphere volumes are attached to node VMs.
 		ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
 		for _, sspod := range ssPodsAfterScaleUp.Items {
-			err := fpod.WaitTimeoutForPodReadyInNamespace(client, sspod.Name, statefulset.Namespace, pollTimeout)
+			err := fpod.WaitTimeoutForPodReadyInNamespace(ctx, client, sspod.Name, statefulset.Namespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
@@ -294,7 +296,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 					}
 
 					//Add a check to validate CnsVolumeMetadata crd
-					err = waitAndVerifyCnsVolumeMetadata4GCVol(fcdIDInCNS, pvcNameInSV, pvclaim,
+					err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, fcdIDInCNS, pvcNameInSV, pvclaim,
 						persistentvolume, pod)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -302,7 +304,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		}
 
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(client, namespace)
+		fss.DeleteAllStatefulSets(ctx, client, namespace)
 		isSTSDeleted = true
 
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
@@ -312,7 +314,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 
 		ginkgo.By("Wait and verify PVC is fully deleted")
 		for _, volume := range volumesBeforeScaleDown {
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volume)
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, volume)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			//Add a check to validate CnsVolumeMetadata crd
 			verifyCRDInSupervisorWithWait(ctx, f, volume, crdCNSVolumeMetadatas, crdVersion, crdGroup, false)
@@ -391,14 +393,14 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		defer func() {
 			if !isSTSDeleted {
 				ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-				fss.DeleteAllStatefulSets(client, namespace)
+				fss.DeleteAllStatefulSets(ctx, client, namespace)
 				isSTSDeleted = true
 			}
 		}()
 		// Waiting for pods status to be Ready.
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaledown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaledown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaledown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaledown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -433,7 +435,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 					}
 
 					//Add a check to validate CnsVolumeMetadata crd
-					err = waitAndVerifyCnsVolumeMetadata4GCVol(fcdIDInCNS, pvcNameInSV, pvclaim,
+					err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, fcdIDInCNS, pvcNameInSV, pvclaim,
 						persistentvolume, tempPod)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -480,21 +482,21 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 			scaleTKGWorker(wcpHost, wcpToken, devopsTKG, 3)
 
 			ginkgo.By("Wait for the TKG to be Ready")
-			err = getGC(wcpHost, wcpToken, devopsTKG)
+			err = getGC(ctx, wcpHost, wcpToken, devopsTKG)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Wait for the TKG to be Ready")
-		err = getGC(wcpHost, wcpToken, devopsTKG)
+		err = getGC(ctx, wcpHost, wcpToken, devopsTKG)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		replicas += 2
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
-		_, scaleupErr := fss.Scale(client, statefulset, replicas)
+		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		ssPodsAfterScaleUp := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -503,7 +505,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		// After scale up, verify all vSphere volumes are attached to node VMs.
 		ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
 		for _, sspod := range ssPodsAfterScaleUp.Items {
-			err := fpod.WaitTimeoutForPodReadyInNamespace(client, sspod.Name, statefulset.Namespace, pollTimeout)
+			err := fpod.WaitTimeoutForPodReadyInNamespace(ctx, client, sspod.Name, statefulset.Namespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -537,7 +539,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 					}
 
 					//Add a check to validate CnsVolumeMetadata crd
-					err = waitAndVerifyCnsVolumeMetadata4GCVol(fcdIDInCNS, pvcNameInSV, pvclaim,
+					err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, fcdIDInCNS, pvcNameInSV, pvclaim,
 						persistentvolume, pod)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -545,7 +547,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		}
 
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(client, namespace)
+		fss.DeleteAllStatefulSets(ctx, client, namespace)
 		isSTSDeleted = true
 
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
@@ -555,7 +557,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 
 		ginkgo.By("Wait and verify PVC is fully deleted")
 		for _, volume := range volumesBeforeScaleDown {
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volume)
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, volume)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			//Add a check to validate CnsVolumeMetadata crd
 			verifyCRDInSupervisorWithWait(ctx, f, volume, crdCNSVolumeMetadatas, crdVersion, crdGroup, false)

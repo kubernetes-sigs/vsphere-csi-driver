@@ -49,7 +49,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -91,10 +93,10 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		defer func() {
 			deleteService(namespace, client, service)
 		}()
-		fss.WaitForStatusReadyReplicas(client, statefulset, 1)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 1)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 
-		ssPodsBeforeDelete := fss.GetPodList(client, statefulset)
+		ssPodsBeforeDelete := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeDelete.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeDelete.Items) == 1).To(gomega.BeTrue(),
@@ -113,10 +115,12 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 				pvRegion, pvZone, err = verifyVolumeTopology(pv, zoneValues, regionValues)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				ssPodsAfterDelete := fss.GetPodList(client, statefulset)
+				ssPodsAfterDelete := fss.GetPodList(ctx, client, statefulset)
 				pod = &ssPodsAfterDelete.Items[0]
 				ginkgo.By("Verify Pod is scheduled in on a node belonging to same topology as the PV it is attached to")
-				nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 				framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 				if !(len(nodeList.Items) > 0) {
 					framework.Failf("Unable to find ready and schedulable Node")
@@ -128,7 +132,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
-		fss.DeleteAllStatefulSets(client, namespace)
+		fss.DeleteAllStatefulSets(ctx, client, namespace)
 	})
 
 	/*
@@ -171,13 +175,13 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		replicas := *(statefulset.Spec.Replicas)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		// Waiting for pods status to be Ready.
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),

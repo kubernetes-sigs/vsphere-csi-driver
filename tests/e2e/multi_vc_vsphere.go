@@ -262,7 +262,7 @@ func (vs *multiVCvSphere) waitForVolumeDetachedFromNodeInMultiVC(client clientse
 		}
 		return false, err
 	}
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, false, func(ctx context.Context) (bool, error) {
 		var vmUUID string
 		if vanillaCluster {
 			vmUUID = getNodeUUID(ctx, client, nodeName)
@@ -288,8 +288,8 @@ func (vs *multiVCvSphere) waitForVolumeDetachedFromNodeInMultiVC(client clientse
 waitForCNSVolumeToBeDeletedInMultiVC executes QueryVolume API on vCenter and verifies
 volume entries are deleted from vCenter Database
 */
-func (vs *multiVCvSphere) waitForCNSVolumeToBeDeletedInMultiVC(volumeID string) error {
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+func (vs *multiVCvSphere) waitForCNSVolumeToBeDeletedInMultiVC(ctx context.Context, volumeID string) error {
+	err := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, false, func(ctx context.Context) (bool, error) {
 		queryResult, err := vs.queryCNSVolumeWithResultInMultiVC(volumeID)
 		if err != nil {
 			return true, err
@@ -312,18 +312,21 @@ func (vs *multiVCvSphere) waitForCNSVolumeToBeDeletedInMultiVC(volumeID string) 
 waitForLabelsToBeUpdatedInMultiVC executes QueryVolume API on vCenter and verifies
 volume labels are updated by metadata-syncer
 */
-func (vs *multiVCvSphere) waitForLabelsToBeUpdatedInMultiVC(volumeID string, matchLabels map[string]string,
+func (vs *multiVCvSphere) waitForLabelsToBeUpdatedInMultiVC(ctx context.Context,
+	volumeID string, matchLabels map[string]string,
 	entityType string, entityName string, entityNamespace string) error {
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
-		err := vs.verifyLabelsAreUpdatedInMultiVC(volumeID, matchLabels, entityType, entityName, entityNamespace)
-		if err == nil {
-			return true, nil
-		} else {
-			return false, nil
-		}
-	})
+	err := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, false,
+		func(ctx context.Context) (bool, error) {
+			err := vs.verifyLabelsAreUpdatedInMultiVC(volumeID, matchLabels,
+				entityType, entityName, entityNamespace)
+			if err == nil {
+				return true, nil
+			} else {
+				return false, nil
+			}
+		})
 	if err != nil {
-		if err == wait.ErrWaitTimeout {
+		if wait.Interrupted(err) {
 			return fmt.Errorf("labels are not updated to %+v for %s %q for volume %s",
 				matchLabels, entityType, entityName, volumeID)
 		}

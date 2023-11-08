@@ -52,7 +52,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -96,9 +98,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		defer func() {
 			deleteService(namespace, client, service)
 		}()
-		fss.WaitForStatusReadyReplicas(client, statefulset, 1)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 1)
 
-		podList := fss.GetPodList(client, statefulset)
+		podList := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(podList.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(podList.Items) == 1).To(gomega.BeTrue(), "Number of Pods in the statefulset should be 1")
@@ -148,7 +150,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		ginkgo.By("Wait for 7 minutes for k8s to detach the volume from powered off node and " +
 			"start the pod successfully on other node")
 		time.Sleep(k8sPodTerminationTimeOut)
-		fss.WaitForRunning(client, 1, 1, statefulset)
+		fss.WaitForRunning(ctx, client, 1, 1, statefulset)
 
 		ginkgo.By(fmt.Sprintf("Wait until the Volume is detached the node: %v", nodeNameToPowerOff))
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
@@ -156,7 +158,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 
-		podList = fss.GetPodList(client, statefulset)
+		podList = fss.GetPodList(ctx, client, statefulset)
 		pod = podList.Items[0]
 		failoverNode := pod.Spec.NodeName
 
@@ -167,7 +169,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Verify Pod is scheduled on another node belonging to same topology as the PV it is attached to")
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -183,11 +185,11 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
-		fss.DeleteAllStatefulSets(client, namespace)
+		fss.DeleteAllStatefulSets(ctx, client, namespace)
 		for _, volumespec := range pod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				ginkgo.By("Deleting the PVC")
-				err = fpv.DeletePersistentVolumeClaim(client, volumespec.PersistentVolumeClaim.ClaimName, namespace)
+				err = fpv.DeletePersistentVolumeClaim(ctx, client, volumespec.PersistentVolumeClaim.ClaimName, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -234,9 +236,9 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		defer func() {
 			deleteService(namespace, client, service)
 		}()
-		fss.WaitForStatusReadyReplicas(client, statefulset, 1)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 1)
 
-		podList := fss.GetPodList(client, statefulset)
+		podList := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(podList.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(podList.Items) == 1).To(gomega.BeTrue(), "Number of Pods in the statefulset should be 1")
@@ -288,7 +290,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 
-		podList = fss.GetPodList(client, statefulset)
+		podList = fss.GetPodList(ctx, client, statefulset)
 		pod = podList.Items[0]
 		nodeNameAfterPodReschedule := pod.Spec.NodeName
 		ginkgo.By("Verify if the pod was not scheduled on other node")
@@ -307,17 +309,17 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		ginkgo.By("Wait for 7 minutes for k8s to attach the volume")
 		time.Sleep(k8sPodTerminationTimeOut)
 
-		fss.WaitForStatusReadyReplicas(client, statefulset, 1)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 1)
 		err = verifyPodLocation(&pod, nodeList, pvZone, pvRegion)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Pod was not scheduled on any other zone")
 
 		framework.Logf("Deleting all statefulset in namespace: %v", namespace)
-		fss.DeleteAllStatefulSets(client, namespace)
+		fss.DeleteAllStatefulSets(ctx, client, namespace)
 		for _, volumespec := range pod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				ginkgo.By("Deleting the PVC")
-				err = fpv.DeletePersistentVolumeClaim(client, volumespec.PersistentVolumeClaim.ClaimName, namespace)
+				err = fpv.DeletePersistentVolumeClaim(ctx, client, volumespec.PersistentVolumeClaim.ClaimName, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}

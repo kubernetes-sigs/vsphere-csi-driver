@@ -405,7 +405,7 @@ func startAvailabilityZoneInformer(ctx context.Context, cfg *restclient.Config) 
 		return nil, err
 	}
 	availabilityZoneInformer := dynInformer.Informer()
-	availabilityZoneInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err = availabilityZoneInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			azCRAdded(obj)
 		},
@@ -414,6 +414,9 @@ func startAvailabilityZoneInformer(ctx context.Context, cfg *restclient.Config) 
 			azCRDeleted(obj)
 		},
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	// Start informer.
 	go func() {
@@ -489,7 +492,7 @@ func startTopologyCRInformer(ctx context.Context, cfg *restclient.Config) (*cach
 		return nil, err
 	}
 	topologyInformer := dynInformer.Informer()
-	topologyInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err = topologyInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		// Typically when the CSINodeTopology instance is created, the
 		// topology labels are not populated till the reconcile loop runs.
 		// However, this Add function will take care of cases where the node
@@ -507,6 +510,9 @@ func startTopologyCRInformer(ctx context.Context, cfg *restclient.Config) (*cach
 			topoCRDeleted(obj)
 		},
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	// Start informer.
 	go func() {

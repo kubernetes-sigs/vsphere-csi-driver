@@ -89,7 +89,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		defer cancel()
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -114,8 +114,10 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 	})
 
 	ginkgo.AfterEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
+			deleteResourceQuota(ctx, client, namespace)
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 		if guestCluster {
@@ -134,14 +136,14 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
+			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil,
+			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
 				scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -154,15 +156,15 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, pv.Spec.CSI.VolumeHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -184,12 +186,12 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
 			labels, pvc.Name, pvc.Namespace))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
+		err = e2eVSphere.waitForLabelsToBeUpdated(ctx, pv.Spec.CSI.VolumeHandle, labels,
 			string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
+		err = e2eVSphere.waitForLabelsToBeUpdated(ctx, pv.Spec.CSI.VolumeHandle, labels,
 			string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -208,14 +210,14 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
+			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil,
+			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
 				scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -229,15 +231,15 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, pv.Spec.CSI.VolumeHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -247,7 +249,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
+		err = e2eVSphere.waitForLabelsToBeUpdated(ctx, pv.Spec.CSI.VolumeHandle, labels,
 			string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -262,7 +264,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be deleted for pvc %s in namespace %s",
 			labels, pvc.Name, pvc.Namespace))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle,
+		err = e2eVSphere.waitForLabelsToBeUpdated(ctx, pv.Spec.CSI.VolumeHandle,
 			pvc.Labels, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -276,7 +278,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be deleted for pv %s", labels, pv.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle,
+		err = e2eVSphere.waitForLabelsToBeUpdated(ctx, pv.Spec.CSI.VolumeHandle,
 			pv.Labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -293,14 +295,14 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
+			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil,
+			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
 				scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -314,20 +316,20 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, pv.Spec.CSI.VolumeHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Creating pod")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
@@ -349,12 +351,12 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 
 		ginkgo.By(fmt.Sprintf("Waiting for pod name to be updated for volume %s by metadata-syncer",
 			pv.Spec.CSI.VolumeHandle))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, nil,
+		err = e2eVSphere.waitForLabelsToBeUpdated(ctx, pv.Spec.CSI.VolumeHandle, nil,
 			string(cnstypes.CnsKubernetesEntityTypePOD), pod.Name, pod.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the pod")
-		err = fpod.DeletePodWithWait(client, pod)
+		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if vanillaCluster {
 			ginkgo.By("Verify volume is detached from the node")
@@ -376,7 +378,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 
 		ginkgo.By(fmt.Sprintf("Waiting for pod name to be deleted for volume %s by metadata-syncer",
 			pv.Spec.CSI.VolumeHandle))
-		err = waitForPodNameLabelRemoval(pv.Spec.CSI.VolumeHandle, pod.Name, pod.Namespace)
+		err = waitForPodNameLabelRemoval(ctx, pv.Spec.CSI.VolumeHandle, pod.Name, pod.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -436,11 +438,11 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating PVC")
-		pvc, err := createPVC(client, namespace, nil, "", sc, "")
+		pvc, err := createPVC(ctx, client, namespace, nil, "", sc, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -488,7 +490,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", pv.Spec.CSI.VolumeHandle))
-		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
@@ -572,7 +574,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)
+		err = e2eVSphere.waitForCNSVolumeToBeCreated(ctx, pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating the PVC")
@@ -581,7 +583,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind
-		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv, pvc))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(ctx, client, framework.NewTimeoutContext(), namespace, pv, pvc))
 
 		labels := make(map[string]string)
 		labels[labelKey] = labelValue
@@ -595,7 +597,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
 			labels, pvc.Name, pvc.Namespace))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
+		err = e2eVSphere.waitForLabelsToBeUpdated(ctx, pv.Spec.CSI.VolumeHandle, labels,
 			string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -607,7 +609,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
+		err = e2eVSphere.waitForLabelsToBeUpdated(ctx, pv.Spec.CSI.VolumeHandle, labels,
 			string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -628,7 +630,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", fcdID))
-		err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdID)
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, fcdID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
@@ -691,13 +693,13 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		CreateStatefulSet(namespace, statefulset, client)
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
-		fss.WaitForStatusReadyReplicas(f.ClientSet, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(f.ClientSet, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleup := fss.GetPodList(f.ClientSet, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, f.ClientSet, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, f.ClientSet, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleup := fss.GetPodList(ctx, f.ClientSet, statefulset)
 		gomega.Expect(ssPodsBeforeScaleup.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleup.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -724,7 +726,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 
 					ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
 						pvclabels, volumespec.PersistentVolumeClaim.ClaimName, namespace))
-					err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle,
+					err = e2eVSphere.waitForLabelsToBeUpdated(ctx, pv.Spec.CSI.VolumeHandle,
 						pvclabels, string(cnstypes.CnsKubernetesEntityTypePVC),
 						volumespec.PersistentVolumeClaim.ClaimName, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -733,14 +735,14 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas+2))
-		_, scaleupErr := fss.Scale(f.ClientSet, statefulset, replicas+2)
+		_, scaleupErr := fss.Scale(ctx, f.ClientSet, statefulset, replicas+2)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(f.ClientSet, statefulset, replicas+2)
-		fss.WaitForStatusReadyReplicas(f.ClientSet, statefulset, replicas+2)
+		fss.WaitForStatusReplicas(ctx, f.ClientSet, statefulset, replicas+2)
+		fss.WaitForStatusReadyReplicas(ctx, f.ClientSet, statefulset, replicas+2)
 		pvlabels := make(map[string]string)
 		pvlabels[pvlabelKey] = pvlabelValue
 
-		ssPodsAfterScaleUp := fss.GetPodList(f.ClientSet, statefulset)
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, f.ClientSet, statefulset)
 
 		for _, spod := range ssPodsAfterScaleUp.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, spod.Name, metav1.GetOptions{})
@@ -755,7 +757,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 					ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", pvlabels, pv.Name))
-					err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle,
+					err = e2eVSphere.waitForLabelsToBeUpdated(ctx, pv.Spec.CSI.VolumeHandle,
 						pvlabels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -764,18 +766,18 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", 0))
-		_, scaledownErr := fss.Scale(f.ClientSet, statefulset, 0)
+		_, scaledownErr := fss.Scale(ctx, f.ClientSet, statefulset, 0)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReadyReplicas(f.ClientSet, statefulset, 0)
-		ssPodsAfterScaleDown := fss.GetPodList(f.ClientSet, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, f.ClientSet, statefulset, 0)
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, f.ClientSet, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(0)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 	})
 
 })
 
-func waitForPodNameLabelRemoval(volumeID string, podname string, namespace string) error {
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+func waitForPodNameLabelRemoval(ctx context.Context, volumeID string, podname string, namespace string) error {
+	err := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, false, func(ctx context.Context) (bool, error) {
 		_, err := e2eVSphere.getLabelsForCNSVolume(volumeID,
 			string(cnstypes.CnsKubernetesEntityTypePOD), podname, namespace)
 		if err != nil {

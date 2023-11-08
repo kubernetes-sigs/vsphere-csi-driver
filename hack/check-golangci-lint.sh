@@ -56,5 +56,6 @@ if [ ! "${DO_DOCKER-}" ]; then
   curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)"/bin v1.49.0
   "$(go env GOPATH)"/bin/golangci-lint run -v --timeout=1200s
 else
+  echo "run with docker"
   docker run --rm -v "$(pwd)":/app -w /app golangci/golangci-lint:v1.49.0 golangci-lint run -v --timeout=1200s
-fi
+fi 

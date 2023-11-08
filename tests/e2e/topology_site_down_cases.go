@@ -71,7 +71,8 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))).
 				NotTo(gomega.HaveOccurred())
 		}
-		nodeList, err = fnodes.GetReadySchedulableNodes(f.ClientSet)
+
+		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -98,7 +99,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(client, namespace)
+		fss.DeleteAllStatefulSets(ctx, client, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 		if !apierrors.IsNotFound(err) {
@@ -177,7 +178,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		wg.Wait()
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
@@ -200,13 +201,13 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			noOfHostToBringDown)
 		defer func() {
 			ginkgo.By("Bring up ESXi host which were powered off in zone1")
-			powerOnEsxiHostByCluster(powerOffHostsList[0])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList[0])
 		}()
 		powerOffHostsList1 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
 			noOfHostToBringDown)
 		defer func() {
 			ginkgo.By("Bring up  ESXi host which were powered off in zone2")
-			powerOnEsxiHostByCluster(powerOffHostsList1[0])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList1[0])
 		}()
 		powerOffHostsList = append(powerOffHostsList, powerOffHostsList1...)
 
@@ -220,9 +221,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ginkgo.By("Verify all the workload Pods are in up and running state")
 		/* here passing any one statefulset name created in a namespace, GetPodList method
 		will fetch all the sts pods running in a given namespace */
-		ssPods = fss.GetPodList(client, statefulSets[0])
+		ssPods = fss.GetPodList(ctx, client, statefulSets[0])
 		for _, pod := range ssPods.Items {
-			err := fpod.WaitForPodRunningInNamespace(client, &pod)
+			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -260,7 +261,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		// Bring up
 		ginkgo.By("Bring up all ESXi host which were powered off")
 		for i := 0; i < len(powerOffHostsList); i++ {
-			powerOnEsxiHostByCluster(powerOffHostsList[i])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 		}
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
@@ -270,9 +271,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods = fss.GetPodList(client, statefulSets[0])
+		ssPods = fss.GetPodList(ctx, client, statefulSets[0])
 		for _, pod := range ssPods.Items {
-			err := fpod.WaitForPodRunningInNamespace(client, &pod)
+			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -287,7 +288,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[1])
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -385,7 +386,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		wg.Wait()
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
@@ -408,13 +409,13 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			noOfHostToBringDown)
 		defer func() {
 			ginkgo.By("Bring up ESXi host which were powered off in zone2")
-			powerOnEsxiHostByCluster(powerOffHostsList[0])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList[0])
 		}()
 		powerOffHostsList1 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
 			noOfHostToBringDown)
 		defer func() {
 			ginkgo.By("Bring up ESXi host which were powered off in zone3")
-			powerOnEsxiHostByCluster(powerOffHostsList1[0])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList1[0])
 		}()
 		powerOffHostsList = append(powerOffHostsList, powerOffHostsList1...)
 
@@ -427,9 +428,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ginkgo.By("Verify all the workload Pods are in up and running state")
 		/* here passing any one statefulset name created in a namespace, GetPodList
 		will fetch all the pods running in a given namespace */
-		ssPods = fss.GetPodList(client, statefulSets[0])
+		ssPods = fss.GetPodList(ctx, client, statefulSets[0])
 		for _, pod := range ssPods.Items {
-			err := fpod.WaitForPodRunningInNamespace(client, &pod)
+			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -467,7 +468,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		// Bring up
 		ginkgo.By("Bring up all ESXi host which were powered off")
 		for i := 0; i < len(powerOffHostsList); i++ {
-			powerOnEsxiHostByCluster(powerOffHostsList[i])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 		}
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
@@ -486,7 +487,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[1])
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -584,7 +585,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		wg.Wait()
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
@@ -606,19 +607,19 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			noOfHostToBringDown)
 		defer func() {
 			ginkgo.By("Bring up ESXi host which were powered off in zone1")
-			powerOnEsxiHostByCluster(powerOffHostsList[0])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList[0])
 		}()
 		powerOffHostsList2 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
 			noOfHostToBringDown)
 		defer func() {
 			ginkgo.By("Bring up ESXi host which were powered off in zone2")
-			powerOnEsxiHostByCluster(powerOffHostsList2[0])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList2[0])
 		}()
 		powerOffHostsList3 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
 			noOfHostToBringDown)
 		defer func() {
 			ginkgo.By("Bring up ESXi host which were powered off in zone3")
-			powerOnEsxiHostByCluster(powerOffHostsList3[0])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList3[0])
 		}()
 		powerOffHostsList = append(append(powerOffHostsList, powerOffHostsList2...), powerOffHostsList3...)
 
@@ -640,7 +641,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		// Bring up
 		ginkgo.By("Bring up all ESXi host which were powered off")
 		for i := 0; i < len(powerOffHostsList); i++ {
-			powerOnEsxiHostByCluster(powerOffHostsList[i])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 		}
 
 		// Wait for k8s cluster to be healthy
@@ -682,7 +683,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[1])
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -783,7 +784,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		wg.Wait()
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
@@ -807,7 +808,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off in zone2")
 			for i := 0; i < len(powerOffHostsList); i++ {
-				powerOnEsxiHostByCluster(powerOffHostsList[i])
+				powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 			}
 		}()
 
@@ -815,9 +816,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ginkgo.By("Verify all the workload Pods are in up and running state")
 		/* here passing any one statefulset name created in a namespace, GetPodList
 		will fetch all the sts pods running in a given namespace */
-		ssPods = fss.GetPodList(client, statefulSets[1])
+		ssPods = fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPods.Items {
-			err := fpod.WaitForPodRunningInNamespace(client, &pod)
+			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		}
@@ -857,7 +858,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		// Bring up
 		ginkgo.By("Bring up all ESXi host which were powered off")
 		for i := 0; i < len(powerOffHostsList); i++ {
-			powerOnEsxiHostByCluster(powerOffHostsList[i])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 		}
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
@@ -877,7 +878,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[1])
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -978,7 +979,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		wg.Wait()
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
@@ -1002,7 +1003,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off")
 			for i := 0; i < len(powerOffHostsList); i++ {
-				powerOnEsxiHostByCluster(powerOffHostsList[i])
+				powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 			}
 		}()
 
@@ -1014,9 +1015,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods = fss.GetPodList(client, statefulSets[1])
+		ssPods = fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPods.Items {
-			err := fpod.WaitForPodRunningInNamespace(client, &pod)
+			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		}
@@ -1054,7 +1055,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		// Bring up
 		ginkgo.By("Bring up all ESXi host which were powered off")
 		for i := 0; i < len(powerOffHostsList); i++ {
-			powerOnEsxiHostByCluster(powerOffHostsList[i])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 		}
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
@@ -1073,7 +1074,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[1])
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1172,7 +1173,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		wg.Wait()
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
@@ -1196,7 +1197,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off in zone2")
 			for i := 0; i < len(powerOffHostsList); i++ {
-				powerOnEsxiHostByCluster(powerOffHostsList[i])
+				powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 			}
 			k8sMasterIPs := getK8sMasterIPs(ctx, client)
 			checkNodesStatus := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
@@ -1234,13 +1235,13 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		// Scale up statefulSets replicas count
 		ginkgo.By("Scaleup any one StatefulSets replica")
 		statefulSetReplicaCount = 10
-		_, scaleupErr := scaleStatefulSetPods(client, statefulSets[1], statefulSetReplicaCount)
+		_, scaleupErr := scaleStatefulSetPods(ctx, client, statefulSets[1], statefulSetReplicaCount)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 
 		// Bring up
 		ginkgo.By("Bring up all ESXi host which were powered off")
 		for i := 0; i < len(powerOffHostsList); i++ {
-			powerOnEsxiHostByCluster(powerOffHostsList[i])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 		}
 
 		ginkgo.By("Bring up all K8s nodes which got disconnected due to powered off esxi hosts")
@@ -1289,9 +1290,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods = fss.GetPodList(client, statefulSets[0])
+		ssPods = fss.GetPodList(ctx, client, statefulSets[0])
 		for _, pod := range ssPods.Items {
-			err := fpod.WaitForPodRunningInNamespace(client, &pod)
+			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -1306,7 +1307,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[1])
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

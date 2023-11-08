@@ -54,7 +54,9 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 		namespace = getNamespaceToRunTests(f)
 		scParameters = make(map[string]string)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -94,7 +96,7 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 
 		// Check if it is file volumes setups
 		if rwxAccessMode {
-			storageclass, pvclaim, err = createPVCAndStorageClass(client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 				namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -105,15 +107,15 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 
 			ginkgo.By("Expect claim to provision volume successfully")
 			pvclaims = append(pvclaims, pvclaim)
-			persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+			persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 			defer func() {
-				err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, volHandle)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}()
 

@@ -715,7 +715,7 @@ func startTopologyCRInformer(ctx context.Context, cfg *restclient.Config) error 
 	}
 	csiNodeTopologyInformer := dynInformer.Informer()
 	// TODO: Multi-VC: Use a RWLock to guard simultaneous updates to topologyVCMap
-	csiNodeTopologyInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err = csiNodeTopologyInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			topoCRAdded(obj)
 		},
@@ -726,6 +726,9 @@ func startTopologyCRInformer(ctx context.Context, cfg *restclient.Config) error 
 			topoCRDeleted(obj)
 		},
 	})
+	if err != nil {
+		return err
+	}
 	// Start informer.
 	go func() {
 		log.Infof("Informer to watch on %s CR starting..", csinodetopology.CRDSingular)
@@ -1594,7 +1597,7 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 		// pvcUpdated and pvUpdated. This helps avoid race condition between
 		// pvUpdated and pvcUpdated handlers when static PV and PVC is created
 		// almost at the same time using single YAML file.
-		err := wait.Poll(5*time.Second, time.Minute, func() (bool, error) {
+		err := wait.PollUntilContextTimeout(ctx, 5*time.Second, time.Minute, false, func(ctx context.Context) (bool, error) {
 			queryFilter := cnstypes.CnsQueryFilter{
 				VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeHandle}},
 			}

@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	cnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/config"
 	internalapiscnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/config"
@@ -225,8 +226,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	// Create a new operator to provide shared dependencies and start components
 	// Setting namespace to empty would let operator watch all namespaces.
 	mgr, err := manager.New(restConfig, manager.Options{
-		Namespace:          "",
-		MetricsBindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort),
+		Metrics: server.Options{BindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort)},
 	})
 	if err != nil {
 		log.Errorf("failed to create new Cns operator instance. Err: %+v", err)

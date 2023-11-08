@@ -120,7 +120,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 	backOffDuration = make(map[string]time.Duration)
-	src := &source.Kind{Type: &cnsv1alpha1.CnsVolumeMetadata{}}
+	src := source.Kind(mgr.GetCache(), &cnsv1alpha1.CnsVolumeMetadata{})
 	h := &handler.EnqueueRequestForObject{}
 	// Predicates are used to determine under which conditions
 	// the reconcile callback will be made for an instance.

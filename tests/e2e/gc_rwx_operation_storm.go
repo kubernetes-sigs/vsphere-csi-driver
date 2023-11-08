@@ -31,15 +31,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	admissionapi "k8s.io/pod-security-admission/api"
+	"k8s.io/pod-security-admission/api"
 )
 
 var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func() {
 	f := framework.NewDefaultFramework("rwx-tkg-operation-storm")
-	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = api.LevelPrivileged
 	var (
 		client            clientset.Interface
 		namespace         string
@@ -64,7 +65,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 		podArray = make([]*v1.Pod, volumeOpsScale)
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -114,7 +117,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		scParameters[svStorageClassName] = storagePolicyName
 
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -124,7 +127,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -135,9 +138,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 
 		defer func() {
 			if pvclaim != nil {
-				err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, pvclaim.Namespace)
+				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdIDInCNS)
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, fcdIDInCNS)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				//Add a check to validate CnsVolumeMetadata crd
@@ -175,13 +178,13 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod1)
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s",
@@ -196,7 +199,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		}()
 
 		//Add a check to validate CnsVolumeMetadata crd
-		err = waitAndVerifyCnsVolumeMetadata4GCVol(fcdIDInCNS, pvcNameInSV, pvclaim, persistentvolumes[0], pod)
+		err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, fcdIDInCNS, pvcNameInSV, pvclaim, persistentvolumes[0], pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod1")
@@ -206,14 +209,14 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		var pods []*v1.Pod
 		for i := 2; i <= volumeOpsScale; i++ {
 			ginkgo.By("Create Pods concurrently, without waiting them to be running here..")
 			executeCommand := "echo 'Hi' && while true ; do sleep 2 ; done"
-			newPod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, executeCommand)
+			newPod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, api.LevelBaseline, executeCommand)
 
 			newPod, err = client.CoreV1().Pods(namespace).Create(ctx, newPod, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -221,7 +224,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 			defer func() {
 				// Delete POD
 				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", newPod.Name, namespace))
-				err = fpod.DeletePodWithWait(client, newPod)
+				err = fpod.DeletePodWithWait(ctx, client, newPod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}()
 			pods = append(pods, newPod)
@@ -231,7 +234,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 			for _, deletePod := range pods {
 				// Delete POD
 				ginkgo.By(fmt.Sprintf("Deleting the pods %s in namespace %s", deletePod.Name, namespace))
-				err = fpod.DeletePodWithWait(client, deletePod)
+				err = fpod.DeletePodWithWait(ctx, client, deletePod)
 				if !apierrors.IsNotFound(err) {
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -246,7 +249,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 
 		for _, multipod := range pods {
 			ginkgo.By(fmt.Sprintf("Wait for pod %s to be up and running", multipod.Name))
-			err = fpod.WaitForPodNameRunningInNamespace(client, multipod.Name, namespace)
+			err = fpod.WaitForPodNameRunningInNamespace(ctx, client, multipod.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			tempPod, err := client.CoreV1().Pods(namespace).Get(ctx, multipod.Name, metav1.GetOptions{})
@@ -275,13 +278,13 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 			message := "Hello message from Pod" + strconv.Itoa(i+2)
 			cmd = []string{"exec", writepod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 				"echo '" + message + "'>> /mnt/volume1/Pod1.html"}
-			_, err = framework.RunKubectl(namespace, cmd...)
+			_, err = e2ekubectl.RunKubectl(namespace, cmd...)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output, err = framework.RunKubectl(namespace, cmd...)
+		output, err = e2ekubectl.RunKubectl(namespace, cmd...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Output from the Pod1.html is %s", output)
@@ -295,7 +298,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 
 		for _, multiPod := range pods {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", multiPod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, multiPod)
+			err = fpod.DeletePodWithWait(ctx, client, multiPod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s",
@@ -357,7 +360,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		ginkgo.By("Creating PVCs using the Storage Class")
 		for count := 0; count < volumeOpsScale; count++ {
 			framework.Logf("Creating PVC index %s", strconv.Itoa(count))
-			pvclaims[count], err = fpv.CreatePVC(client, namespace,
+			pvclaims[count], err = fpv.CreatePVC(ctx, client, namespace,
 				getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, v1.ReadWriteMany))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -366,7 +369,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 			for count := 0; count < volumeOpsScale; count++ {
 				if pvclaims[count].Name != "" {
 					framework.Logf("Inside Defer function now for PVC index %s", strconv.Itoa(count))
-					err = fpv.DeletePersistentVolumeClaim(client, pvclaims[count].Name, pvclaims[count].Namespace)
+					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[count].Name, pvclaims[count].Namespace)
 					if !apierrors.IsNotFound(err) {
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
@@ -376,7 +379,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 
 		for index, claim := range pvclaims {
 			framework.Logf("Waiting for all claims %s to be in bound state - PVC number %s", claim.Name, index)
-			pv, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{claim},
+			pv, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{claim},
 				framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			persistentvolumes[index] = pv[0]
@@ -421,7 +424,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		for podCount < volumeOpsScale {
 			ginkgo.By("Create Pods concurrently, without waiting them to be running here..")
 			executeCommand := "echo 'Hi' && while true ; do sleep 2 ; done"
-			newPod := fpod.MakePod(namespace, nil, pvclaims, false, executeCommand)
+			newPod := fpod.MakePod(namespace, nil, pvclaims, api.LevelBaseline, executeCommand)
 			newPod, err = client.CoreV1().Pods(namespace).Create(ctx, newPod, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			podArray[podCount] = newPod
@@ -433,7 +436,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 				// Delete POD
 				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podArray[index].Name,
 					podArray[index].Namespace))
-				err = fpod.DeletePodWithWait(client, podArray[index])
+				err = fpod.DeletePodWithWait(ctx, client, podArray[index])
 				if !apierrors.IsNotFound(err) {
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -442,7 +445,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 
 		for index := range podArray {
 			ginkgo.By("Wait for pod to be up and running")
-			err = fpod.WaitForPodNameRunningInNamespace(client, podArray[index].Name, podArray[index].Namespace)
+			err = fpod.WaitForPodNameRunningInNamespace(ctx, client, podArray[index].Name, podArray[index].Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			tempPod, err := client.CoreV1().Pods(namespace).Get(ctx, podArray[index].Name, metav1.GetOptions{})
@@ -471,7 +474,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 				volumePath := "'>> /mnt/volume" + strconv.Itoa(volIndex+1) + "/File.html"
 				cmd := []string{"exec", podArray[index].Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 					"echo '" + message + volumePath}
-				_, err = framework.RunKubectl(namespace, cmd...)
+				_, err = e2ekubectl.RunKubectl(namespace, cmd...)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -481,7 +484,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 			for volIndex := range pvclaims {
 				volumePath := "cat /mnt/volume" + strconv.Itoa(volIndex+1) + "/File.html"
 				cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", volumePath}
-				output, err := framework.RunKubectl(namespace, cmd...)
+				output, err := e2ekubectl.RunKubectl(namespace, cmd...)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				framework.Logf("Output from the File.html is %s", output)
 				gomega.Expect(strings.Contains(output, "Hello message from Pod")).NotTo(gomega.BeFalse())
@@ -497,7 +500,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 
 		for _, pod := range podArray {
 			framework.Logf("Checking if the pod %s is completely deleted or not", pod.Name)
-			err := fpod.WaitForPodNotFoundInNamespace(client, pod.Name, pod.Namespace, framework.ClaimProvisionTimeout)
+			err := fpod.WaitForPodNotFoundInNamespace(ctx, client, pod.Name, pod.Namespace, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 

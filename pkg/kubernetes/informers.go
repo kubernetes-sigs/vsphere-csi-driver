@@ -76,7 +76,7 @@ func NewInformer(ctx context.Context, client clientset.Interface, inClusterClnt 
 	if informerInstance == nil {
 		informerInstance = &InformerManager{
 			client:          client,
-			stopCh:          signals.SetupSignalHandler(),
+			stopCh:          signals.SetupSignalHandler().Done(),
 			informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
 		}
 
@@ -99,11 +99,14 @@ func (im *InformerManager) AddNodeListener(
 		im.nodeInformer = im.informerFactory.Core().V1().Nodes().Informer()
 	}
 
-	im.nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return
+	}
 }
 
 // AddCSINodeNodeListener hooks up add, update, delete callbacks.
@@ -113,11 +116,14 @@ func (im *InformerManager) AddCSINodeListener(
 		im.nodeInformer = im.informerFactory.Storage().V1().CSINodes().Informer()
 	}
 
-	im.nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return
+	}
 }
 
 // AddPVCListener hooks up add, update, delete callbacks.
@@ -128,11 +134,14 @@ func (im *InformerManager) AddPVCListener(
 	}
 	im.pvcSynced = im.pvcInformer.HasSynced
 
-	im.pvcInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.pvcInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return
+	}
 }
 
 // AddPVListener hooks up add, update, delete callbacks.
@@ -143,11 +152,14 @@ func (im *InformerManager) AddPVListener(
 	}
 	im.pvSynced = im.pvInformer.HasSynced
 
-	im.pvInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.pvInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return
+	}
 }
 
 // AddNamespaceListener hooks up add, update, delete callbacks.
@@ -158,11 +170,14 @@ func (im *InformerManager) AddNamespaceListener(
 	}
 	im.namespaceSynced = im.namespaceInformer.HasSynced
 
-	im.namespaceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.namespaceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return
+	}
 }
 
 // AddConfigMapListener hooks up add, update, delete callbacks.
@@ -175,11 +190,14 @@ func (im *InformerManager) AddConfigMapListener(
 	}
 	im.configMapSynced = im.configMapInformer.HasSynced
 
-	im.configMapInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.configMapInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return
+	}
 	stopCh := make(chan struct{})
 	// Since NewFilteredConfigMapInformer is not part of the informer factory,
 	// we need to invoke the Run() explicitly to start the shared informer.
@@ -194,11 +212,14 @@ func (im *InformerManager) AddPodListener(
 	}
 	im.podSynced = im.podInformer.HasSynced
 
-	im.podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return
+	}
 }
 
 // AddVolumeAttachmentListener hooks up add, update, delete callbacks.
@@ -208,11 +229,14 @@ func (im *InformerManager) AddVolumeAttachmentListener(
 		im.volumeAttachmentInformer = im.informerFactory.Storage().V1().VolumeAttachments().Informer()
 	}
 
-	im.volumeAttachmentInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := im.volumeAttachmentInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
 		UpdateFunc: update,
 		DeleteFunc: remove,
 	})
+	if err != nil {
+		return
+	}
 }
 
 // GetPVLister returns PV Lister for the calling informer manager.

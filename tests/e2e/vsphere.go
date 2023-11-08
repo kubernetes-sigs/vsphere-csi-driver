@@ -310,7 +310,7 @@ func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface,
 		}
 		return false, err
 	}
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, false, func(ctx context.Context) (bool, error) {
 		var vmUUID string
 		if vanillaCluster {
 			vmUUID = getNodeUUID(ctx, client, nodeName)
@@ -401,9 +401,9 @@ func (vs *vSphere) getLabelsForCNSVolume(volumeID string, entityType string,
 
 // waitForLabelsToBeUpdated executes QueryVolume API on vCenter and verifies
 // volume labels are updated by metadata-syncer
-func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[string]string,
+func (vs *vSphere) waitForLabelsToBeUpdated(ctx context.Context, volumeID string, matchLabels map[string]string,
 	entityType string, entityName string, entityNamespace string) error {
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, false, func(ctx context.Context) (bool, error) {
 		err := vs.verifyLabelsAreUpdated(volumeID, matchLabels, entityType, entityName, entityNamespace)
 		if err == nil {
 			return true, nil
@@ -412,7 +412,7 @@ func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[str
 		}
 	})
 	if err != nil {
-		if err == wait.ErrWaitTimeout {
+		if wait.Interrupted(err) {
 			return fmt.Errorf("labels are not updated to %+v for %s %q for volume %s",
 				matchLabels, entityType, entityName, volumeID)
 		}
@@ -424,9 +424,9 @@ func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[str
 
 // waitForMetadataToBeDeleted executes QueryVolume API on vCenter and verifies
 // volume metadata for given volume has been deleted
-func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string,
+func (vs *vSphere) waitForMetadataToBeDeleted(ctx context.Context, volumeID string, entityType string,
 	entityName string, entityNamespace string) error {
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, false, func(ctx context.Context) (bool, error) {
 		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 		framework.Logf("queryResult: %s", spew.Sdump(queryResult))
 		if err != nil {
@@ -449,7 +449,7 @@ func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string
 		return true, nil
 	})
 	if err != nil {
-		if err == wait.ErrWaitTimeout {
+		if wait.Interrupted(err) {
 			return fmt.Errorf("entityName %s of entityType %s is not deleted for volume %s",
 				entityName, entityType, volumeID)
 		}
@@ -461,8 +461,8 @@ func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string
 
 // waitForCNSVolumeToBeDeleted executes QueryVolume API on vCenter and verifies
 // volume entries are deleted from vCenter Database
-func (vs *vSphere) waitForCNSVolumeToBeDeleted(volumeID string) error {
-	err := wait.Poll(poll, 2*pollTimeout, func() (bool, error) {
+func (vs *vSphere) waitForCNSVolumeToBeDeleted(ctx context.Context, volumeID string) error {
+	err := wait.PollUntilContextTimeout(ctx, poll, 2*pollTimeout, false, func(ctx context.Context) (bool, error) {
 		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 		if err != nil {
 			return true, err
@@ -483,8 +483,8 @@ func (vs *vSphere) waitForCNSVolumeToBeDeleted(volumeID string) error {
 
 // waitForCNSVolumeToBeCreate executes QueryVolume API on vCenter and verifies
 // volume entries are created in vCenter Database
-func (vs *vSphere) waitForCNSVolumeToBeCreated(volumeID string) error {
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+func (vs *vSphere) waitForCNSVolumeToBeCreated(ctx context.Context, volumeID string) error {
+	err := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, false, func(ctx context.Context) (bool, error) {
 		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 		if err != nil {
 			return true, err
@@ -888,31 +888,32 @@ func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *v
 
 // queryCNSVolumeWithWait gets the cns volume health status
 func queryCNSVolumeWithWait(ctx context.Context, client clientset.Interface, volHandle string) error {
-	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
-		framework.Logf("wait for next poll %v", pollTimeoutShort)
+	waitErr := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pollTimeout,
+		false, func(ctx context.Context) (bool, error) {
+			framework.Logf("wait for next poll %v", pollTimeoutShort)
 
-		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
-		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
-		gomega.Expect(len(queryResult.Volumes)).NotTo(gomega.BeZero())
-		if err != nil {
-			return false, nil
-		}
-		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
-		for _, vol := range queryResult.Volumes {
-			if vol.HealthStatus == healthRed {
-				framework.Logf("Volume health status: %v", vol.HealthStatus)
-				return true, nil
+			ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+			queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+			gomega.Expect(len(queryResult.Volumes)).NotTo(gomega.BeZero())
+			if err != nil {
+				return false, nil
 			}
-		}
-		return false, nil
-	})
+			ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
+			for _, vol := range queryResult.Volumes {
+				if vol.HealthStatus == healthRed {
+					framework.Logf("Volume health status: %v", vol.HealthStatus)
+					return true, nil
+				}
+			}
+			return false, nil
+		})
 	return waitErr
 }
 
 // waitForHostConnectionState gets the connection state of the host and waits till the desired state is obtained
 func waitForHostConnectionState(ctx context.Context, addr string, state string) error {
 	var output string
-	waitErr := wait.Poll(poll, pollTimeout, func() (bool, error) {
+	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, false, func(ctx context.Context) (bool, error) {
 
 		output, err := getHostConnectionState(ctx, addr)
 		if err != nil {

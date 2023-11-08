@@ -19,6 +19,7 @@ package storagepool
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -403,12 +404,16 @@ func ExponentialBackoff(task func() (bool, error), baseDuration, maxBackoffDurat
 	multiplier float64, retries int) (done bool, err error) {
 	jitter := 0.3
 	backoffResetDuration := maxBackoffDuration * 3
-	expBackoffManager := wait.NewExponentialBackoffManager(baseDuration, maxBackoffDuration,
-		backoffResetDuration, multiplier, jitter, &clock.RealClock{})
-
-	var timer clock.Timer
+	delayFn := wait.Backoff{
+		Duration: baseDuration,
+		Cap:      maxBackoffDuration,
+		Steps:    math.MaxInt32,
+		Factor:   multiplier,
+		Jitter:   jitter,
+	}.DelayWithReset(&clock.RealClock{}, backoffResetDuration)
+	var timer wait.Timer
 	for i := 0; i < retries; i++ {
-		timer = expBackoffManager.Backoff()
+		timer = delayFn.Timer(&clock.RealClock{})
 		done, err = func() (bool, error) {
 			defer runtime.HandleCrash()
 			done, err := task()

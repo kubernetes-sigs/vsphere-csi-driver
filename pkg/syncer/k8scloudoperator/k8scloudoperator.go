@@ -136,7 +136,7 @@ func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Con
 	// Use vmUuidNotFoundError to set to false for all error paths except
 	// vm-uuid annotation not found on the pod
 	vmUuidNotFoundError := true
-	err = wait.Poll(pollTime, timeout, func() (bool, error) {
+	err = wait.PollUntilContextTimeout(ctx, pollTime, timeout, false, func(ctx context.Context) (bool, error) {
 		var pod *v1.Pod
 		// Retrieve the pod name and namespace only if they are non-empty.
 		// If they are already pre-populated, use them to get the pod

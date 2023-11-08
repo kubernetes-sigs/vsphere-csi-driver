@@ -730,38 +730,40 @@ func verifyPvcPodCreationAfterConfigSecretChange(client clientset.Interface, nam
 	storageclass *storagev1.StorageClass) (*v1.Pod, *v1.PersistentVolumeClaim,
 	*v1.PersistentVolume) {
 	ginkgo.By("Creating PVC")
-	pvclaim, err := createPVC(client, namespace, nil, "", storageclass, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pvclaim, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	var pvclaims []*v1.PersistentVolumeClaim
 	pvclaims = append(pvclaims, pvclaim)
 	ginkgo.By("Waiting for all claims to be in bound state")
-	pvs, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+	pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 	pv := pvs[0]
 
 	ginkgo.By("Creating pod")
-	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+	pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Verify volume metadata for POD, PVC and PV")
-	err = waitAndVerifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaim, pv, pod)
+	err = waitAndVerifyCnsVolumeMetadata(ctx, pv.Spec.CSI.VolumeHandle, pvclaim, pv, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return pod, pvclaim, pv
 }
 
 /*performCleanUpOfPvcPod util method is used to perform cleanup of pods, pvc after testcase execution*/
-func performCleanUpOfPvcPod(client clientset.Interface, namespace string, pod *v1.Pod,
+func performCleanUpOfPvcPod(ctx context.Context, client clientset.Interface, namespace string, pod *v1.Pod,
 	pvclaim *v1.PersistentVolumeClaim, pv *v1.PersistentVolume) {
 	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-	err := fpod.DeletePodWithWait(client, pod)
+	err := fpod.DeletePodWithWait(ctx, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+	err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By("Verify PVs, volumes are deleted from CNS")
-	err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+	err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, pv.Spec.CSI.VolumeHandle)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 

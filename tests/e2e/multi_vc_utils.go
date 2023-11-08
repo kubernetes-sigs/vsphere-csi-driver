@@ -54,7 +54,7 @@ import (
 createCustomisedStatefulSets util methods creates statefulset as per the user's
 specific requirement and returns the customised statefulset
 */
-func createCustomisedStatefulSets(client clientset.Interface, namespace string,
+func createCustomisedStatefulSets(ctx context.Context, client clientset.Interface, namespace string,
 	isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
 	allowedTopologies []v1.TopologySelectorLabelRequirement, allowedTopologyLen int,
 	podAntiAffinityToSet bool, modifyStsSpec bool, stsName string,
@@ -111,9 +111,9 @@ func createCustomisedStatefulSets(client clientset.Interface, namespace string,
 	CreateStatefulSet(namespace, statefulset, client)
 
 	framework.Logf("Wait for StatefulSet pods to be in up and running state")
-	fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-	gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-	ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+	gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -152,10 +152,10 @@ func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interfa
 	for i := range ssList.Items {
 		ss := &ssList.Items[i]
 		var err error
-		if ss, err = scaleStatefulSetPods(c, ss, 0); err != nil {
+		if ss, err = scaleStatefulSetPods(ctx, c, ss, 0); err != nil {
 			errList = append(errList, fmt.Sprintf("%v", err))
 		}
-		fss.WaitForStatusReplicas(c, ss, 0)
+		fss.WaitForStatusReplicas(ctx, c, ss, 0)
 		framework.Logf("Deleting statefulset %v", ss.Name)
 		if err := c.AppsV1().StatefulSets(ss.Namespace).Delete(context.TODO(), ss.Name,
 			metav1.DeleteOptions{OrphanDependents: new(bool)}); err != nil {
@@ -163,46 +163,48 @@ func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interfa
 		}
 	}
 	pvNames := sets.NewString()
-	pvcPollErr := wait.PollImmediate(StatefulSetPoll, StatefulSetTimeout, func() (bool, error) {
-		pvcList, err := c.CoreV1().PersistentVolumeClaims(ns).List(context.TODO(),
-			metav1.ListOptions{LabelSelector: labels.Everything().String()})
-		if err != nil {
-			framework.Logf("WARNING: Failed to list pvcs, retrying %v", err)
-			return false, nil
-		}
-		for _, pvc := range pvcList.Items {
-			pvNames.Insert(pvc.Spec.VolumeName)
-			framework.Logf("Deleting pvc: %v with volume %v", pvc.Name, pvc.Spec.VolumeName)
-			if err := c.CoreV1().PersistentVolumeClaims(ns).Delete(context.TODO(), pvc.Name,
-				metav1.DeleteOptions{}); err != nil {
+	pvcPollErr := wait.PollUntilContextTimeout(ctx, StatefulSetPoll, StatefulSetTimeout,
+		true, func(ctx context.Context) (bool, error) {
+			pvcList, err := c.CoreV1().PersistentVolumeClaims(ns).List(context.TODO(),
+				metav1.ListOptions{LabelSelector: labels.Everything().String()})
+			if err != nil {
+				framework.Logf("WARNING: Failed to list pvcs, retrying %v", err)
 				return false, nil
 			}
-		}
-		return true, nil
-	})
+			for _, pvc := range pvcList.Items {
+				pvNames.Insert(pvc.Spec.VolumeName)
+				framework.Logf("Deleting pvc: %v with volume %v", pvc.Name, pvc.Spec.VolumeName)
+				if err := c.CoreV1().PersistentVolumeClaims(ns).Delete(context.TODO(), pvc.Name,
+					metav1.DeleteOptions{}); err != nil {
+					return false, nil
+				}
+			}
+			return true, nil
+		})
 	if pvcPollErr != nil {
 		errList = append(errList, "Timeout waiting for pvc deletion.")
 	}
 
-	pollErr := wait.PollImmediate(StatefulSetPoll, StatefulSetTimeout, func() (bool, error) {
-		pvList, err := c.CoreV1().PersistentVolumes().List(context.TODO(),
-			metav1.ListOptions{LabelSelector: labels.Everything().String()})
-		if err != nil {
-			framework.Logf("WARNING: Failed to list pvs, retrying %v", err)
-			return false, nil
-		}
-		waitingFor := []string{}
-		for _, pv := range pvList.Items {
-			if pvNames.Has(pv.Name) {
-				waitingFor = append(waitingFor, fmt.Sprintf("%v: %+v", pv.Name, pv.Status))
+	pollErr := wait.PollUntilContextTimeout(ctx, StatefulSetPoll, StatefulSetTimeout,
+		true, func(ctx context.Context) (bool, error) {
+			pvList, err := c.CoreV1().PersistentVolumes().List(context.TODO(),
+				metav1.ListOptions{LabelSelector: labels.Everything().String()})
+			if err != nil {
+				framework.Logf("WARNING: Failed to list pvs, retrying %v", err)
+				return false, nil
 			}
-		}
-		if len(waitingFor) == 0 {
-			return true, nil
-		}
-		framework.Logf("Still waiting for pvs of statefulset to disappear:\n%v", strings.Join(waitingFor, "\n"))
-		return false, nil
-	})
+			waitingFor := []string{}
+			for _, pv := range pvList.Items {
+				if pvNames.Has(pv.Name) {
+					waitingFor = append(waitingFor, fmt.Sprintf("%v: %+v", pv.Name, pv.Status))
+				}
+			}
+			if len(waitingFor) == 0 {
+				return true, nil
+			}
+			framework.Logf("Still waiting for pvs of statefulset to disappear:\n%v", strings.Join(waitingFor, "\n"))
+			return false, nil
+		})
 	if pollErr != nil {
 		errList = append(errList, "Timeout waiting for pv provisioner to delete pvs, this might mean the test leaked pvs.")
 
@@ -382,7 +384,7 @@ func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 	service := CreateService(namespace, client)
 
 	framework.Logf("Create StatefulSet")
-	statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
+	statefulset := createCustomisedStatefulSets(ctx, client, namespace, parallelPodPolicy,
 		replicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet, modifyStsSpec,
 		"", "", nil)
 
@@ -826,7 +828,8 @@ func readVsphereConfSecret(client clientset.Interface, ctx context.Context,
 /*
 setNewNameSpaceInCsiYaml util installs the csi yaml in new namespace
 */
-func setNewNameSpaceInCsiYaml(client clientset.Interface, sshClientConfig *ssh.ClientConfig, originalNS string,
+func setNewNameSpaceInCsiYaml(ctx context.Context, client clientset.Interface,
+	sshClientConfig *ssh.ClientConfig, originalNS string,
 	newNS string, allMasterIps []string) error {
 
 	var controlIp string
@@ -870,13 +873,13 @@ func setNewNameSpaceInCsiYaml(client clientset.Interface, sshClientConfig *ssh.C
 	}
 
 	// Wait for the CSI Pods to be up and Running
-	list_of_pods, err := fpod.GetPodsInNamespace(client, newNS, ignoreLabels)
+	list_of_pods, err := fpod.GetPodsInNamespace(ctx, client, newNS, ignoreLabels)
 	if err != nil {
 		return err
 	}
 	num_csi_pods := len(list_of_pods)
-	err = fpod.WaitForPodsRunningReady(client, newNS, int32(num_csi_pods), 0,
-		pollTimeout, ignoreLabels)
+	err = fpod.WaitForPodsRunningReady(ctx, client, newNS, int32(num_csi_pods), 0,
+		pollTimeout)
 	if err != nil {
 		return err
 	}

@@ -109,10 +109,12 @@ func newResizeReconciler(
 	// FileSystemResizePending is not removed from SV PVC  when syncer is down
 	// and FileSystemResizePending was removed from a TKG PVC.
 	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/591
-	pvcInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
+	_, err := pvcInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
 		UpdateFunc: rc.updatePVC,
 	}, resyncPeriod)
-
+	if err != nil {
+		return nil, err
+	}
 	informerFactory.Start(stopCh)
 	if !cache.WaitForCacheSync(stopCh, rc.pvcSynced, rc.pvSynced) {
 		return nil, fmt.Errorf("cannot sync pv/pvc caches")

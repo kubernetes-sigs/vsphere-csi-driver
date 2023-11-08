@@ -12,6 +12,7 @@ import (
 	crConfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
+	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -56,23 +57,27 @@ func startCNSCSIWebhookManager(ctx context.Context) {
 	metricsBindAddress := getMetricsBindAddress()
 	log.Infof("setting up webhook manager with webhookPort %v and metricsBindAddress %v",
 		webhookPort, metricsBindAddress)
+
+	// we should not allow TLS < 1.2
 	mgr, err := manager.New(crConfig.GetConfigOrDie(), manager.Options{
-		MetricsBindAddress: metricsBindAddress,
-		Port:               webhookPort})
+		Metrics: metricsServer.Options{BindAddress: metricsBindAddress},
+		WebhookServer: webhook.NewServer(webhook.Options{Port: webhookPort,
+			TLSOpts: []func(*tls.Config){
+				func(t *tls.Config) {
+					// we should not allow TLS < 1.2
+					t.MinVersion = tls.VersionTLS12
+					// CipherSuites allows us to specify TLS 1.2 cipher suites that have been recommended by the Security team
+					t.CipherSuites = []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+						tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384}
+				},
+			}}),
+	})
 	if err != nil {
 		log.Fatal(err, "unable to set up overall controller manager")
 	}
 
 	log.Infof("registering validating webhook with the endpoint %v", ValidationWebhookPath)
-	// we should not allow TLS < 1.2
-	mgr.GetWebhookServer().TLSMinVersion = WebhookTlsMinVersion
-	// CipherSuites allows us to specify TLS 1.2 cipher suites that have been recommended by the Security team
-	mgr.GetWebhookServer().TLSOpts = []func(*tls.Config){
-		func(t *tls.Config) {
-			t.CipherSuites = []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384}
-		},
-	}
+
 	mgr.GetWebhookServer().Register(ValidationWebhookPath, &webhook.Admission{Handler: &CSISupervisorWebhook{
 		Client:       mgr.GetClient(),
 		clientConfig: mgr.GetConfig(),

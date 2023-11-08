@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -44,7 +45,8 @@ var _ = ginkgo.Describe("Create GC", func() {
 	*/
 
 	ginkgo.It("[vmc] Create GC using devops user", func() {
-
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		tkgImageName := os.Getenv(envTKGImage)
 		if tkgImageName == "" {
 			ginkgo.Skip(fmt.Sprintf("Env %v is missing", envTKGImage))
@@ -59,7 +61,7 @@ var _ = ginkgo.Describe("Create GC", func() {
 		ginkgo.By("Creating Guest Cluster with Devops User")
 		createGC(vmcWcpHost, wcpToken, tkgImageName, devopsTKG)
 		ginkgo.By("Validate the Guest Cluster is up and running")
-		err := getGC(vmcWcpHost, wcpToken, devopsTKG)
+		err := getGC(ctx, vmcWcpHost, wcpToken, devopsTKG)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -73,7 +75,8 @@ var _ = ginkgo.Describe("Create GC", func() {
 	*/
 
 	ginkgo.It("[vmc] Create GC using cloudadmin user", func() {
-
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		tkgImageName := os.Getenv(envTKGImage)
 		if tkgImageName == "" {
 			ginkgo.Skip(fmt.Sprintf("Env %v is missing", envTKGImage))
@@ -88,7 +91,7 @@ var _ = ginkgo.Describe("Create GC", func() {
 		ginkgo.By("Creating Guest Cluster with cloudadmin User")
 		createGC(vmcWcpHost, wcpToken, tkgImageName, cloudadminTKG)
 		ginkgo.By("Validate the Guest Cluster is up and running")
-		err := getGC(vmcWcpHost, wcpToken, cloudadminTKG)
+		err := getGC(ctx, vmcWcpHost, wcpToken, cloudadminTKG)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})

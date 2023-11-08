@@ -65,10 +65,10 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		var cancel context.CancelFunc
+		bootstrap()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		bootstrap()
-		nodeList, err = fnodes.GetReadySchedulableNodes(f.ClientSet)
+		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(client, namespace)
+		fss.DeleteAllStatefulSets(ctx, client, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 		if !apierrors.IsNotFound(err) {
@@ -193,7 +193,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		wg.Wait()
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		ginkgo.By("Waiting for StatefulSets Pods to be in Ready State")
@@ -217,7 +217,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off in zone3")
 			for i := 0; i < len(powerOffHostsList); i++ {
-				powerOnEsxiHostByCluster(powerOffHostsList[i])
+				powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 			}
 		}()
 
@@ -228,9 +228,9 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods = fss.GetPodList(client, statefulSets[1])
+		ssPods = fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPods.Items {
-			err := fpod.WaitForPodRunningInNamespace(client, &pod)
+			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -256,7 +256,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		// Bring up all esxi hosts which were powered off in zone3
 		ginkgo.By("Bring up all ESXi host which were powered off in zone3")
 		for i := 0; i < len(powerOffHostsList); i++ {
-			powerOnEsxiHostByCluster(powerOffHostsList[i])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 		}
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
@@ -266,9 +266,9 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods = fss.GetPodList(client, statefulSets[1])
+		ssPods = fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPods.Items {
-			err := fpod.WaitForPodRunningInNamespace(client, &pod)
+			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -281,7 +281,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off in zone2")
 			for i := 0; i < len(powerOffHostsList); i++ {
-				powerOnEsxiHostByCluster(powerOffHostsList[i])
+				powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 			}
 		}()
 
@@ -321,7 +321,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		// Bring up all ESXi host which were powered off in zone2
 		ginkgo.By("Bring up all ESXi host which were powered off in zone2")
 		for i := 0; i < len(powerOffHostsList); i++ {
-			powerOnEsxiHostByCluster(powerOffHostsList[i])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 		}
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
@@ -331,15 +331,15 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods = fss.GetPodList(client, statefulSets[1])
+		ssPods = fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPods.Items {
-			err := fpod.WaitForPodRunningInNamespace(client, &pod)
+			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulSets[1])
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -369,14 +369,14 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, volumeHandle)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
 						"kubernetes", volumeHandle))
@@ -462,7 +462,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		defer func() {
 			ginkgo.By("Bring up all ESXi host which were powered off in zone2")
 			for i := 0; i < len(powerOffHostsList); i++ {
-				powerOnEsxiHostByCluster(powerOffHostsList[i])
+				powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 			}
 			nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -516,7 +516,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 				is running */
 				ginkgo.By("Kill container CSI-Provisioner on the master node where elected leader " +
 					"is running")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, containerName, k8sVersion)
+				err = execDockerPauseNKillOnContainer(ctx, sshClientConfig, k8sMasterIP, containerName, k8sVersion)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -525,7 +525,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 		// Bring up all ESXi host which were powered off in zone2
 		ginkgo.By("Bring up all ESXi host which were powered off in zone2")
 		for i := 0; i < len(powerOffHostsList); i++ {
-			powerOnEsxiHostByCluster(powerOffHostsList[i])
+			powerOnEsxiHostByCluster(ctx, powerOffHostsList[i])
 		}
 		nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -597,9 +597,9 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods = fss.GetPodList(client, statefulSets[1])
+		ssPods = fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPods.Items {
-			err := fpod.WaitForPodRunningInNamespace(client, &pod)
+			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -617,7 +617,7 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 			if i == 2 {
 				/* Kill csi-attacher container */
 				ginkgo.By("Kill csi-attacher container")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, containerName, k8sVersion)
+				err = execDockerPauseNKillOnContainer(ctx, sshClientConfig, k8sMasterIP, containerName, k8sVersion)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -668,14 +668,14 @@ var _ = ginkgo.Describe("[csi-topology-operation-strom-level5] "+
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, volumeHandle)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
 						"kubernetes", volumeHandle))

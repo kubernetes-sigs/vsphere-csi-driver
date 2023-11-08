@@ -155,18 +155,23 @@ func NewVolumeHealthReconciler(
 		},
 	}
 
-	svcPVCInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
+	_, err := svcPVCInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
 		AddFunc:    rc.svcAddPVC,
 		UpdateFunc: rc.svcUpdatePVC,
 		DeleteFunc: rc.svcAddPVC,
 	}, resyncPeriod)
+	if err != nil {
+		return nil, err
+	}
 
-	tkgPVInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
+	_, err = tkgPVInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
 		AddFunc:    nil,
 		UpdateFunc: rc.tkgUpdatePV,
 		DeleteFunc: rc.tkgDeletePV,
 	}, resyncPeriod)
-
+	if err != nil {
+		return nil, fmt.Errorf("cannot sync tkg pv cache")
+	}
 	ctx, log := logger.GetNewContextWithLogger()
 
 	// Start TKG Informers.

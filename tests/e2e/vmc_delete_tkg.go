@@ -49,7 +49,9 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		svcClient, svNamespace = getSvcClientAndNamespace()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		if !(len(nodeList.Items) > 0) {
@@ -106,7 +108,7 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 
 		ginkgo.By("Creating namespace on GC2")
-		ns, err := framework.CreateTestingNS(f.BaseName, clientNewGc, map[string]string{
+		ns, err := framework.CreateTestingNS(ctx, f.BaseName, clientNewGc, map[string]string{
 			"e2e-framework": f.BaseName,
 		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on GC2")
@@ -131,14 +133,14 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 		storageclass, err := createStorageClass(clientNewGc, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pvclaim, err := createPVC(clientNewGc, namespaceNewGC, nil, "", storageclass, "")
+		pvclaim, err := createPVC(ctx, clientNewGc, namespaceNewGC, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Waiting for PVC to be bound.
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvclaim)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(clientNewGc, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, clientNewGc, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pv := persistentvolumes[0]
 		volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -157,12 +159,12 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 		}()
 
 		ginkgo.By("Creating a pod in GC2")
-		newPod, err := createPod(clientNewGc, namespaceNewGC, nil, pvclaims, false, execCommand)
+		newPod, err := createPod(ctx, clientNewGc, namespaceNewGC, nil, pvclaims, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			if !deleteGC {
-				err = fpod.DeletePodWithWait(clientNewGc, newPod)
+				err = fpod.DeletePodWithWait(ctx, clientNewGc, newPod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify volume is detached from the node")
 				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(clientNewGc,
@@ -190,7 +192,7 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 			wcpToken = getWCPSessionId(vmcWcpHost, e2eVSphere.Config.Global.VmcCloudUser,
 				e2eVSphere.Config.Global.VmcCloudPassword)
 		}
-		err = deleteTKG(vmcWcpHost, wcpToken, tkg_cluster)
+		err = deleteTKG(ctx, vmcWcpHost, wcpToken, tkg_cluster)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		deleteGC = true
 
@@ -199,7 +201,7 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		ginkgo.By("Creating namespace on GC1")
-		ns, err = framework.CreateTestingNS(f.BaseName, client, map[string]string{
+		ns, err = framework.CreateTestingNS(ctx, f.BaseName, client, map[string]string{
 			"e2e-framework": f.BaseName,
 		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on GC1")
@@ -228,25 +230,25 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind.
-		framework.ExpectNoError(fpv.WaitOnPVandPVC(client,
-			framework.NewTimeoutContextWithDefaults(), gcNamespace, pvNew, pvcNew))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(ctx, client,
+			framework.NewTimeoutContext(), gcNamespace, pvNew, pvcNew))
 
 		defer func() {
 			err = client.CoreV1().PersistentVolumeClaims(gcNamespace).Delete(ctx,
 				pvcNew.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvNew.Spec.CSI.VolumeHandle)
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, pvNew.Spec.CSI.VolumeHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		// Create a new Pod to use this PVC, and verify volume has been attached.
 		ginkgo.By("Creating a pod in GC1 with PVC created in GC1")
-		pod, err := createPod(client, gcNamespace, nil, []*v1.PersistentVolumeClaim{pvcNew}, false, execCommand)
+		pod, err := createPod(ctx, client, gcNamespace, nil, []*v1.PersistentVolumeClaim{pvcNew}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Verify volume is detached from the node")
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,

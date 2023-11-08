@@ -2,6 +2,7 @@ package admissionhandler
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"os"
 	"strconv"
@@ -11,9 +12,9 @@ import (
 	crConfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
+	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -55,16 +56,21 @@ func startPVCSIWebhookManager(ctx context.Context) {
 	metricsBindAddress := getPVCSIMetricsBindAddress()
 	log.Infof("setting up webhook manager with webhookPort %v and metricsBindAddress %v",
 		webhookPort, metricsBindAddress)
+
+	// we should not allow TLS < 1.2
 	mgr, err := manager.New(crConfig.GetConfigOrDie(), manager.Options{
-		MetricsBindAddress: metricsBindAddress,
-		Port:               webhookPort})
+		Metrics: metricsServer.Options{BindAddress: metricsBindAddress},
+		WebhookServer: webhook.NewServer(webhook.Options{Port: webhookPort,
+			TLSOpts: []func(*tls.Config){
+				func(t *tls.Config) {
+					t.MinVersion = tls.VersionTLS12
+				},
+			}}),
+	})
 	if err != nil {
 		log.Fatal(err, "unable to set up overall controller manager")
 	}
-
 	log.Infof("registering validating webhook with the endpoint %v", PVCSIValidationWebhookPath)
-	// we should not allow TLS < 1.2
-	mgr.GetWebhookServer().TLSMinVersion = PVCSIWebhookTlsMinVersion
 	mgr.GetWebhookServer().Register(PVCSIValidationWebhookPath, &webhook.Admission{Handler: &CSIGuestWebhook{
 		Client:       mgr.GetClient(),
 		clientConfig: mgr.GetConfig(),

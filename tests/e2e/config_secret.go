@@ -72,7 +72,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -198,7 +198,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod1, pvclaim1, pv1)
 		}()
 
 		ginkgo.By("Create vsphere-config-secret file with testuser2 credentials")
@@ -225,7 +225,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod2, pvclaim2, pv2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod2, pvclaim2, pv2)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod2, pvclaim2, pv2)
 		}()
 	})
 
@@ -299,7 +299,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod1, pvclaim1, pv1)
 		}()
 
 		ginkgo.By("Change password for testuser1")
@@ -307,16 +307,16 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Try to create a PVC and verify it gets bound successfully")
-		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim2, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		var pvclaims2 []*v1.PersistentVolumeClaim
 		pvclaims2 = append(pvclaims2, pvclaim2)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims2, framework.ClaimProvisionTimeout)
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims2, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Deleting the PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -333,16 +333,16 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		}
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		pvclaim3, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim3, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
 			pvclaim3.Namespace, pvclaim3.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
 			ginkgo.By("Deleting the PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim3.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim3.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -372,17 +372,17 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		time.Sleep(pollTimeout)
 
 		ginkgo.By("Check csi controller pods running state")
-		list_of_pods, err := fpod.GetPodsInNamespace(client, csiNamespace, ignoreLabels)
+		list_of_pods, err := fpod.GetPodsInNamespace(ctx, client, csiNamespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i := 0; i < len(list_of_pods); i++ {
-			err = fpod.WaitTimeoutForPodRunningInNamespace(client, list_of_pods[i].Name, csiNamespace, pollTimeout)
+			err = fpod.WaitTimeoutForPodRunningInNamespace(ctx, client, list_of_pods[i].Name, csiNamespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod4, pvclaim4, pv4 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod4, pvclaim4, pv4)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod4, pvclaim4, pv4)
 		}()
 
 		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
@@ -454,7 +454,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod1, pvclaim1, pv1)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret with testuser2 credentials")
@@ -481,7 +481,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod2, pvclaim2, pv2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod2, pvclaim2, pv2)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod2, pvclaim2, pv2)
 		}()
 	})
 
@@ -552,7 +552,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod1, pvclaim1, pv1)
 		}()
 
 		ginkgo.By("Fetch vcenter hotsname")
@@ -571,7 +571,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod2, pvclaim2, pv2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod2, pvclaim2, pv2)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod2, pvclaim2, pv2)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret to use vcenter IP")
@@ -598,7 +598,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod3, pvclaim3, pv3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod3, pvclaim3, pv3)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod3, pvclaim3, pv3)
 		}()
 	})
 
@@ -668,7 +668,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod1, pvclaim1, pv1)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret with dummy user credentials")
@@ -688,16 +688,16 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		}
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim2, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
 			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
 			ginkgo.By("Deleting the PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -725,7 +725,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod3, pvclaim3, pv3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod3, pvclaim3, pv3)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod3, pvclaim3, pv3)
 		}()
 	})
 
@@ -796,7 +796,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod1, pvclaim1, pv1)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret with testuser2 credentials")
@@ -809,16 +809,16 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim2, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
 			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
 			ginkgo.By("Deleting the PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -846,7 +846,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod3, pvclaim3, pvs3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod3, pvclaim3, pvs3)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod3, pvclaim3, pvs3)
 		}()
 
 		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
@@ -927,16 +927,16 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		}()
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		pvclaim1, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim1, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
 			pvclaim1.Namespace, pvclaim1.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
 			ginkgo.By("Deleting the PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim1.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -953,7 +953,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod2, pvclaim2, pvs2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod2, pvclaim2, pvs2)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod2, pvclaim2, pvs2)
 		}()
 
 		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
@@ -1031,7 +1031,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod1, pvclaim1, pv1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pv1)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod1, pvclaim1, pv1)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret with dummy datacenter details")
@@ -1045,16 +1045,16 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim2, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
 			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
 			ginkgo.By("Deleting the PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -1082,7 +1082,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod3, pvclaim3, pv3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod3, pvclaim3, pv3)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod3, pvclaim3, pv3)
 		}()
 
 		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
@@ -1161,7 +1161,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod1, pvclaim1, pvs1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pvs1)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod1, pvclaim1, pvs1)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials and pass target datastore url")
@@ -1188,7 +1188,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod2, pvclaim2, pvs2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod2, pvclaim2, pvs2)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod2, pvclaim2, pvs2)
 		}()
 	})
 
@@ -1254,10 +1254,10 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		}()
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		pvclaim1, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim1, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
 			pvclaim1.Namespace, pvclaim1.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
@@ -1265,7 +1265,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		pvclaims1 = append(pvclaims1, pvclaim1)
 		defer func() {
 			ginkgo.By("Deleting the PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim1.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -1293,26 +1293,26 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod2, pvclaim2, pvs2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod2, pvclaim2, pvs2)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod2, pvclaim2, pvs2)
 		}()
 
 		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
-		pvs1, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims1, framework.ClaimProvisionTimeout)
+		pvs1, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims1, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs1).NotTo(gomega.BeEmpty())
 		pv1 := pvs1[0]
 
 		ginkgo.By("Creating pod")
-		pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
+		pod1, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod1.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod1)
+			err = fpod.DeletePodWithWait(ctx, client, pod1)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(pv1.Spec.CSI.VolumeHandle, pvclaim1, pv1, pod1)
+		err = waitAndVerifyCnsVolumeMetadata(ctx, pv1.Spec.CSI.VolumeHandle, pvclaim1, pv1, pod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -1384,7 +1384,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod1, pvclaim1, pvs1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pvs1)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod1, pvclaim1, pvs1)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret file with dummy vcenter port")
@@ -1397,16 +1397,16 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		pvclaim2, err := createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim2, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimPending, client,
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
 			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
 			ginkgo.By("Deleting the PVC")
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -1434,7 +1434,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Verify we can create a PVC and attach it to pod")
 		pod3, pvclaim3, pvs3 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
 		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod3, pvclaim3, pvs3)
+			performCleanUpOfPvcPod(ctx, client, namespace, pod3, pvclaim3, pvs3)
 		}()
 
 		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")

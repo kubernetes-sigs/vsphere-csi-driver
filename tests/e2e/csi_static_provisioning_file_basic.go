@@ -32,6 +32,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 
@@ -63,7 +64,9 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		bootstrap()
 		client = f.ClientSet
 		namespace = f.Namespace.Name
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -71,8 +74,6 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 
 		var datacenters []string
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		finder := find.NewFinder(e2eVSphere.Client.Client, false)
 		cfg, err := getConfig()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -157,7 +158,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 			v1.PersistentVolumeReclaimDelete, staticPVLabels, v1.ReadOnlyMany)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)
+		err = e2eVSphere.waitForCNSVolumeToBeCreated(ctx, pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating the PVC")
@@ -166,33 +167,33 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind.
-		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv, pvc))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(ctx, client, framework.NewTimeoutContext(), namespace, pv, pvc))
 
 		defer func() {
 			ginkgo.By("Deleting the PV Claim")
-			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace),
+			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace),
 				"Failed to delete PVC", pvc.Name)
 			ginkgo.By("Verify PV should be deleted automatically")
-			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
+			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort))
 
 			ginkgo.By("Verify fileshare volume got deleted")
-			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(fileShareVolumeID))
+			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, fileShareVolumeID))
 		}()
 
 		ginkgo.By("Creating the Pod")
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvc)
-		pod, err := createPod(client, namespace, nil, pvclaims, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, pvclaims, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			ginkgo.By("Deleting the Pod")
-			framework.ExpectNoError(fpod.DeletePodWithWait(client, pod), "Failed to delete pod", pod.Name)
+			framework.ExpectNoError(fpod.DeletePodWithWait(ctx, client, pod), "Failed to delete pod", pod.Name)
 		}()
 
 		ginkgo.By("Verify the volume is accessible and available to the pod by creating an empty file")
 		filepath := filepath.Join("/mnt/volume1", "/emptyFile.txt")
-		_, err = framework.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/touch", filepath}, "", time.Minute)
+		_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/touch", filepath}, "", time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
@@ -272,21 +273,21 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 
 		defer func() {
 			ginkgo.By("Delete PV")
-			framework.ExpectNoError(fpv.DeletePersistentVolume(client, pvSpec.Name))
-			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pvSpec.Name, poll, pollTimeoutShort))
+			framework.ExpectNoError(fpv.DeletePersistentVolume(ctx, client, pvSpec.Name))
+			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pvSpec.Name, poll, pollTimeoutShort))
 
 			ginkgo.By("Verify fileshare volume got deleted")
-			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(fileShareVolumeID))
+			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, fileShareVolumeID))
 		}()
 
-		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)
+		err = e2eVSphere.waitForCNSVolumeToBeCreated(ctx, pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting PV-1")
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pvSpec.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating PV-2")
@@ -295,21 +296,21 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 
 		defer func() {
 			ginkgo.By("Delete PV")
-			framework.ExpectNoError(fpv.DeletePersistentVolume(client, pvSpec.Name))
-			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pvSpec.Name, poll, pollTimeoutShort))
+			framework.ExpectNoError(fpv.DeletePersistentVolume(ctx, client, pvSpec.Name))
+			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pvSpec.Name, poll, pollTimeoutShort))
 
 			ginkgo.By("Verify fileshare volume got deleted")
-			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(fileShareVolumeID))
+			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, fileShareVolumeID))
 		}()
 
-		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv2.Spec.CSI.VolumeHandle)
+		err = e2eVSphere.waitForCNSVolumeToBeCreated(ctx, pv2.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting PV-2")
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pvSpec.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv2.Spec.CSI.VolumeHandle)
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(ctx, pv2.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })

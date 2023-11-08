@@ -49,7 +49,8 @@ var _ = ginkgo.Describe("Scale Test", func() {
 		namespace = getNamespaceToRunTests(f)
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -73,14 +74,14 @@ var _ = ginkgo.Describe("Scale Test", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
+			deleteResourceQuota(ctx, client, namespace)
 		}
 
 		for _, pvc := range pvclaims {
 			pvclaimToDelete, err := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(
 				ctx, pvc.Name, metav1.GetOptions{})
 			if err == nil {
-				err := fpv.DeletePersistentVolumeClaim(client, pvclaimToDelete.Name, pvclaimToDelete.Namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimToDelete.Name, pvclaimToDelete.Namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -143,7 +144,7 @@ var _ = ginkgo.Describe("Scale Test", func() {
 		var wg sync.WaitGroup
 		lock := &sync.Mutex{}
 		wg.Add(1)
-		go scaleCreatePVC(client, namespace, nil, "", storageclass, "", &wg)
+		go scaleCreatePVC(ctx, client, namespace, nil, "", storageclass, "", &wg)
 		wg.Wait()
 
 		// create and delete PVC

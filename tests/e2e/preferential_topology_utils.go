@@ -248,7 +248,7 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 	if parallelStatefulSetCreation {
 		ssPodsBeforeScaleDown = GetListOfPodsInSts(client, statefulset)
 	} else {
-		ssPodsBeforeScaleDown = fss.GetPodList(client, statefulset)
+		ssPodsBeforeScaleDown = fss.GetPodList(ctx, client, statefulset)
 	}
 	stsPodCount = len(ssPodsBeforeScaleDown.Items)
 	if !isMultiVcSetup {
@@ -624,7 +624,7 @@ func powerOffPreferredDatastore(ctx context.Context, vs *vSphere, opName string,
 			dsName = dsInfo["vmName"]
 			err := datatoreOperations(tbinfo.user, tbinfo.location, tbinfo.podname, dsName, opName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitForHostToBeDown(dsInfo["ip"])
+			err = waitForHostToBeDown(ctx, dsInfo["ip"])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			break
 		}
@@ -636,12 +636,12 @@ func powerOffPreferredDatastore(ctx context.Context, vs *vSphere, opName string,
 powerOnPreferredDatastore method is used to put preferred datastore in power on or
 accessible state
 */
-func powerOnPreferredDatastore(datastoreToPowerOn string, opName string) {
+func powerOnPreferredDatastore(ctx context.Context, datastoreToPowerOn string, opName string) {
 	err := datatoreOperations(tbinfo.user, tbinfo.location, tbinfo.podname, datastoreToPowerOn, opName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for _, dsInfo := range tbinfo.datastores {
 		if strings.Contains(dsInfo["vmName"], datastoreToPowerOn) {
-			err = waitForHostToBeUp(dsInfo["ip"])
+			err = waitForHostToBeUp(ctx, dsInfo["ip"])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			break
 		}
