@@ -295,3 +295,42 @@ func GetVolumeManagerFromVCHost(ctx context.Context, managers *common.Managers, 
 	}
 	return volumeMgr, nil
 }
+
+// getCandidateDSInTopologyForFileVolumes returns a list of accessible file service
+// enabled datastores for requested topology.
+func getCandidateDSInTopologyForFileVolumes(ctx context.Context,
+	topologyArr []*csi.Topology, vcenter *vsphere.VirtualCenter) ([]*vsphere.DatastoreInfo,
+	error) {
+	log := logger.GetLogger(ctx)
+
+	var candidateDatastores []*vsphere.DatastoreInfo
+	// A topology requirement is an array of topology segments.
+	for _, topology := range topologyArr {
+		segments := topology.GetSegments()
+		hostMoRefs, err := common.GetHostsForSegment(ctx, segments, vcenter)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to fetch hosts belonging to topology %+v. Error: %+v", topologyArr, err)
+		}
+		accessibleDatastoresForHosts, err := vsphere.GetAllAccessibleDatastoresForHosts(ctx, hostMoRefs)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to get shared datastores for hosts: %+v "+
+				"in topology segment %+v. Error: %+v", hostMoRefs, segments, err)
+		}
+		// Add the datastore list to sharedDatastores without duplicates.
+		for _, candidateDS := range accessibleDatastoresForHosts {
+			var found bool
+			for _, ds := range candidateDatastores {
+				if ds.Info.Url == candidateDS.Info.Url {
+					found = true
+					break
+				}
+			}
+			if !found {
+				candidateDatastores = append(candidateDatastores, candidateDS)
+			}
+		}
+	}
+	log.Infof("Obtained candidate datastores: %+v", candidateDatastores)
+	return candidateDatastores, nil
+}

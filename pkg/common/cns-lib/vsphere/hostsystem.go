@@ -219,3 +219,41 @@ func GetSharedDatastoresForHosts(ctx context.Context, hosts []*HostSystem) ([]*D
 	}
 	return sharedDatastores, nil
 }
+
+// GetAllAccessibleDatastoresForHosts returns datastores accessible to hosts mentioned in the input parameter.
+func GetAllAccessibleDatastoresForHosts(ctx context.Context, hosts []*HostSystem) ([]*DatastoreInfo, error) {
+	log := logger.GetLogger(ctx)
+	var allAccessibleDatastores []*DatastoreInfo
+
+	for _, host := range hosts {
+		accessibleDatastores, err := host.GetAllAccessibleDatastores(ctx)
+		if err != nil {
+			log.Warnf("failed to fetch datastores from host %+v. Error: %+v",
+				host, err)
+			continue
+		}
+		if len(accessibleDatastores) == 0 {
+			return nil, logger.LogNewErrorf(log, "failed to find accessible datastores for host %+v.",
+				host)
+		} else {
+			// Add the accessibleDatastores list to allAccessibleDatastores without duplicates.
+			for _, candidateDS := range accessibleDatastores {
+				var found bool
+				for _, ds := range allAccessibleDatastores {
+					if ds.Info.Url == candidateDS.Info.Url {
+						found = true
+						break
+					}
+				}
+				if !found {
+					allAccessibleDatastores = append(allAccessibleDatastores, candidateDS)
+				}
+			}
+		}
+	}
+	if len(allAccessibleDatastores) == 0 {
+		return nil, logger.LogNewErrorf(log, "failed to find accessible datastores for hosts %+v.",
+			hosts)
+	}
+	return allAccessibleDatastores, nil
+}
