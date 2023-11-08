@@ -125,6 +125,8 @@ const (
 	evacMModeType                             = "evacuateAllData"
 	fcdName                                   = "BasicStaticFCD"
 	fileSizeInMb                              = int64(2048)
+	filePathPod1                              = "/mnt/volume1/Pod1.html"
+	filePathFsType                            = "/mnt/volume1/fstype"
 	fullSyncFss                               = "trigger-csi-fullsync"
 	gcNodeUser                                = "vmware-system-user"
 	gcKubeConfigPath                          = "GC_KUBE_CONFIG"
@@ -302,6 +304,7 @@ var (
 	rwxAccessMode        bool
 	wcpVsanDirectCluster bool
 	vcptocsi             bool
+	windowsEnv           bool
 )
 
 // For busybox pod image
@@ -384,6 +387,22 @@ var (
 	deletionPolicy     = "Delete"
 )
 
+// windows env variables
+var (
+	envWindowsUser    = "WINDOWS_USER"
+	envWindowsPwd     = "WINDOWS_PWD"
+	invalidNtfsFSType = "NtFs1"
+	ntfsFSType        = "NTFS"
+	windowsImageOnMcr = "servercore"
+	windowsExecCmd    = "while (1) " +
+		" { Add-Content -Encoding Ascii /mnt/volume1/fstype.txt $([System.IO.DriveInfo]::getdrives() " +
+		"| Where-Object {$_.DriveType -match 'Fixed'} | Select-Object -Property DriveFormat); sleep 1 }"
+	windowsExecRWXCommandPod = "while (1) " +
+		" { Add-Content /mnt/volume1/Pod.html 'Hello message from Pod'; sleep 1 }"
+	windowsExecRWXCommandPod1 = "while (1) " +
+		" { Add-Content /mnt/volume1/Pod1.html 'Hello message from Pod1'; sleep 1 }"
+)
+
 // GetAndExpectStringEnvVar parses a string from env variable.
 func GetAndExpectStringEnvVar(varName string) string {
 	varValue := os.Getenv(varName)
@@ -428,5 +447,10 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	mode := os.Getenv("VCPTOCSI")
 	if strings.TrimSpace(string(mode)) == "1" {
 		vcptocsi = true
+	}
+	//Check if its windows env
+	workerNode := os.Getenv("WORKER_TYPE")
+	if strings.TrimSpace(string(workerNode)) == "WINDOWS" {
+		windowsEnv = true
 	}
 }

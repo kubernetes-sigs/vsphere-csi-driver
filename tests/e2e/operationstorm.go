@@ -22,7 +22,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -34,7 +33,6 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
-	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 )
@@ -198,9 +196,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		for index := range persistentvolumes {
 			// Verify Volumes are accessible by creating an empty file on the volume
 			filepath := filepath.Join("/mnt/", fmt.Sprintf("volume%v", index+1), "/emptyFile.txt")
-			_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name,
-				[]string{"/bin/touch", filepath}, "", time.Minute)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			createEmptyFilesOnVSphereVolume(namespace, pod.Name, []string{filepath})
 		}
 
 		ginkgo.By("Deleting pod")

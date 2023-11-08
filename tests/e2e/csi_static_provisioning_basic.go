@@ -345,8 +345,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		ginkgo.By("Verify the volume is accessible and available to the pod by creating an empty file")
 		filepath := filepath.Join("/mnt/volume1", "/emptyFile.txt")
-		_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name, []string{"/bin/touch", filepath}, "", time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		createEmptyFilesOnVSphereVolume(namespace, pod.Name, []string{filepath})
 
 		ginkgo.By("Verify container volume metadata is present in CNS cache")
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolume with VolumeID: %s", pv.Spec.CSI.VolumeHandle))
