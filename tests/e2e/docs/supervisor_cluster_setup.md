@@ -128,7 +128,7 @@ datacenters should be comma separated if deployed on multi-datacenters
 
 ## Requirements
 
-Go version: 1.20
+Go version: 1.21
 
 Export the go binary in your PATH to run end-to-end tests
 
