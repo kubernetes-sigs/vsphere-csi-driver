@@ -35,6 +35,7 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 // createTestUser util method is used for creating test users
@@ -726,22 +727,22 @@ func getHostName(hostIp string) string {
 verifyPvcPodCreationAfterConfigSecretChange util method verifies pvc creation and pod creation
 after updating vsphere config secret with different testusers
 */
-func verifyPvcPodCreationAfterConfigSecretChange(client clientset.Interface, namespace string,
+func verifyPvcPodCreationAfterConfigSecretChange(ctx context.Context, client clientset.Interface, namespace string,
 	storageclass *storagev1.StorageClass) (*v1.Pod, *v1.PersistentVolumeClaim,
 	*v1.PersistentVolume) {
 	ginkgo.By("Creating PVC")
-	pvclaim, err := createPVC(client, namespace, nil, "", storageclass, "")
+	pvclaim, err := CreatePVC(ctx, client, namespace, nil, "", storageclass, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	var pvclaims []*v1.PersistentVolumeClaim
 	pvclaims = append(pvclaims, pvclaim)
 	ginkgo.By("Waiting for all claims to be in bound state")
-	pvs, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+	pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 	pv := pvs[0]
 
 	ginkgo.By("Creating pod")
-	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+	pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, admissionapi.LevelBaseline, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Verify volume metadata for POD, PVC and PV")
@@ -752,13 +753,13 @@ func verifyPvcPodCreationAfterConfigSecretChange(client clientset.Interface, nam
 }
 
 /*performCleanUpOfPvcPod util method is used to perform cleanup of pods, pvc after testcase execution*/
-func performCleanUpOfPvcPod(client clientset.Interface, namespace string, pod *v1.Pod,
+func performCleanUpOfPvcPod(ctx context.Context, client clientset.Interface, namespace string, pod *v1.Pod,
 	pvclaim *v1.PersistentVolumeClaim, pv *v1.PersistentVolume) {
 	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-	err := fpod.DeletePodWithWait(client, pod)
+	err := fpod.DeletePodWithWait(ctx, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+	err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By("Verify PVs, volumes are deleted from CNS")
 	err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)

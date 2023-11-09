@@ -51,15 +51,15 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		bootstrap()
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		scParameters = make(map[string]string)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
@@ -118,7 +118,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 
 		ginkgo.By("Creating a PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclasspvc1, pvclaim1, err = createPVCAndStorageClass(client,
+		storageclasspvc1, pvclaim1, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -129,14 +129,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes1, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes1, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim1}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 		volHandle1 := persistentvolumes1[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle1).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, pvclaim1.Namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim1.Name, pvclaim1.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle1)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -167,7 +167,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 
 		ginkgo.By("Creating Second PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclasspvc2, pvclaim2, err = createPVCAndStorageClass(client,
+		storageclasspvc2, pvclaim2, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -178,14 +178,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision Second volume")
 		volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, pvclaim2.Namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, pvclaim2.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

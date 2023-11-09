@@ -46,7 +46,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 		storagePolicyName =
 			GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -98,7 +100,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 		ginkgo.By("Creating PVCs using the Storage Class")
 		for count := 0; count < 2; count++ {
 			framework.Logf("Creating PVC index %s", strconv.Itoa(count))
-			pvclaims[count], err = fpv.CreatePVC(client, namespace,
+			pvclaims[count], err = fpv.CreatePVC(ctx, client, namespace,
 				getPersistentVolumeClaimSpecWithStorageClass(namespace, defaultrqLimit, storageclass, nil, v1.ReadWriteMany))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -107,7 +109,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 			for count := 0; count < 2; count++ {
 				if pvclaims[count].Name != "" {
 					framework.Logf("Inside Defer function now for PVC index %s", strconv.Itoa(count))
-					err = fpv.DeletePersistentVolumeClaim(client, pvclaims[count].Name, pvclaims[count].Namespace)
+					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[count].Name, pvclaims[count].Namespace)
 					if !apierrors.IsNotFound(err) {
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
@@ -116,12 +118,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 		}()
 
 		framework.Logf("Waiting for claims %s to be in bound state", pvclaims[0].Name)
-		_, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaims[0]},
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaims[0]},
 			healthStatusWaitTime)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		framework.Logf("Waiting for claims %s to be in bound state", pvclaims[1].Name)
-		_, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaims[1]},
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaims[1]},
 			healthStatusWaitTime)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 	})

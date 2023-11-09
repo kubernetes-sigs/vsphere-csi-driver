@@ -59,7 +59,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, rqLimit)
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -71,7 +73,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 		defer cancel()
 		if !isSTSDeleted {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}
 
 		if !isServiceDeleted {
@@ -143,21 +145,21 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 			v1.ReadWriteMany
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &scName
-		CreateStatefulSet(namespace, statefulset, client)
+		CreateStatefulSet(ctx, namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 
 		defer func() {
 			if !isSTSDeleted {
 				ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-				fss.DeleteAllStatefulSets(client, namespace)
+				fss.DeleteAllStatefulSets(ctx, client, namespace)
 				isSTSDeleted = true
 			}
 		}()
 
 		// Waiting for pods status to be Ready.
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaledown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaledown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaledown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaledown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -232,10 +234,10 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas-1))
-		_, scaledownErr := fss.Scale(client, statefulset, replicas-1)
+		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas-1)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas-1)
-		ssPodsAfterScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas-1)
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas-1)).To(gomega.BeTrue(),
@@ -307,12 +309,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 
 		replicas += 2
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
-		_, scaleupErr := fss.Scale(client, statefulset, replicas)
+		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
-		ssPodsAfterScaleUp := fss.GetPodList(client, statefulset)
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -321,7 +323,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 		// After scale up, verify all vSphere volumes are attached to node VMs.
 		ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
 		for _, sspod := range ssPodsAfterScaleUp.Items {
-			err := fpod.WaitTimeoutForPodReadyInNamespace(client, sspod.Name, statefulset.Namespace, pollTimeout)
+			err := fpod.WaitTimeoutForPodReadyInNamespace(ctx, client, sspod.Name, statefulset.Namespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -347,15 +349,15 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 
 		replicas = 0
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
-		_, scaledownErr = fss.Scale(client, statefulset, replicas)
+		_, scaledownErr = fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		ssPodsAfterScaleDown = fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		ssPodsAfterScaleDown = fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(client, namespace)
+		fss.DeleteAllStatefulSets(ctx, client, namespace)
 		isSTSDeleted = true
 
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
@@ -439,21 +441,21 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 			v1.ReadWriteMany
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &scName
-		CreateStatefulSet(namespace, statefulset, client)
+		CreateStatefulSet(ctx, namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 
 		defer func() {
 			if !isSTSDeleted {
 				ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-				fss.DeleteAllStatefulSets(client, namespace)
+				fss.DeleteAllStatefulSets(ctx, client, namespace)
 				isSTSDeleted = true
 			}
 		}()
 
 		// Waiting for pods status to be Ready.
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaledown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaledown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaledown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaledown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -528,10 +530,10 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas-1))
-		_, scaledownErr := fss.Scale(client, statefulset, replicas-1)
+		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas-1)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas-1)
-		ssPodsAfterScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas-1)
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas-1)).To(gomega.BeTrue(),
@@ -602,12 +604,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 
 		replicas += 2
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
-		_, scaleupErr := fss.Scale(client, statefulset, replicas)
+		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
-		ssPodsAfterScaleUp := fss.GetPodList(client, statefulset)
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -616,7 +618,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 		// After scale up, verify all vSphere volumes are attached to node VMs.
 		ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
 		for _, sspod := range ssPodsAfterScaleUp.Items {
-			err := fpod.WaitTimeoutForPodReadyInNamespace(client, sspod.Name, statefulset.Namespace, pollTimeout)
+			err := fpod.WaitTimeoutForPodReadyInNamespace(ctx, client, sspod.Name, statefulset.Namespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -642,15 +644,15 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 
 		replicas = 0
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
-		_, scaledownErr = fss.Scale(client, statefulset, replicas)
+		_, scaledownErr = fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		ssPodsAfterScaleDown = fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		ssPodsAfterScaleDown = fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(client, namespace)
+		fss.DeleteAllStatefulSets(ctx, client, namespace)
 		isSTSDeleted = true
 
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))

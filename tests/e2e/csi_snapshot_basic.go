@@ -77,9 +77,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		bootstrap()
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		scParameters = make(map[string]string)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -212,7 +214,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle = persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -220,7 +222,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -295,7 +297,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Create storage class and PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -307,13 +309,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -455,7 +457,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Create storage class and PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -466,13 +468,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -598,7 +600,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Create storage class and PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -609,13 +611,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -683,7 +685,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ns, err := framework.CreateTestingNS(f.BaseName, client, nil)
+		ns, err := framework.CreateTestingNS(ctx, f.BaseName, client, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Creating volume snapshot content by snapshotHandle %s", snapshothandle))
@@ -781,7 +783,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Create storage class and PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -792,13 +794,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -929,7 +931,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Create storage class and PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -940,13 +942,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1057,17 +1059,17 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
 
-		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		persistentvolume2, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim2},
+		persistentvolume2, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim2},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle2 := persistentvolume2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1076,17 +1078,17 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvcSpec2 := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, volumeSnapshot2.Name, snapshotapigroup)
 
-		pvclaim3, err := fpv.CreatePVC(client, namespace, pvcSpec2)
+		pvclaim3, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		persistentvolume3, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim3},
+		persistentvolume3, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim3},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle3 := persistentvolume3[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle3).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim3.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim3.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle3)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1094,14 +1096,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false,
-			execRWXCommandPod1)
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2},
+			admissionapi.LevelBaseline, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -1119,14 +1121,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim3}, false,
+		pod2, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim3}, admissionapi.LevelBaseline,
 			execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod2)
+			err = fpod.DeletePodWithWait(ctx, client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -1276,7 +1278,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "", diskSize, storageclass, true)
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "", diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -1290,7 +1292,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1305,14 +1307,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false,
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, admissionapi.LevelBaseline,
 			execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -1385,7 +1387,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1394,14 +1396,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Creating a pod to attach restored PV on the same node where earlier pod is running")
 		nodeSelector := make(map[string]string)
 		nodeSelector["kubernetes.io/hostname"] = nodeName
-		pod2, err := createPod(client, namespace, nodeSelector, []*v1.PersistentVolumeClaim{pvclaim2}, false,
+		pod2, err := createPod(ctx, client, namespace, nodeSelector, []*v1.PersistentVolumeClaim{pvclaim2}, admissionapi.LevelBaseline,
 			execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod2)
+			err = fpod.DeletePodWithWait(ctx, client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -1479,7 +1481,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -1488,7 +1490,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1555,7 +1557,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1599,7 +1601,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		var svcVolumeSnapshotName, staticSnapshotId string
 
 		ginkgo.By("Creating new namespace for the test")
-		namespace1, err := framework.CreateTestingNS(f.BaseName, client, nil)
+		namespace1, err := framework.CreateTestingNS(ctx, f.BaseName, client, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		newNamespaceName := namespace1.Name
 		isNamespaceDeleted := false
@@ -1644,7 +1646,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, newNamespaceName, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, newNamespaceName, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -1654,7 +1656,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		defer func() {
 			if !isNamespaceDeleted {
-				err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, newNamespaceName)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, newNamespaceName)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1746,7 +1748,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		ginkgo.By("Creating another new namespace for the test")
-		namespace2, err := framework.CreateTestingNS(f.BaseName, client, nil)
+		namespace2, err := framework.CreateTestingNS(ctx, f.BaseName, client, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		f.AddNamespacesToDelete(namespace2)
 		namespace2Name := namespace2.Name
@@ -1813,10 +1815,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace2Name, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, volumeSnapshot2.Name, snapshotapigroup)
 
-		pvclaim2, err := fpv.CreatePVC(client, namespace2Name, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(ctx, client, namespace2Name, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
@@ -1824,7 +1826,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		/*defer func() {
 			framework.Logf("Deleting restored PVC")
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace2Name)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace2Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1894,7 +1896,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -1903,7 +1905,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1981,7 +1983,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -1990,7 +1992,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2090,7 +2092,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -2098,7 +2100,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2140,24 +2142,24 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Create PVC using the higher size")
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, defaultrqLimit, storageclass, nil,
 			v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
-		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expecting the volume bound to fail")
-		_, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim2},
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim2},
 			framework.ClaimProvisionShortTimeout)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		pvc2Deleted := false
 		defer func() {
 			if !pvc2Deleted {
 				ginkgo.By("Delete the PVC in defer func")
-				err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
 		ginkgo.By("Delete the PVC-2")
-		err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvc2Deleted = true
 
@@ -2166,7 +2168,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			pvcList := getAllPVCFromNamespace(svcClient, svcNamespace)
 			for _, pvc := range pvcList.Items {
 				if pvc.Status.Phase == v1.ClaimPending {
-					framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(svcClient, pvc.Name, svcNamespace),
+					framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(ctx, svcClient, pvc.Name, svcNamespace),
 						"Failed to delete PVC", pvc.Name)
 				}
 			}
@@ -2234,17 +2236,17 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &scName
 		*statefulset.Spec.Replicas = 2
-		CreateStatefulSet(namespace, statefulset, client)
+		CreateStatefulSet(ctx, namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		// Waiting for pods status to be Ready
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -2413,10 +2415,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas-1))
-		_, scaledownErr := fss.Scale(client, statefulset, replicas-1)
+		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas-1)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas-1)
-		ssPodsAfterScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas-1)
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas-1)).To(gomega.BeTrue(),
@@ -2449,7 +2451,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		err = fpv.DeletePersistentVolumeClaim(client, pvcToDelete.Name, namespace)
+		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvcToDelete.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
@@ -2459,11 +2461,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvcSpec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "1Gi", sc, nil, v1.ReadWriteOnce)
 
 		pvcSpec.Name = pvcToDelete.Name
-		pvclaim3, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		pvclaim3, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expecting the volume to bound")
-		newPV, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim3},
+		newPV, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim3},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2472,11 +2474,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		replicas += 1
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
-		_, scaleupErr := fss.Scale(client, statefulset, replicas)
+		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		time.Sleep(5 * time.Minute)
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
 		ginkgo.By("Delete volume snapshot 1 and verify the snapshot content is deleted")
 		err = snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx,
@@ -2568,7 +2570,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentvolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentvolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -2577,9 +2579,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = fpv.DeletePersistentVolume(client, persistentvolumes[0].Name)
+			err = fpv.DeletePersistentVolume(ctx, client, persistentvolumes[0].Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2619,7 +2621,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Delete PVC before deleting the snapshot")
-		err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Get PV and check the PV is still not deleted")
@@ -2632,7 +2634,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete PV")
-		err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
@@ -2677,7 +2679,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "", diskSize, storageclass, true)
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "", diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -2685,7 +2687,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2771,7 +2773,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Create storage class and PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2782,13 +2784,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2885,10 +2887,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, "static-vs-cns", snapshotapigroup)
 
-		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		_, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim2},
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim2},
 			framework.ClaimProvisionShortTimeout)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
@@ -2900,7 +2902,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			fmt.Sprintf("Expected pvc creation failure with error message: %s", expectedErrMsg))
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 	})
@@ -2930,7 +2932,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Create storage class and PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2941,13 +2943,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3028,17 +3030,17 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, "static-vs-cns", snapshotapigroup)
 
-		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3093,7 +3095,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "", diskSize, storageclass, true)
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "", diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -3101,7 +3103,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3112,7 +3114,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Creating a Deployment using pvc1")
 		dep, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace,
-			[]*v1.PersistentVolumeClaim{pvclaim}, execRWXCommandPod1, false, busyBoxImageOnGcr)
+			[]*v1.PersistentVolumeClaim{pvclaim}, execRWXCommandPod1, admissionapi.LevelBaseline, busyBoxImageOnGcr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete Deployment")
@@ -3121,10 +3123,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Wait for deployment pods to be up and running")
-		pods, err := fdep.GetPodsForDeployment(client, dep)
+		pods, err := fdep.GetPodsForDeployment(ctx, client, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pod := pods.Items[0]
-		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+		err = fpod.WaitForPodNameRunningInNamespace(ctx, client, pod.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create volume snapshot class")
@@ -3162,10 +3164,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Create a PVC using the snapshot created above")
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
-		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		persistentvolume2, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim2},
+		persistentvolume2, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim2},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle2 := persistentvolume2[0].Spec.CSI.VolumeHandle
@@ -3174,7 +3176,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			volHandle2 = getVolumeIDFromSupervisorCluster(volHandle2)
 		}
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3185,7 +3187,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Creating a new deployment from the restored pvc")
 		dep2, err := createDeployment(ctx, client, 1, labelsMap2, nil, namespace,
-			[]*v1.PersistentVolumeClaim{pvclaim2}, "", false, busyBoxImageOnGcr)
+			[]*v1.PersistentVolumeClaim{pvclaim2}, "", admissionapi.LevelBaseline, busyBoxImageOnGcr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete Deployment-2")
@@ -3194,10 +3196,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Wait for deployment pods to be up and running")
-		pods2, err := fdep.GetPodsForDeployment(client, dep2)
+		pods2, err := fdep.GetPodsForDeployment(ctx, client, dep2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pod2 := pods2.Items[0]
-		err = fpod.WaitForPodNameRunningInNamespace(client, pod2.Name, namespace)
+		err = fpod.WaitForPodNameRunningInNamespace(ctx, client, pod2.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
@@ -3240,7 +3242,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -3249,7 +3251,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if volHandle != "" {
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
@@ -3416,7 +3418,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "", diskSize, storageclass, true)
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "", diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -3424,7 +3426,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if volHandle != "" {
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
@@ -3433,14 +3435,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
-			false, execRWXCommandPod1)
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
+			admissionapi.LevelBaseline, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -3626,7 +3628,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Create storage class and PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -3637,13 +3639,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3727,17 +3729,17 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, snapshot1.Name, snapshotapigroup)
 
-		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3797,19 +3799,19 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			framework.Logf("Creating pvc%v", i)
 			accessMode := v1.ReadWriteOnce
 
-			pvclaim, err = createPVC(client, namespace, nil, "", storageclass, accessMode)
+			pvclaim, err = CreatePVC(ctx, client, namespace, nil, "", storageclass, accessMode)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaims = append(pvclaims, pvclaim)
 		}
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		defer func() {
 			for _, claim := range pvclaims {
-				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -3819,7 +3821,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Creating a Deployment using pvc1")
 
 		dep, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace,
-			pvclaims, execRWXCommandPod1, false, busyBoxImageOnGcr)
+			pvclaims, execRWXCommandPod1, admissionapi.LevelBaseline, busyBoxImageOnGcr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -3829,10 +3831,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Wait for deployment pods to be up and running")
-		pods, err := fdep.GetPodsForDeployment(client, dep)
+		pods, err := fdep.GetPodsForDeployment(ctx, client, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pod := pods.Items[0]
-		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+		err = fpod.WaitForPodNameRunningInNamespace(ctx, client, pod.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create volume snapshot class")
@@ -3858,7 +3860,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defer func() {
 			ginkgo.By("Rebooting VC")
 			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-			err = invokeVCenterReboot(vcAddress)
+			err = invokeVCenterReboot(ctx, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3877,7 +3879,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Rebooting VC")
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		err = invokeVCenterReboot(vcAddress)
+		err = invokeVCenterReboot(ctx, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3925,12 +3927,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		for _, snapshot := range volumesnapshots {
 			pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 				v1.ReadWriteOnce, snapshot.Name, snapshotapigroup)
-			pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+			pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			restoredpvclaims = append(restoredpvclaims, pvclaim2)
 
-			persistentvolume2, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim2},
+			persistentvolume2, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim2},
 				framework.ClaimProvisionTimeout*2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			volHandle2 := persistentvolume2[0].Spec.CSI.VolumeHandle
@@ -3939,13 +3941,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		defer func() {
 			for _, restoredpvc := range restoredpvclaims {
-				err := fpv.DeletePersistentVolumeClaim(client, restoredpvc.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, restoredpvc.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
 		ginkgo.By("Rebooting VC")
-		err = invokeVCenterReboot(vcAddress)
+		err = invokeVCenterReboot(ctx, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3959,7 +3961,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		labelsMap2["app2"] = "test2"
 
 		dep2, err := createDeployment(ctx, client, 1, labelsMap2, nil, namespace,
-			restoredpvclaims, "", false, busyBoxImageOnGcr)
+			restoredpvclaims, "", admissionapi.LevelBaseline, busyBoxImageOnGcr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -3969,10 +3971,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Wait for deployment pods to be up and running")
-		pods2, err := fdep.GetPodsForDeployment(client, dep2)
+		pods2, err := fdep.GetPodsForDeployment(ctx, client, dep2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pod2 := pods2.Items[0]
-		err = fpod.WaitForPodNameRunningInNamespace(client, pod2.Name, namespace)
+		err = fpod.WaitForPodNameRunningInNamespace(ctx, client, pod2.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
@@ -4007,7 +4009,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Create storage class and PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -4018,13 +4020,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, (2 * framework.ClaimProvisionTimeout))
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, (2 * framework.ClaimProvisionTimeout))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4095,7 +4097,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		originalPassword := vsphereCfg.Global.Password
 		newPassword := e2eTestPassword
 		ginkgo.By(fmt.Sprintf("Original password %s, new password %s", originalPassword, newPassword))
-		err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, newPassword, vcAddress,
+		err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, newPassword, vcAddress,
 			false, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVCPasswordChanged := true
@@ -4103,7 +4105,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defer func() {
 			if originalVCPasswordChanged {
 				ginkgo.By("Reverting the password change")
-				err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, originalPassword,
+				err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, originalPassword,
 					vcAddress, false, clientIndex)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
@@ -4180,7 +4182,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Reverting the password change")
-		err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, originalPassword, vcAddress, false, clientIndex)
+		err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, originalPassword, vcAddress, false, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVCPasswordChanged = false
 
@@ -4196,17 +4198,17 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, snapshot1.Name, snapshotapigroup)
 
-		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4259,7 +4261,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -4269,7 +4271,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		defer func() {
 			ginkgo.By("In defer function, deleting PVC")
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4363,8 +4365,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 					ginkgo.By("Delete elected leader CSi-Controller-Pod where csi-snapshotter is running")
 					err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, snapshotterContainerName)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					err = fpod.WaitForPodsRunningReady(c, csiSystemNamespace, int32(csipods.Size()),
-						0, pollTimeoutShort*2, nil)
+					err = fpod.WaitForPodsRunningReady(ctx, c, csiSystemNamespace, int32(csipods.Size()),
+						0, pollTimeoutShort*2)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				} else if guestCluster {
 					err = execStopContainerOnGc(sshWcpConfig, svcMasterIp,
@@ -4426,7 +4428,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 				v1.ReadWriteOnce, volumeSnapshotNames[i], snapshotapigroup)
 
-			pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+			pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			if i == 1 {
@@ -4437,8 +4439,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 					ginkgo.By("Delete elected leader CSi-Controller-Pod where csi-snapshotter is running")
 					err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, snapshotterContainerName)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					err = fpod.WaitForPodsRunningReady(c, csiSystemNamespace, int32(csipods.Size()),
-						0, pollTimeoutShort*2, nil)
+					err = fpod.WaitForPodsRunningReady(ctx, c, csiSystemNamespace, int32(csipods.Size()),
+						0, pollTimeoutShort*2)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				} else if guestCluster {
 					err = execStopContainerOnGc(sshWcpConfig, svcMasterIp,
@@ -4448,14 +4450,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			}
 
 			framework.Logf("Waiting for PVCs to come to bound state")
-			persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
+			persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 				[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
 			gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
 			ginkgo.By("Deleting PVC2")
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4499,7 +4501,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Create storage class and PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -4511,13 +4513,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Expect claim to provision volume successfully")
 		pvclaims = append(pvclaims, pvclaim)
 
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4679,17 +4681,17 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, snapshotNames[0], snapshotapigroup)
 
-		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4729,7 +4731,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -4737,19 +4739,19 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
-			false, execRWXCommandPod1)
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
+			admissionapi.LevelBaseline, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -4975,12 +4977,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		framework.Logf("VOLUME_OPS_SCALE is set to %v", volumeOpsScale)
 		for i := 0; i < volumeOpsScale; i++ {
 			framework.Logf("Creating pvc%v", i)
-			pvclaims[i], err = createPVC(client, namespace, nil, "", storageclass, v1.ReadWriteOnce)
+			pvclaims[i], err = CreatePVC(ctx, client, namespace, nil, "", storageclass, v1.ReadWriteOnce)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims,
+		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims,
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -5012,12 +5014,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 				v1.ReadWriteOnce, volumesnapshots[0].Name, snapshotapigroup)
 
-			pvclaims2[i], err = fpv.CreatePVC(client, namespace, pvcSpec)
+			pvclaims2[i], err = fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		ginkgo.By("Wait for the PVC to be bound")
-		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims2, framework.ClaimProvisionTimeout)
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims2, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		for i := 0; i < volumeOpsScale; i++ {
@@ -5031,12 +5033,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		// TODO: Add a logic to check for the no orphan volumes
 		defer func() {
 			for _, claim := range pvclaims {
-				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			ginkgo.By("Verify PVs, volumes are deleted from CNS")
 			for _, pv := range persistentvolumes {
-				err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll,
+				err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
 					framework.PodDeleteTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeID := pv.Spec.CSI.VolumeHandle
@@ -5093,7 +5095,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "", diskSize, storageclass, true)
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "", diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -5101,7 +5103,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5213,7 +5215,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "", diskSize, storageclass, true)
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "", diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -5221,7 +5223,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5262,7 +5264,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5270,7 +5272,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -5315,7 +5317,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle3).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim3.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim3.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle3)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5323,7 +5325,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod2)
+			err = fpod.DeletePodWithWait(ctx, client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -5404,7 +5406,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "", diskSize, storageclass, true)
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "", diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -5412,7 +5414,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5483,10 +5485,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, staticSnapshot.Name, snapshotapigroup)
 
-		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		_, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim2},
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim2},
 			framework.ClaimProvisionShortTimeout)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
@@ -5498,7 +5500,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(isFailureFound).To(gomega.BeTrue(),
 			fmt.Sprintf("Expected pvc creation failure with error message: %s", expectedErrMsg))
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 	})
@@ -5537,7 +5539,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "", diskSize, storageclass, true)
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "", diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -5545,7 +5547,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5621,10 +5623,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Create PVC while snapshot is still provisioning")
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, "static-vs", snapshotapigroup)
-		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
@@ -5633,7 +5635,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			volHandle2 = getVolumeIDFromSupervisorCluster(volHandle2)
 		}
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5699,18 +5701,18 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		storageclass, err := svcClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pvclaim, err := fpv.CreatePVC(svcClient, svcNamespace,
+		pvclaim, err := fpv.CreatePVC(ctx, svcClient, svcNamespace,
 			getPersistentVolumeClaimSpecWithStorageClass(svcNamespace, diskSize, storageclass, nil, v1.ReadWriteOnce))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(svcClient,
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, svcClient,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(svcClient, pvclaim.Name, pvclaim.Namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, svcClient, pvclaim.Name, pvclaim.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5772,7 +5774,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "", diskSize, storageclass, true)
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "", diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -5781,7 +5783,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pvc %s in namespace %s", pvclaim.Name, namespace))
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5834,11 +5836,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By(fmt.Sprintf("Deleting the pvc %s in namespace %s", pvclaim2.Name, namespace))
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5925,7 +5927,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -5935,7 +5937,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pvc %s in namespace %s", pvclaim.Name, namespace))
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6003,11 +6005,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By(fmt.Sprintf("Deleting the pvc %s in namespace %s", pvclaim2.Name, namespace))
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6051,7 +6053,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -6061,7 +6063,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pvc %s in namespace %s", pvclaim.Name, namespace))
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6104,7 +6106,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Creating namespace on second GC")
-		ns, err := framework.CreateTestingNS(f.BaseName, clientNewGc, map[string]string{
+		ns, err := framework.CreateTestingNS(ctx, f.BaseName, clientNewGc, map[string]string{
 			"e2e-framework": f.BaseName,
 		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on second GC")
@@ -6120,16 +6122,16 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespaceNewGC, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
 
-		pvclaim2, err := fpv.CreatePVC(clientNewGc, namespaceNewGC, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(ctx, clientNewGc, namespaceNewGC, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pvc %s in namespace %s", pvclaim2.Name, namespace))
-			err = fpv.DeletePersistentVolumeClaim(clientNewGc, pvclaim2.Name, namespaceNewGC)
+			err = fpv.DeletePersistentVolumeClaim(ctx, clientNewGc, pvclaim2.Name, namespaceNewGC)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		_, err = fpv.WaitForPVClaimBoundPhase(clientNewGc,
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, clientNewGc,
 			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		expectedErrMsg := "error getting handle for DataSource Type VolumeSnapshot by Name " + volumeSnapshot.Name
@@ -6138,7 +6140,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
 
 		ginkgo.By("Delete PVC created from snapshot")
-		err = fpv.DeletePersistentVolumeClaim(clientNewGc, pvclaim2.Name, namespaceNewGC)
+		err = fpv.DeletePersistentVolumeClaim(ctx, clientNewGc, pvclaim2.Name, namespaceNewGC)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete snapshot")
@@ -6172,7 +6174,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -6182,7 +6184,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pvc %s in namespace %s", pvclaim.Name, namespace))
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6227,10 +6229,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 				accessMode, volumeSnapshot.Name, snapshotapigroup)
 
-			pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+			pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			_, err = fpv.WaitForPVClaimBoundPhase(client,
+			_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
 				[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 			framework.Logf("Error from creating pvc with %s accessmode is : %s", accessMode, err.Error())
 			gomega.Expect(err).To(gomega.HaveOccurred())
@@ -6241,7 +6243,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
 
 			ginkgo.By(fmt.Sprintf("Deleting the pvc %s in namespace %s", pvclaim2.Name, namespace))
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			err = waitForPvcToBeDeleted(ctx, client, pvclaim2.Name, namespace)
@@ -6253,7 +6255,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvcList := getAllPVCFromNamespace(svcClient, svcNamespace)
 		for _, pvc := range pvcList.Items {
 			if pvc.Status.Phase == v1.ClaimPending {
-				framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(svcClient, pvc.Name, svcNamespace),
+				framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(ctx, svcClient, pvc.Name, svcNamespace),
 					"Failed to delete PVC", pvc.Name)
 			}
 		}
@@ -6277,18 +6279,18 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		scParameters[svStorageClassName] = storagePolicyName
 
 		ginkgo.By("Create storage class and PVC")
-		storageclass, pvclaim, err := createPVCAndStorageClass(client,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Expect claim to fail as invalid storage policy is specified in Storage Class")
-		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
+		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound,
 			client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout))
 		expectedErrMsg := "no datastores found to create file volume, vsan file service may be disabled"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
@@ -6334,7 +6336,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -6342,19 +6344,19 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Create Pod")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false,
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, admissionapi.LevelBaseline,
 			execRWXCommandPod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -6421,9 +6423,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Restore volume from snapshot created above")
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
-		pvclaim1, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		pvclaim1, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		persistentvolume1, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim1},
+		persistentvolume1, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim1},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle1 := persistentvolume1[0].Spec.CSI.VolumeHandle
@@ -6432,19 +6434,19 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			volHandle1 = getVolumeIDFromSupervisorCluster(volHandle1)
 		}
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim1.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle1)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Create Pod")
-		pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false,
+		pod1, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, admissionapi.LevelBaseline,
 			execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod1.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod1)
+			err = fpod.DeletePodWithWait(ctx, client, pod1)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -6497,9 +6499,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Restore volume from snapshot created above")
 		pvcSpec = getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, volumeSnapshot1.Name, snapshotapigroup)
-		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		persistentvolume2, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim2},
+		persistentvolume2, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim2},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle2 := persistentvolume2[0].Spec.CSI.VolumeHandle
@@ -6508,19 +6510,19 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			volHandle2 = getVolumeIDFromSupervisorCluster(volHandle2)
 		}
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Create Pod")
-		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false,
+		pod2, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, admissionapi.LevelBaseline,
 			execRWXCommandPod2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod2)
+			err = fpod.DeletePodWithWait(ctx, client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -6591,7 +6593,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -6600,14 +6602,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Create Pod to attach to Pvc")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false,
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, admissionapi.LevelBaseline,
 			execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		nodeName := pod.Spec.NodeName
@@ -6626,7 +6628,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -6678,10 +6680,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod2)
+			err = fpod.DeletePodWithWait(ctx, client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6784,7 +6786,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Waiting for claim to be in bound phase")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,
 			namespace, gcPVC.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("PVC name in GC : %s", gcPVC.GetName())
@@ -6893,10 +6895,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod2)
+			err = fpod.DeletePodWithWait(ctx, client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6913,7 +6915,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		staticSnapshotContentCreated = false
 
 		ginkgo.By("Deleting the PV Claim")
-		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, gcPVC.Name, namespace),
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(ctx, client, gcPVC.Name, namespace),
 			"Failed to delete PVC ", gcPVC.Name)
 
 		ginkgo.By("Verify PV should be released not deleted")
@@ -6933,11 +6935,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volumeExists).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Deleting the PV Claim in supervisor cluster")
-		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(svcClient,
+		framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(ctx, svcClient,
 			svcPVC.Name, svNamespace), "Failed to delete PVC", svcPVC.Name)
 
 		ginkgo.By("Verify PV should be deleted automatically from SVC")
-		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(svcClient, svcPV.Name,
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, svcClient, svcPV.Name,
 			poll, supervisorClusterOperationsTimeout))
 
 	})
@@ -7002,19 +7004,19 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		framework.Logf("VOLUME_OPS_SCALE is set to %v", volumeOpsScale)
 		for i := 0; i < volumeOpsScale; i++ {
 			framework.Logf("Creating pvc%v", i)
-			pvclaims[i], err = createPVC(client, namespace, nil, "", storageclass, v1.ReadWriteOnce)
+			pvclaims[i], err = CreatePVC(ctx, client, namespace, nil, "", storageclass, v1.ReadWriteOnce)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims,
+		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims,
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
-		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
+		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
@@ -7055,12 +7057,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 				v1.ReadWriteOnce, volumesnapshots[0].Name, snapshotapigroup)
 
-			pvclaims2[i], err = fpv.CreatePVC(client, namespace, pvcSpec)
+			pvclaims2[i], err = fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		ginkgo.By("Rebooting VC")
-		err = invokeVCenterReboot(vcAddress)
+		err = invokeVCenterReboot(ctx, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -7087,7 +7089,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		ginkgo.By("Wait for the PVC to be bound")
-		_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims2, framework.ClaimProvisionTimeout)
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims2, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		for i := 0; i < volumeOpsScale; i++ {
@@ -7100,12 +7102,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		defer func() {
 			for _, claim := range pvclaims {
-				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			ginkgo.By("Verify PVs, volumes are deleted from CNS")
 			for _, pv := range persistentvolumes {
-				err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll,
+				err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
 					framework.PodDeleteTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeID := pv.Spec.CSI.VolumeHandle
@@ -7153,7 +7155,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		pvclaim, err = createPVC(client, namespace, nil, "", storageclass, "")
+		pvclaim, err = CreatePVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -7163,7 +7165,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -7172,7 +7174,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -7295,7 +7297,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defer cancel()
 
 		ginkgo.By("Creating namespace on GC1")
-		namespace1, err := framework.CreateTestingNS(f.BaseName, client, map[string]string{
+		namespace1, err := framework.CreateTestingNS(ctx, f.BaseName, client, map[string]string{
 			"e2e-framework": f.BaseName,
 		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on GC1")
@@ -7305,7 +7307,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace1.Name, nil, "",
+		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace1.Name, nil, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -7314,7 +7316,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pvc %s in namespace %s", pvclaim.Name, namespace1))
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace1.Name)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace1.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -7377,7 +7379,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating namespace on GC2")
-		namespace2, err := framework.CreateTestingNS(f.BaseName, clientNewGc, map[string]string{
+		namespace2, err := framework.CreateTestingNS(ctx, f.BaseName, clientNewGc, map[string]string{
 			"e2e-framework": f.BaseName,
 		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on second GC")
@@ -7534,7 +7536,7 @@ func invokeSnapshotOperationsOnSharedDatastore(client clientset.Interface, ctx c
 		}
 	}
 	ginkgo.By("Create PVC")
-	pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(client, namespace, nil, "",
+	pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 		diskSize, storageclass, true)
 	volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 	if guestCluster {
@@ -7543,7 +7545,7 @@ func invokeSnapshotOperationsOnSharedDatastore(client clientset.Interface, ctx c
 	gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 	defer func() {
-		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -7595,10 +7597,10 @@ func invokeSnapshotOperationsOnSharedDatastore(client clientset.Interface, ctx c
 	defer func() {
 		// Delete POD
 		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-		err = fpod.DeletePodWithWait(client, pod2)
+		err = fpod.DeletePodWithWait(ctx, client, pod2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+		err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

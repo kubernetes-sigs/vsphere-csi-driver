@@ -84,7 +84,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		namespace = getNamespaceToRunTests(f)
 		client = f.ClientSet
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -228,19 +228,19 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			statefulset_volname
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.VolumeMode =
 			&rawBlockVolumeMode
-		CreateStatefulSet(namespace, statefulset, client)
+		CreateStatefulSet(ctx, namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		// Waiting for pods status to be Ready
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 		// Check if raw device available inside all pods of statefulset
-		gomega.Expect(CheckDevice(client, statefulset, statefulset_devicePath)).NotTo(gomega.HaveOccurred())
+		gomega.Expect(CheckDevice(ctx, client, statefulset, statefulset_devicePath)).NotTo(gomega.HaveOccurred())
 
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -268,10 +268,10 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas-1))
-		_, scaledownErr := fss.Scale(client, statefulset, replicas-1)
+		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas-1)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas-1)
-		ssPodsAfterScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas-1)
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas-1)).To(gomega.BeTrue(),
@@ -320,12 +320,12 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
-		_, scaleupErr := fss.Scale(client, statefulset, replicas)
+		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
-		ssPodsAfterScaleUp := fss.GetPodList(client, statefulset)
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -334,7 +334,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		// After scale up, verify all vSphere volumes are attached to node VMs.
 		ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
 		for _, sspod := range ssPodsAfterScaleUp.Items {
-			err := fpod.WaitTimeoutForPodReadyInNamespace(client, sspod.Name, statefulset.Namespace, pollTimeout)
+			err := fpod.WaitTimeoutForPodReadyInNamespace(ctx, client, sspod.Name, statefulset.Namespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -371,10 +371,10 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		replicas = 0
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
-		_, scaledownErr = fss.Scale(client, statefulset, replicas)
+		_, scaledownErr = fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		ssPodsAfterScaleDown = fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		ssPodsAfterScaleDown = fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 	})
@@ -417,11 +417,11 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		ginkgo.By("Creating raw block PVC")
 		pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", sc, nil, "")
 		pvcspec.Spec.VolumeMode = &rawBlockVolumeMode
-		pvc, err = fpv.CreatePVC(client, namespace, pvcspec)
+		pvc, err = fpv.CreatePVC(ctx, client, namespace, pvcspec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*corev1.PersistentVolumeClaim{pvc},
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*corev1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -434,16 +434,16 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 		}
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort)
+			err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Creating pod")
-		pod, err := createPod(client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc}, admissionapi.LevelBaseline, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
@@ -484,7 +484,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		verifyIOOnRawBlockVolume(namespace, pod.Name, devicePath, testdataFile, 0, 1)
 
 		ginkgo.By("Deleting the pod")
-		err = fpod.DeletePodWithWait(client, pod)
+		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Verify volume is detached from the node")
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
@@ -499,7 +499,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		}
 
 		ginkgo.By("Creating a new pod using the same volume")
-		pod, err = createPod(client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err = createPod(ctx, client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc}, admissionapi.LevelBaseline, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
@@ -531,7 +531,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		verifyIOOnRawBlockVolume(namespace, pod.Name, devicePath, testdataFile, 0, 1)
 
 		ginkgo.By("Deleting the pod")
-		err = fpod.DeletePodWithWait(client, pod)
+		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume is detached from the node")
@@ -591,7 +591,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			err := fpv.DeletePersistentVolume(client, pv.Name)
+			err := fpv.DeletePersistentVolume(ctx, client, pv.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -602,11 +602,11 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Wait for PV and PVC to Bind.
-		framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, pv, pvc))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(ctx, client, f.Timeouts, namespace, pv, pvc))
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort)
+			err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -624,7 +624,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		ginkgo.By("Creating the Pod")
 		var pvclaims []*corev1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvc)
-		pod, err := createPod(client, namespace, nil, pvclaims, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, pvclaims, admissionapi.LevelBaseline, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -666,7 +666,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting the Pod")
-		framework.ExpectNoError(fpod.DeletePodWithWait(client, pod), "Failed to delete pod", pod.Name)
+		framework.ExpectNoError(fpod.DeletePodWithWait(ctx, client, pod), "Failed to delete pod", pod.Name)
 
 		ginkgo.By(fmt.Sprintf("Verify volume %q is detached from the node: %s", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
@@ -715,11 +715,11 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		ginkgo.By("Creating raw block PVC")
 		pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", sc, nil, "")
 		pvcspec.Spec.VolumeMode = &rawBlockVolumeMode
-		pvc, err = fpv.CreatePVC(client, namespace, pvcspec)
+		pvc, err = fpv.CreatePVC(ctx, client, namespace, pvcspec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*corev1.PersistentVolumeClaim{pvc},
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*corev1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -732,9 +732,9 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 		}
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort)
+			err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -743,7 +743,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		ginkgo.By("Create Pod using the above raw block PVC")
 		var pvclaims []*corev1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvc)
-		pod, err := createPod(client, namespace, nil, pvclaims, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, pvclaims, admissionapi.LevelBaseline, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
@@ -789,7 +789,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		defer func() {
 			// Delete Pod.
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err := fpod.DeletePodWithWait(client, pod)
+			err := fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
@@ -885,14 +885,14 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		ginkgo.By("Creating raw block PVC")
 		pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", sc, nil, "")
 		pvcspec.Spec.VolumeMode = &rawBlockVolumeMode
-		pvc, err = fpv.CreatePVC(client, namespace, pvcspec)
+		pvc, err = fpv.CreatePVC(ctx, client, namespace, pvcspec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 
 		// Waiting for PVC to be bound
 		var pvclaims []*corev1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvc)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pv := pvs[0]
 		volumeID := pv.Spec.CSI.VolumeHandle
@@ -902,9 +902,9 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 		}
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort)
+			err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -912,7 +912,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc}, admissionapi.LevelBaseline, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var vmUUID string
@@ -951,7 +951,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		// Delete POD
 		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-		err = fpod.DeletePodWithWait(client, pod)
+		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume is detached from the node")
@@ -1015,7 +1015,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		// Create a new Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating a new pod to attach PV again to the node")
-		pod, err = createPod(client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err = createPod(ctx, client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc}, admissionapi.LevelBaseline, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume after expansion: %s is attached to the node: %s",
@@ -1058,7 +1058,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		// Delete POD
 		ginkgo.By(fmt.Sprintf("Deleting the new pod %s in namespace %s after expansion", pod.Name, namespace))
-		err = fpod.DeletePodWithWait(client, pod)
+		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume is detached from the node after expansion")
@@ -1117,11 +1117,11 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		ginkgo.By("Creating source raw block PVC")
 		pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", sc, nil, "")
 		pvcspec.Spec.VolumeMode = &rawBlockVolumeMode
-		pvc1, err := fpv.CreatePVC(client, namespace, pvcspec)
+		pvc1, err := fpv.CreatePVC(ctx, client, namespace, pvcspec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 
 		ginkgo.By("Expect source volume claim to provision volume successfully")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*corev1.PersistentVolumeClaim{pvc1},
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*corev1.PersistentVolumeClaim{pvc1},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volumeID := pvs[0].Spec.CSI.VolumeHandle
@@ -1131,7 +1131,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		}
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvc1.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc1.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1145,14 +1145,14 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		gomega.Expect(queryResult.Volumes[0].VolumeId.Id).To(gomega.Equal(volumeID))
 
 		ginkgo.By("Creating pod to attach source PV to the node")
-		pod1, err := createPod(client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc1},
-			false, "")
+		pod1, err := createPod(ctx, client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc1},
+			admissionapi.LevelBaseline, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod1.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod1)
+			err = fpod.DeletePodWithWait(ctx, client, pod1)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -1229,10 +1229,10 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		restorePvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, sc, nil,
 			corev1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
 		restorePvcSpec.Spec.VolumeMode = &rawBlockVolumeMode
-		restoredPvc, err := fpv.CreatePVC(client, namespace, restorePvcSpec)
+		restoredPvc, err := fpv.CreatePVC(ctx, client, namespace, restorePvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		restoredPvs, err := fpv.WaitForPVClaimBoundPhase(client,
+		restoredPvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*corev1.PersistentVolumeClaim{restoredPvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1243,7 +1243,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		}
 		defer func() {
 			ginkgo.By("Deleting the restored PVC")
-			err := fpv.DeletePersistentVolumeClaim(client, restoredPvc.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, restoredPvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Wait for the restored PVC to disappear in CNS")
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID2)
@@ -1252,8 +1252,8 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach restored PVC to the node")
-		pod2, err := createPod(client, namespace, nil, []*corev1.PersistentVolumeClaim{restoredPvc}, false,
-			"")
+		pod2, err := createPod(ctx, client, namespace, nil, []*corev1.PersistentVolumeClaim{restoredPvc},
+			admissionapi.LevelBaseline, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		nodeName = pod2.Spec.NodeName
@@ -1270,7 +1270,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod2)
+			err = fpod.DeletePodWithWait(ctx, client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID2, nodeName))

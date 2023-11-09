@@ -248,7 +248,7 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 	if parallelStatefulSetCreation {
 		ssPodsBeforeScaleDown = GetListOfPodsInSts(client, statefulset)
 	} else {
-		ssPodsBeforeScaleDown = fss.GetPodList(client, statefulset)
+		ssPodsBeforeScaleDown = fss.GetPodList(ctx, client, statefulset)
 	}
 	stsPodCount = len(ssPodsBeforeScaleDown.Items)
 	if !isMultiVcSetup {

@@ -58,7 +58,9 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, rqLimit)
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -131,7 +133,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 
 		ginkgo.By("Creating namespace on Deleting TKG")
-		namespaceObj, err := framework.CreateTestingNS(f.BaseName, clientNewGc, map[string]string{
+		namespaceObj, err := framework.CreateTestingNS(ctx, f.BaseName, clientNewGc, map[string]string{
 			"e2e-framework": f.BaseName,
 		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on Deleting TKG")
@@ -174,20 +176,20 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &scName
 		*statefulset.Spec.Replicas = 2
-		CreateStatefulSet(namespace, statefulset, clientNewGc)
+		CreateStatefulSet(ctx, namespace, statefulset, clientNewGc)
 		replicas := *(statefulset.Spec.Replicas)
 
 		defer func() {
 			if !isTKGDeleted && !isSTSDeleted {
 				ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-				fss.DeleteAllStatefulSets(clientNewGc, namespace)
+				fss.DeleteAllStatefulSets(ctx, clientNewGc, namespace)
 			}
 		}()
 
 		// Waiting for pods status to be Ready.
-		fss.WaitForStatusReadyReplicas(clientNewGc, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(ctx, clientNewGc, statefulset, replicas)
 
-		ssPodsBeforeScaledown := fss.GetPodList(clientNewGc, statefulset)
+		ssPodsBeforeScaledown := fss.GetPodList(ctx, clientNewGc, statefulset)
 		gomega.Expect(ssPodsBeforeScaledown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaledown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -251,10 +253,10 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas-1))
-		_, scaledownErr := fss.Scale(clientNewGc, statefulset, replicas-1)
+		_, scaledownErr := fss.Scale(ctx, clientNewGc, statefulset, replicas-1)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReadyReplicas(clientNewGc, statefulset, replicas-1)
-		ssPodsAfterScaleDown := fss.GetPodList(clientNewGc, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, clientNewGc, statefulset, replicas-1)
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, clientNewGc, statefulset)
 		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas-1)).To(gomega.BeTrue(),
@@ -314,11 +316,11 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 
 		replicas += 2
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
-		_, scaleupErr := fss.Scale(clientNewGc, statefulset, replicas)
+		_, scaleupErr := fss.Scale(ctx, clientNewGc, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(clientNewGc, statefulset, replicas)
-		fss.WaitForStatusReadyReplicas(clientNewGc, statefulset, replicas)
-		ssPodsAfterScaleUp := fss.GetPodList(clientNewGc, statefulset)
+		fss.WaitForStatusReplicas(ctx, clientNewGc, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(ctx, clientNewGc, statefulset, replicas)
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, clientNewGc, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -326,7 +328,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		// After scale up, verify all vSphere volumes are attached to node VMs.
 		ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
 		for _, sspod := range ssPodsAfterScaleUp.Items {
-			err := fpod.WaitTimeoutForPodReadyInNamespace(clientNewGc, sspod.Name, statefulset.Namespace, pollTimeout)
+			err := fpod.WaitTimeoutForPodReadyInNamespace(ctx, clientNewGc, sspod.Name, statefulset.Namespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pod, err := clientNewGc.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -347,7 +349,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 
 		//Test for the deployment
 		ginkgo.By("Creating a PVC for Deployment test")
-		storageclasspvc, pvclaim, err := createPVCAndStorageClass(clientNewGc,
+		storageclasspvc, pvclaim, err := createPVCAndStorageClass(ctx, clientNewGc,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -368,7 +370,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(clientNewGc,
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, clientNewGc,
 			[]*v1.PersistentVolumeClaim{pvclaim, pvc2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -386,12 +388,12 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 
 		defer func() {
 			if !isTKGDeleted {
-				err = fpv.DeletePersistentVolumeClaim(clientNewGc, pvclaim.Name, pvclaim.Namespace)
+				err = fpv.DeletePersistentVolumeClaim(ctx, clientNewGc, pvclaim.Name, pvclaim.Namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcd1IDInCNS)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				err = fpv.DeletePersistentVolumeClaim(clientNewGc, pvc2.Name, pvc2.Namespace)
+				err = fpv.DeletePersistentVolumeClaim(ctx, clientNewGc, pvc2.Name, pvc2.Namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcd2IDInCNS)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -460,7 +462,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		ginkgo.By("Creating a Deployment using pvc1 & pvc2")
 
 		dep, err := createDeployment(ctx, clientNewGc, 2, labelsMap, nil, namespace,
-			[]*v1.PersistentVolumeClaim{pvclaim, pvc2}, "", false, busyBoxImageOnGcr)
+			[]*v1.PersistentVolumeClaim{pvclaim, pvc2}, "", admissionapi.LevelBaseline, busyBoxImageOnGcr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -471,7 +473,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			}
 		}()
 
-		pods, err := fdep.GetPodsForDeployment(clientNewGc, dep)
+		pods, err := fdep.GetPodsForDeployment(ctx, clientNewGc, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		for _, ddpod := range pods.Items {
@@ -479,7 +481,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			_, err := clientNewGc.CoreV1().Pods(namespace).Get(ctx, ddpod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			err = fpod.WaitForPodNameRunningInNamespace(clientNewGc, ddpod.Name, namespace)
+			err = fpod.WaitForPodNameRunningInNamespace(ctx, clientNewGc, ddpod.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod with pvc1")
@@ -503,10 +505,10 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(sleepTimeOut * time.Second)
 
-		_, err = fdep.GetPodsForDeployment(clientNewGc, dep)
+		_, err = fdep.GetPodsForDeployment(ctx, clientNewGc, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		list_of_pods, err := fpod.GetPodsInNamespace(clientNewGc, namespace, ignoreLabels)
+		list_of_pods, err := fpod.GetPodsInNamespace(ctx, clientNewGc, namespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Finding the missing Pod name")
@@ -519,7 +521,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		framework.Logf("Missing Pod name is %s", missingPod.Name)
 
 		ginkgo.By("Verifying whether Pod is Deleted or not")
-		err = fpod.WaitForPodNotFoundInNamespace(clientNewGc, missingPod.Name, namespace, pollTimeout)
+		err = fpod.WaitForPodNotFoundInNamespace(ctx, clientNewGc, missingPod.Name, namespace, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod with pvc1")
@@ -543,10 +545,10 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(sleepTimeOut * time.Second)
 
-		err = fpod.WaitForPodsRunningReady(clientNewGc, namespace, int32(5), 0, pollTimeout, ignoreLabels)
+		err = fpod.WaitForPodsRunningReady(ctx, clientNewGc, namespace, int32(5), 0, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pods, err = fdep.GetPodsForDeployment(clientNewGc, dep)
+		pods, err = fdep.GetPodsForDeployment(ctx, clientNewGc, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		for _, ddpod := range pods.Items {
@@ -554,7 +556,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			_, err := clientNewGc.CoreV1().Pods(namespace).Get(ctx, ddpod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			err = fpod.WaitForPodNameRunningInNamespace(clientNewGc, ddpod.Name, namespace)
+			err = fpod.WaitForPodNameRunningInNamespace(ctx, clientNewGc, ddpod.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod with pvc1")

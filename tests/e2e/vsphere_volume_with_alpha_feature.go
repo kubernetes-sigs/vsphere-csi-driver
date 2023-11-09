@@ -52,7 +52,9 @@ var _ = ginkgo.Describe("Alpha feature check", func() {
 		namespace = getNamespaceToRunTests(f)
 		scParameters = make(map[string]string)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -83,7 +85,7 @@ var _ = ginkgo.Describe("Alpha feature check", func() {
 
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
 			nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -94,12 +96,12 @@ var _ = ginkgo.Describe("Alpha feature check", func() {
 
 		pvclaims = append(pvclaims, pvclaim)
 
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -157,7 +159,7 @@ var _ = ginkgo.Describe("Alpha feature check", func() {
 		var pvclaim *v1.PersistentVolumeClaim
 		var err error
 
-		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
 			nil, scParameters, "", nil, "", false, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -169,12 +171,12 @@ var _ = ginkgo.Describe("Alpha feature check", func() {
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvclaim)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

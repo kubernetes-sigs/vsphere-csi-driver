@@ -68,9 +68,9 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		scParameters = make(map[string]string)
 		isServiceStopped = false
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 
@@ -133,11 +133,11 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// Wait for the CSI Pods to be up and Running
-				list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
+				list_of_pods, err := fpod.GetPodsInNamespace(ctx, client, csiSystemNamespace, ignoreLabels)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				num_csi_pods := len(list_of_pods)
-				err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
-					pollTimeout, ignoreLabels)
+				err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int32(num_csi_pods), 0,
+					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			} else if serviceName == hostdServiceName {
 				framework.Logf("In afterEach function to start the hostd service on all hosts")
@@ -148,9 +148,9 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 			} else {
 				vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 				ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", serviceName))
-				err := invokeVCenterServiceControl(startOperation, serviceName, vcAddress)
+				err := invokeVCenterServiceControl(ctx, startOperation, serviceName, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
+				err = waitVCenterServiceToBeInState(ctx, serviceName, vcAddress, svcRunningMessage)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -392,24 +392,24 @@ func createVolumesByReducingProvisionerTime(namespace string, client clientset.I
 		if rwxAccessMode {
 			accessMode = v1.ReadWriteMany
 		}
-		pvclaims[i], err = createPVC(client, namespace, nil, "", storageclass, accessMode)
+		pvclaims[i], err = CreatePVC(ctx, client, namespace, nil, "", storageclass, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
 	ginkgo.By("Waiting for all claims to be in bound state")
-	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims,
+	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims,
 		2*framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// TODO: Add a logic to check for the no orphan volumes
 	defer func() {
 		for _, claim := range pvclaims {
-			err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		ginkgo.By("Verify PVs, volumes are deleted from CNS")
 		for _, pv := range persistentvolumes {
-			err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll,
+			err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
 				framework.PodDeleteTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			volumeID := pv.Spec.CSI.VolumeHandle
@@ -497,7 +497,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		if rwxAccessMode {
 			accessMode = v1.ReadWriteMany
 		}
-		pvclaims[i], err = createPVC(client, namespace, nil, "", storageclass, accessMode)
+		pvclaims[i], err = CreatePVC(ctx, client, namespace, nil, "", storageclass, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
@@ -569,18 +569,18 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 	} else {
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		err = invokeVCenterServiceControl(stopOperation, serviceName, vcAddress)
+		err = invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isServiceStopped = true
-		err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcStoppedMessage)
+		err = waitVCenterServiceToBeInState(ctx, serviceName, vcAddress, svcStoppedMessage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			if isServiceStopped {
 				ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", serviceName))
-				err = invokeVCenterServiceControl(startOperation, serviceName, vcAddress)
+				err = invokeVCenterServiceControl(ctx, startOperation, serviceName, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
+				err = waitVCenterServiceToBeInState(ctx, serviceName, vcAddress, svcRunningMessage)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isServiceStopped = false
 			}
@@ -590,10 +590,10 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		time.Sleep(pollTimeoutSixMin)
 
 		ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", serviceName))
-		err = invokeVCenterServiceControl(startOperation, serviceName, vcAddress)
+		err = invokeVCenterServiceControl(ctx, startOperation, serviceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isServiceStopped = false
-		err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
+		err = waitVCenterServiceToBeInState(ctx, serviceName, vcAddress, svcRunningMessage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Sleeping for full sync interval")
@@ -604,19 +604,19 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 	bootstrap()
 
 	ginkgo.By("Waiting for all claims to be in bound state")
-	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims,
+	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims,
 		2*framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// TODO: Add a logic to check for the no orphan volumes
 	defer func() {
 		for _, claim := range pvclaims {
-			err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		ginkgo.By("Verify PVs, volumes are deleted from CNS")
 		for _, pv := range persistentvolumes {
-			err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll,
+			err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
 				framework.PodDeleteTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			volumeID := pv.Spec.CSI.VolumeHandle
@@ -703,25 +703,25 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 	framework.Logf("VOLUME_OPS_SCALE is set to %v", volumeOpsScale)
 	for i := 0; i < volumeOpsScale; i++ {
 		framework.Logf("Creating pvc%v", i)
-		pvclaims[i], err = fpv.CreatePVC(client, namespace,
+		pvclaims[i], err = fpv.CreatePVC(ctx, client, namespace,
 			getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, ""))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
 	ginkgo.By("Waiting for all claims to be in bound state")
-	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims,
+	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims,
 		2*framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// TODO: Add a logic to check for the no orphan volumes
 	defer func() {
 		for _, claim := range pvclaims {
-			err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		ginkgo.By("Verify PVs, volumes are deleted from CNS")
 		for _, pv := range persistentvolumes {
-			err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll,
+			err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
 				framework.PodDeleteTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			volumeID := pv.Spec.CSI.VolumeHandle
@@ -733,16 +733,16 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 	}()
 
 	ginkgo.By("Create POD")
-	pod, err := createPod(client, namespace, nil, pvclaims, false, "")
+	pod, err := createPod(ctx, client, namespace, nil, pvclaims, admissionapi.LevelBaseline, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	defer func() {
 		ginkgo.By("Deleting the pod")
-		err = fpod.DeletePodWithWait(client, pod)
+		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 
-	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	err = fpod.WaitForPodNameRunningInNamespace(ctx, client, pod.Name, namespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Modify PVC spec to trigger volume expansion
@@ -797,17 +797,17 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 	} else {
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		err = invokeVCenterServiceControl(stopOperation, serviceName, vcAddress)
+		err = invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isServiceStopped = true
-		err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcStoppedMessage)
+		err = waitVCenterServiceToBeInState(ctx, serviceName, vcAddress, svcStoppedMessage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if isServiceStopped {
 				ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", serviceName))
-				err = invokeVCenterServiceControl(startOperation, serviceName, vcAddress)
+				err = invokeVCenterServiceControl(ctx, startOperation, serviceName, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
+				err = waitVCenterServiceToBeInState(ctx, serviceName, vcAddress, svcRunningMessage)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isServiceStopped = false
 			}
@@ -817,10 +817,10 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		time.Sleep(pollTimeoutSixMin)
 
 		ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", serviceName))
-		err = invokeVCenterServiceControl(startOperation, serviceName, vcAddress)
+		err = invokeVCenterServiceControl(ctx, startOperation, serviceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isServiceStopped = false
-		err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
+		err = waitVCenterServiceToBeInState(ctx, serviceName, vcAddress, svcRunningMessage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(totalResizeWaitPeriod)
 	}

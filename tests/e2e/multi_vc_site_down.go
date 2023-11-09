@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 		}
 
-		nodeList, err = fnodes.GetReadySchedulableNodes(f.ClientSet)
+		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")

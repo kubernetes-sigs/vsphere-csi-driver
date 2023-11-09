@@ -46,7 +46,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Non-VSAN datas
 		scParameters = make(map[string]string)
 		nonVsanStoragePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForNonSharedDatastores)
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -78,7 +80,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Non-VSAN datas
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = nonVsanStoragePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -89,7 +91,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Non-VSAN datas
 
 		ginkgo.By("Expect claim to fail as the storage policy mentioned in Storage class " +
 			"has non-vSAN compliant datastores")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,
 			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 	})
@@ -114,7 +116,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Non-VSAN datas
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = nonVsanStoragePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadOnlyMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -125,7 +127,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Non-VSAN datas
 
 		ginkgo.By("Expect claim to fail as the storage policy mentioned in Storage class " +
 			"has non-vSAN compliant datastores")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,
 			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 	})

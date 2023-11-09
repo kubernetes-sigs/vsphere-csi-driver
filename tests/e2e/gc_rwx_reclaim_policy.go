@@ -58,7 +58,9 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		setResourceQuota(svcClient, svNamespace, rqLimit)
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -125,7 +127,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = storagePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -138,7 +140,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -149,7 +151,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 
 		defer func() {
 			if pvclaim != nil {
-				err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, pvclaim.Namespace)
+				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdIDInCNS)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -190,13 +192,13 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod1)
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, admissionapi.LevelBaseline, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s", pod.Spec.NodeName+"-"+pvcNameInSV))
@@ -231,7 +233,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 
 		// Delete POD
 		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-		err = fpod.DeletePodWithWait(client, pod)
+		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s", pod.Spec.NodeName+"-"+pvcNameInSV))
@@ -244,7 +246,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 
 		ginkgo.By("Deleting the PVC")
-		err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, pvclaim.Namespace)
+		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaim = nil
 
@@ -290,7 +292,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 			pv = nil
 
 			ginkgo.By("Deleting the PVC2")
-			err = fpv.DeletePersistentVolumeClaim(client, pvc2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdIDInCNS)
@@ -301,20 +303,20 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		}()
 
 		// Wait for PV and PVC to Bind
-		framework.ExpectNoError(fpv.WaitOnPVandPVC(client,
-			framework.NewTimeoutContextWithDefaults(), namespace, pv2, pvc2))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(ctx, client,
+			f.Timeouts, namespace, pv2, pvc2))
 
 		// Create a Pod to use this PVC
 		ginkgo.By("Creating pod2 to attach PV to the node")
-		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc2}, false, execRWXCommandPod2)
+		pod2, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc2}, admissionapi.LevelBaseline, execRWXCommandPod2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = fpod.WaitForPodNameRunningInNamespace(client, pod2.Name, namespace)
+		err = fpod.WaitForPodNameRunningInNamespace(ctx, client, pod2.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod2)
+			err = fpod.DeletePodWithWait(ctx, client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s", pod2.Spec.NodeName+"-"+pvcNameInSV))
@@ -397,7 +399,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = storagePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteOnce)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -407,7 +409,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -417,7 +419,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		gomega.Expect(fcdIDInCNS).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, pvclaim.Namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdIDInCNS)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -450,17 +452,17 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 
 		defer func() {
 			ginkgo.By("Deleting the PVC2")
-			err = fpv.DeletePersistentVolumeClaim(client, pvc2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		// Wait for PV and PVC to Bind
-		framework.ExpectNoError(fpv.WaitOnPVandPVC(client,
-			framework.NewTimeoutContextWithDefaults(), namespace, pv2, pvc2))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(ctx, client,
+			f.Timeouts, namespace, pv2, pvc2))
 
 		// Create a Pod to use this PVC and expect an error
 		ginkgo.By("Creating pod to attach PVC")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc2}, false, execRWXCommandPod2)
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc2}, admissionapi.LevelBaseline, execRWXCommandPod2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s", pod.Spec.NodeName+"-"+pvcNameInSV))
@@ -475,7 +477,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod in defer function %s in namespace %s", pod.Name, pod.Namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 	})
@@ -517,7 +519,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = storagePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -530,7 +532,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -540,7 +542,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		gomega.Expect(fcdIDInCNS).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, pvclaim.Namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdIDInCNS)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -601,23 +603,23 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 
 		defer func() {
 			ginkgo.By("Deleting the PVC2")
-			err = fpv.DeletePersistentVolumeClaim(client, pvc2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		// Wait for PV and PVC to Bind
-		framework.ExpectNoError(fpv.WaitOnPVandPVC(client,
-			framework.NewTimeoutContextWithDefaults(), namespace, pv2, pvc2))
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(ctx, client,
+			f.Timeouts, namespace, pv2, pvc2))
 
 		// Create a Pod to use this PVC
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc2}, false, execRWXCommandPod2)
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc2}, admissionapi.LevelBaseline, execRWXCommandPod2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By(fmt.Sprintf("Wait till the CnsFileAccessConfig CRD is deleted %s", pod.Spec.NodeName+"-"+pvcNameInSV))

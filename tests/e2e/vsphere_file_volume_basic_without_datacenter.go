@@ -51,7 +51,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 		if vanillaCluster {
 			csiControllerNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		}
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
