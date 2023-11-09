@@ -1625,3 +1625,8 @@ func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.Controlle
 	*csi.ControllerGetVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
 }
+
+func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.ControllerModifyVolumeRequest) (
+	*csi.ControllerModifyVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "")
+}
