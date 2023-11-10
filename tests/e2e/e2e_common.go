@@ -293,6 +293,7 @@ const (
 	level2              = "level2"
 	level5              = "level5"
 	negative            = "negative"
+	listVolume          = "listVolume"
 )
 
 // The following variables are required to know cluster type to run common e2e
