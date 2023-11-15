@@ -19,10 +19,12 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/vmware/govmomi/object"
 	"golang.org/x/crypto/ssh"
 	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -866,6 +868,109 @@ var _ = ginkgo.Describe("statefulset", func() {
 
 		_, _, err = getCSIPodWhereListVolumeResponseIsPresent(ctx, client, sshClientConfig, containerName, logMessage, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/*
+		Steps :
+		1. Create statefulset with 5 replicas and deployment.
+		2. EMM host in EvacuateAllData mode.
+		3. Verify EMM passes.
+		4. Verify CSI pods are running and statefulsets are in running state.
+		5. Scale up replica to 5.
+		6. Exit MM and clean up all pods and PVs.
+	*/
+	ginkgo.It("[csi-supervisor] Test MM workflow on statefulset", ginkgo.Label(
+		p1, block, wcp, core), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var mmTimeout int32 = 300
+		var hostInMM *object.HostSystem
+
+		// create resource quota
+		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+
+		ginkgo.By("Get the storageclass from Supervisor")
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
+		ginkgo.By("Creating statfulset and deployment from storageclass")
+		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, true,
+			false, 0, "", "", false)
+		replicas := *(statefulset.Spec.Replicas)
+		csiNs := GetAndExpectStringEnvVar(envCSINamespace)
+		csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, claim := range pvcs.Items {
+				pv := getPvFromClaim(client, namespace, claim.Name)
+				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+					pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volumeHandle := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeHandle))
+			}
+		}()
+
+		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		stsPod := ssPodsBeforeScaleDown.Items[0]
+		nodeName := stsPod.Spec.NodeName
+		framework.Logf("nodeName: %v", nodeName)
+		clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Get host name where statfulset pod is located")
+		computeCluster := GetAndExpectStringEnvVar(envComputeClusterName)
+		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, computeCluster)
+		for _, host := range hostsInCluster {
+			hostPath := host.Common.InventoryPath
+			hostDetails := strings.Split(hostPath, "/")
+			hostIP := hostDetails[len(hostDetails)-1]
+			hostName := getHostName(hostIP)
+			hostName = strings.Trim(hostName, ".")
+			framework.Logf("hostname: %v", hostName)
+			if hostName == nodeName {
+				hostInMM = host
+				break
+			}
+		}
+
+		ginkgo.By("Put host into EvacuateAlldata maintenance mode")
+		enterHostIntoMM(ctx, hostInMM, evacMModeType, mmTimeout, true)
+		enterMaintenanceMode := true
+		defer func() {
+			if enterMaintenanceMode {
+				framework.Logf("Exit the host from MM before terminating the test")
+				exitHostMM(ctx, hostInMM, mmTimeout)
+			}
+		}()
+
+		err = fpod.WaitForPodsRunningReady(client, csiNs, int32(csipods.Size()), 0, pollTimeout, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Scale up statefulset replica to 5")
+		replicas = replicas + 2
+		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+			replicas, true, true)
+
+		ginkgo.By("Exit the host from maintenance mode")
+		exitHostMM(ctx, hostInMM, mmTimeout)
+		enterMaintenanceMode = false
+
 	})
 
 })

@@ -467,7 +467,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		vCenterIPVC2 := vCenterList[1]
 
 		ginkgo.By("Fetch vcenter hotsname for VC2")
-		vCenterHostName := getVcenterHostName(vCenterList[1])
+		vCenterHostName := getHostName(vCenterList[1])
 		vCenterList[1] = vCenterHostName
 		vsphereCfg.Global.VCenterHostname = strings.Join(vCenterList, ",")
 
@@ -513,7 +513,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 
 		ginkgo.By("Use VC-IP for VC2 and VC-hostname for VC1 in a multi VC setup")
 		ginkgo.By("Fetch vcenter hotsname of VC1")
-		vCenterHostNameVC1 := getVcenterHostName(vCenterList[0])
+		vCenterHostNameVC1 := getHostName(vCenterList[0])
 		vCenterList[0] = vCenterHostNameVC1
 		vCenterList[1] = vCenterIPVC2
 		vsphereCfg.Global.VCenterHostname = strings.Join(vCenterList, ",")
