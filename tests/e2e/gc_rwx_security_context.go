@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
@@ -201,13 +202,13 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		writeCmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
-		framework.RunKubectlOrDie(namespace, writeCmd...)
-		output = framework.RunKubectlOrDie(namespace, cmd...)
+		e2ekubectl.RunKubectlOrDie(namespace, writeCmd...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		runAsUser = 1000
@@ -252,12 +253,12 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		ginkgo.By("Verify the volume is not accessible and Read/write is possible from pod2")
 		cmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output = framework.RunKubectlOrDie(namespace, cmd2...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd2...)
 		framework.Logf("Output from the command is %s", output)
 
 		writeCmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
-		_, err = framework.RunKubectl(namespace, writeCmd2...)
+		_, err = e2ekubectl.RunKubectl(namespace, writeCmd2...)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		gomega.Expect(err).To(gomega.ContainSubstring("Permission denied"))
 
@@ -401,19 +402,19 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		chmodCmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"chmod 444 /mnt/volume1/Pod1.html "}
-		_, err = framework.RunKubectl(namespace, chmodCmd...)
+		_, err = e2ekubectl.RunKubectl(namespace, chmodCmd...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		writeCmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
-		framework.RunKubectlOrDie(namespace, writeCmd...)
-		output = framework.RunKubectlOrDie(namespace, cmd...)
+		e2ekubectl.RunKubectlOrDie(namespace, writeCmd...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		// Create a Pod to use this PVC
@@ -456,18 +457,18 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		ginkgo.By("Verify the volume is not accessible and Read/write is possible from pod2")
 		cmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"ls -lh /mnt/volume1/Pod1.html "}
-		output = framework.RunKubectlOrDie(namespace, cmd2...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd2...)
 		framework.Logf("Output for ls -lh command is : %s", output)
 
 		ginkgo.By("Verify the volume is not accessible and Read/write is possible from pod2")
 		cmd2 = []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output = framework.RunKubectlOrDie(namespace, cmd2...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd2...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		writeCmd2 := []string{"exec", pod2.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
-		_, err = framework.RunKubectl(namespace, writeCmd2...)
+		_, err = e2ekubectl.RunKubectl(namespace, writeCmd2...)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		gomega.Expect(err).To(gomega.ContainSubstring("Permission denied"))
 	})
@@ -639,13 +640,13 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"cat /mnt/volume1/Pod1.html "}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		writeCmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
-		framework.RunKubectlOrDie(namespace, writeCmd...)
-		output = framework.RunKubectlOrDie(namespace, cmd...)
+		e2ekubectl.RunKubectlOrDie(namespace, writeCmd...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 	})
 

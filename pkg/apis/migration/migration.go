@@ -192,7 +192,10 @@ func GetVolumeMigrationService(ctx context.Context, volumeManager *cnsvolume.Man
 							volumeMigrationObject.Spec.VolumePath, volumeMigrationObject.Spec.VolumeID)
 					},
 				}
-				informer.Informer().AddEventHandler(handlers)
+				_, err = informer.Informer().AddEventHandler(handlers)
+				if err != nil {
+					return
+				}
 				stopCh := make(chan struct{})
 				informer.Informer().Run(stopCh)
 			}()

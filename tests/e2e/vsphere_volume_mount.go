@@ -21,16 +21,17 @@ import (
 	"fmt"
 	"strings"
 
-	cnstypes "github.com/vmware/govmomi/cns/types"
-
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 )
@@ -174,20 +175,20 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 	// Create file1.txt on Pod1.
 	filePath := mntPath + "file1.txt"
 	ginkgo.By("Create file1.txt on Pod1")
-	err = framework.CreateEmptyFileOnPod(namespace, pod1.Name, filePath)
+	err = e2eoutput.CreateEmptyFileOnPod(namespace, pod1.Name, filePath)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Write data on file1.txt on Pod1.
 	data := filePath
 	ginkgo.By("Writing the file file1.txt from Pod1")
 
-	_, err = framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace), pod1.Name,
+	_, err = e2ekubectl.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace), pod1.Name,
 		"--", "/bin/sh", "-c", fmt.Sprintf(" echo %s >  %s ", data, filePath))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Read file1.txt created from Pod1.
 	ginkgo.By("Read file1.txt from Pod1 created by Pod1")
-	output, err := framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace), pod1.Name,
+	output, err := e2ekubectl.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace), pod1.Name,
 		"--", "/bin/sh", "-c", fmt.Sprintf("less %s", filePath))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By(fmt.Sprintf("File contents from file1.txt are: %s", output))
@@ -219,7 +220,7 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 
 	// Read file1.txt created from Pod2.
 	ginkgo.By("Read file1.txt from Pod2 created by Pod1")
-	output, err = framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace), pod2.Name,
+	output, err = e2ekubectl.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace), pod2.Name,
 		"--", "/bin/sh", "-c", fmt.Sprintf("less %s", filePath))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By(fmt.Sprintf("File contents from file1.txt are: %s", output))
@@ -227,19 +228,19 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 
 	// Create a file file2.txt from Pod2.
 	filePath = mntPath + "file2.txt"
-	err = framework.CreateEmptyFileOnPod(namespace, pod2.Name, filePath)
+	err = e2eoutput.CreateEmptyFileOnPod(namespace, pod2.Name, filePath)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Write on file2.txt from Pod2")
 	// Writing to the file.
 	data = filePath
-	_, err = framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace), pod2.Name,
+	_, err = e2ekubectl.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace), pod2.Name,
 		"--", "/bin/sh", "-c", fmt.Sprintf("echo %s >   %s", data, filePath))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Read file2.txt created from Pod2.
 	ginkgo.By("Read file2.txt from Pod2 created by Pod2")
-	output, err = framework.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace), pod2.Name,
+	output, err = e2ekubectl.RunKubectl(namespace, "exec", fmt.Sprintf("--namespace=%s", namespace), pod2.Name,
 		"--", "/bin/sh", "-c", fmt.Sprintf("less %s", filePath))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By(fmt.Sprintf("File contents from file2.txt are: %s", output))

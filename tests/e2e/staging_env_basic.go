@@ -37,9 +37,11 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	"k8s.io/kubernetes/test/e2e/framework/manifest"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 
@@ -984,7 +986,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		ginkgo.By("Verify the volume is accessible and filegroup type is as expected")
 		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 			"ls -lh /mnt/volume1/fstype "}
-		output := framework.RunKubectlOrDie(namespace, cmd...)
+		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, strconv.Itoa(int(fsGroup)))).NotTo(gomega.BeFalse())
 		gomega.Expect(strings.Contains(output, strconv.Itoa(int(runAsUser)))).NotTo(gomega.BeFalse())
 
@@ -1275,7 +1277,7 @@ func createPODandVerifyVolumeMountWithoutF(ctx context.Context, client clientset
 		"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
 
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-	_, err = framework.LookForStringInPodExec(namespace, pod.Name,
+	_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name,
 		[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1288,7 +1290,7 @@ func getFSSizeMbWithoutF(namespace string, pod *v1.Pod) (int64, error) {
 	var err error
 
 	cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
-	output = framework.RunKubectlOrDie(namespace, cmd...)
+	output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 	gomega.Expect(strings.Contains(output, ext4FSType)).NotTo(gomega.BeFalse())
 
 	arrMountOut := strings.Fields(string(output))
