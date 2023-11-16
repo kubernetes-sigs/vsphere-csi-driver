@@ -131,9 +131,6 @@ type VirtualCenterConfig struct {
 	RoundTripperCount int
 	// DatacenterPaths represents paths of datacenters on the virtual center.
 	DatacenterPaths []string
-	// TargetvSANFileShareDatastoreURLs represents URLs of file service enabled
-	// vSAN datastores in the virtual center.
-	TargetvSANFileShareDatastoreURLs []string
 	// TargetvSANFileShareClusters represents file service enabled vSAN clusters
 	// on which file volumes can be created.
 	TargetvSANFileShareClusters []string
