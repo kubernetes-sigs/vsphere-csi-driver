@@ -284,7 +284,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 9. Verify volume is detached from the node.
 	// 10. Delete PVC.
 	// 11. Verify PV is deleted automatically.
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify basic static provisioning"+
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify basic static provisioning "+
 		"workflow", ginkgo.Label(p0, block, vanilla, core), func() {
 		var err error
 
@@ -512,7 +512,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 7. Wait for the volume entry to be created in CNS.
 	// 8. Delete PV2.
 	// 9. Wait for PV2 to be deleted, and also entry is deleted from CNS.
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify static provisioning workflow using"+
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify static provisioning workflow using "+
 		"same PV name twice", ginkgo.Label(p2, block, vanilla, core), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -589,7 +589,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 12. Delete the PVC in GC.
 	// 13. Verifying if PVC and PV also deleted in the SV cluster.
 	// 14. Verify volume is deleted on CNS.
-	ginkgo.It("[csi-guest] Static provisioning workflow in guest"+
+	ginkgo.It("[csi-guest] Static provisioning workflow in guest "+
 		"cluster", ginkgo.Label(p1, block, tkg), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -690,7 +690,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 6. Delete the PVC in GC.
 	// 7. Verifying if PVC and PV also deleted in the SV cluster.
 	// 8. Verify volume is deleted on CNS.
-	ginkgo.It("[csi-guest] Static provisioning workflow II in guest"+
+	ginkgo.It("[csi-guest] Static provisioning workflow II in guest "+
 		"cluster", ginkgo.Label(p1, block, tkg), func() {
 		var err error
 
@@ -779,7 +779,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 9. Verify PV is deleted automatically.
 	// 10. Verify Volume id deleted automatically.
 	// 11. Verify CRD deleted automatically.
-	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on SVC - import"+
+	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on SVC - import "+
 		"CNS volume", ginkgo.Label(p0, block, wcp), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -864,7 +864,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 9. Verify PV is deleted automatically.
 	// 10. Verify Volume id deleted automatically.
 	// 11. Verify CRD deleted automatically.
-	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on SVC import"+
+	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on SVC import "+
 		"FCD", ginkgo.Label(p0, block, wcp), func() {
 
 		var err error
@@ -953,7 +953,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 12. Verify PV is deleted automatically.
 	// 13. Verify Volume id deleted automatically.
 	// 14. Verify CRD deleted automatically.
-	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on svc - when there is no"+
+	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on svc - when there is no "+
 		"resourcequota available", ginkgo.Label(p1, block, wcp), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1039,7 +1039,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 5. Create CNS register volume with above created FCD, AccessMode as "ReadOnlyMany".
 	// 6. verify  the error message.
 	// 7. Delete Resource quota.
-	ginkgo.It("[csi-supervisor] Verify static provisioning when AccessMode is ReadWriteMany or"+
+	ginkgo.It("[csi-supervisor] Verify static provisioning when AccessMode is ReadWriteMany or "+
 		"ReadOnlyMany", ginkgo.Label(p1, block, wcp), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1096,7 +1096,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 8. Verify PV is deleted automatically.
 	// 9. Verify Volume id deleted automatically.
 	// 10. Verify CRD deleted automatically.
-	ginkgo.It("[csi-supervisor] Verify static provisioning workflow - when"+
+	ginkgo.It("[csi-supervisor] Verify static provisioning workflow - when "+
 		"DuplicateFCD is used", ginkgo.Label(p2, block, wcp), func() {
 
 		var err error
@@ -1199,7 +1199,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 10. Verify PV is deleted automatically.
 	// 11. Verify Volume id deleted automatically.
 	// 12. Verify CRD deleted automatically.
-	ginkgo.It("[csi-supervisor] Verify static provisioning workflow - when"+
+	ginkgo.It("[csi-supervisor] Verify static provisioning workflow - when "+
 		"DuplicatePVC name is used", ginkgo.Label(p2, block, wcp), func() {
 
 		var err error
@@ -1381,7 +1381,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 8. Delete PVC.
 	// 9. PV and CRD gets auto deleted.
 	// 10. Delete Resource quota.
-	ginkgo.It("[csi-supervisor] Verifies static provisioning workflow on SVC - When"+
+	ginkgo.It("[csi-supervisor] Verifies static provisioning workflow on SVC - When "+
 		"SPS service is down", ginkgo.Label(p2, block, wcp), func() {
 
 		var err error
@@ -1456,7 +1456,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 3. Create CNS register volume with above created FCD.
 	// 4. Verify the error message.
 	// 5. Delete Resource quota.
-	ginkgo.It("[csi-supervisor] Verify static provisioning workflow SVC - On"+
+	ginkgo.It("[csi-supervisor] Verify static provisioning workflow SVC - On "+
 		"non shared datastore", ginkgo.Label(p2, block, wcp), func() {
 
 		var err error
@@ -1530,7 +1530,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 2. Create Resource quota.
 	// 3. Create CNS register volume with above created FCD.
 	// 4. Verify the error message.
-	ginkgo.It("[csi-supervisor] Verify creating static provisioning workflow when FCD"+
+	ginkgo.It("[csi-supervisor] Verify creating static provisioning workflow when FCD "+
 		"with no storage policy", ginkgo.Label(p2, block, wcp, negative), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1591,7 +1591,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 3. Create FCD with the above created storage policy.
 	// 4. Import the volume created in step 3 to namespace created in step 1.
 	ginkgo.It("[csi-supervisor] static provisioning workflow - "+
-		"when tried to import volume with a storage policy that"+
+		"when tried to import volume with a storage policy that "+
 		"doesn't belong to the namespace", ginkgo.Label(p2, block, wcp, negative), func() {
 
 		var err error
@@ -1739,7 +1739,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 7. Wait for PV , PVC to get bound.
 	// 8. Create POD, verify the status.
 	// 9. Delete all the above created PV, PVC and resource quota.
-	ginkgo.It("[csi-guest] static volume provisioning on guest"+
+	ginkgo.It("[csi-guest] static volume provisioning on guest "+
 		"cluster", ginkgo.Label(p0, block, tkg), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1968,7 +1968,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 2. Create Resource quota.
 	// 3. Create CNS register volume with above created VMDK.
 	// 4. verify PV, PVC got created , check the bidirectional reference.
-	ginkgo.It("[csi-supervisor] Verify static provisioning - import"+
+	ginkgo.It("[csi-supervisor] Verify static provisioning - import "+
 		"VMDK", ginkgo.Label(p1, block, wcp), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2051,7 +2051,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 3. Create CNS register volume with above created VMDK and FCDID.
 	// 4. Verify the error message "VolumeID and DiskURLPath cannot be specified
 	//    together".
-	ginkgo.It("[csi-supervisor] Specify VolumeID and DiskURL together and"+
+	ginkgo.It("[csi-supervisor] Specify VolumeID and DiskURL together and "+
 		"verify the error message", ginkgo.Label(p2, block, wcp, negative), func() {
 
 		var err error
@@ -2122,7 +2122,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		7.Verify Volume is deleted.
 		8.Delete FCD.
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Full sync to deregister/delete"+
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Full sync to deregister/delete "+
 		"volume", ginkgo.Label(p0, block, wcp, vanilla, core), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
