@@ -87,7 +87,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		9. Delete PVC, PV and Storage Class
 	*/
 
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-serialized] verify volume"+
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-serialized] verify volume "+
 		"operations on VC works fine after vc reboots", ginkgo.Label(p1, block, wcp, vanilla, tkg, core), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())

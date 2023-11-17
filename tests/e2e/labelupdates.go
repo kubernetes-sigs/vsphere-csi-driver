@@ -124,7 +124,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		}
 	})
 
-	ginkgo.It("[csi-supervisor] verify labels are created in CNS after updating pvc"+
+	ginkgo.It("[csi-supervisor] verify labels are created in CNS after updating pvc "+
 		"and/or pv with new labels", ginkgo.Label(p1, block, vanilla, wcp, core), func() {
 		ginkgo.By("Invoking test to verify labels creation")
 		var sc *storagev1.StorageClass
@@ -196,7 +196,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 
 	})
 
-	ginkgo.It("[csi-supervisor] verify labels are removed in CNS after removing them from pvc and/or"+
+	ginkgo.It("[csi-supervisor] verify labels are removed in CNS after removing them from pvc and/or "+
 		"pv", ginkgo.Label(p0, block, vanilla, wcp, core), func() {
 		ginkgo.By("Invoking test to verify labels deletion")
 		labels := make(map[string]string)
@@ -284,7 +284,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 
 	})
 
-	ginkgo.It("[csi-supervisor] verify podname label is created/deleted when pod with cns volume is"+
+	ginkgo.It("[csi-supervisor] verify podname label is created/deleted when pod with cns volume is "+
 		"created/deleted.", ginkgo.Label(p0, block, vanilla, wcp, core), func() {
 		ginkgo.By("Invoking test to verify pod name label updates")
 		var sc *storagev1.StorageClass
@@ -661,7 +661,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		10. Delete PVCs
 		11. Delete SC
 	*/
-	ginkgo.It("[csi-supervisor] Verify label updates on PVC and PV attached to a stateful"+
+	ginkgo.It("[csi-supervisor] Verify label updates on PVC and PV attached to a stateful "+
 		"set.", ginkgo.Label(p0, block, vanilla, wcp, core), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		8. Delete all PVCs from the tests namespace.
 		9. Delete the storage class.
 	*/
-	ginkgo.It("Statefulset with file volume testing with default"+
+	ginkgo.It("Statefulset with file volume testing with default "+
 		"podManagementPolicy", ginkgo.Label(p0, file, vanilla, core), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
@@ -253,7 +253,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		8. Delete all PVCs from the tests namespace.
 		9. Delete the storage class.
 	*/
-	ginkgo.It("Statefulset with file volume testing with parallel"+
+	ginkgo.It("Statefulset with file volume testing with parallel "+
 		"podManagementPolicy", ginkgo.Label(p0, file, vanilla, core), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
@@ -416,7 +416,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		7. Delete all PVCs from the tests namespace.
 		8. Delete the storage class.
 	*/
-	ginkgo.It("Statefulset with file volume testing scale-up first and"+
+	ginkgo.It("Statefulset with file volume testing scale-up first and "+
 		"scale-down", ginkgo.Label(p0, file, vanilla, core), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
@@ -532,7 +532,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 	   9. Delete all PVCs from the tests namespace.
 	   10. Delete the storage class.
 	*/
-	ginkgo.It("Statefulset with file volume testing with CSI daemonset"+
+	ginkgo.It("Statefulset with file volume testing with CSI daemonset "+
 		"restart", ginkgo.Label(p1, file, vanilla, core), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
