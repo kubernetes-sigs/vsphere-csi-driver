@@ -501,7 +501,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			// TODO: Need to figure out which fault need to be returned when datastoreURL is not specified in
 			// storage class. Currently, just return csi.fault.Internal.
 			return "", csifault.CSIInternalFault, logger.LogNewErrorf(log,
-				"CSI user doesn't have permission on the datastore: %s specified in storage class",
+				"Datastore %q not found in candidate list for volume provisioning.",
 				spec.ScParams.DatastoreURL)
 		}
 	}
