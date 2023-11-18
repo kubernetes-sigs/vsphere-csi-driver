@@ -123,6 +123,12 @@ func (l *ListViewImpl) AddTask(ctx context.Context, taskMoRef types.ManagedObjec
 	log := logger.GetLogger(ctx)
 	log.Infof("AddTask called for %+v", taskMoRef)
 
+	if err := l.isClientValid(); err != nil {
+		return fmt.Errorf("%w. task: %v, err: %v", ErrListViewTaskAddition, taskMoRef, err)
+	} else {
+		log.Debugf("connection to vc successful")
+	}
+
 	l.taskMap.Upsert(taskMoRef, TaskDetails{
 		Reference:        taskMoRef,
 		MarkedForRemoval: false,
@@ -159,6 +165,11 @@ func (l *ListViewImpl) RemoveTask(ctx context.Context, taskMoRef types.ManagedOb
 	log := logger.GetLogger(ctx)
 	if l.listView == nil {
 		return logger.LogNewErrorf(log, "failed to remove task from listView: listView not initialized")
+	}
+	if err := l.isClientValid(); err != nil {
+		return logger.LogNewErrorf(log, "failed to remove task %v from ListView. error: %+v", taskMoRef, err)
+	} else {
+		log.Debugf("connection to vc successful")
 	}
 	_, err := l.listView.Remove(l.ctx, []types.ManagedObjectReference{taskMoRef})
 	if err != nil {
