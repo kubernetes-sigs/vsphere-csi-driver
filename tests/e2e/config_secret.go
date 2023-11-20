@@ -556,7 +556,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		}()
 
 		ginkgo.By("Fetch vcenter hotsname")
-		vCenterHostName := getVcenterHostName(vCenterIP)
+		vCenterHostName := getHostName(vCenterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Update vsphere-config-secret to use vcenter hostname")

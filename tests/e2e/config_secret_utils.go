@@ -714,9 +714,9 @@ func changeTestUserPassword(masterIp string, sshClientConfig *ssh.ClientConfig, 
 }
 
 // getVcenterHostName util method is use to fetch the vcenter hostname
-func getVcenterHostName(vcenterIp string) string {
-	getVcenterHostNameCmd := "nslookup " + vcenterIp + "| grep 'name = ' | awk '{print $4}' | tr -d '\n'"
-	result, err := exec.Command("/bin/bash", "-c", getVcenterHostNameCmd).Output()
+func getHostName(hostIp string) string {
+	getHostNameCmd := "nslookup " + hostIp + "| grep 'name = ' | awk '{print $4}' | tr -d '\n'"
+	result, err := exec.Command("/bin/bash", "-c", getHostNameCmd).Output()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	vcenterHostName := string(result[:])
 	return vcenterHostName
