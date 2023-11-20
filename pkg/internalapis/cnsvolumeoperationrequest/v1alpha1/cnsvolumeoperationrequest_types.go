@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	"k8s.io/apimachinery/pkg/api/resource"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -43,6 +44,7 @@ type CnsVolumeOperationRequestStatus struct {
 	ErrorCount int `json:"errorCount,omitempty"`
 	// Reserved keeps a track of the quantity that should be reserved in
 	// storage quota during a create/expand volume operation.
+	// +optional
 	Reserved *resource.Quantity `json:"reserved,omitempty"`
 	// FirstOperationDetails stores the details of the first operation performed on the volume.
 	// For debugging purposes, clients should ensure that this information is never overwritten.
