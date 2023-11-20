@@ -248,7 +248,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: csi-attacher
-          image: localhost:5000/vmware.io/csi-attacher:v4.3.0_vmware.1
+          image: localhost:5000/vmware.io/csi-attacher:v4.4.2+vmware.1
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -272,7 +272,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: csi-resizer
-          image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.8.0_vmware.1
+          image: localhost:5000/vmware/kubernetes-csi_external-resizer/kubernetes-csi_external-resizer:v1.9.2+vmware.1
           imagePullPolicy: IfNotPresent
           args:
             - --v=4
