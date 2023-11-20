@@ -54,12 +54,6 @@ spec:
                   ExtendVolume call for a volume.
                 format: int64
                 type: integer
-              reserved:
-                description: Storage quota quantity to be reserved for in-flight 
-                  create/expand volume operations.
-                anyOf:
-                  - type: integer
-                  - type: string
               errorCount:
                 description: ErrorCount is the number of times this operation failed
                   for this volume. Incremented by clients when new OperationDetails

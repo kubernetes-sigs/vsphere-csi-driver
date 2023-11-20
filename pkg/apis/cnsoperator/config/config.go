@@ -21,13 +21,3 @@ const EmbedCnsFileAccessConfigCRFileName = "cnsfileaccessconfig_crd.yaml"
 var EmbedCnsRegisterVolumeCRFile embed.FS
 
 const EmbedCnsRegisterVolumeCRFileName = "cnsregistervolume_crd.yaml"
-
-//go:embed cns.vmware.com_storagepolicyquotas.yaml
-var EmbedStoragePolicyQuotaCRFile embed.FS
-
-const EmbedStoragePolicyQuotaCRFileName = "cns.vmware.com_storagepolicyquotas.yaml"
-
-//go:embed cns.vmware.com_storagepolicyusages.yaml
-var EmbedStoragePolicyUsageCRFile embed.FS
-
-const EmbedStoragePolicyUsageCRFileName = "cns.vmware.com_storagepolicyusages.yaml"
