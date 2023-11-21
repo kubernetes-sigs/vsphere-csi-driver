@@ -764,8 +764,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		defer func() {
 			deleteService(namespace, client, service)
 		}()
-		ginkgo.By("Creating statefulset with replica 3 and a deployment")
-		statefulset, _, volumesBeforeScaleUp := createStsDeployment(ctx, client, namespace, sc, true,
+		ginkgo.By("Creating statefulset with replica 3")
+		statefulset, _, volumesBeforeScaleUp := createStsDeployment(ctx, client, namespace, sc, false,
 			false, 0, "", v1.ReadWriteMany, false)
 		replicas := *(statefulset.Spec.Replicas)
 
@@ -810,9 +810,9 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 			framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace),
 				"Failed to delete PVC", pvc.Name)
 		}
-		//List volume responses will show up in the interval of every 1 minute.
-		//To see the empty response, It is required to wait for 1 min after deleteting all the PVC's
-		time.Sleep(pollTimeoutShort)
+		//List volume responses will show up in the interval of every 2 minute.
+		//To see the empty response, It is required to wait for 2 min after deleteting all the PVC's
+		time.Sleep(time.Minute * 2)
 
 		ginkgo.By("Validate ListVolume Response when no volumes are present")
 		logMessage = "ListVolumes served 0 results"
