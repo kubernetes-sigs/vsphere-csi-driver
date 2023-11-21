@@ -132,14 +132,15 @@ func validateGuestClusterControllerExpandVolumeRequest(ctx context.Context,
 // checkForSupervisorPVCCondition returns nil if the PVC condition is set as
 // required in the supervisor cluster before timeout, otherwise returns error.
 func checkForSupervisorPVCCondition(ctx context.Context, client clientset.Interface,
-	claim *v1.PersistentVolumeClaim, reqCondition v1.PersistentVolumeClaimConditionType, timeout time.Duration) error {
+	claim *v1.PersistentVolumeClaim, reqCondition v1.PersistentVolumeClaimConditionType,
+	reqSize *resource.Quantity, timeout time.Duration) error {
 	log := logger.GetLogger(ctx)
 	pvcName := claim.Name
 	ns := claim.Namespace
 	timeoutSeconds := int64(timeout.Seconds())
 
-	log.Infof("Waiting up to %d seconds for supervisor PersistentVolumeClaim %s in namespace %s to have %s condition",
-		timeoutSeconds, pvcName, ns, reqCondition)
+	log.Infof("Waiting up to %d seconds for supervisor PersistentVolumeClaim %s in namespace %s to have %s condition "+
+		"and %s size", timeoutSeconds, pvcName, ns, reqCondition, reqSize.String())
 	watchClaim, err := client.CoreV1().PersistentVolumeClaims(ns).Watch(
 		ctx,
 		metav1.ListOptions{
@@ -160,23 +161,36 @@ func checkForSupervisorPVCCondition(ctx context.Context, client clientset.Interf
 		if !ok {
 			continue
 		}
-		if checkPVCCondition(ctx, pvc, reqCondition) {
+		if checkPVCCondition(ctx, pvc, reqCondition, reqSize) {
 			return nil
 		}
 	}
-	return fmt.Errorf("supervisor persistentVolumeClaim %s in namespace %s not in %q condition within %d seconds",
-		pvcName, ns, reqCondition, timeoutSeconds)
+	return fmt.Errorf("supervisor PersistentVolumeClaim %s in namespace %s not in %s condition and %s size "+
+		"within %d seconds", pvcName, ns, reqCondition, reqSize.String(), timeoutSeconds)
 }
 
+// checkPVCCondition returns true if the PVC condition is set as required (FileSystemResizePending) in
+// the supervisor cluster, otherwise returns false. It checks PVC request size along with the condition
+// to make sure that we are checking condition on the correct PVC instance when multiple resize requests
+// are made on the same PVC in quick succession.
 func checkPVCCondition(ctx context.Context, pvc *v1.PersistentVolumeClaim,
-	reqCondition v1.PersistentVolumeClaimConditionType) bool {
+	reqCondition v1.PersistentVolumeClaimConditionType, reqSize *resource.Quantity) bool {
 	log := logger.GetLogger(ctx)
 	for _, condition := range pvc.Status.Conditions {
-		log.Debugf("PersistentVolumeClaim %s in namespace %s is in %s condition", pvc.Name, pvc.Namespace, condition.Type)
+		log.Debugf("PersistentVolumeClaim %s in namespace %s is in %s condition", pvc.Name,
+			pvc.Namespace, condition.Type)
 		if condition.Type == reqCondition {
-			log.Infof("PersistentVolumeClaim %s in namespace %s is in %s condition",
-				pvc.Name, pvc.Namespace, condition.Type)
-			return true
+			pvcSize := pvc.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)]
+			if pvcSize == *reqSize {
+				log.Infof("PersistentVolumeClaim %s in namespace %s is in %s condition and "+
+					"its request size is %s", pvc.Name, pvc.Namespace, condition.Type, reqSize.String())
+				return true
+			} else {
+				log.Infof("PersistentVolumeClaim %s in namespace %s is in %s condition, its "+
+					"desired request size is %s, but current request size is %s", pvc.Name, pvc.Namespace,
+					condition.Type, reqSize.String(), pvcSize.String())
+				return false
+			}
 		}
 	}
 	return false
