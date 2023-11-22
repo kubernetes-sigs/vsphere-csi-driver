@@ -351,7 +351,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	}
 
 	// Get K8S storageclass name mapping the storagepolicy id with Immediate volume binding mode
-	storageClassName, err := getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx, k8sclient,
+	storageClassName, err := getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx, k8sclient, r.client,
 		volume.StoragePolicyId, request.Namespace, isPodVMOnStretchedSupervisorEnabled)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to find K8S Storageclass mapping storagepolicyId: %s and assigned to namespace: %s",
@@ -450,6 +450,13 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			log.Errorf("Failed to create PVC with spec: %+v. Error: %+v", pvcSpec, err)
 			setInstanceError(ctx, r, instance,
 				fmt.Sprintf("Failed to create PVC: %s for volume with err: %+v", instance.Spec.PvcName, err))
+			// Delete PV created above.
+			err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pvName, *metav1.NewDeleteOptions(0))
+			if err != nil {
+				log.Errorf("Delete PV %s failed with error: %+v", pvName, err)
+			}
+			setInstanceError(ctx, r, instance,
+				fmt.Sprintf("Delete PV %s failed with error: %+v", pvName, err))
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	} else {
