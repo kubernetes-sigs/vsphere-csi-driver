@@ -262,6 +262,7 @@ spec:
               name: socket-dir
           resources:
             limits:
+              cpu: 10m
               memory: 500Mi
             requests:
               cpu: 10m
@@ -287,6 +288,7 @@ spec:
               name: socket-dir
           resources:
             limits:
+              cpu: 10m
               memory: 500Mi
             requests:
               cpu: 10m
@@ -345,6 +347,7 @@ spec:
             failureThreshold: 3
           resources:
             limits:
+              cpu: 50m
               memory: 500Mi
             requests:
               cpu: 10m
@@ -404,6 +407,7 @@ spec:
               readOnly: true
           resources:
             limits:
+              cpu: 50m
               memory: 500Mi
             requests:
               cpu: 10m
@@ -450,6 +454,7 @@ spec:
               name: socket-dir
           resources:
             limits:
+              cpu: 10m
               memory: 500Mi
             requests:
               cpu: 10m
@@ -512,6 +517,7 @@ spec:
             initialDelaySeconds: 3
           resources:
             limits:
+              cpu: 50m
               memory: 500Mi
             requests:
               cpu: 10m
@@ -580,6 +586,7 @@ spec:
             failureThreshold: 3
           resources:
             limits:
+              cpu: 50m
               memory: 500Mi
             requests:
               cpu: 10m
@@ -677,6 +684,7 @@ spec:
             initialDelaySeconds: 3
           resources:
             limits:
+              cpu: 50m
               memory: 500Mi
             requests:
               cpu: 10m
@@ -740,6 +748,7 @@ spec:
             failureThreshold: 3
           resources:
             limits:
+              cpu: 10m
               memory: 500Mi
             requests:
               cpu: 10m
