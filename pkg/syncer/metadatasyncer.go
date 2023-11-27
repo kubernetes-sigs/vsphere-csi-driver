@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,10 +28,12 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/fsnotify/fsnotify"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -45,6 +48,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	storagepolicyusagev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -58,6 +62,8 @@ import (
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
+	cnsvolumeoperationrequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/featurestates"
@@ -284,6 +290,17 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					os.Exit(1)
 				}
 			}()
+		}
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+			k8sConfig, err := k8s.GetKubeConfig(ctx)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to get kubeconfig with error: %v", err)
+			}
+			err = initCnsVolumeOperationRequestCRInformer(ctx, k8sConfig)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to start CnsVolumeOperationRequest informer on %q instances. Error: %v",
+					cnsvolumeoperationrequest.CRDSingular, err)
+			}
 		}
 	} else {
 		// code block only applicable to Vanilla
@@ -744,6 +761,39 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	return nil
 }
 
+// initCnsVolumeOperationRequestCRInformer creates and starts an informer for CnsVolumeOperationRequest custom resource.
+func initCnsVolumeOperationRequestCRInformer(ctx context.Context, cfg *restclient.Config) error {
+	log := logger.GetLogger(ctx)
+	// Create an informer for CnsVolumeOperationRequest instances.
+	dynInformer, err := k8s.GetDynamicInformer(ctx, cnsvolumeoperationrequestv1alpha1.SchemeGroupVersion.Group,
+		cnsvolumeoperationrequestv1alpha1.SchemeGroupVersion.Version, cnsvolumeoperationrequest.CRDPlural,
+		metav1.NamespaceAll, cfg, true)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to create dynamic informer for %s CR. Error: %+v",
+			cnsvolumeoperationrequest.CRDSingular, err)
+	}
+	cnsvolumeoperationrequestInformer := dynInformer.Informer()
+	_, err = cnsvolumeoperationrequestInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: nil,
+		UpdateFunc: func(oldObj interface{}, newObj interface{}) {
+			cnsvolumeoperationrequestCRUpdated(oldObj, newObj)
+		},
+		DeleteFunc: func(obj interface{}) {
+			cnsvolumeoperationrequestCRDeleted(obj)
+		},
+	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on informer for %q CR. Error: %v",
+			cnsvolumeoperationrequest.CRDPlural, err)
+	}
+	// Start informer.
+	go func() {
+		log.Infof("Informer to watch on %s CR starting..", cnsvolumeoperationrequest.CRDSingular)
+		cnsvolumeoperationrequestInformer.Run(make(chan struct{}))
+	}()
+	return nil
+}
+
 // startTopologyCRInformer creates and starts an informer for CSINodeTopology custom resource.
 func startTopologyCRInformer(ctx context.Context, cfg *restclient.Config) error {
 	log := logger.GetLogger(ctx)
@@ -799,6 +849,234 @@ func addLabelsToTopologyVCMap(ctx context.Context, nodeTopoObj csinodetopologyv1
 			MetadataSyncer.topologyVCMap[label.Value][nodeVM.VirtualCenterHost] = struct{}{}
 		}
 	}
+}
+
+// cnsvolumeoperationrequestCRDeleted is invoked when the the cnsvolumeoperationrequest instance is deleted
+func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
+	ctx, log := logger.GetNewContextWithLogger()
+	var cnsvolumeoperationrequestObj cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequest
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(
+		obj.(*unstructured.Unstructured).Object, &cnsvolumeoperationrequestObj)
+	if err != nil {
+		log.Errorf("cnsvolumeoperationrequestCRDeleted: failed to cast object %+v to %s. Error: %+v", obj,
+			cnsvolumeoperationrequest.CRDSingular, err)
+		return
+	}
+
+	if cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved != nil {
+		// Update StoragePolicyUsage reserved field
+		restConfig, err := config.GetConfig()
+		if err != nil {
+			log.Errorf("failed to get Kubernetes config. Err: %+v", err)
+			return
+		}
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		if err != nil {
+			log.Errorf("Failed to create CnsOperator client. Err: %+v", err)
+			return
+		}
+		namespace := cnsvolumeoperationrequestObj.Namespace
+		storagePolicyUsageList := &storagepolicyusagev1alpha1.StoragePolicyUsageList{}
+		err = cnsOperatorClient.List(ctx, storagePolicyUsageList, client.InNamespace(namespace))
+		if err != nil {
+			log.Errorf("failed to list %s CR from supervisor namespace %q. Error: %+v",
+				storagepolicyusagev1alpha1.CRDSingular, namespace, err)
+			return
+		}
+		foundStoragePolicyUsageCR := false
+		storagePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
+		if len(storagePolicyUsageList.Items) > 0 {
+			for _, item := range storagePolicyUsageList.Items {
+				policyId := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StoragePolicyId
+				scName := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName
+				if item.Spec.StoragePolicyId == policyId && item.Spec.StorageClassName == scName {
+					log.Debugf("cnsvolumeoperationrequestCRDeleted: Found storagePolicyUsage CR with matching "+
+						"storagePolicyId: %q & storageClassName: %q in namespace: %q", policyId, scName,
+						namespace)
+					storagePolicyUsageCR = item.DeepCopy()
+					foundStoragePolicyUsageCR = true
+					break
+				}
+			}
+		}
+		if !foundStoragePolicyUsageCR {
+			log.Errorf("unable to find matching %q CR with PolicyId: %q & PolicyName: %q from "+
+				"supervisor namespace %q", storagepolicyusagev1alpha1.CRDSingular,
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StoragePolicyId,
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName,
+				namespace)
+			return
+		}
+
+		// This is a case where CnsVolumeOperationRequest is cleaned up due to CreateVolume failure.
+		// Hence, the "reserved" field in StoragePolicyUsage needs to be decreased based on the
+		// deleted CnsVolumeOperationRequest object's "reserved" field.
+		storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(
+			*resource.NewQuantity(cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
+		log.Infof("cnsvolumeoperationrequestCRDeleted: Successfully decreased the reserved field by %v "+
+			"for storagepolicyusage CR: %q", cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
+			storagePolicyUsageCR.Name)
+	}
+}
+
+// cnsvolumeoperationrequestCRUpdated checks if the cnsvolumeoperationrequest instance reserved field is updated
+func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) {
+	ctx, log := logger.GetNewContextWithLogger()
+	// Verify both objects received.
+	var (
+		oldcnsvolumeoperationrequestObj cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequest
+		newcnsvolumeoperationrequestObj cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequest
+	)
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(
+		newObj.(*unstructured.Unstructured).Object, &newcnsvolumeoperationrequestObj)
+	if err != nil {
+		log.Errorf("cnsvolumeoperationrequestCRUpdated: failed to cast new object %+v to %s. Error: %+v", newObj,
+			cnsvolumeoperationrequest.CRDSingular, err)
+		return
+	}
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(
+		oldObj.(*unstructured.Unstructured).Object, &oldcnsvolumeoperationrequestObj)
+	if err != nil {
+		log.Errorf("cnsvolumeoperationrequestCRUpdated: failed to cast old object %+v to %s. Error: %+v", oldObj,
+			cnsvolumeoperationrequest.CRDSingular, err)
+		return
+	}
+	if oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved != nil &&
+		newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved != nil &&
+		(oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value() !=
+			newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value()) {
+		// Update StoragePolicyUsage reserved field
+		restConfig, err := config.GetConfig()
+		if err != nil {
+			log.Errorf("failed to get Kubernetes config. Err: %+v", err)
+			return
+		}
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		if err != nil {
+			log.Errorf("Failed to create CnsOperator client. Err: %+v", err)
+			return
+		}
+		namespace := newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace
+		storagePolicyUsageList := &storagepolicyusagev1alpha1.StoragePolicyUsageList{}
+		err = cnsOperatorClient.List(ctx, storagePolicyUsageList, client.InNamespace(namespace))
+		if err != nil {
+			log.Errorf("failed to list %s CR from supervisor namespace %q. Error: %+v",
+				storagepolicyusagev1alpha1.CRDSingular, namespace, err)
+			return
+		}
+		foundStoragePolicyUsageCR := false
+		oldStoragePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
+		newStoragePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
+		if len(storagePolicyUsageList.Items) > 0 {
+			for _, item := range storagePolicyUsageList.Items {
+				policyId := newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StoragePolicyId
+				scName := newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName
+				if item.Spec.StoragePolicyId == policyId && item.Spec.StorageClassName == scName {
+					log.Debugf("cnsvolumeoperationrequestCRUpdated: Found storagePolicyUsage CR with matching "+
+						"storagePolicyId: %q & storageClassName: %q in namespace: %q", policyId, scName,
+						namespace)
+					oldStoragePolicyUsageCR = item.DeepCopy()
+					newStoragePolicyUsageCR = item.DeepCopy()
+					foundStoragePolicyUsageCR = true
+					break
+				}
+			}
+		}
+		if !foundStoragePolicyUsageCR {
+			log.Errorf("unable to find matching %q CR with PolicyId: %q & PolicyName: %q from "+
+				"supervisor namespace %q", storagepolicyusagev1alpha1.CRDSingular,
+				newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StoragePolicyId,
+				newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName,
+				namespace)
+			return
+		}
+		if newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value() >
+			oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value() {
+			// This is a case where CSI Driver container increases the value of "reserved" field in
+			// CnsVolumeOperationRequest during in-flight CreateVolume operation. And subsequently,
+			// the "reserved" field in StoragePolicyUsage needs to be increased based on the
+			// CnsVolumeOperationRequest "reserved" field
+			newStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
+				*resource.NewQuantity(newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
+					newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
+			err := patchStoragePolicyUsage(ctx, cnsOperatorClient, oldStoragePolicyUsageCR,
+				newStoragePolicyUsageCR)
+			if err != nil {
+				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
+				return
+			}
+			log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully increased the reserved field by %v "+
+				"for storagepolicyusage CR: %q", newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
+				newStoragePolicyUsageCR.Name)
+		} else {
+			// This is a case where CSI Driver container decreases the value of "reserved" value in
+			// CnsVolumeOperationRequest after a successful CreateVolume operation. And subsequently,
+			// the "reserved" field in StoragePolicyUsage needs to be decreased based on the CnsVolumeOperationRequest
+			// "reserved" field. Also, the "used" field in StoragePolicyUsage needs to be increased.
+			newStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(
+				*resource.NewQuantity(oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
+					oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
+			newStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
+				*resource.NewQuantity(oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
+					oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
+			err := patchStoragePolicyUsage(ctx, cnsOperatorClient, oldStoragePolicyUsageCR,
+				newStoragePolicyUsageCR)
+			if err != nil {
+				log.Errorf("Patching operation failed for StoragePolicyUsage CR: %q in namespace: %q. err: %v",
+					oldStoragePolicyUsageCR.Name, oldStoragePolicyUsageCR.Namespace, err)
+				return
+			}
+			log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully decreased the reserved field by %v "+
+				"for storagepolicyusage CR: %q in namespace: %q",
+				oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(), oldStoragePolicyUsageCR.Name,
+				oldStoragePolicyUsageCR.Namespace)
+			log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully increased the used field by %v "+
+				"for storagepolicyusage CR: %q in namespace: %q",
+				oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(), oldStoragePolicyUsageCR.Name,
+				oldStoragePolicyUsageCR.Namespace)
+		}
+	}
+}
+func getPatchData(oldObj, newObj interface{}) ([]byte, error) {
+	oldData, err := json.Marshal(oldObj)
+	if err != nil {
+		return nil, fmt.Errorf("marshal old object failed: %v", err)
+	}
+	newData, err := json.Marshal(newObj)
+	if err != nil {
+		return nil, fmt.Errorf("marshal new object failed: %v", err)
+	}
+	patchBytes, err := jsonpatch.CreateMergePatch(oldData, newData)
+	if err != nil {
+		return nil, fmt.Errorf("CreateMergePatch failed: %v", err)
+	}
+	return patchBytes, nil
+}
+func patchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Client,
+	oldObj *storagepolicyusagev1alpha1.StoragePolicyUsage,
+	newObj *storagepolicyusagev1alpha1.StoragePolicyUsage) error {
+	log := logger.GetLogger(ctx)
+	patch, err := getPatchData(oldObj, newObj)
+	if err != nil {
+		log.Errorf("error fetching PatchData StoragePolicyUsage CR. err: %v", err)
+		return err
+	}
+	patch, err = addResourceVersion(patch, oldObj.ResourceVersion)
+	if err != nil {
+		log.Errorf("applying ResourceVersion to patch data failed: %v", err)
+		return err
+	}
+	rawPatch := client.RawPatch(k8stypes.MergePatchType, patch)
+	err = cnsOperatorClient.Patch(ctx, oldObj, rawPatch)
+	log.Infof("Patching the StoragePolicyUsageCR %q on namespace: %q with the data: %v",
+		oldObj.Name, oldObj.Namespace, patch)
+	if err != nil {
+		log.Errorf("failed to patch StoragePolicyUsage instance: %q on namespace: %q. Error: %+v",
+			oldObj.Name, oldObj.Namespace, err)
+		return err
+	}
+	return nil
 }
 
 // topoCRAdded checks if the CSINodeTopology instance Status is set to Success

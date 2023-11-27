@@ -2,9 +2,13 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"google.golang.org/grpc/codes"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/tools/cache"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -790,4 +794,23 @@ func createMissingFileVolumeInfoCrs(ctx context.Context, metadataSyncer *metadat
 		_, _, _ = createVolumeOnMultiVc(ctx, pv, metadataSyncer,
 			common.FileVolumeType, metadataList, pv.Spec.CSI.VolumeHandle)
 	}
+}
+
+func addResourceVersion(patchBytes []byte, resourceVersion string) ([]byte, error) {
+	var patchMap map[string]interface{}
+	err := json.Unmarshal(patchBytes, &patchMap)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling patch: %v", err)
+	}
+	u := unstructured.Unstructured{Object: patchMap}
+	a, err := meta.Accessor(&u)
+	if err != nil {
+		return nil, fmt.Errorf("error creating accessor: %v", err)
+	}
+	a.SetResourceVersion(resourceVersion)
+	versionBytes, err := json.Marshal(patchMap)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling json patch: %v", err)
+	}
+	return versionBytes, nil
 }
