@@ -10,7 +10,6 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/view"
-	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 
@@ -131,17 +130,13 @@ func (l *ListViewImpl) AddTask(ctx context.Context, taskMoRef types.ManagedObjec
 	})
 	log.Debugf("task %+v added to map", taskMoRef)
 
-	req := types.ModifyListView{
-		This: l.listView.Reference(),
-		Add:  []types.ManagedObjectReference{taskMoRef},
-	}
-	response, err := methods.ModifyListView(ctx, l.listView.Client(), &req)
+	response, err := l.listView.Add(l.ctx, []types.ManagedObjectReference{taskMoRef})
 	if err != nil {
 		l.taskMap.Delete(taskMoRef)
 		return fmt.Errorf("%w. task: %v, err: %v", ErrListViewTaskAddition, taskMoRef, err)
 	}
-	if response != nil && len(response.Returnval) > 0 {
-		for _, unresolvedTaskRef := range response.Returnval {
+	if len(response) > 0 {
+		for _, unresolvedTaskRef := range response {
 			l.taskMap.Delete(unresolvedTaskRef)
 			fault := &soap.Fault{
 				Code: "ServerFaultCode",
@@ -165,7 +160,7 @@ func (l *ListViewImpl) RemoveTask(ctx context.Context, taskMoRef types.ManagedOb
 	if l.listView == nil {
 		return logger.LogNewErrorf(log, "failed to remove task from listView: listView not initialized")
 	}
-	err := l.listView.Remove(l.ctx, []types.ManagedObjectReference{taskMoRef})
+	_, err := l.listView.Remove(l.ctx, []types.ManagedObjectReference{taskMoRef})
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to remove task %v from ListView. error: %+v", taskMoRef, err)
 	}
@@ -326,7 +321,7 @@ func RemoveTasksMarkedForDeletion(l *ListViewImpl) {
 	var tasksToDelete []types.ManagedObjectReference
 	for _, taskDetails := range l.taskMap.GetAll() {
 		if taskDetails.MarkedForRemoval {
-			err := l.listView.Remove(l.ctx, []types.ManagedObjectReference{taskDetails.Reference})
+			_, err := l.listView.Remove(l.ctx, []types.ManagedObjectReference{taskDetails.Reference})
 			if err != nil {
 				log.Errorf("failed to remove task from ListView. error: %+v", err)
 				continue
