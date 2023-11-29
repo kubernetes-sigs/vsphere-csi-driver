@@ -144,8 +144,6 @@ type VirtualCenterConfig struct {
 	InsecureFlag bool `gcfg:"insecure-flag"`
 	// Datacenter in which VMs are located.
 	Datacenters string `gcfg:"datacenters"`
-	// Target datastore urls for provisioning file volumes.
-	TargetvSANFileShareDatastoreURLs string `gcfg:"targetvSANFileShareDatastoreURLs"`
 	// TargetvSANFileShareClusters represents file service enabled vSAN clusters on which file volumes can be created.
 	TargetvSANFileShareClusters string `gcfg:"targetvSANFileShareClusters"`
 	// MigrationDataStore specifies datastore which is set as default datastore in legacy cloud-config

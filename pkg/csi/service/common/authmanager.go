@@ -309,57 +309,6 @@ func GenerateFSEnabledClustersToDsMap(ctx context.Context,
 	return clusterToDsInfoListMap, nil
 }
 
-// IsFileServiceEnabled checks if file service is enabled on the specified
-// datastoreUrls.
-func IsFileServiceEnabled(ctx context.Context, datastoreUrls []string,
-	vc *cnsvsphere.VirtualCenter, datacenters []*cnsvsphere.Datacenter) (map[string]bool, error) {
-	// Compute this map during controller init. Re use the map every other time.
-	log := logger.GetLogger(ctx)
-	err := vc.Connect(ctx)
-	if err != nil {
-		log.Errorf("failed to connect to VirtualCenter %q. err=%v", vc.Config.Host, err)
-		return nil, err
-	}
-	err = vc.ConnectVsan(ctx)
-	if err != nil {
-		log.Errorf("error occurred while connecting to VSAN from vCenter %q, err: %+v", vc.Config.Host, err)
-		return nil, err
-	}
-	// Gets the datastore to file service enabled map for all vsan datastores
-	// belonging to clusters with vSAN FS enabled and Host.Config.Storage
-	// privileges.
-	dsToFileServiceEnabledMap, err := getDsToFileServiceEnabledMap(ctx, vc, datacenters)
-	if err != nil {
-		log.Errorf("failed to query if file service is enabled on vsan datastores or not for vCenter %q. error: %+v",
-			vc.Config.Host, err)
-		return nil, err
-	}
-	log.Debugf("dsToFileServiceEnabledMap for vCenter %q is %+v", vc.Config.Host, dsToFileServiceEnabledMap)
-	// Now create a map of datastores which are queried in the method.
-	dsToFSEnabledMapToReturn := make(map[string]bool)
-	for _, datastoreURL := range datastoreUrls {
-		if val, ok := dsToFileServiceEnabledMap[datastoreURL]; ok {
-			if !val {
-				msg := fmt.Sprintf("File service is not enabled on the datastore: %s and vCenter: %q",
-					datastoreURL, vc.Config.Host)
-				log.Debugf(msg)
-				dsToFSEnabledMapToReturn[datastoreURL] = false
-			} else {
-				msg := fmt.Sprintf("File service is enabled on the datastore: %s and vCenter: %q",
-					datastoreURL, vc.Config.Host)
-				log.Debugf(msg)
-				dsToFSEnabledMapToReturn[datastoreURL] = true
-			}
-		} else {
-			msg := fmt.Sprintf("File service is not enabled on the datastore: %s and vCenter: %q",
-				datastoreURL, vc.Config.Host)
-			log.Debugf(msg)
-			dsToFSEnabledMapToReturn[datastoreURL] = false
-		}
-	}
-	return dsToFSEnabledMapToReturn, nil
-}
-
 // getDatastoresWithBlockVolumePrivs gets datastores with required priv for CSI
 // user.
 func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *cnsvsphere.VirtualCenter,
@@ -412,42 +361,6 @@ func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *cnsvsphere.Virtu
 			userName, vc.Config.Host, result, privIds, entities)
 	}
 	return dsURLToInfoMap, nil
-}
-
-// Creates a map of vsan datastores to file service enabled status.
-// Since only datastores belonging to clusters with vSAN FS enabled and
-// Host.Config.Storage privileges are returned, file service enabled status
-// will be true for them.
-func getDsToFileServiceEnabledMap(ctx context.Context, vc *cnsvsphere.VirtualCenter,
-	datacenters []*cnsvsphere.Datacenter) (map[string]bool, error) {
-	log := logger.GetLogger(ctx)
-	log.Debugf("Computing the cluster to file service status (enabled/disabled) map for vCenter %q", vc.Config.Host)
-
-	// Get clusters with vSAN FS enabled and privileges.
-	vSANFSClustersWithPriv, err := getFSEnabledClustersWithPriv(ctx, vc, datacenters)
-	if err != nil {
-		log.Errorf("failed to get the file service enabled clusters with privileges for vCenter %q. error: %+v",
-			vc.Config.Host, err)
-		return nil, err
-	}
-
-	dsToFileServiceEnabledMap := make(map[string]bool)
-	for _, cluster := range vSANFSClustersWithPriv {
-		dsMoList, err := getDatastoreMOsFromCluster(ctx, vc, cluster)
-		if err != nil {
-			log.Errorf("failed to get datastores for cluster %q and vCenter %q. error: %+v",
-				cluster.Reference().Value, vc.Config.Host, err)
-			return nil, err
-		}
-		// TODO: Also identify which vSAN datastore is management and which one
-		// is a workload datastore to support file volumes on VMC.
-		for _, dsMo := range dsMoList {
-			if dsMo.Summary.Type == VsanDatastoreType {
-				dsToFileServiceEnabledMap[dsMo.Info.GetDatastoreInfo().Url] = true
-			}
-		}
-	}
-	return dsToFileServiceEnabledMap, nil
 }
 
 // Creates a map of cluster id to datastore urls. The key is cluster moid with

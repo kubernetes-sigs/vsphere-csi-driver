@@ -297,17 +297,12 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 			if errDatacenters != nil {
 				datacenters = cfg.Global.Datacenters
 			}
-			_, targetFSDatastores, errDatastores := getEnvKeyValue("VCENTER_"+id+"_TARGETFSDATASTORES", false)
-			if errDatastores != nil {
-				targetFSDatastores = ""
-			}
 			cfg.VirtualCenter[vcenter] = &VirtualCenterConfig{
-				User:                             username,
-				Password:                         password,
-				VCenterPort:                      port,
-				InsecureFlag:                     insecureFlag,
-				Datacenters:                      datacenters,
-				TargetvSANFileShareDatastoreURLs: targetFSDatastores,
+				User:         username,
+				Password:     password,
+				VCenterPort:  port,
+				InsecureFlag: insecureFlag,
+				Datacenters:  datacenters,
 			}
 		}
 	}

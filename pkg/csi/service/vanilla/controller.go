@@ -170,29 +170,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 				vc.Client.ServiceContent.About.ApiVersion, err)
 			return err
 		}
-		// Check if vSAN FS is enabled for TargetvSANFileShareDatastoreURLs only if
-		// CSIAuthCheck FSS is not enabled.
-		if !isAuthCheckFSSEnabled && len(c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs) > 0 {
-			datacenters, err := vc.ListDatacenters(ctx)
-			if err != nil {
-				return logger.LogNewErrorf(log, "failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
-			}
-			// Check if file service is enabled on datastore present in
-			// targetvSANFileShareDatastoreURLs.
-			dsToFileServiceEnabledMap, err := common.IsFileServiceEnabled(ctx,
-				c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs, vc, datacenters)
-			if err != nil {
-				return logger.LogNewErrorf(log, "file service enablement check failed for datastore specified in "+
-					"TargetvSANFileShareDatastoreURLs. err=%v", err)
-			}
-			for _, targetFSDatastore := range c.manager.VcenterConfig.TargetvSANFileShareDatastoreURLs {
-				isFSEnabled := dsToFileServiceEnabledMap[targetFSDatastore]
-				if !isFSEnabled {
-					return logger.LogNewErrorf(log, "file service is not enabled on datastore %s specified in "+
-						"TargetvSANFileShareDatastoreURLs", targetFSDatastore)
-				}
-			}
-		}
 		if isAuthCheckFSSEnabled {
 			log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
 			authMgr, err := common.GetAuthorizationService(ctx, vc)

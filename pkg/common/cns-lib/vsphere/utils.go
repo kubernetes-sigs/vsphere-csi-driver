@@ -174,11 +174,6 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 		return nil, err
 	}
 
-	var targetDatastoreUrlsForFile []string
-	if strings.TrimSpace(cfg.VirtualCenter[host].TargetvSANFileShareDatastoreURLs) != "" {
-		targetDatastoreUrlsForFile = strings.Split(cfg.VirtualCenter[host].TargetvSANFileShareDatastoreURLs, ",")
-	}
-
 	var targetvSANClustersForFile []string
 	if strings.TrimSpace(cfg.VirtualCenter[host].TargetvSANFileShareClusters) != "" {
 		targetvSANClustersForFile = strings.Split(cfg.VirtualCenter[host].TargetvSANFileShareClusters, ",")
@@ -200,19 +195,18 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 	vcThumbprint := cfg.Global.Thumbprint
 
 	vcConfig := &VirtualCenterConfig{
-		Host:                             host,
-		Port:                             port,
-		CAFile:                           vcCAFile,
-		Thumbprint:                       vcThumbprint,
-		Username:                         cfg.VirtualCenter[host].User,
-		Password:                         cfg.VirtualCenter[host].Password,
-		Insecure:                         cfg.VirtualCenter[host].InsecureFlag,
-		TargetvSANFileShareDatastoreURLs: targetDatastoreUrlsForFile,
-		TargetvSANFileShareClusters:      targetvSANClustersForFile,
-		VCClientTimeout:                  vcClientTimeout,
-		QueryLimit:                       cfg.Global.QueryLimit,
-		ListVolumeThreshold:              cfg.Global.ListVolumeThreshold,
-		MigrationDataStoreURL:            cfg.VirtualCenter[host].MigrationDataStoreURL,
+		Host:                        host,
+		Port:                        port,
+		CAFile:                      vcCAFile,
+		Thumbprint:                  vcThumbprint,
+		Username:                    cfg.VirtualCenter[host].User,
+		Password:                    cfg.VirtualCenter[host].Password,
+		Insecure:                    cfg.VirtualCenter[host].InsecureFlag,
+		TargetvSANFileShareClusters: targetvSANClustersForFile,
+		VCClientTimeout:             vcClientTimeout,
+		QueryLimit:                  cfg.Global.QueryLimit,
+		ListVolumeThreshold:         cfg.Global.ListVolumeThreshold,
+		MigrationDataStoreURL:       cfg.VirtualCenter[host].MigrationDataStoreURL,
 	}
 
 	log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
@@ -223,16 +217,6 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 		}
 	}
 
-	// Validate if target file volume datastores present are vsan datastores.
-	for idx := range vcConfig.TargetvSANFileShareDatastoreURLs {
-		vcConfig.TargetvSANFileShareDatastoreURLs[idx] = strings.TrimSpace(vcConfig.TargetvSANFileShareDatastoreURLs[idx])
-		if vcConfig.TargetvSANFileShareDatastoreURLs[idx] == "" {
-			return nil, logger.LogNewError(log, "invalid datastore URL specified in targetvSANFileShareDatastoreURLs")
-		}
-		if !strings.HasPrefix(vcConfig.TargetvSANFileShareDatastoreURLs[idx], "ds:///vmfs/volumes/vsan:") {
-			return nil, logger.LogNewError(log, "non vSAN datastore specified for targetvSANFileShareDatastoreURLs")
-		}
-	}
 	return vcConfig, nil
 }
 
@@ -250,10 +234,6 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 		port, err := strconv.Atoi(cfg.VirtualCenter[vCenterIP].VCenterPort)
 		if err != nil {
 			return nil, err
-		}
-		var targetDatastoreUrlsForFile []string
-		if strings.TrimSpace(cfg.VirtualCenter[vCenterIP].TargetvSANFileShareDatastoreURLs) != "" {
-			targetDatastoreUrlsForFile = strings.Split(cfg.VirtualCenter[vCenterIP].TargetvSANFileShareDatastoreURLs, ",")
 		}
 
 		var targetvSANClustersForFile []string
@@ -276,18 +256,17 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 		vcThumbprint := cfg.Global.Thumbprint
 
 		vcConfig := &VirtualCenterConfig{
-			Host:                             vCenterIP,
-			Port:                             port,
-			CAFile:                           vcCAFile,
-			Thumbprint:                       vcThumbprint,
-			Username:                         cfg.VirtualCenter[vCenterIP].User,
-			Password:                         cfg.VirtualCenter[vCenterIP].Password,
-			Insecure:                         cfg.VirtualCenter[vCenterIP].InsecureFlag,
-			TargetvSANFileShareDatastoreURLs: targetDatastoreUrlsForFile,
-			TargetvSANFileShareClusters:      targetvSANClustersForFile,
-			VCClientTimeout:                  vcClientTimeout,
-			QueryLimit:                       cfg.Global.QueryLimit,
-			ListVolumeThreshold:              cfg.Global.ListVolumeThreshold,
+			Host:                        vCenterIP,
+			Port:                        port,
+			CAFile:                      vcCAFile,
+			Thumbprint:                  vcThumbprint,
+			Username:                    cfg.VirtualCenter[vCenterIP].User,
+			Password:                    cfg.VirtualCenter[vCenterIP].Password,
+			Insecure:                    cfg.VirtualCenter[vCenterIP].InsecureFlag,
+			TargetvSANFileShareClusters: targetvSANClustersForFile,
+			VCClientTimeout:             vcClientTimeout,
+			QueryLimit:                  cfg.Global.QueryLimit,
+			ListVolumeThreshold:         cfg.Global.ListVolumeThreshold,
 		}
 
 		log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
@@ -295,17 +274,6 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 			vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[vCenterIP].Datacenters, ",")
 			for idx := range vcConfig.DatacenterPaths {
 				vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
-			}
-		}
-
-		// Validate if target file volume datastores present are vsan datastores.
-		for idx := range vcConfig.TargetvSANFileShareDatastoreURLs {
-			vcConfig.TargetvSANFileShareDatastoreURLs[idx] = strings.TrimSpace(vcConfig.TargetvSANFileShareDatastoreURLs[idx])
-			if vcConfig.TargetvSANFileShareDatastoreURLs[idx] == "" {
-				return nil, logger.LogNewError(log, "invalid datastore URL specified in targetvSANFileShareDatastoreURLs")
-			}
-			if !strings.HasPrefix(vcConfig.TargetvSANFileShareDatastoreURLs[idx], "ds:///vmfs/volumes/vsan:") {
-				return nil, logger.LogNewError(log, "non vSAN datastore specified for targetvSANFileShareDatastoreURLs")
 			}
 		}
 		VirtualCenterConfigs = append(VirtualCenterConfigs, vcConfig)
