@@ -24,22 +24,22 @@ type SCLevelQuotaStatus struct {
 	// +kubebuilder:validation:MaxLength=64
 
 	// Name of the Kubernetes StorageClass
-	StorageClassName string `json:"storageclassname"`
+	StorageClassName string `json:"storageClassName"`
 
 	// Storage quota usage details for given Kubernetes storage class
 	// +optional
-	SCLevelQuotaUsage *QuotaUsageDetails `json:"sclevelquotausage,omitempty"`
+	SCLevelQuotaUsage *QuotaUsageDetails `json:"scQuotaUsage,omitempty"`
 }
 
 type ResourceTypeLevelQuotaStatusList []ResourceTypeLevelQuotaStatus
 type ResourceTypeLevelQuotaStatus struct {
 	// +kubebuilder:validation:MaxLength=64
 
-	// Name of storage object type to be provisioned
-	ResourceType string `json:"resourcetype"`
+	// Name of service extension associated with resource kind to be provisioned
+	ResourceExtensionName string `json:"extensionName"`
 
 	// Storage usage details per storage class level for given object kind
-	ResourceTypeSCLevelQuotaStatuses SCLevelQuotaStatusList `json:"resourcetypesclevelquotastatuses,omitempty"`
+	ResourceTypeSCLevelQuotaStatuses SCLevelQuotaStatusList `json:"extensionQuotaUsage,omitempty"`
 }
 
 // StoragePolicyQuotaSpec defines the desired state of StoragePolicyQuota
@@ -49,7 +49,7 @@ type StoragePolicyQuotaSpec struct {
 	// +kubebuilder:validation:MaxLength=128
 
 	// ID of the storage policy
-	StoragePolicyId string `json:"storagepolicyid"`
+	StoragePolicyId string `json:"storagePolicyId"`
 
 	// Total limit of storage across all types of storage resources
 	// for given storage policy within given namespace
@@ -61,11 +61,11 @@ type StoragePolicyQuotaSpec struct {
 type StoragePolicyQuotaStatus struct {
 	// Storage quota usage details per storage class level for given storage policy
 	// +optional
-	SCLevelQuotaStatuses SCLevelQuotaStatusList `json:"sclevelquotastatuses,omitempty"`
+	SCLevelQuotaStatuses SCLevelQuotaStatusList `json:"total,omitempty"`
 
 	// Storage quota usage details per storage object type for given storage policy
 	// +optional
-	ResourceTypeLevelQuotaStatuses ResourceTypeLevelQuotaStatusList `json:"resourcetypelevelquotastatuses,omitempty"`
+	ResourceTypeLevelQuotaStatuses ResourceTypeLevelQuotaStatusList `json:"extensions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
