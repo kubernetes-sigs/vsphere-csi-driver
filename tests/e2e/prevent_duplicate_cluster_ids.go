@@ -370,7 +370,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 
 		ginkgo.By("Creating csi config secret with cluster id field set")
 		createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", "cluster1")
+			vCenterIP, vCenterPort, dataCenter, "cluster1")
 
 		ginkgo.By("Restart CSI driver")
 		_, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
