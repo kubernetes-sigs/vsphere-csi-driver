@@ -309,13 +309,13 @@ func getCandidateDSInTopologyForFileVolumes(ctx context.Context,
 		segments := topology.GetSegments()
 		hostMoRefs, err := common.GetHostsForSegment(ctx, segments, vcenter)
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to fetch hosts belonging to topology %+v. Error: %+v", topologyArr, err)
+			log.Errorf("failed to fetch hosts belonging to topology %+v. Error: %+v", topology, err)
+			continue
 		}
 		accessibleDatastoresForHosts, err := vsphere.GetAllAccessibleDatastoresForHosts(ctx, hostMoRefs)
 		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to get shared datastores for hosts: %+v "+
-				"in topology segment %+v. Error: %+v", hostMoRefs, segments, err)
+			return nil, logger.LogNewErrorf(log, "failed to get accessible datastores for hosts: %+v "+
+				"in topology segment %+v in VC: %q. Error: %+v", hostMoRefs, segments, vcenter.Config.Host, err)
 		}
 		// Add the datastore list to sharedDatastores without duplicates.
 		for _, candidateDS := range accessibleDatastoresForHosts {
@@ -330,6 +330,10 @@ func getCandidateDSInTopologyForFileVolumes(ctx context.Context,
 				candidateDatastores = append(candidateDatastores, candidateDS)
 			}
 		}
+	}
+	if len(candidateDatastores) == 0 {
+		return nil, logger.LogNewErrorf(log, "failed to get candidateDatastores for topology: %+v "+
+			"in VC: %q", topologyArr, vcenter.Config.Host)
 	}
 	log.Infof("Obtained candidate datastores: %+v", candidateDatastores)
 	return candidateDatastores, nil

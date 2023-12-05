@@ -1795,7 +1795,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 					candidateDatastores, err = getCandidateDSInTopologyForFileVolumes(ctx,
 						topologyRequirement.GetPreferred(), vcenter)
 					if err != nil {
-						log.Errorf("Error finding shared datastores using preferred topology: %+v",
+						log.Errorf("Error finding candidate datastores using preferred topology: %+v",
 							topologyRequirement.GetPreferred())
 						return nil, csifault.CSIInternalFault, err
 					}
@@ -1811,6 +1811,10 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 							topologyRequirement.GetRequisite())
 						return nil, csifault.CSIInternalFault, err
 					}
+				}
+				if len(candidateDatastores) == 0 {
+					log.Infof("No candidate datastores found for vcenter %q", vcenter.Config.Host)
+					continue
 				}
 
 				fsEnabledClusterToDsInfoMap = c.authMgrs[vcHost].GetFsEnabledClusterToDsMap(ctx)
@@ -1909,6 +1913,11 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 					},
 				}
 				return resp, "", nil
+			}
+			if len(fsEnabledCandidateDatastores) == 0 {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to find  File Service enabled datastores for the vcTopologySegmentsMap: %+v",
+					vcTopologySegmentsMap)
 			}
 		}
 		filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
