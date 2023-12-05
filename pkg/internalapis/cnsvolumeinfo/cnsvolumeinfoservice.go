@@ -53,6 +53,11 @@ type VolumeInfoService interface {
 	// CreateVolumeInfo creates VolumeInfo CR to persist VolumeID to vCenter mapping
 	CreateVolumeInfo(ctx context.Context, volumeID string, vCenter string) error
 
+	// CreateVolumeInfoWithPolicyInfo creates VolumeInfo CR to persist VolumeID,
+	// storage policy info and  vCenter details
+	CreateVolumeInfoWithPolicyInfo(ctx context.Context, volumeID string, storagePolicyId string,
+		storageClassName string, vCenter string) error
+
 	// DeleteVolumeInfo deletes VolumeInfo CR for the given VolumeID
 	DeleteVolumeInfo(ctx context.Context, volumeID string) error
 
@@ -181,6 +186,43 @@ func (volumeInfo *volumeInfo) CreateVolumeInfo(ctx context.Context, volumeID str
 	}
 	log.Infof("Successfully created CNSVolumeInfo CR for volumeID: %q and "+
 		"vCenter: %q mapping in the namespace: %q", volumeID, vCenter, csiNamespace)
+	return nil
+}
+
+// CreateVolumeInfoWithPolicyInfo creates VolumeInfo CR to persist VolumeID to Storage policy mapping
+func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context,
+	volumeID string, storagePolicyId string, storageClassName string, vCenter string) error {
+	log := logger.GetLogger(ctx)
+	log.Infof("creating cnsvolumeinfo for volumeID: %q, StoragePolicyID: %q, "+
+		"StorageClassName: %q, vCenter: %q in the namespace: %q",
+		volumeID, storagePolicyId, storageClassName, vCenter, csiNamespace)
+
+	volumeInfoCrName := getCnsColumeInfoCrName(ctx, volumeID)
+
+	cnsvolumeinfo := cnsvolumeinfov1alpha1.CNSVolumeInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      volumeInfoCrName,
+			Namespace: csiNamespace,
+		},
+		Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
+			VolumeID:         volumeID,
+			VCenterServer:    vCenter,
+			StoragePolicyID:  storagePolicyId,
+			StorageClassName: storageClassName,
+		},
+	}
+	err := volumeInfo.k8sClient.Create(ctx, &cnsvolumeinfo)
+	if err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return logger.LogNewErrorf(log, "failed to create CR for cnsvolumeInfo %v in the namespace: %q. "+
+				"Error: %v", cnsvolumeinfo, csiNamespace, err)
+		}
+		log.Infof("cnsvolumeInfo CR already exists for VolumeID: %q", volumeID)
+		return nil
+	}
+	log.Infof("Successfully created CNSVolumeInfo CR for volumeID: %q, StoragePolicyID: %q, "+
+		"StorageClassName: %q, vCenter: %q mapping in the namespace: %q",
+		volumeID, storagePolicyId, storageClassName, vCenter, csiNamespace)
 	return nil
 }
 

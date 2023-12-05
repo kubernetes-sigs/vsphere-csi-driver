@@ -28,6 +28,12 @@ type CNSVolumeInfoSpec struct {
 
 	// vCenterServer is the IP/FQDN of the vCenter host on which the CNS volume is accessible.
 	VCenterServer string `json:"vCenterServer"`
+
+	// ID of the storage policy
+	StoragePolicyID string `json:"storagePolicyID,omitempty"`
+
+	// Name of the storage class
+	StorageClassName string `json:"storageClassName,omitempty"`
 }
 
 //+kubebuilder:object:root=true
