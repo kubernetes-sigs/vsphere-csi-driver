@@ -90,6 +90,9 @@ rules:
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshotcontents/status" ]
     verbs: [ "update", "patch" ]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["cnsvolumeinfoes"]
+    verbs: ["create", "get", "list", "watch", "delete"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

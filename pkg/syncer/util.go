@@ -707,7 +707,6 @@ func createCnsVolume(ctx context.Context, pv *v1.PersistentVolume,
 	} else {
 		log.Infof("vSphere CSI Driver has successfully marked volume: %q as the container volume.",
 			pv.Spec.CSI.VolumeHandle)
-
 		if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
 			// Create CNSVolumeInfo CR for the volume ID.
 			err = volumeInfoService.CreateVolumeInfo(ctx, pv.Spec.CSI.VolumeHandle, vcHost)

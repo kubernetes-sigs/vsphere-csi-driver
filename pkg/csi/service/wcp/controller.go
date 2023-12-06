@@ -51,6 +51,7 @@ import (
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
@@ -72,6 +73,9 @@ var (
 		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
 	}
 	checkCompatibleDataStores = true
+	// volumeInfoService holds the pointer to VolumeInfo service instance
+	// This will hold mapping for VolumeID to Storage policy info for PodVMOnStretchedSupervisor deployments
+	volumeInfoService cnsvolumeinfo.VolumeInfoService
 )
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
@@ -209,6 +213,14 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			log.Errorf("failed to initialize topology service. Error: %+v", err)
 			return err
 		}
+	}
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+		log.Info("Loading CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
+		volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
+		if err != nil {
+			return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
+		}
+		log.Infof("Successfully initialized VolumeInfoService")
 	}
 
 	cfgDirPath := filepath.Dir(cfgPath)
@@ -400,6 +412,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	log := logger.GetLogger(ctx)
 	var (
 		storagePolicyID      string
+		storageClassName     string
 		affineToHost         string
 		storagePool          string
 		selectedDatastoreURL string
@@ -419,6 +432,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		switch param {
 		case common.AttributeStoragePolicyID:
 			storagePolicyID = req.Parameters[paramName]
+		case common.AttributeSupervisorStorageClass:
+			storageClassName = req.Parameters[paramName]
 		case common.AttributeStoragePool:
 			storagePool = req.Parameters[paramName]
 		case common.AttributeStorageTopologyType:
@@ -731,7 +746,17 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			},
 		}
 	}
-
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+		// Create CNSVolumeInfo CR for the volume ID.
+		err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeInfo.VolumeID.Id,
+			storagePolicyID, storageClassName, vc.Config.Host)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to store volumeID %q StoragePolicyID %q StorageClassName %q and vCenter %q "+
+					"in CNSVolumeInfo CR. Error: %+v",
+				volumeInfo.VolumeID.Id, storagePolicyID, storageClassName, vc.Config.Host, err)
+		}
+	}
 	return resp, "", nil
 }
 
@@ -956,6 +981,13 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			log.Debugf("DeleteVolumeUtil returns fault %s:", faultType)
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to delete volume: %q. Error: %+v", req.VolumeId, err)
+		}
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+			err = volumeInfoService.DeleteVolumeInfo(ctx, req.VolumeId)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to delete cnsvolumeInfo CR for volume: %q. Error: %+v", req.VolumeId, err)
+			}
 		}
 		return &csi.DeleteVolumeResponse{}, "", nil
 	}

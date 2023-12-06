@@ -43,6 +43,12 @@ spec:
                   description: VolumeID is the FCD ID obtained from creating volume
                     using CNS API.
                   type: string
+                storagePolicyID:
+                  description: StoragePolicyID is the ID of the storage policy associated with the volume
+                  type: string
+                storageClassName:
+                  description: StorageClassName is the name of the storage class associated with the volume
+                  type: string
               required:
                 - vCenterServer
                 - volumeID

@@ -337,11 +337,23 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				volumeInfoCrDeletionMap[vcconfig.Host] = make(map[string]bool)
 				volumeOperationsLock[vcconfig.Host] = &sync.Mutex{}
 			}
-			// If it is a multi VC deployment, initialize volumeInfoService
-			if len(vcconfigs) > 1 && volumeInfoService == nil {
+			if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+				// If it is a multi VC deployment, initialize volumeInfoService
+				if len(vcconfigs) > 1 && volumeInfoService == nil {
+					volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
+					if err != nil {
+						return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
+					}
+				}
+			} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+				log.Info("Loading CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
 				volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
 				if err != nil {
 					return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
+				}
+				if volumeInfoService != nil {
+					log.Infof("Successfully initialized VolumeInfoService")
 				}
 			}
 			// Add informer on CSINodeTopology instances and update metadataSyncer.topologyVCMap parameter.
@@ -2124,7 +2136,17 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 				return
 			}
 		}
-		if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+		if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+			if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+				// Delete CNSVolumeInfo CR for the volume ID.
+				err = volumeInfoService.DeleteVolumeInfo(ctx, volumeHandle)
+				if err != nil {
+					log.Errorf("failed to remove CNSVolumeInfo CR for volumeID %q. Error: %+v",
+						volumeHandle, err)
+				}
+			}
+		} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
 			// Delete CNSVolumeInfo CR for the volume ID.
 			err = volumeInfoService.DeleteVolumeInfo(ctx, volumeHandle)
 			if err != nil {
