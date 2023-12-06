@@ -54,19 +54,32 @@ spec:
                   ExtendVolume call for a volume.
                 format: int64
                 type: integer
-              reserved:
-                description: Storage quota quantity to be reserved for in-flight 
-                  create/expand volume operations.
-                anyOf:
-                - type: integer
-                - type: string
-                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                x-kubernetes-int-or-string: true
               errorCount:
                 description: ErrorCount is the number of times this operation failed
                   for this volume. Incremented by clients when new OperationDetails
                   are added with error set.
                 type: integer
+              quotaDetails:
+                description: StorageQuotaDetails stores the details required by the
+                  CSI driver and syncer to access the quota custom resources.
+                properties:
+                  reserved:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: Reserved keeps a track of the quantity that should
+                      be reserved in storage quota during an in-flight create/expand volume operation.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  storageClassName:
+                    description: StorageClassName is the name of K8s storage class
+                      associated with the given storage policy.
+                    type: string
+                  storagePolicyId:
+                    description: StoragePolicyId is the ID associated with the storage
+                      policy.
+                    type: string
+                type: object
               firstOperationDetails:
                 description: FirstOperationDetails stores the details of the first
                   operation performed on the volume. For debugging purposes, clients
