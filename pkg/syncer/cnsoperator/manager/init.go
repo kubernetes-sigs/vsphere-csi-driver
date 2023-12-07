@@ -149,7 +149,8 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				stretchedSupervisor = true
 			}
 		}
-		if !stretchedSupervisor {
+		if !stretchedSupervisor ||
+			(stretchedSupervisor && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor)) {
 			// Create CnsRegisterVolume CRD from manifest.
 			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsRegisterVolumeCRFile,
 				cnsoperatorconfig.EmbedCnsRegisterVolumeCRFileName)
