@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
@@ -466,6 +467,26 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	isBound, err := isPVCBound(ctx, k8sclient, pvc, time.Duration(1*time.Minute))
 	if isBound {
 		log.Infof("PVC: %s is bound", instance.Spec.PvcName)
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+			log.Info("Loading CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
+			volumeInfoService, err := cnsvolumeinfo.InitVolumeInfoService(ctx)
+			if err != nil {
+				log.Errorf("Error initializing volumeInfoService. Error: %+v", err)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+			if volumeInfoService != nil {
+				log.Infof("Successfully initialized VolumeInfoService")
+			}
+			// Create CNSVolumeInfo CR for static pv
+			err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID,
+				volume.StoragePolicyId, storageClassName, vc.Config.Host)
+			if err != nil {
+				log.Errorf("failed to store volumeID %q StoragePolicyID %q StorageClassName %q and vCenter %q "+
+					"in CNSVolumeInfo CR. Error: %+v", volumeID, volume.StoragePolicyId,
+					storageClassName, vc.Config.Host, err)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+		}
 	} else {
 		log.Errorf("PVC: %s is not bound. Error: %+v", instance.Spec.PvcName, err)
 		setInstanceError(ctx, r, instance, fmt.Sprintf("PVC: %s is not bound", instance.Spec.PvcName))
