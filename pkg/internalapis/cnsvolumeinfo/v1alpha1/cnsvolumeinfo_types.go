@@ -26,6 +26,9 @@ type CNSVolumeInfoSpec struct {
 	// VolumeID is the FCD ID obtained from creating volume using CNS API.
 	VolumeID string `json:"volumeID"`
 
+	// Namespace of the PersistentVolumeClaim.
+	Namespace string `json:"namespace,omitempty"`
+
 	// vCenterServer is the IP/FQDN of the vCenter host on which the CNS volume is accessible.
 	VCenterServer string `json:"vCenterServer"`
 

@@ -53,7 +53,6 @@ type CnsVolumeOperationRequestStatus struct {
 	// on the volume. Should have a maximum of 10 entries.
 	LatestOperationDetails []OperationDetails `json:"latestOperationDetails,omitempty"`
 }
-
 type QuotaDetails struct {
 	// Reserved keeps a track of the quantity that should be reserved in
 	// storage quota during a create volume/snapshot operation.
@@ -63,6 +62,8 @@ type QuotaDetails struct {
 	StoragePolicyId string `json:"storagePolicyId,omitempty"`
 	// StorageClassName is the name of K8s storage class associated with the given storage policy.
 	StorageClassName string `json:"storageClassName,omitempty"`
+	// Namespace of the PersistentVolumeClaim.
+	Namespace string `json:"namespace,omitempty"`
 }
 
 // OperationDetails stores the details of the operation performed on a volume.
