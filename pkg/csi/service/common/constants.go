@@ -81,6 +81,9 @@ const (
 	// AttributePvcNamespace represents the namespace of the PVC
 	AttributePvcNamespace = "csi.storage.k8s.io/pvc/namespace"
 
+	// AttributeStorageClassName represents name of the Storage Class.
+	AttributeStorageClassName = "csi.storage.k8s.io/sc/name"
+
 	// HostMoidAnnotationKey represents the Node annotation key that has the value
 	// of VC's ESX host moid of this node.
 	HostMoidAnnotationKey = "vmware-system-esxi-node-moid"

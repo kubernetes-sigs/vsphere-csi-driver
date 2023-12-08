@@ -60,6 +60,7 @@ func validateCreateBlockReqParam(paramName, value string) bool {
 		paramName == common.AttributePvName ||
 		paramName == common.AttributePvcName ||
 		paramName == common.AttributePvcNamespace ||
+		paramName == common.AttributeStorageClassName ||
 		(paramName == common.AttributeHostLocal && strings.EqualFold(value, "true"))
 }
 
@@ -77,7 +78,8 @@ func validateCreateFileReqParam(paramName, value string) bool {
 		paramName == common.AttributeFsType ||
 		paramName == common.AttributePvName ||
 		paramName == common.AttributePvcName ||
-		paramName == common.AttributePvcNamespace
+		paramName == common.AttributePvcNamespace ||
+		paramName == common.AttributeStorageClassName
 }
 
 // ValidateCreateVolumeRequest is the helper function to validate

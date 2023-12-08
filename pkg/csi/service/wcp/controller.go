@@ -412,7 +412,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	log := logger.GetLogger(ctx)
 	var (
 		storagePolicyID      string
-		storageClassName     string
 		affineToHost         string
 		storagePool          string
 		selectedDatastoreURL string
@@ -432,8 +431,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		switch param {
 		case common.AttributeStoragePolicyID:
 			storagePolicyID = req.Parameters[paramName]
-		case common.AttributeSupervisorStorageClass:
-			storageClassName = req.Parameters[paramName]
 		case common.AttributeStoragePool:
 			storagePool = req.Parameters[paramName]
 		case common.AttributeStorageTopologyType:
@@ -747,14 +744,26 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 	}
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
-		// Create CNSVolumeInfo CR for the volume ID.
-		err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeInfo.VolumeID.Id,
-			storagePolicyID, storageClassName, vc.Config.Host)
-		if err != nil {
+		if pvcNamespace, ok := req.Parameters[common.AttributePvcNamespace]; ok {
+			if scName, ok := req.Parameters[common.AttributeStorageClassName]; ok {
+				// Create CNSVolumeInfo CR for the volume ID.
+				err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeInfo.VolumeID.Id, pvcNamespace,
+					storagePolicyID, scName, vc.Config.Host)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to store volumeID %q pvcNamespace %q StoragePolicyID %q StorageClassName %q "+
+							"and vCenter %q in CNSVolumeInfo CR. Error: %+v",
+						volumeInfo.VolumeID.Id, pvcNamespace, storagePolicyID, scName, vc.Config.Host, err)
+				}
+			} else {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to create CnsVolumeInfo CR for volumeID %q due to missing storage class name "+
+						"in the CreateVolume request parameters", volumeInfo.VolumeID.Id)
+			}
+		} else {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to store volumeID %q StoragePolicyID %q StorageClassName %q and vCenter %q "+
-					"in CNSVolumeInfo CR. Error: %+v",
-				volumeInfo.VolumeID.Id, storagePolicyID, storageClassName, vc.Config.Host, err)
+				"failed to create CnsVolumeInfo CR for volumeID %q due to missing pvc namespace "+
+					"in the CreateVolume request parameters", volumeInfo.VolumeID.Id)
 		}
 	}
 	return resp, "", nil
