@@ -72,6 +72,15 @@ const (
 	// the given storage policy. For Example: HostLocal: "True".
 	AttributeHostLocal = "hostlocal"
 
+	// AttributePvName represents the name of the PV
+	AttributePvName = "csi.storage.k8s.io/pv/name"
+
+	// AttributePvcName represents the name of the PVC
+	AttributePvcName = "csi.storage.k8s.io/pvc/name"
+
+	// AttributePvcNamespace represents the namespace of the PVC
+	AttributePvcNamespace = "csi.storage.k8s.io/pvc/namespace"
+
 	// HostMoidAnnotationKey represents the Node annotation key that has the value
 	// of VC's ESX host moid of this node.
 	HostMoidAnnotationKey = "vmware-system-esxi-node-moid"
