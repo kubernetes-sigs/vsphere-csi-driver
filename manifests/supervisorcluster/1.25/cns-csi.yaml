@@ -26,7 +26,7 @@ rules:
     verbs: ["get", "list", "watch", "patch"]
   - apiGroups: ["storage.k8s.io"]
     resources: ["csinodes"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "create"]
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["list", "watch", "create", "update", "patch"]
@@ -222,6 +222,7 @@ spec:
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
             - "--feature-gates=Topology=true"
+            - "--extra-create-metadata=false"
             - "--strict-topology"
             - "--leader-election"
             - "--enable-hostlocal-placement=true"
@@ -229,6 +230,7 @@ spec:
             - "--kube-api-burst=100"
             - "--default-fstype=ext4"
             - "--use-service-for-placement-engine=false"
+            - "--podvm-on-stretched-supervisor=false"
             - "--tkgs-ha=true"
             - "--leader-election-lease-duration=120s"
             - "--leader-election-renew-deadline=60s"
