@@ -35,7 +35,7 @@ spec:
           spec:
             description: StoragePolicyUsageSpec defines the desired state of StoragePolicyUsage
             properties:
-              resourceapigroup:
+              resourceApiGroup:
                 description: APIGroup is the group for the resource being referenced.
                   If it is not specified, the specified ResourceKind must be in the
                   core API group. For resources not in the core API group, this field
@@ -44,21 +44,21 @@ spec:
                 x-kubernetes-validations:
                 - message: ResourceAPIgroup is immutable
                   rule: self == oldSelf
-              resourceextensionname:
+              resourceExtensionName:
                 description: Name of service extension for given storage resource
                   type
                 type: string
                 x-kubernetes-validations:
                 - message: ResourceExtensionName is immutable
                   rule: self == oldSelf
-              resourcekind:
+              resourceKind:
                 description: Type of resource being referenced
                 maxLength: 64
                 type: string
                 x-kubernetes-validations:
                 - message: ResourceKind is immutable
                   rule: self == oldSelf
-              storageclassname:
+              storageClassName:
                 description: name of K8S storage class associated with given storage
                   policy
                 maxLength: 64
@@ -66,7 +66,7 @@ spec:
                 x-kubernetes-validations:
                 - message: StorageClassName is immutable
                   rule: self == oldSelf
-              storagepolicyid:
+              storagePolicyId:
                 description: ID of the storage policy
                 maxLength: 128
                 type: string
@@ -74,15 +74,15 @@ spec:
                 - message: StoragePolicyId is immutable
                   rule: self == oldSelf
             required:
-            - resourceextensionname
-            - resourcekind
-            - storageclassname
-            - storagepolicyid
+            - resourceExtensionName
+            - resourceKind
+            - storageClassName
+            - storagePolicyId
             type: object
           status:
             description: StoragePolicyUsageStatus defines the observed state of StoragePolicyUsage
             properties:
-              resourcetypelevelquotausage:
+              quotaUsage:
                 description: Storage usage details per storage object type for given
                   storage policy
                 properties:
