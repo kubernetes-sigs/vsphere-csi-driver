@@ -79,6 +79,9 @@ spec:
                     description: StoragePolicyId is the ID associated with the storage
                       policy.
                     type: string
+                  namespace:
+                    description: Namespace of the PersistentVolumeClaim.
+                    type: string
                 type: object
               firstOperationDetails:
                 description: FirstOperationDetails stores the details of the first
