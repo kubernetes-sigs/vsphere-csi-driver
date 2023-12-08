@@ -730,8 +730,6 @@ func readVsphereConfCredentialsInMultiVcSetup(cfg string) (e2eTestConfig, error)
 			if strconvErr != nil {
 				return config, fmt.Errorf("invalid value for csi-fetch-preferred-datastores-intervalinmin: %s", value)
 			}
-		case "targetvSANFileShareDatastoreURLs":
-			config.Global.TargetvSANFileShareDatastoreURLs = value
 		case "query-limit":
 			config.Global.QueryLimit, strconvErr = strconv.Atoi(value)
 			if strconvErr != nil {

@@ -28,13 +28,9 @@ The section outlines how to set the env variable for running e2e test.
     password = "<PASSWORD>"
     port = "443"
     datacenters = "<Datacenter_Name>"
-    targetvSANFileShareDatastoreURLs = "<comma separated datastore URLs>" # Optional parameter
 
 * Please update the `hostname` and `datacenters` as per your testbed configuration.
 `datacenters` should be comma separated if deployed on multi-datacenters
-* `targetvSANFileShareDatastoreURLs` is an optional parameter. It contains a comma separated
-list of datastore URLs where you want to deploy file share volumes. Retrieve this value from the
- secret named `vsphere-config-secret` in your testbed.
 * `cluster-id` field is optional for block vanilla tests but required for file vanilla static provisioning tests.
 `cluster-id` is name of the cluster as seen in VC.
 

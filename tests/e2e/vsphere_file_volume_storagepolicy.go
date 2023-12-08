@@ -39,14 +39,12 @@ import (
 var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With Storage Policy", func() {
 	f := framework.NewDefaultFramework("file-volume-basic")
 	var (
-		client       clientset.Interface
-		namespace    string
-		targetDsURLs []string
+		client    clientset.Interface
+		namespace string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = f.Namespace.Name
-		targetDsURLs = getTargetvSANFileShareDatastoreURLsFromConfig()
 		bootstrap()
 		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
@@ -124,65 +122,6 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With S
 			namespace, v1.ReadOnlyMany, storagePolicyNameForSharedDatastores, true)
 	})
 
-	// Verify dynamic volume provisioning works with storage policy having
-	// compliant VSAN datastores only.
-	// 1. Create a storage policy using targetvSANFileShareDatastoreURLs as
-	//    the compliant datastores.
-	// 2. Create StorageClass with fsType as "nfs4" and storagePolicy created
-	//    in step1.
-	// 3. Create a PVC with "ReadWriteMany" using the SC from above.
-	// 4. Wait for PVC to be Bound.
-	// 5. Get the VolumeID from PV.
-	// 6. Verify using CNS Query API if VolumeID retrieved from PV is present.
-	//    Verify if Name, Capacity, VolumeType, Health, Policy matches.
-	//    Verify if VolumeID is created on one of the VSAN datastores from list
-	//    of targetvSANFileShareDatastoreURLs provided in vsphere.conf.
-	//    Also verify if VolumeID is created with expected storage policy.
-	// 7. Delete PVC.
-	// 8. Delete storage policy.
-
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode "+
-		"when storage policy is offered with TargetvSANFileShareDatastoreURLs as the compliant datastores", func() {
-		// Verify if test is valid for the given environment
-		if len(targetDsURLs) == 0 {
-			ginkgo.Skip("TargetvSANFileShareDatastoreURLs is not set in e2eTest.conf, skipping the test")
-		}
-		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		createFileVolumeWithStoragePolicyAndTargetvSANFileShareDatastoreURLs(f, client,
-			namespace, v1.ReadWriteMany, storagePolicyNameForSharedDatastores, "")
-	})
-
-	// Verify dynamic volume provisioning works with storage policy having
-	// compliant VSAN datastores only.
-	// 1. Create a storage policy using targetvSANFileShareDatastoreURLs as
-	//    the compliant datastores.
-	// 2. Create StorageClass with fsType as "nfs4" and storagePolicy created
-	//    in step1 and datastoreURL set to anyone from
-	//    targetvSANFileShareDatastoreURLs.
-	// 3. Create a PVC with "ReadWriteMany" using the SC from above.
-	// 4. Wait for PVC to be Bound.
-	// 5. Get the VolumeID from PV.
-	// 6. Verify using CNS Query API if VolumeID retrieved from PV is present.
-	//    Verify if Name, Capacity, VolumeType, Health, Policy matches.
-	//    Verify if VolumeID is created on one of the VSAN datastores from list
-	//    of targetvSANFileShareDatastoreURLs provided in vsphere.conf.
-	//    Verify if VolumeID is created on the datastoreURL mentioned in Storage
-	//    class. Also verify if VolumeID is created with expected storage policy.
-	// 7. Delete PVC.
-	// 8. Delete storage policy.
-
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode "+
-		"when datastoreURL is mentioned in storage class and storage policy has the vSAN compliant datastores", func() {
-		// Verify if test is valid for the given environment
-		if len(targetDsURLs) == 0 {
-			ginkgo.Skip("TargetvSANFileShareDatastoreURLs is not set in e2eTest.conf, skipping the test")
-		}
-		sharedDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		createFileVolumeWithStoragePolicyAndTargetvSANFileShareDatastoreURLs(f, client,
-			namespace, v1.ReadWriteMany, storagePolicyNameForSharedDatastores, sharedDatastoreURL)
-	})
-
 	/*
 		Verify dynamic volume provisioning fails with storage policy having non-VSAN compliant datastores
 		1. Create a storage policy using non-vSAN compliant datastores
@@ -199,9 +138,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With S
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Verify if test is valid for the given environment
-		if len(targetDsURLs) == 0 {
-			ginkgo.Skip("TargetvSANFileShareDatastoreURLs is not set in e2eTest.conf, skipping the test")
-		}
+
 		var storageclass *storagev1.StorageClass
 		var pvclaim *v1.PersistentVolumeClaim
 		var err error
@@ -324,102 +261,4 @@ func testHelperForCreateFileVolumeWithNoDatastoreURLInSCWithStoragePolicy(f *fra
 		fmt.Sprintf("Storage policy verification failed. Actual storage policy: %q does not match "+
 			"with the Expected storage policy: %q", queryResult.Volumes[0].StoragePolicyId, storagePolicyID))
 
-}
-
-func createFileVolumeWithStoragePolicyAndTargetvSANFileShareDatastoreURLs(f *framework.Framework,
-	client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode,
-	storagePolicyName string, datastoreURL string) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var storageclass *storagev1.StorageClass
-	var pvclaim *v1.PersistentVolumeClaim
-	var err error
-
-	scParameters := make(map[string]string)
-	scParameters[scParamFsType] = nfs4FSType
-	if storagePolicyName != "" {
-		scParameters[scParamStoragePolicyName] = storagePolicyName
-	}
-	if datastoreURL != "" {
-		scParameters[scParamDatastoreURL] = datastoreURL
-	}
-	// Create Storage class and PVC
-	ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q, storage policy %q and fstype %q",
-		accessMode, storagePolicyName, nfs4FSType))
-	storageclass, pvclaim, err = createPVCAndStorageClass(client,
-		namespace, nil, scParameters, "", nil, "", false, accessMode)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	defer func() {
-		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}()
-
-	// Waiting for PVC to be bound
-	var pvclaims []*v1.PersistentVolumeClaim
-	pvclaims = append(pvclaims, pvclaim)
-	ginkgo.By("Waiting for all claims to be in bound state")
-	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
-	defer func() {
-		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}()
-
-	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
-	queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
-
-	targetQueryVolume := queryResult.Volumes[0]
-	ginkgo.By(fmt.Sprintf("volume Name: %q capacity: %d volumeType: %q health: %q storagePolicy: %q",
-		targetQueryVolume.Name,
-		targetQueryVolume.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb,
-		targetQueryVolume.VolumeType, targetQueryVolume.HealthStatus, targetQueryVolume.StoragePolicyId))
-
-	ginkgo.By("Verifying disk size specified in PVC is honored")
-	if targetQueryVolume.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb != diskSizeInMb {
-		err = fmt.Errorf("wrong disk size provisioned")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
-
-	ginkgo.By("Verifying volume type specified in PVC is honored")
-	if targetQueryVolume.VolumeType != testVolumeType {
-		err = fmt.Errorf("volume type is not %q", testVolumeType)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
-
-	// TODO: Verify HealthStatus is shown "Healthy", currently, only after 1 hour, the health status of newly created
-	// volume will change from "Unknown" to "Healthy"
-
-	// Verify if VolumeID is created on VSAN datastores
-	gomega.Expect(strings.HasPrefix(targetQueryVolume.DatastoreUrl, "ds:///vmfs/volumes/vsan:")).To(gomega.BeTrue(),
-		"Volume is not provisioned on vSan datastore. Instead volume is provisioned on %q",
-		queryResult.Volumes[0].DatastoreUrl)
-
-	if datastoreURL != "" {
-		// Verify if VolumeID is created in the datastore mentioned in the Storage class params
-		if targetQueryVolume.DatastoreUrl != datastoreURL {
-			err = fmt.Errorf("volume provisioned on datastoreURL %q which is not the datatore "+
-				"mentioned in the storage class", targetQueryVolume.DatastoreUrl)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-	}
-
-	// Verify if VolumeID is created in one of the datastores listed in
-	// TargetvSANFileShareDatastoreURLs provided in vsphere.conf.
-	errorMsg := fmt.Sprintf("Volume is provisioned on %q which does not match any of the datastores "+
-		"specified in TargetvSANFileShareDatastoreURLs in the vSphere config file",
-		targetQueryVolume.DatastoreUrl)
-	gomega.Expect(isDatastorePresentinTargetvSANFileShareDatastoreURLs(targetQueryVolume.DatastoreUrl)).To(
-		gomega.BeTrue(), errorMsg)
-
-	// Verify the volume is provisioned using specified storage policy
-	storagePolicyID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-	gomega.Expect(storagePolicyID == queryResult.Volumes[0].StoragePolicyId).To(gomega.BeTrue(),
-		fmt.Sprintf("Storage policy verification failed. Actual storage policy: %q does not match "+
-			"with the Expected storage policy: %q", queryResult.Volumes[0].StoragePolicyId, storagePolicyID))
 }

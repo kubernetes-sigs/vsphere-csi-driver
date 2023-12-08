@@ -128,7 +128,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace, vCenterIP,
-				vCenterPort, dataCenter, "", clusterId)
+				vCenterPort, dataCenter, clusterId)
 
 			ginkgo.By("Restart CSI driver")
 			restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -179,7 +179,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Create vsphere-config-secret file with testuser1 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password,
-			csiNamespace, vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			csiNamespace, vCenterIP, vCenterPort, dataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -203,12 +203,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Create vsphere-config-secret file with testuser2 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser2Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace, vCenterIP,
-				vCenterPort, dataCenter, "", clusterId)
+				vCenterPort, dataCenter, clusterId)
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
@@ -280,7 +280,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -348,12 +348,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret file with testuser1 updated credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, testUser1NewPassword, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
-				vCenterIP, vCenterPort, dataCenter, "", clusterId)
+				vCenterIP, vCenterPort, dataCenter, clusterId)
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
@@ -435,7 +435,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -459,12 +459,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser2 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser2Alias, configSecretTestUser2Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
-				vCenterIP, vCenterPort, dataCenter, "", clusterId)
+				vCenterIP, vCenterPort, dataCenter, clusterId)
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
@@ -532,7 +532,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials using vcenter IP")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -561,7 +561,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret to use vcenter hostname")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterHostName, vCenterPort, dataCenter, "", clusterId)
+			vCenterHostName, vCenterPort, dataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -576,12 +576,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret to use vcenter IP")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace, vCenterIP, vCenterPort,
-				dataCenter, "", clusterId)
+				dataCenter, clusterId)
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
@@ -649,7 +649,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -673,7 +673,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with dummy user credentials")
 		createCsiVsphereSecret(client, ctx, dummyTestUser, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
@@ -703,12 +703,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
-				vCenterIP, vCenterPort, dataCenter, "", clusterId)
+				vCenterIP, vCenterPort, dataCenter, clusterId)
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
@@ -777,7 +777,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -801,7 +801,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser2 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser2Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -824,12 +824,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials which has required roles and privileges")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
-				vCenterIP, vCenterPort, dataCenter, "", clusterId)
+				vCenterIP, vCenterPort, dataCenter, clusterId)
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
@@ -898,12 +898,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
-				vCenterIP, vCenterPort, dataCenter, "", clusterId)
+				vCenterIP, vCenterPort, dataCenter, clusterId)
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
@@ -1012,7 +1012,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -1036,7 +1036,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with dummy datacenter details")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dummyDataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dummyDataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		err = updateDeploymentReplicawithWait(client, 0, vSphereCSIControllerPodNamePrefix, csiNamespace)
@@ -1060,12 +1060,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
-				vCenterIP, vCenterPort, dataCenter, "", clusterId)
+				vCenterIP, vCenterPort, dataCenter, clusterId)
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
@@ -1090,106 +1090,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim2.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
 
-	})
-
-	/*
-		TESTCASE-11
-		Add the wrong targetvSANFileShareDatastoreURLs and switch back to the correct
-		targetvSANFileShareDatastoreURLs
-		Steps:
-		1. Create a user, user1, with required roles and privileges
-		2. Create csi-vsphere.conf with user1's credentials and create vsphere-config-secret,
-		in turn, using that file
-		3. Install CSI driver
-		4. Verify we can create a PVC and attach it to the pod
-		5. Change csi-vsphere.conf and add an empty value to targetvSANFileShareDatastoreURLs and
-		re-create vsphere-config-secret in turn using that file
-		6. Verify CSI driver comes up successfully
-		7. Try to create a PVC and verify PVCs are provisioned successfully
-		8. Change csi-vsphere.conf with updated targetvSANFileShareDatastoreURLs and
-		re-create vsphere-config-secret, in turn, using that file
-		9. Verify we can create a PVC and attach it to the pod
-		10. Cleanup all objects created during the test
-	*/
-
-	ginkgo.It("Add wrong targetvSANFileShareDatastoreURLs and switch back to the correct "+
-		"targetvSANFileShareDatastoreURLs", ginkgo.Label(p1, vsphereConfigSecret, file), func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		targetDsURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
-
-		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
-		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
-			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
-		defer func() {
-			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
-			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
-				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
-		}()
-
-		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
-		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
-			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
-		defer func() {
-			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
-			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
-				configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
-		}()
-
-		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
-		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
-
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Creating Storage Class")
-		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			ginkgo.By("Delete Storage Class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Verify we can create a PVC and attach it to pod")
-		pod1, pvclaim1, pvs1 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
-		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod1, pvclaim1, pvs1)
-		}()
-
-		ginkgo.By("Update vsphere-config-secret with testuser1 credentials and pass target datastore url")
-		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, targetDsURL, clusterId)
-		defer func() {
-			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
-				"and its credentials")
-			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
-				vCenterIP, vCenterPort, dataCenter, "", clusterId)
-			revertOriginalvCenterUser = true
-
-			ginkgo.By("Restart CSI driver")
-			restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
-			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Restart CSI driver")
-		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Verify we can create a PVC and attach it to pod")
-		pod2, pvclaim2, pvs2 := verifyPvcPodCreationAfterConfigSecretChange(client, namespace, storageclass)
-		defer func() {
-			performCleanUpOfPvcPod(client, namespace, pod2, pvclaim2, pvs2)
-		}()
 	})
 
 	/* TESTCASE-12
@@ -1236,7 +1136,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Create vsphere-config-secret file with testuser1 credentials using default vc port")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, defaultvCenterPort, dataCenter, "", clusterId)
+			vCenterIP, defaultvCenterPort, dataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -1271,12 +1171,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Create vsphere-config-secret file with testuser1 credentials using non-default port")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
-				vCenterIP, vCenterPort, dataCenter, "", clusterId)
+				vCenterIP, vCenterPort, dataCenter, clusterId)
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")
@@ -1364,7 +1264,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Create vsphere-config-secret file using testuser1 credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -1389,7 +1289,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret file with dummy vcenter port")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, dummyvCenterPort, dataCenter, "", clusterId)
+			vCenterIP, dummyvCenterPort, dataCenter, clusterId)
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -1412,12 +1312,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Update vsphere-config-secret with correct vCenter credentials")
 		createCsiVsphereSecret(client, ctx, configSecretUser1Alias, configSecretTestUser1Password, csiNamespace,
-			vCenterIP, vCenterPort, dataCenter, "", clusterId)
+			vCenterIP, vCenterPort, dataCenter, clusterId)
 		defer func() {
 			ginkgo.By("Reverting back csi-vsphere.conf with its original vcenter user " +
 				"and its credentials")
 			createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
-				vCenterIP, vCenterPort, dataCenter, "", clusterId)
+				vCenterIP, vCenterPort, dataCenter, clusterId)
 			revertOriginalvCenterUser = true
 
 			ginkgo.By("Restart CSI driver")

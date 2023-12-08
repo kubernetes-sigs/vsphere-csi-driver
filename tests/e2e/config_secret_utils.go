@@ -552,7 +552,7 @@ func setSearchlevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig
 // createCsiVsphereSecret method is used to create csi vsphere secret file
 func createCsiVsphereSecret(client clientset.Interface, ctx context.Context, testUser string,
 	password string, csiNamespace string, vCenterIP string, vCenterPort string,
-	dataCenter string, targetvSANFileShareDatastoreURLs string, clusterID string) {
+	dataCenter string, clusterID string) {
 	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	originalConf := string(currentSecret.Data[vSphereCSIConf])
@@ -563,7 +563,6 @@ func createCsiVsphereSecret(client clientset.Interface, ctx context.Context, tes
 	vsphereCfg.Global.Password = password
 	vsphereCfg.Global.Datacenters = dataCenter
 	vsphereCfg.Global.ClusterID = clusterID
-	vsphereCfg.Global.TargetvSANFileShareDatastoreURLs = targetvSANFileShareDatastoreURLs
 	framework.Logf("updated config: %v", vsphereCfg)
 	modifiedConf, err := writeConfigToSecretString(vsphereCfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -837,7 +836,7 @@ func recreateVsphereConfigSecret(client clientset.Interface, ctx context.Context
 	vCenterUIUser string, vCenterUIPassword string, csiNamespace string, vCenterIP string,
 	clusterId string, vCenterPort string, dataCenter string, csiReplicas int32) {
 	createCsiVsphereSecret(client, ctx, vCenterUIUser, vCenterUIPassword, csiNamespace,
-		vCenterIP, vCenterPort, dataCenter, "", clusterId)
+		vCenterIP, vCenterPort, dataCenter, clusterId)
 
 	ginkgo.By("Restart CSI driver")
 	restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
