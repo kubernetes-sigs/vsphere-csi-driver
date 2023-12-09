@@ -23,8 +23,6 @@ Documentation for vSphere CSI Driver is available here:
 * [Release 2.7](https://docs.vmware.com/en/VMware-vSphere-Container-Storage-Plug-in/2.7/rn/vmware-vsphere-container-storage-plugin-27-release-notes/index.html)
 * [Release 2.6](https://docs.vmware.com/en/VMware-vSphere-Container-Storage-Plug-in/2.6/rn/vmware-vsphere-container-storage-plugin-26-release-notes/index.html)
 * [Release 2.5](https://docs.vmware.com/en/VMware-vSphere-Container-Storage-Plug-in/2.5/rn/vmware-vsphere-container-storage-plugin-25-release-notes/index.html)
-* [Release 2.4](https://docs.vmware.com/en/VMware-vSphere-Container-Storage-Plug-in/2.4/rn/vmware-vsphere-container-storage-plugin-24-release-notes/index.html)
-* [Release 2.3](https://docs.vmware.com/en/VMware-vSphere-Container-Storage-Plug-in/2.3/rn/vmware-vsphere-container-storage-plugin-23-release-notes/index.html)
 
 ## Contributing
 
