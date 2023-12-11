@@ -54,9 +54,9 @@ type VolumeInfoService interface {
 	CreateVolumeInfo(ctx context.Context, volumeID string, vCenter string) error
 
 	// CreateVolumeInfoWithPolicyInfo creates VolumeInfo CR to persist VolumeID,
-	// storage policy info and  vCenter details
-	CreateVolumeInfoWithPolicyInfo(ctx context.Context, volumeID string, storagePolicyId string,
-		storageClassName string, vCenter string) error
+	// pvcnamespace, storage policy info and  vCenter details
+	CreateVolumeInfoWithPolicyInfo(ctx context.Context, volumeID, pvcnamespace, storagePolicyId,
+		storageClassName, vCenter string) error
 
 	// DeleteVolumeInfo deletes VolumeInfo CR for the given VolumeID
 	DeleteVolumeInfo(ctx context.Context, volumeID string) error
@@ -190,8 +190,8 @@ func (volumeInfo *volumeInfo) CreateVolumeInfo(ctx context.Context, volumeID str
 }
 
 // CreateVolumeInfoWithPolicyInfo creates VolumeInfo CR to persist VolumeID to Storage policy mapping
-func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context,
-	volumeID string, storagePolicyId string, storageClassName string, vCenter string) error {
+func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context, volumeID string,
+	namespace, storagePolicyId, storageClassName, vCenter string) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("creating cnsvolumeinfo for volumeID: %q, StoragePolicyID: %q, "+
 		"StorageClassName: %q, vCenter: %q in the namespace: %q",
@@ -206,6 +206,7 @@ func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context
 		},
 		Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
 			VolumeID:         volumeID,
+			Namespace:        namespace,
 			VCenterServer:    vCenter,
 			StoragePolicyID:  storagePolicyId,
 			StorageClassName: storageClassName,
