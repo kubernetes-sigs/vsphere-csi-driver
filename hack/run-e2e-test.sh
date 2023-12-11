@@ -48,7 +48,7 @@ OPTS=()
 if [ -z "${GINKGO_OPTS-}" ]; then
     OPTS=(-v)
 else
-    read -ra OPTS <<< "-v $GINKGO_OPTS"
+    read -ra OPTS <<< "-vv $GINKGO_OPTS"
 fi
 
 OPTS+=("-timeout=24h")

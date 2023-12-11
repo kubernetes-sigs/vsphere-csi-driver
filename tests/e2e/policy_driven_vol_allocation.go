@@ -3628,10 +3628,10 @@ func writeKnownData2Pod(f *framework.Framework, pod *v1.Pod, testdataFile string
 		}
 
 		_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, "cp", testdataFile, fmt.Sprintf(
-			"%v/%v:/data0/testdata", pod.Namespace, pod.Name))
+			"%v/%v:data0/testdata", pod.Namespace, pod.Name))
 	} else {
 		_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, "cp", testdataFile, fmt.Sprintf(
-			"%v/%v:/mnt/volume1/testdata", pod.Namespace, pod.Name))
+			"%v/%v:mnt/volume1/testdata", pod.Namespace, pod.Name))
 	}
 
 	var cmd []string
@@ -3685,10 +3685,10 @@ func verifyKnownDataInPod(f *framework.Framework, pod *v1.Pod, testdataFile stri
 		}
 
 		_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, "cp", testdataFile, fmt.Sprintf(
-			"%v/%v:/data0/testdata", pod.Namespace, pod.Name))
+			"%v/%v:data0/testdata", pod.Namespace, pod.Name))
 	} else {
 		_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, "cp", testdataFile, fmt.Sprintf(
-			"%v/%v:/mnt/volume1/testdata", pod.Namespace, pod.Name))
+			"%v/%v:mnt/volume1/testdata", pod.Namespace, pod.Name))
 	}
 	fsSize, err := getFSSizeMb(f, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
