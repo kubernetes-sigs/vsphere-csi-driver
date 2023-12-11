@@ -21,6 +21,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	// CRDSingular represents the singular name of CNSVolumeInfo CRD.
+	CRDSingular = "cnsvolumeinfo"
+)
+
 // CNSVolumeInfoSpec defines the desired state of CNSVolumeInfo
 type CNSVolumeInfoSpec struct {
 
