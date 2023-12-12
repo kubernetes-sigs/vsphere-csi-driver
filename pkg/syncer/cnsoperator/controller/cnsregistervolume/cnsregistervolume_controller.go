@@ -478,11 +478,11 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				log.Infof("Successfully initialized VolumeInfoService")
 			}
 			// Create CNSVolumeInfo CR for static pv
-			err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID,
+			err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, instance.Namespace,
 				volume.StoragePolicyId, storageClassName, vc.Config.Host)
 			if err != nil {
-				log.Errorf("failed to store volumeID %q StoragePolicyID %q StorageClassName %q and vCenter %q "+
-					"in CNSVolumeInfo CR. Error: %+v", volumeID, volume.StoragePolicyId,
+				log.Errorf("failed to store volumeID %q namespace %s StoragePolicyID %q StorageClassName %q and vCenter %q "+
+					"in CNSVolumeInfo CR. Error: %+v", volumeID, instance.Namespace, volume.StoragePolicyId,
 					storageClassName, vc.Config.Host, err)
 				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
