@@ -7,6 +7,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const CRDSingular = "storagepolicyusage"
+
 // StoragePolicyUsageSpec defines the desired state of StoragePolicyUsage
 type StoragePolicyUsageSpec struct {
 	// +kubebuilder:validation:Required

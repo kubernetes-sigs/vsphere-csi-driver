@@ -37,9 +37,15 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
-// EnvCSINamespace represents the environment variable which
-// stores the namespace in which the CSI driver is running.
-const EnvCSINamespace = "CSI_NAMESPACE"
+const (
+	// CRDSingular represents the singular name of cnsvolumeoperationrequest CRD.
+	CRDSingular = "cnsvolumeoperationrequest"
+	// CRDPlural represents the plural name of cnsvolumeoperationrequest CRD.
+	CRDPlural = "cnsvolumeoperationrequests"
+	// EnvCSINamespace represents the environment variable which
+	// stores the namespace in which the CSI driver is running.
+	EnvCSINamespace = "CSI_NAMESPACE"
+)
 
 // VolumeOperationRequest is an interface that supports handling idempotency
 // in CSI volume manager. This interface persists operation details invoked
