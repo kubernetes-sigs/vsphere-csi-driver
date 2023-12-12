@@ -17,6 +17,7 @@ limitations under the License.
 package cnsvolumeoperationrequest
 
 import (
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
@@ -43,7 +44,17 @@ type VolumeOperationRequestDetails struct {
 	VolumeID         string
 	SnapshotID       string
 	Capacity         int64
+	QuotaDetails     *QuotaDetails
 	OperationDetails *OperationDetails
+}
+
+// QuotaDetails stores information required to interact with the custom
+// storage policy quota CRs during create volume operations.
+type QuotaDetails struct {
+	Reserved         *resource.Quantity
+	StoragePolicyID  string
+	StorageClassName string
+	Namespace        string
 }
 
 // OperationDetails stores information about a particular operation.
@@ -59,13 +70,14 @@ type OperationDetails struct {
 // CreateVolumeOperationRequestDetails returns an object of type
 // VolumeOperationRequestDetails from the input parameters.
 func CreateVolumeOperationRequestDetails(name, volumeID, snapshotID string, capacity int64,
-	taskInvocationTimestamp metav1.Time, taskID, vCenterServer, opID,
+	quotaDetails *QuotaDetails, taskInvocationTimestamp metav1.Time, taskID, vCenterServer, opID,
 	taskStatus, error string) *VolumeOperationRequestDetails {
 	return &VolumeOperationRequestDetails{
-		Name:       name,
-		VolumeID:   volumeID,
-		SnapshotID: snapshotID,
-		Capacity:   capacity,
+		Name:         name,
+		VolumeID:     volumeID,
+		SnapshotID:   snapshotID,
+		Capacity:     capacity,
+		QuotaDetails: quotaDetails,
 		OperationDetails: &OperationDetails{
 			TaskInvocationTimestamp: taskInvocationTimestamp,
 			TaskID:                  taskID,

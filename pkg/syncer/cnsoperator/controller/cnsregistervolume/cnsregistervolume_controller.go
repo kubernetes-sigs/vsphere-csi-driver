@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -248,7 +249,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	log.Infof("Creating CNS volume: %+v for CnsRegisterVolume request with name: %q on namespace: %q",
 		instance, instance.Name, instance.Namespace)
 	log.Debugf("CNS Volume create spec is: %+v", createSpec)
-	volInfo, _, err := r.volumeManager.CreateVolume(ctx, createSpec)
+	volInfo, _, err := r.volumeManager.CreateVolume(ctx, createSpec, nil)
 	if err != nil {
 		msg := "failed to create CNS volume"
 		log.Errorf(msg)

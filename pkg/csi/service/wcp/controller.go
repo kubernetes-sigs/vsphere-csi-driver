@@ -76,6 +76,8 @@ var (
 	// volumeInfoService holds the pointer to VolumeInfo service instance
 	// This will hold mapping for VolumeID to Storage policy info for PodVMOnStretchedSupervisor deployments
 	volumeInfoService cnsvolumeinfo.VolumeInfoService
+	// isPodVMOnStretchSupervisorFSSEnabled is true when PodVMOnStretchedSupervisor FSS is enabled.
+	isPodVMOnStretchSupervisorFSSEnabled bool
 )
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
@@ -149,7 +151,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			config.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
 			func() bool {
 				return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-			})
+			}, isPodVMOnStretchSupervisorFSSEnabled)
 		if err != nil {
 			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 			return err
@@ -214,7 +216,9 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 	}
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+	isPodVMOnStretchSupervisorFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.PodVMOnStretchedSupervisor)
+	if isPodVMOnStretchSupervisorFSSEnabled {
 		log.Info("Loading CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
 		volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
 		if err != nil {
@@ -373,7 +377,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 				c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
 				func() bool {
 					return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-				})
+				}, isPodVMOnStretchSupervisorFSSEnabled)
 			if err != nil {
 				log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 				return err
@@ -611,9 +615,25 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		ContentSourceSnapshotID: contentSourceSnapshotID,
 	}
 
-	volumeInfo, faultType, err := common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
-		c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores,
-		isTKGSHAEnabled, checkCompatibleDataStores)
+	var (
+		volumeInfo *cnsvolume.CnsVolumeInfo
+		faultType  string
+	)
+	if isPodVMOnStretchSupervisorFSSEnabled {
+		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
+			c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores,
+			isTKGSHAEnabled, checkCompatibleDataStores,
+			&cnsvolume.CreateVolumeExtraParams{
+				StorageClassName:                     req.Parameters[common.AttributeStorageClassName],
+				Namespace:                            req.Parameters[common.AttributePvcNamespace],
+				ClusterFlavor:                        cnstypes.CnsClusterFlavorWorkload,
+				IsPodVMOnStretchSupervisorFSSEnabled: isPodVMOnStretchSupervisorFSSEnabled,
+			})
+	} else {
+		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
+			c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores,
+			isTKGSHAEnabled, checkCompatibleDataStores, nil)
+	}
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)
@@ -743,7 +763,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			},
 		}
 	}
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+	if isPodVMOnStretchSupervisorFSSEnabled {
 		if pvcNamespace, ok := req.Parameters[common.AttributePvcNamespace]; ok {
 			if scName, ok := req.Parameters[common.AttributeStorageClassName]; ok {
 				// Create CNSVolumeInfo CR for the volume ID.
@@ -833,9 +853,10 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to get vCenter. Error: %+v", err)
 	}
+	// TODO: Update the extraParams field when file volume provisioning is supported on stretch supervisor environments.
 	volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, vc,
 		c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec, filteredDatastores,
-		filterSuspendedDatastores, isTKGSHAEnabled, checkCompatibleDataStores)
+		filterSuspendedDatastores, isTKGSHAEnabled, nil)
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)
@@ -991,7 +1012,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to delete volume: %q. Error: %+v", req.VolumeId, err)
 		}
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+		if isPodVMOnStretchSupervisorFSSEnabled {
 			err = volumeInfoService.DeleteVolumeInfo(ctx, req.VolumeId)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,

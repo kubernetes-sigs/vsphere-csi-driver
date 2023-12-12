@@ -91,6 +91,8 @@ var (
 	isMultiVCenterFssEnabled bool
 	// nodeMgr stores the manager to interact with nodeVMs.
 	nodeMgr node.Manager
+	// isPodVMOnStretchSupervisorFSSEnabled is true when PodVMOnStretchedSupervisor FSS is enabled.
+	isPodVMOnStretchSupervisorFSSEnabled bool
 )
 
 // newInformer returns uninitialized metadataSyncInformer.
@@ -219,7 +221,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 			clusterIDforVolumeMetadata = configInfo.Cfg.Global.SupervisorID
 		}
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+		isPodVMOnStretchSupervisorFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.PodVMOnStretchedSupervisor)
+		if isPodVMOnStretchSupervisorFSSEnabled {
 			// Start watching on nodes to create CSINodes, if not already present.
 			err = commonco.ContainerOrchestratorUtility.InitializeCSINodes(ctx)
 			if err != nil {
@@ -291,7 +295,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				}
 			}()
 		}
-		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+		if isPodVMOnStretchSupervisorFSSEnabled {
 			k8sConfig, err := k8s.GetKubeConfig(ctx)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to get kubeconfig with error: %v", err)
@@ -363,7 +367,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					}
 				}
 			} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+				isPodVMOnStretchSupervisorFSSEnabled {
 				log.Info("Loading CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
 				volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
 				if err != nil {
@@ -2424,7 +2428,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 				}
 			}
 		} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+			isPodVMOnStretchSupervisorFSSEnabled {
 			// Delete CNSVolumeInfo CR for the volume ID.
 			err = volumeInfoService.DeleteVolumeInfo(ctx, volumeHandle)
 			if err != nil {

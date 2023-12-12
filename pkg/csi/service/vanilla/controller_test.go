@@ -2143,7 +2143,7 @@ func TestDeleteBlockVolumeSnapshotWithManagedObjectNotFound(t *testing.T) {
 	taskID := "non-existent-task-id" // use a task id that must be non-existent
 	instanceName := "deletesnapshot-" + volID + "-" + snapshotID
 	operationInstance := cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
-		instanceName, "", "", 0, metav1.Now(),
+		instanceName, "", "", 0, nil, metav1.Now(),
 		taskID, "", "", cnsvolumeoperationrequest.TaskInvocationStatusInProgress, "")
 	_ = ct.operationStore.StoreRequestDetails(ctx, operationInstance)
 
@@ -2274,7 +2274,7 @@ func TestCreateSnapshotWithManagedObjectNotFound(t *testing.T) {
 	taskID := "non-existent-task-id" // use a task id that must be non-existent
 	instanceName := snapshotName + "-" + volID
 	operationInstance := cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
-		instanceName, volID, "", 0, metav1.Now(),
+		instanceName, volID, "", 0, nil, metav1.Now(),
 		taskID, "", "", cnsvolumeoperationrequest.TaskInvocationStatusInProgress, "")
 	_ = ct.operationStore.StoreRequestDetails(ctx, operationInstance)
 	// Attempt to create snapshot again, but the task-id is non-existent.

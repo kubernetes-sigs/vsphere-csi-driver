@@ -455,7 +455,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 		if _, existsInK8s := currentK8sPVMap[volumeID]; existsInK8s {
 			log.Debugf("FullSync for VC %s: Calling CreateVolume for volume id: %q with createSpec %+v",
 				vc, volumeID, spew.Sdump(createSpec))
-			_, _, err := volManager.CreateVolume(ctx, &createSpec)
+			_, _, err := volManager.CreateVolume(ctx, &createSpec, nil)
 			if err != nil {
 				log.Warnf("FullSync for VC %s: Failed to create volume with the spec: %+v. "+
 					"Err: %+v", vc, spew.Sdump(createSpec), err)
