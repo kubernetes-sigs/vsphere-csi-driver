@@ -946,7 +946,15 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			cnsvolumeoperationrequest.CRDSingular, err)
 		return
 	}
-	if oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved != nil &&
+	// Check for the below set of conditions:
+	// 1. Previous Cnsvolumeoperationrequest object's StorageQuotaDetails should not be nil
+	// 2. Previous Cnsvolumeoperationrequest object's StorageQuotaDetails.Reserved should not be nil
+	// 3. Current Cnsvolumeoperationrequest object's StorageQuotaDetails should not be nil
+	// 4. Current Cnsvolumeoperationrequest object's StorageQuotaDetails.Reserved should not be nil
+	// 5. Current Cnsvolumeoperationrequest object's StorageQuotaDetails.Reserved value has changed
+	if oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails != nil &&
+		oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved != nil &&
+		newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails != nil &&
 		newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved != nil &&
 		(oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value() !=
 			newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value()) {
@@ -1001,18 +1009,21 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			// CnsVolumeOperationRequest during in-flight CreateVolume operation. And subsequently,
 			// the "reserved" field in StoragePolicyUsage needs to be increased based on the
 			// CnsVolumeOperationRequest "reserved" field
-			newStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
-				*resource.NewQuantity(newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
-					newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
-			err := patchStoragePolicyUsage(ctx, cnsOperatorClient, oldStoragePolicyUsageCR,
-				newStoragePolicyUsageCR)
-			if err != nil {
-				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
-				return
+			if newStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil {
+				// Move forward only if StoragePolicyUsage CR has Status.QuotaUsage fields not nil
+				newStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
+					*resource.NewQuantity(newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
+						newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
+				err := patchStoragePolicyUsage(ctx, cnsOperatorClient, oldStoragePolicyUsageCR,
+					newStoragePolicyUsageCR)
+				if err != nil {
+					log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
+					return
+				}
+				log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully increased the reserved field by %v "+
+					"for storagepolicyusage CR: %q", newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
+					newStoragePolicyUsageCR.Name)
 			}
-			log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully increased the reserved field by %v "+
-				"for storagepolicyusage CR: %q", newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
-				newStoragePolicyUsageCR.Name)
 		} else {
 			// This is a case where CSI Driver container decreases the value of "reserved" value in
 			// CnsVolumeOperationRequest after a successful CreateVolume operation. And subsequently,
