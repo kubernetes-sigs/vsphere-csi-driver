@@ -123,7 +123,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		config.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
 		func() bool {
 			return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-		})
+		}, false)
 	if err != nil {
 		log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 		return err
@@ -784,7 +784,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
 			c.manager, &createVolumeSpec, sharedDatastores, filterSuspendedDatastores, false,
-			checkCompatibleDataStores)
+			checkCompatibleDataStores, nil)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create volume. Error: %+v", err)
@@ -1886,7 +1886,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				}
 				volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
 					vc, c.managers.VolumeManagers[vcHost], c.managers.CnsConfig, &createVolumeSpec,
-					fsEnabledCandidateDatastores, filterSuspendedDatastores, false, checkCompatibleDataStores)
+					fsEnabledCandidateDatastores, filterSuspendedDatastores, false, nil)
 				if err != nil {
 					return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to create volume. Error: %+v", err)
@@ -1946,7 +1946,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			}
 			volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
 				vc, c.managers.VolumeManagers[vc.Config.Host], c.managers.CnsConfig, &createVolumeSpec,
-				filteredDatastores, filterSuspendedDatastores, false, checkCompatibleDataStores)
+				filteredDatastores, filterSuspendedDatastores, false, nil)
 			if err != nil {
 				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to create volume. Error: %+v", err)
@@ -1959,7 +1959,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			}
 			volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
 				vc, c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec,
-				filteredDatastores, filterSuspendedDatastores, false, checkCompatibleDataStores)
+				filteredDatastores, filterSuspendedDatastores, false, nil)
 			if err != nil {
 				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to create volume. Error: %+v", err)

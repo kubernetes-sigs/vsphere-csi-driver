@@ -704,7 +704,7 @@ func createCnsVolume(ctx context.Context, pv *v1.PersistentVolume,
 	}
 	log.Debugf("vSphere CSI Driver is creating volume %q with create spec %+v",
 		pv.Name, spew.Sdump(createSpec))
-	_, _, err := cnsVolumeMgr.CreateVolume(ctx, createSpec)
+	_, _, err := cnsVolumeMgr.CreateVolume(ctx, createSpec, nil)
 	if err != nil {
 		log.Errorf("Failed to create disk %s with error %+v", pv.Name, err)
 		return err

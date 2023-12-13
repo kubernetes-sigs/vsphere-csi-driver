@@ -305,7 +305,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 		},
 	}
 
-	volumeInfo, _, err := volumeManager.CreateVolume(ctx, &createSpec)
+	volumeInfo, _, err := volumeManager.CreateVolume(ctx, &createSpec, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -657,7 +657,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	cnsCreationMap = make(map[string]map[string]bool)
 	cnsCreationMap[csiConfig.Global.VCenterIP] = make(map[string]bool)
 
-	volumeInfo, _, err := volumeManager.CreateVolume(ctx, &createSpec)
+	volumeInfo, _, err := volumeManager.CreateVolume(ctx, &createSpec, nil)
 	if err != nil {
 		t.Errorf("failed to create volume. Error: %+v", err)
 		t.Fatal(err)

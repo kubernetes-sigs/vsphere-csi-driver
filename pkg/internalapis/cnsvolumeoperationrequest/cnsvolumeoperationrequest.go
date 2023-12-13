@@ -28,11 +28,11 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	cnsvolumeoperationrequestconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/config"
 
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	cnsvolumeoperationrequestconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/config"
 	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -75,9 +75,10 @@ type operationRequestStore struct {
 }
 
 var (
-	csiNamespace                  string
-	operationRequestStoreInstance *operationRequestStore
-	operationStoreInitLock        = &sync.Mutex{}
+	csiNamespace                         string
+	operationRequestStoreInstance        *operationRequestStore
+	operationStoreInitLock               = &sync.Mutex{}
+	isPodVMOnStretchSupervisorFSSEnabled bool
 )
 
 // InitVolumeOperationRequestInterface creates the CnsVolumeOperationRequest
@@ -85,7 +86,8 @@ var (
 // VolumeOperationRequest interface. Clients are unaware of the implementation
 // details to read and persist volume operation details.
 func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval int,
-	isBlockVolumeSnapshotEnabled func() bool) (VolumeOperationRequest, error) {
+	isBlockVolumeSnapshotEnabled func() bool, isPodVMOnStretchSupervisorEnabled bool) (
+	VolumeOperationRequest, error) {
 	log := logger.GetLogger(ctx)
 	csiNamespace = getCSINamespace()
 
@@ -127,6 +129,8 @@ func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval in
 		}
 		go operationRequestStoreInstance.cleanupStaleInstances(cleanupInterval, isBlockVolumeSnapshotEnabled)
 	}
+	// Store PodVMOnStretchedSupervisor FSS value for later use.
+	isPodVMOnStretchSupervisorFSSEnabled = isPodVMOnStretchSupervisorEnabled
 
 	return operationRequestStoreInstance, nil
 }
@@ -160,10 +164,20 @@ func (or *operationRequestStore) GetRequestDetails(
 	// Callers only need to know about the last operation that was invoked on a volume.
 	operationDetailsToReturn := instance.Status.LatestOperationDetails[len(instance.Status.LatestOperationDetails)-1]
 
+	var quotaDetails *QuotaDetails
+	if isPodVMOnStretchSupervisorFSSEnabled && instance.Status.StorageQuotaDetails != nil {
+		quotaDetails = &QuotaDetails{
+			Reserved:         instance.Status.StorageQuotaDetails.Reserved,
+			StorageClassName: instance.Status.StorageQuotaDetails.StorageClassName,
+			StoragePolicyID:  instance.Status.StorageQuotaDetails.StoragePolicyId,
+			Namespace:        instance.Status.StorageQuotaDetails.Namespace,
+		}
+	}
+
 	return CreateVolumeOperationRequestDetails(instance.Spec.Name, instance.Status.VolumeID, instance.Status.SnapshotID,
-			instance.Status.Capacity, operationDetailsToReturn.TaskInvocationTimestamp, operationDetailsToReturn.TaskID,
-			operationDetailsToReturn.VCenterServer, operationDetailsToReturn.OpID, operationDetailsToReturn.TaskStatus,
-			operationDetailsToReturn.Error),
+			instance.Status.Capacity, quotaDetails, operationDetailsToReturn.TaskInvocationTimestamp,
+			operationDetailsToReturn.TaskID, operationDetailsToReturn.VCenterServer, operationDetailsToReturn.OpID,
+			operationDetailsToReturn.TaskStatus, operationDetailsToReturn.Error),
 		nil
 }
 
@@ -208,6 +222,14 @@ func (or *operationRequestStore) StoreRequestDetails(
 					},
 				},
 			}
+			if isPodVMOnStretchSupervisorFSSEnabled && operationToStore.QuotaDetails != nil {
+				newInstance.Status.StorageQuotaDetails = &cnsvolumeoprequestv1alpha1.QuotaDetails{
+					Reserved:         operationToStore.QuotaDetails.Reserved,
+					StoragePolicyId:  operationToStore.QuotaDetails.StoragePolicyID,
+					StorageClassName: operationToStore.QuotaDetails.StorageClassName,
+					Namespace:        operationToStore.QuotaDetails.Namespace,
+				}
+			}
 			err = or.k8sclient.Create(ctx, newInstance)
 			if err != nil {
 				log.Errorf(
@@ -242,6 +264,14 @@ func (or *operationRequestStore) StoreRequestDetails(
 	updatedInstance.Status.VolumeID = operationToStore.VolumeID
 	updatedInstance.Status.SnapshotID = operationToStore.SnapshotID
 	updatedInstance.Status.Capacity = operationToStore.Capacity
+	if isPodVMOnStretchSupervisorFSSEnabled && operationToStore.QuotaDetails != nil {
+		updatedInstance.Status.StorageQuotaDetails = &cnsvolumeoprequestv1alpha1.QuotaDetails{
+			Reserved:         operationToStore.QuotaDetails.Reserved,
+			StoragePolicyId:  operationToStore.QuotaDetails.StoragePolicyID,
+			StorageClassName: operationToStore.QuotaDetails.StorageClassName,
+			Namespace:        operationToStore.QuotaDetails.Namespace,
+		}
+	}
 
 	// Modify FirstOperationDetails only if TaskID's match.
 	firstOp := instance.Status.FirstOperationDetails

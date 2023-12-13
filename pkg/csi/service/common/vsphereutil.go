@@ -56,9 +56,8 @@ type VanillaCreateBlockVolParamsForMultiVC struct {
 
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
 func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager,
-	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo,
-	filterSuspendedDatastores bool, useSupervisorId,
-	checkCompatibleDataStores bool) (*cnsvolume.CnsVolumeInfo, string, error) {
+	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo, filterSuspendedDatastores bool, useSupervisorId,
+	checkCompatibleDataStores bool, extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
@@ -306,7 +305,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
-	volumeInfo, faultType, err := manager.VolumeManager.CreateVolume(ctx, createSpec)
+	volumeInfo, faultType, err := manager.VolumeManager.CreateVolume(ctx, createSpec, extraParams)
 	if err != nil {
 		log.Errorf("failed to create disk %s with error %+v faultType %q", spec.Name, err, faultType)
 		return nil, faultType, err
@@ -444,7 +443,7 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %s with create spec %+v", params.Spec.Name, spew.Sdump(createSpec))
-	volumeInfo, faultType, err := params.VolumeManager.CreateVolume(ctx, createSpec)
+	volumeInfo, faultType, err := params.VolumeManager.CreateVolume(ctx, createSpec, nil)
 	if err != nil {
 		log.Errorf("failed to create disk %s on vCenter %q with error %+v faultType %q",
 			params.Spec.Name, params.Vcenter.Config.Host, err, faultType)
@@ -457,9 +456,8 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 // datastores.
 func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	vc *vsphere.VirtualCenter, volumeManager cnsvolume.Manager, cnsConfig *config.Config, spec *CreateVolumeSpec,
-	datastores []*vsphere.DatastoreInfo,
-	filterSuspendedDatastores bool, useSupervisorId,
-	checkCompatibleDataStores bool) (string, string, error) {
+	datastores []*vsphere.DatastoreInfo, filterSuspendedDatastores, useSupervisorId bool, extraParams interface{}) (
+	string, string, error) {
 	log := logger.GetLogger(ctx)
 	var err error
 	if spec.ScParams.StoragePolicyName != "" {
@@ -563,7 +561,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %q with create spec %+v", spec.Name, spew.Sdump(createSpec))
-	volumeInfo, faultType, err := volumeManager.CreateVolume(ctx, createSpec)
+	volumeInfo, faultType, err := volumeManager.CreateVolume(ctx, createSpec, extraParams)
 	if err != nil {
 		log.Errorf("failed to create file volume %q with error %+v faultType %q", spec.Name, err, faultType)
 		return "", faultType, err
