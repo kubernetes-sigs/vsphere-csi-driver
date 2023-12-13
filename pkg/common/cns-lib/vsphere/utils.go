@@ -102,6 +102,17 @@ func IsVimFaultNotFoundError(err error) bool {
 	return isNotFoundError
 }
 
+// IsCnsSnapshotCreatedFaultError checks if err is the CnsSnapshotCreatedFault fault returned by
+// CNS CreateSnapshots API. This fault is returned by CNS in case snapshot creation is successful,
+// but post-processing failed (like update db failed).
+func IsCnsSnapshotCreatedFaultError(err error) bool {
+	isCnsSnapshotCreatedFaultError := false
+	if soap.IsVimFault(err) {
+		_, isCnsSnapshotCreatedFaultError = soap.ToVimFault(err).(cnstypes.CnsSnapshotCreatedFault)
+	}
+	return isCnsSnapshotCreatedFaultError
+}
+
 // IsCnsSnapshotNotFoundError checks if err is the CnsSnapshotNotFoundFault fault returned by CNS QuerySnapshots API
 func IsCnsSnapshotNotFoundError(err error) bool {
 	isCnsSnapshotNotFoundError := false

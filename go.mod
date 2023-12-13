@@ -11,7 +11,7 @@ require (
 	github.com/evanphx/json-patch/v5 v5.6.0
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/golang/protobuf v1.5.3
-	github.com/google/uuid v1.3.1
+	github.com/google/uuid v1.4.0
 	github.com/hashicorp/go-version v1.6.0
 	github.com/kubernetes-csi/csi-lib-utils v0.11.0
 	github.com/kubernetes-csi/csi-proxy/client v1.0.1
@@ -23,7 +23,7 @@ require (
 	github.com/stretchr/testify v1.8.4
 	github.com/vmware-tanzu/vm-operator-api v0.1.4-0.20211202183846-992b48c128ae
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
-	github.com/vmware/govmomi v0.33.0
+	github.com/vmware/govmomi v0.34.2
 	go.uber.org/zap v1.24.0
 	golang.org/x/crypto v0.17.0
 	golang.org/x/sync v0.3.0

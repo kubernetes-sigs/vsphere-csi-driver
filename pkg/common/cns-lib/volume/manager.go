@@ -70,6 +70,10 @@ const (
 	taskInvocationStatusInProgress = cnsvolumeoperationrequest.TaskInvocationStatusInProgress
 	taskInvocationStatusSuccess    = cnsvolumeoperationrequest.TaskInvocationStatusSuccess
 	taskInvocationStatusError      = cnsvolumeoperationrequest.TaskInvocationStatusError
+	// Task status PartiallyFailed should be used when object creation completes successfully, but post-processing
+	// fails. e.g. When snapshot creation is successful, but update db failed, then task status will be marked as
+	// PartiallyFailed.
+	taskInvocationStatusPartiallyFailed = cnsvolumeoperationrequest.TaskInvocationStatusPartiallyFailed
 
 	// MbInBytes is the number of bytes in one mebibyte.
 	MbInBytes = int64(1024 * 1024)
@@ -2365,6 +2369,16 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 					SnapshotCreationTimestamp: volumeOperationDetails.OperationDetails.TaskInvocationTimestamp.Time,
 				}, nil
 			}
+			// Validate if previous operation was PartiallyFailed. If yes, return error from here itself instead
+			// of making a CNS call. If we don't return from here, then orphan snapshot gets created in each CNS call
+			// and we want to avoid more orphan snapshots being created.
+			// User will have to manually cleanup the snapshot that got created, but whose post-processing failed.
+			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusPartiallyFailed &&
+				volumeOperationDetails.VolumeID != "" && volumeOperationDetails.SnapshotID != "" {
+				return nil, logger.LogNewErrorf(log, "Snapshot with name %q and id %q on volume %q is created on "+
+					"CNS, but post-processing failed. You need to manually cleanup this snapshot.",
+					instanceName, volumeOperationDetails.SnapshotID, volumeOperationDetails.VolumeID)
+			}
 			// Validate if previous operation is pending.
 			if IsTaskPending(volumeOperationDetails) {
 				log.Infof("Snapshot with name %s has CreateSnapshot task %s pending on CNS.",
@@ -2499,6 +2513,21 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 			createSnapshotsTaskInfo.ActivationId)
 
 		if m.idempotencyHandlingEnabled {
+			// If we get CnsSnapshotCreatedFault, then it means that snapshot creation is successful, but something in
+			// post-processing failed. Persist this task as PartiallyFailed status along with relevant details.
+			err = soap.WrapVimFault(createSnapshotsOperationRes.Fault.Fault)
+			if cnsvsphere.IsCnsSnapshotCreatedFaultError(err) {
+				errMsg = fmt.Sprintf("snapshot %q on volume %q got created, but post-processing failed. "+
+					"Fault: %q, opID: %q", instanceName, volumeID, spew.Sdump(createSnapshotsOperationRes.Fault),
+					createSnapshotsTaskInfo.ActivationId)
+
+				snapshotId := createSnapshotsOperationRes.Fault.Fault.(cnstypes.CnsSnapshotCreatedFault).SnapshotId.Id
+				volumeOperationDetails = createRequestDetails(instanceName, volumeID, snapshotId, 0, nil,
+					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
+					"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusPartiallyFailed, errMsg)
+				return nil, logger.LogNewError(log, errMsg)
+			}
+
 			volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, nil,
 				volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
 				"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
