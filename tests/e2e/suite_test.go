@@ -27,6 +27,8 @@ import (
 	gomega "github.com/onsi/gomega"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/config"
+
+	_ "k8s.io/kubernetes/test/e2e/framework/debug/init"
 )
 
 const kubeconfigEnvVar = "KUBECONFIG"
