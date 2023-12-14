@@ -80,7 +80,8 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 			datastoreURL)
 	}
 
-	volManager, err := volume.GetManager(ctx, m.vc, nil, false, false, false, false)
+	isListViewEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListViewPerf)
+	volManager, err := volume.GetManager(ctx, m.vc, nil, false, false, false, isListViewEnabled)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}

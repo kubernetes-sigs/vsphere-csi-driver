@@ -32,6 +32,8 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/wcp"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
@@ -100,7 +102,8 @@ func (w *DiskDecommController) detachVolumes(ctx context.Context, storagePoolNam
 		VirtualCenterHost: vc.Config.Host,
 	}
 
-	volManager, err := volume.GetManager(ctx, &vc, nil, false, false, false, false)
+	isListViewEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListViewPerf)
+	volManager, err := volume.GetManager(ctx, &vc, nil, false, false, false, isListViewEnabled)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}
