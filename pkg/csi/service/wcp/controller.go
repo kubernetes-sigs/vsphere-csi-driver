@@ -143,6 +143,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		return err
 	}
 
+	isPodVMOnStretchSupervisorFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.PodVMOnStretchedSupervisor)
 	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CSIVolumeManagerIdempotency)
 	if idempotencyHandlingEnabled {
@@ -216,8 +218,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 	}
-	isPodVMOnStretchSupervisorFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.PodVMOnStretchedSupervisor)
 	if isPodVMOnStretchSupervisorFSSEnabled {
 		log.Info("Loading CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
 		volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
