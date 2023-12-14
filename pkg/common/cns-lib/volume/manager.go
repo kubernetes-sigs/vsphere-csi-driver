@@ -512,7 +512,7 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 			}
 			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
 				Reserved:         reservedQty,
-				StoragePolicyID:  storagePolicyID,
+				StoragePolicyId:  storagePolicyID,
 				StorageClassName: createVolParams.StorageClassName,
 				Namespace:        createVolParams.Namespace,
 			}

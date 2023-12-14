@@ -169,7 +169,7 @@ func (or *operationRequestStore) GetRequestDetails(
 		quotaDetails = &QuotaDetails{
 			Reserved:         instance.Status.StorageQuotaDetails.Reserved,
 			StorageClassName: instance.Status.StorageQuotaDetails.StorageClassName,
-			StoragePolicyID:  instance.Status.StorageQuotaDetails.StoragePolicyId,
+			StoragePolicyId:  instance.Status.StorageQuotaDetails.StoragePolicyId,
 			Namespace:        instance.Status.StorageQuotaDetails.Namespace,
 		}
 	}
@@ -225,7 +225,7 @@ func (or *operationRequestStore) StoreRequestDetails(
 			if isPodVMOnStretchSupervisorFSSEnabled && operationToStore.QuotaDetails != nil {
 				newInstance.Status.StorageQuotaDetails = &cnsvolumeoprequestv1alpha1.QuotaDetails{
 					Reserved:         operationToStore.QuotaDetails.Reserved,
-					StoragePolicyId:  operationToStore.QuotaDetails.StoragePolicyID,
+					StoragePolicyId:  operationToStore.QuotaDetails.StoragePolicyId,
 					StorageClassName: operationToStore.QuotaDetails.StorageClassName,
 					Namespace:        operationToStore.QuotaDetails.Namespace,
 				}
@@ -267,7 +267,7 @@ func (or *operationRequestStore) StoreRequestDetails(
 	if isPodVMOnStretchSupervisorFSSEnabled && operationToStore.QuotaDetails != nil {
 		updatedInstance.Status.StorageQuotaDetails = &cnsvolumeoprequestv1alpha1.QuotaDetails{
 			Reserved:         operationToStore.QuotaDetails.Reserved,
-			StoragePolicyId:  operationToStore.QuotaDetails.StoragePolicyID,
+			StoragePolicyId:  operationToStore.QuotaDetails.StoragePolicyId,
 			StorageClassName: operationToStore.QuotaDetails.StorageClassName,
 			Namespace:        operationToStore.QuotaDetails.Namespace,
 		}

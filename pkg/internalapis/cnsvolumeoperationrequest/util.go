@@ -52,7 +52,7 @@ type VolumeOperationRequestDetails struct {
 // storage policy quota CRs during create volume operations.
 type QuotaDetails struct {
 	Reserved         *resource.Quantity
-	StoragePolicyID  string
+	StoragePolicyId  string
 	StorageClassName string
 	Namespace        string
 }
