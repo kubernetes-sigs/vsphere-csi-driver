@@ -1244,7 +1244,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 			// SV PVC is already in FileSystemResizePending condition indicates
 			// that SV PV has already been expanded to required size.
-			if checkPVCCondition(ctx, svPVC, corev1.PersistentVolumeClaimFileSystemResizePending) {
+			if checkPVCCondition(ctx, svPVC, corev1.PersistentVolumeClaimFileSystemResizePending, gcPvcRequestSize) {
 				waitForSvPvcCondition = false
 			} else {
 				// SV PVC is not in FileSystemResizePending condition and GC PVC request size is equal to SV PVC capacity
@@ -1265,7 +1265,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		if waitForSvPvcCondition {
 			// Wait for Supervisor PVC to change status to FilesystemResizePending
 			err = checkForSupervisorPVCCondition(ctx, c.supervisorClient, svPVC,
-				corev1.PersistentVolumeClaimFileSystemResizePending, time.Duration(getResizeTimeoutInMin(ctx))*time.Minute)
+				corev1.PersistentVolumeClaimFileSystemResizePending, gcPvcRequestSize,
+				time.Duration(getResizeTimeoutInMin(ctx))*time.Minute)
 			if err != nil {
 				msg := fmt.Sprintf("failed to expand volume %s in namespace %s of supervisor cluster. Error: %+v",
 					volumeID, c.supervisorNamespace, err)
