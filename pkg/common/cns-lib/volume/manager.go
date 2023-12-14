@@ -116,7 +116,7 @@ type Manager interface {
 	// ExpandVolume expands a volume to a new size.
 	// When ExpandVolume failed, the first return value (faultType) and second return value(error) need to be set, and
 	// should not be nil.
-	ExpandVolume(ctx context.Context, volumeID string, size int64) (string, error)
+	ExpandVolume(ctx context.Context, volumeID string, size int64, extraParams interface{}) (string, error)
 	// ResetManager helps set new manager instance and VC configuration.
 	ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter) error
 	// ConfigureVolumeACLs configures net permissions for a given CnsVolumeACLConfigureSpec.
@@ -162,6 +162,14 @@ type CnsSnapshotInfo struct {
 // are not present in the CNS CreateVolume spec.
 type CreateVolumeExtraParams struct {
 	StorageClassName                     string
+	Namespace                            string
+	ClusterFlavor                        cnstypes.CnsClusterFlavor
+	IsPodVMOnStretchSupervisorFSSEnabled bool
+}
+
+type ExpandVolumeExtraParams struct {
+	StorageClassName                     string
+	StoragePolicyID                      string
 	Namespace                            string
 	ClusterFlavor                        cnstypes.CnsClusterFlavor
 	IsPodVMOnStretchSupervisorFSSEnabled bool
@@ -1502,7 +1510,8 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 }
 
 // ExpandVolume expands a volume given its spec.
-func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size int64) (string, error) {
+func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size int64,
+	extraParams interface{}) (string, error) {
 	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
 	defer cancelFunc()
 	internalExpandVolume := func() (string, error) {
@@ -1522,7 +1531,7 @@ func (m *defaultManager) ExpandVolume(ctx context.Context, volumeID string, size
 			return faultType, err
 		}
 		if m.idempotencyHandlingEnabled {
-			return m.expandVolumeWithImprovedIdempotency(ctx, volumeID, size)
+			return m.expandVolumeWithImprovedIdempotency(ctx, volumeID, size, extraParams)
 		}
 		return m.expandVolume(ctx, volumeID, size)
 
@@ -1612,7 +1621,7 @@ func (m *defaultManager) expandVolume(ctx context.Context, volumeID string, size
 // interface to persist CNS task information. It uses this persisted information
 // to handle idempotency of ExpandVolume callbacks to CNS for the same volume.
 func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context, volumeID string,
-	size int64) (string, error) {
+	size int64, extraParams interface{}) (faultType string, err error) {
 	log := logger.GetLogger(ctx)
 	var (
 		// Reference to the ExtendVolume task.
@@ -1621,13 +1630,36 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
 		// CnsVolumeOperationRequest instance name.
 		instanceName = "expand-" + volumeID
-		err          error
+		// quotaInfo consists of values required to populate QuotaDetails in CnsVolumeOperationRequest CR.
+		quotaInfo     *cnsvolumeoperationrequest.QuotaDetails
+		clusterFlavor cnstypes.CnsClusterFlavor
 	)
-	var faultType string
+
+	if extraParams != nil {
+		expandVolParams, ok := extraParams.(*ExpandVolumeExtraParams)
+		if !ok {
+			return csifault.CSIInternalFault,
+				logger.LogNewErrorf(log, "unrecognised type for ExpandVolume params: %+v", extraParams)
+		}
+		log.Debugf("Received ExpandVolume extraParams: %+v", expandVolParams)
+
+		clusterFlavor = expandVolParams.ClusterFlavor
+		if expandVolParams.IsPodVMOnStretchSupervisorFSSEnabled && clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			reservedQty := resource.NewQuantity(size, resource.BinarySI)
+			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
+				Reserved:         reservedQty,
+				StoragePolicyId:  expandVolParams.StoragePolicyID,
+				StorageClassName: expandVolParams.StorageClassName,
+				Namespace:        expandVolParams.Namespace,
+			}
+			log.Infof("QuotaInfo during ExpandVolume call: %+v", quotaInfo)
+		}
+	}
 	if m.operationStore == nil {
 		return csifault.CSIInternalFault, logger.LogNewError(log, "operation store cannot be nil")
 	}
 	volumeOperationDetails, err = m.operationStore.GetRequestDetails(ctx, instanceName)
+
 	switch {
 	case err == nil:
 		if volumeOperationDetails.OperationDetails != nil {
@@ -1649,7 +1681,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		}
 	case apierrors.IsNotFound(err):
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", size,
-			nil, metav1.Now(), "", "", "", "", "")
+			quotaInfo, metav1.Now(), "", "", "", "", "")
 	default:
 		return csifault.CSIInternalFault, err
 	}
@@ -1657,9 +1689,18 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		// Persist the operation details before returning.
 		if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
 			volumeOperationDetails.OperationDetails.TaskStatus != taskInvocationStatusInProgress {
-			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
-			if err != nil {
-				log.Warnf("failed to store ExpandVolume details with error: %v", err)
+			// Decrease the reserved field in QuotaDetails when the ExpandVolume task is successful.
+			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusSuccess &&
+				volumeOperationDetails.QuotaDetails != nil {
+				volumeOperationDetails.QuotaDetails.Reserved = resource.NewQuantity(0,
+					resource.BinarySI)
+				log.Infof("Setting the reserved field for VolumeOperationDetails instance %s to 0",
+					volumeOperationDetails.Name)
+			}
+			tempErr := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+			if err == nil && tempErr != nil {
+				log.Errorf("failed to store ExpandVolume details with error: %v", tempErr)
+				err = tempErr
 			}
 		}
 	}()
@@ -1689,11 +1730,11 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 			}
 			log.Errorf("CNS ExtendVolume failed from the vCenter %q with err: %v",
 				m.virtualCenter.Config.Host, err)
-			volumeOperationDetails = createRequestDetails(instanceName, "", "", size, nil, metav1.Now(),
+			volumeOperationDetails = createRequestDetails(instanceName, "", "", size, quotaInfo, metav1.Now(),
 				"", "", "", taskInvocationStatusError, err.Error())
 			return faultType, err
 		}
-		volumeOperationDetails = createRequestDetails(instanceName, "", "", size, nil, metav1.Now(),
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", size, quotaInfo, metav1.Now(),
 			task.Reference().Value, "", "", taskInvocationStatusInProgress, "")
 		err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 		if err != nil {
@@ -1716,7 +1757,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 				log.Infof("ExpandVolume: Volume expanded successfully to size %d. volumeID: %q, task: %q",
 					volumeOperationDetails.Capacity, volumeID, task.Reference().Value)
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", volumeOperationDetails.Capacity,
-					nil, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value, "",
+					quotaInfo, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value, "",
 					volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusSuccess, "")
 				return "", nil
 			}
@@ -1727,7 +1768,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		// - Any other failures at lower layers like FCD and SPS.
 		// In all cases, mark task as failed and retry.
 		log.Errorf("failed to expand volume with ID %s with error %+v", volumeID, err)
-		volumeOperationDetails = createRequestDetails(instanceName, "", "", volumeOperationDetails.Capacity, nil,
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", volumeOperationDetails.Capacity, quotaInfo,
 			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
 			"", volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusError, err.Error())
 		return ExtractFaultTypeFromErr(ctx, err), err
@@ -1773,7 +1814,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 
 	log.Infof("ExpandVolume: Volume expanded successfully to size %d. volumeID: %q, opId: %q",
 		volumeOperationDetails.Capacity, volumeID, taskInfo.ActivationId)
-	volumeOperationDetails = createRequestDetails(instanceName, "", "", volumeOperationDetails.Capacity, nil,
+	volumeOperationDetails = createRequestDetails(instanceName, "", "", volumeOperationDetails.Capacity, quotaInfo,
 		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
 		"", taskInfo.ActivationId, taskInvocationStatusSuccess, "")
 	if volumeOperationDetails.Capacity >= size {
