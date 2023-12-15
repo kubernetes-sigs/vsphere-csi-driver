@@ -67,6 +67,9 @@ type VolumeInfoService interface {
 	// VolumeInfoCrExistsForVolume returns true if VolumeInfo CR for
 	// a given volume exists
 	VolumeInfoCrExistsForVolume(ctx context.Context, volumeID string) (bool, error)
+
+	// GetVolumeInfoForVolumeID fetches VolumeInfo CR for the given VolumeID and returns cnsvolumeinfo object
+	GetVolumeInfoForVolumeID(ctx context.Context, volumeID string) (*cnsvolumeinfov1alpha1.CNSVolumeInfo, error)
 }
 
 // InitVolumeInfoService returns the singleton VolumeInfoService.
@@ -251,6 +254,26 @@ func (volumeInfo *volumeInfo) DeleteVolumeInfo(ctx context.Context, volumeID str
 	log.Infof("Successfully deleted CNSVolumeInfo CR for volumeID: %q from namespace: %q",
 		volumeID, csiNamespace)
 	return nil
+}
+
+// GetVolumeInfoForVolumeID return cnsvolumeinfo for the given VolumeID
+func (volumeInfo *volumeInfo) GetVolumeInfoForVolumeID(ctx context.Context,
+	volumeID string) (*cnsvolumeinfov1alpha1.CNSVolumeInfo, error) {
+	log := logger.GetLogger(ctx)
+	// Since CNSVolumeInfo is namespaced CR, we need to prefix "namespace-name/" to obtain value from the store
+	volumeInfoCrName := getCnsColumeInfoCrName(ctx, volumeID)
+	key := csiNamespace + "/" + volumeInfoCrName
+	info, found, err := volumeInfo.volumeInfoInformer.GetStore().GetByKey(key)
+	if err != nil || !found {
+		return nil, logger.LogNewErrorf(log, "Could not find cnsvolumeinfo for VolumeID: %q", volumeID)
+	}
+	cnsvolumeinfo := &cnsvolumeinfov1alpha1.CNSVolumeInfo{}
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(info.(*unstructured.Unstructured).Object,
+		&cnsvolumeinfo)
+	if err != nil {
+		return nil, logger.LogNewErrorf(log, "failed to parse cnsvolumeinfo object: %v, err: %v", info, err)
+	}
+	return cnsvolumeinfo, nil
 }
 
 // getCnsColumeInfoCrName replaces "file:" with "file-" as K8s only allows alphanumeric and "-" in object name."

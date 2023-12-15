@@ -641,7 +641,7 @@ func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeI
 // volumeId.
 func ExpandVolumeUtil(ctx context.Context, vCenterManager vsphere.VirtualCenterManager,
 	vCenterHost string, volumeManager cnsvolume.Manager, volumeID string, capacityInMb int64,
-	useAsyncQueryVolume bool) (string, error) {
+	useAsyncQueryVolume bool, extraParams interface{}) (string, error) {
 	var err error
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CSI driver expanding volume %q to new size %d Mb.", volumeID, capacityInMb)
@@ -673,7 +673,7 @@ func ExpandVolumeUtil(ctx context.Context, vCenterManager vsphere.VirtualCenterM
 		expansionRequired = true
 	}
 	if expansionRequired {
-		faultType, err = volumeManager.ExpandVolume(ctx, volumeID, capacityInMb)
+		faultType, err = volumeManager.ExpandVolume(ctx, volumeID, capacityInMb, extraParams)
 		if err != nil {
 			log.Errorf("failed to expand volume %q with error %+v", volumeID, err)
 			return faultType, err

@@ -1793,9 +1793,27 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 		var faultType string
-		faultType, err = common.ExpandVolumeUtil(ctx, c.manager.VcenterManager,
-			c.manager.VcenterConfig.Host, c.manager.VolumeManager, volumeID, volSizeMB,
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+		if isPodVMOnStretchSupervisorFSSEnabled {
+			cnsvolumeinfo, tmpErr := volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
+			if tmpErr != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to retrieve cnsvolumeinfo for volume: %s Error: %+v", req.VolumeId, tmpErr)
+			}
+			faultType, err = common.ExpandVolumeUtil(ctx, c.manager.VcenterManager,
+				c.manager.VcenterConfig.Host, c.manager.VolumeManager, volumeID, volSizeMB,
+				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume),
+				&cnsvolume.ExpandVolumeExtraParams{
+					StorageClassName:                     cnsvolumeinfo.Spec.StorageClassName,
+					StoragePolicyID:                      cnsvolumeinfo.Spec.StoragePolicyID,
+					Namespace:                            cnsvolumeinfo.Spec.Namespace,
+					ClusterFlavor:                        cnstypes.CnsClusterFlavorWorkload,
+					IsPodVMOnStretchSupervisorFSSEnabled: isPodVMOnStretchSupervisorFSSEnabled,
+				})
+		} else {
+			faultType, err = common.ExpandVolumeUtil(ctx, c.manager.VcenterManager,
+				c.manager.VcenterConfig.Host, c.manager.VolumeManager, volumeID, volSizeMB,
+				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume), nil)
+		}
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to expand volume: %+q to size: %d err %+v", volumeID, volSizeMB, err)
