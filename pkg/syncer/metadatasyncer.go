@@ -920,14 +920,13 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 				namespace)
 			return
 		}
+		patchedStoragePolicyUsageCR = storagePolicyUsageCR.DeepCopy()
 		if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil {
-			// Move forward only if StoragePolicyUsage CR has Status.QuotaUsage fields not nil
-			// and update StoragePolicyUsage reserved field
-			patchedStoragePolicyUsageCR = storagePolicyUsageCR.DeepCopy()
+			// If StoragePolicyUsage CR has Status.QuotaUsage fields not nil update StoragePolicyUsage reserved field
 			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
 				*resource.NewQuantity(cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
 					cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
-			err := patchStoragePolicyUsage(ctx, cnsOperatorClient, patchedStoragePolicyUsageCR,
+			err := patchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
 				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
@@ -936,6 +935,30 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 			log.Infof("cnsvolumeoperationrequestCRAdded: Successfully increased the reserved field by %v "+
 				"for storagepolicyusage CR: %q", cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
 				patchedStoragePolicyUsageCR.Name)
+			return
+		} else {
+			var (
+				usedQty     resource.Quantity
+				reservedQty resource.Quantity
+			)
+			reservedQty = *cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved
+
+			patchedStoragePolicyUsageCR.Status = storagepolicyusagev1alpha1.StoragePolicyUsageStatus{
+				ResourceTypeLevelQuotaUsage: &storagepolicyusagev1alpha1.QuotaUsageDetails{
+					Reserved: &reservedQty,
+					Used:     &usedQty,
+				},
+			}
+			err := patchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
+				patchedStoragePolicyUsageCR)
+			if err != nil {
+				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
+				return
+			}
+			log.Infof("cnsvolumeoperationrequestCRAdded: Successfully increased the reserved field by %v "+
+				"for storagepolicyusage CR: %q", cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
+				patchedStoragePolicyUsageCR.Name)
+			return
 		}
 	}
 }
