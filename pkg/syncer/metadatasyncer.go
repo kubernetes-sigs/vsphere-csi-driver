@@ -927,7 +927,7 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
 				*resource.NewQuantity(cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
 					cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
-			err := patchStoragePolicyUsage(ctx, cnsOperatorClient, patchedStoragePolicyUsageCR,
+			err := patchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
 				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
