@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -37,6 +38,9 @@ type CNSVolumeInfoSpec struct {
 
 	// Name of the storage class
 	StorageClassName string `json:"storageClassName,omitempty"`
+
+	// Capacity stores the current capacity of the PersistentVolume this volume represents.
+	Capacity *resource.Quantity `json:"capacity,omitempty"`
 }
 
 //+kubebuilder:object:root=true

@@ -7,7 +7,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const CRDSingular = "storagepolicyusage"
+const (
+	CRDSingular = "storagepolicyusage"
+	// NameSuffixForPVC is the suffix used to name instances of StoragePolicyUsage created for PVCs.
+	NameSuffixForPVC = "pvc-usage"
+)
 
 // StoragePolicyUsageSpec defines the desired state of StoragePolicyUsage
 type StoragePolicyUsageSpec struct {

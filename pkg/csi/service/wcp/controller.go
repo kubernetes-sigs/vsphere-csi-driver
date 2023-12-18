@@ -18,6 +18,7 @@ package wcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -25,8 +26,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
@@ -36,10 +35,17 @@ import (
 	"github.com/vmware/govmomi/units"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	storagepolicyusagev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -52,7 +58,9 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
+	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 const (
@@ -624,6 +632,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores,
 			isTKGSHAEnabled, checkCompatibleDataStores,
 			&cnsvolume.CreateVolumeExtraParams{
+				VolSizeBytes:                         volSizeBytes,
 				StorageClassName:                     req.Parameters[common.AttributeStorageClassName],
 				Namespace:                            req.Parameters[common.AttributePvcNamespace],
 				ClusterFlavor:                        cnstypes.CnsClusterFlavorWorkload,
@@ -767,8 +776,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		if pvcNamespace, ok := req.Parameters[common.AttributePvcNamespace]; ok {
 			if scName, ok := req.Parameters[common.AttributeStorageClassName]; ok {
 				// Create CNSVolumeInfo CR for the volume ID.
+				capacity := resource.NewQuantity(volSizeBytes, resource.BinarySI)
 				err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeInfo.VolumeID.Id, pvcNamespace,
-					storagePolicyID, scName, vc.Config.Host)
+					storagePolicyID, scName, vc.Config.Host, capacity)
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to store volumeID %q pvcNamespace %q StoragePolicyID %q StorageClassName %q "+
@@ -959,16 +969,13 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	cnsVolumeType := common.UnknownVolumeType
 
-	deleteVolumeInternal := func() (
-		*csi.DeleteVolumeResponse, string, error) {
+	deleteVolumeInternal := func() (*csi.DeleteVolumeResponse, string, error) {
 		log.Infof("DeleteVolume: called with args: %+v", *req)
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
 		// Later we may need to define different csi faults.
-		var faultType string
-		var err error
-		err = validateWCPDeleteVolumeRequest(ctx, req)
+		err := validateWCPDeleteVolumeRequest(ctx, req)
 		if err != nil {
 			msg := fmt.Sprintf("Validation for DeleteVolume Request: %+v has failed. Error: %+v", *req, err)
 			log.Error(msg)
@@ -1004,19 +1011,85 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 					"volume: %s with existing snapshots %v cannot be deleted, "+
 						"please delete snapshots before deleting the volume", req.VolumeId, snapshots)
 			}
-
 		}
-		faultType, err = common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
+		faultType, err := common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)
 		if err != nil {
 			log.Debugf("DeleteVolumeUtil returns fault %s:", faultType)
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to delete volume: %q. Error: %+v", req.VolumeId, err)
 		}
 		if isPodVMOnStretchSupervisorFSSEnabled {
-			err = volumeInfoService.DeleteVolumeInfo(ctx, req.VolumeId)
-			if err != nil {
+			// Fetch the CNSVolumeInfo instance for VolumeID
+			volumeInfo, err := volumeInfoService.GetVolumeInfoForVolumeID(ctx, req.VolumeId)
+			switch {
+			case err == nil:
+				// Get K8s client for StoragePolicyUsage CR.
+				restConfig, err := config.GetConfig()
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to fetch kubernetes config. Error: %+v", err)
+				}
+				cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to create CNSOperator client. Error: %+v", err)
+				}
+
+				// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
+				storagePolicyUsageInstanceName := volumeInfo.Spec.StorageClassName + "-" +
+					storagepolicyusagev1alpha1.NameSuffixForPVC
+				storagePolicyUsageInstance := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
+				err = cnsOperatorClient.Get(ctx, apitypes.NamespacedName{
+					Namespace: volumeInfo.Spec.Namespace,
+					Name:      storagePolicyUsageInstanceName},
+					storagePolicyUsageInstance)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
+						storagepolicyusagev1alpha1.CRDSingular, storagePolicyUsageInstanceName,
+						volumeInfo.Spec.Namespace, err)
+				}
+
+				// Decrease the used capacity in StoragePolicyUsage instance as we are deleting the volume.
+				newUsedVal := storagePolicyUsageInstance.Status.ResourceTypeLevelQuotaUsage.Used.DeepCopy()
+				newUsedVal.Sub(*volumeInfo.Spec.Capacity)
+
+				// Patch the StoragePolicyUsage instance.
+				patch := map[string]interface{}{
+					"status": map[string]interface{}{
+						"quotaUsage": map[string]interface{}{
+							"used": newUsedVal,
+						},
+					},
+				}
+				patchBytes, err := json.Marshal(patch)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to create patch for StoragePolicyUsage instance. Error: %+v", err)
+				}
+				err = cnsOperatorClient.Patch(ctx, storagePolicyUsageInstance,
+					client.RawPatch(apitypes.MergePatchType, patchBytes))
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to patch storagePolicyUsage instance %q in namespace %q while deleting "+
+							"volume %q. Error: %+v", storagePolicyUsageInstance.Name, storagePolicyUsageInstance.Namespace,
+						req.VolumeId, err)
+				}
+
+				// Delete the CNSVolumeInfo instance for this volume.
+				err = volumeInfoService.DeleteVolumeInfo(ctx, req.VolumeId)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to delete cnsVolumeInfo CR for volume: %q. Error: %+v", req.VolumeId, err)
+				}
+			case apierrors.IsNotFound(err):
+				// If CNSVolumeInfo instance is not found for volume, skip the next logic.
+				log.Infof("CNSVolumeInfo instance for volumeID %q not found. "+
+					"Assuming volume's capacity has been deducted from the storage quota already.", req.VolumeId)
+				return &csi.DeleteVolumeResponse{}, "", nil
+			default:
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to delete cnsvolumeInfo CR for volume: %q. Error: %+v", req.VolumeId, err)
+					"failed to retrieve volume info for volumeID: %q. Error: %+v", req.VolumeId, err)
 			}
 		}
 		return &csi.DeleteVolumeResponse{}, "", nil
@@ -1238,7 +1311,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		var isVADeleted bool
 		volumeAttachment, err := commonco.ContainerOrchestratorUtility.GetVolumeAttachment(ctx, req.VolumeId, req.NodeId)
 		if err != nil {
-			if errors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) {
 				log.Infof("VolumeAttachments object not found for volume %q & node %q. "+
 					"Thus, assuming the volume is detached.", req.VolumeId, req.NodeId)
 				isVADeleted = true
@@ -1792,20 +1865,23 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		volumeID := req.GetVolumeId()
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
-		var faultType string
+		var (
+			faultType     string
+			cnsVolumeInfo *cnsvolumeinfov1alpha1.CNSVolumeInfo
+		)
 		if isPodVMOnStretchSupervisorFSSEnabled {
-			cnsvolumeinfo, tmpErr := volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
-			if tmpErr != nil {
+			cnsVolumeInfo, err = volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
+			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to retrieve cnsvolumeinfo for volume: %s Error: %+v", req.VolumeId, tmpErr)
+					"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", req.VolumeId, err)
 			}
 			faultType, err = common.ExpandVolumeUtil(ctx, c.manager.VcenterManager,
 				c.manager.VcenterConfig.Host, c.manager.VolumeManager, volumeID, volSizeMB,
 				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume),
 				&cnsvolume.ExpandVolumeExtraParams{
-					StorageClassName:                     cnsvolumeinfo.Spec.StorageClassName,
-					StoragePolicyID:                      cnsvolumeinfo.Spec.StoragePolicyID,
-					Namespace:                            cnsvolumeinfo.Spec.Namespace,
+					StorageClassName:                     cnsVolumeInfo.Spec.StorageClassName,
+					StoragePolicyID:                      cnsVolumeInfo.Spec.StoragePolicyID,
+					Namespace:                            cnsVolumeInfo.Spec.Namespace,
 					ClusterFlavor:                        cnstypes.CnsClusterFlavorWorkload,
 					IsPodVMOnStretchSupervisorFSSEnabled: isPodVMOnStretchSupervisorFSSEnabled,
 				})
@@ -1830,6 +1906,26 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
 			nodeExpansionRequired = false
 		}
+		if isPodVMOnStretchSupervisorFSSEnabled {
+			// Increase capacity in CNSVolumeInfo instance.
+			patch := map[string]interface{}{
+				"spec": map[string]interface{}{
+					"capacity": volSizeBytes,
+				},
+			}
+			patchBytes, err := json.Marshal(patch)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to create patch for CNSVolumeInfo instance. Error: %+v", err)
+			}
+			err = volumeInfoService.PatchVolumeInfo(ctx, volumeID, patchBytes)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to patch CNSVolumeInfo instance to increase capacity from %q to %d."+
+						" Error: %+v", cnsVolumeInfo.Spec.Capacity.String(), volSizeMB, err)
+			}
+		}
+
 		resp := &csi.ControllerExpandVolumeResponse{
 			CapacityBytes:         int64(units.FileSize(volSizeMB * common.MbInBytes)),
 			NodeExpansionRequired: nodeExpansionRequired,
