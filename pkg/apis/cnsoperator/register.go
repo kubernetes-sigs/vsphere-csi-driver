@@ -53,8 +53,12 @@ var (
 	CnsRegisterVolumePlural = "cnsregistervolumes"
 	// CnsFileAccessConfigPlural is plural of CnsFileAccessConfig
 	CnsFileAccessConfigPlural = "cnsfileaccessconfigs"
+	// CnsStoragePolicyUsageSingular is singular of StoragePolicyUsage
+	CnsStoragePolicyUsageSingular = "storagepolicyusage"
 	// CnsStoragePolicyUsagePlural is plural of StoragePolicyUsage
 	CnsStoragePolicyUsagePlural = "storagepolicyusages"
+	// CnsStoragePolicyQuotaSingular is Singular of StoragePolicyQuota
+	CnsStoragePolicyQuotaSingular = "storagepolicyquota"
 	// CnsStoragePolicyQuotaPlural is plural of StoragePolicyQuota
 	CnsStoragePolicyQuotaPlural = "storagepolicyquotas"
 )
