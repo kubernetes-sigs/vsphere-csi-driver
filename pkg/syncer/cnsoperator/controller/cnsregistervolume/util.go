@@ -66,6 +66,29 @@ func isDatastoreAccessibleToCluster(ctx context.Context, vc *vsphere.VirtualCent
 	return false
 }
 
+// isDatastoreAccessibleToAZClusters verifies if the datastoreUrl is accessible to
+// any of the az cluster for the given azClustersMap.
+func isDatastoreAccessibleToAZClusters(ctx context.Context, vc *vsphere.VirtualCenter,
+	azClustersMap map[string][]string, datastoreURL string) bool {
+	log := logger.GetLogger(ctx)
+	for _, clusterIDs := range azClustersMap {
+		for _, clusterID := range clusterIDs {
+			sharedDatastores, _, err := vsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterID)
+			if err != nil {
+				log.Warnf("Failed to get candidate datastores for cluster: %s with err: %+v", clusterID, err)
+				continue
+			}
+			for _, ds := range sharedDatastores {
+				if ds.Info.Url == datastoreURL {
+					log.Infof("Found datastoreUrl: %s is accessible to cluster: %s", datastoreURL, clusterID)
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // constructCreateSpecForInstance creates CNS CreateVolume spec.
 func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,

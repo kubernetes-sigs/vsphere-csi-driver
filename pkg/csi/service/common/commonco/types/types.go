@@ -100,6 +100,9 @@ type ControllerTopologyService interface {
 	// GetTopologyInfoFromNodes retrieves the topology information of the nodes after the datastore has been
 	// selected for volume provisioning.
 	GetTopologyInfoFromNodes(ctx context.Context, retrieveTopologyInfoParams interface{}) ([]map[string]string, error)
+
+	// GetAZClustersMap returns the zone to clusterMorefs map from the azClustersMap.
+	GetAZClustersMap(ctx context.Context) map[string][]string
 }
 
 // NodeTopologyService is an interface which exposes functionality related to

@@ -131,6 +131,11 @@ func (cntrlTopology *mockControllerVolumeTopology) GetSharedDatastoresInTopology
 	return nil, logger.LogNewError(log, "GetSharedDatastoresInTopology is not yet implemented.")
 }
 
+// GetAZClustersMap returns the zone to clusterMorefs map from the azClustersMap.
+func (cntrlTopology *mockControllerVolumeTopology) GetAZClustersMap(ctx context.Context) map[string][]string {
+	return nil
+}
+
 // GetTopologyInfoFromNodes retrieves the topology information of the given list of node names.
 func (cntrlTopology *mockControllerVolumeTopology) GetTopologyInfoFromNodes(ctx context.Context,
 	reqParams interface{}) ([]map[string]string, error) {

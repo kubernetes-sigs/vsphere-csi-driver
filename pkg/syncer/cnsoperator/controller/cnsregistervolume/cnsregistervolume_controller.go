@@ -286,18 +286,33 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	// Verify if the volume is accessible to Pacific cluster.
-	isAccessible := isDatastoreAccessibleToCluster(ctx, vc, r.configInfo.Cfg.Global.ClusterID, volume.DatastoreUrl)
-	if !isAccessible {
-		log.Errorf("Volume: %s present on datastore: %s is not accessible to all nodes in the cluster: %s",
-			volumeID, volume.DatastoreUrl, r.configInfo.Cfg.Global.ClusterID)
-		setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to all nodes in the cluster")
-		// Untag the CNS volume which was created previously.
-		_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
-		if err != nil {
-			log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
+	if isPodVMOnStretchedSupervisorEnabled && len(clusterComputeResourceMoIds) > 1 {
+		azClustersMap := topologyMgr.GetAZClustersMap(ctx)
+		isAccessible := isDatastoreAccessibleToAZClusters(ctx, vc, azClustersMap, volume.DatastoreUrl)
+		if !isAccessible {
+			log.Errorf("Volume: %s present on datastore: %s is not accessible to any of the AZ clusters: %v",
+				volumeID, volume.DatastoreUrl, azClustersMap)
+			setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to any of the AZ clusters")
+			_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+			if err != nil {
+				log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
+			}
+			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
-		return reconcile.Result{RequeueAfter: timeout}, nil
+	} else {
+		// Verify if the volume is accessible to Supervisor cluster.
+		isAccessible := isDatastoreAccessibleToCluster(ctx, vc, r.configInfo.Cfg.Global.ClusterID, volume.DatastoreUrl)
+		if !isAccessible {
+			log.Errorf("Volume: %s present on datastore: %s is not accessible to all nodes in the cluster: %s",
+				volumeID, volume.DatastoreUrl, r.configInfo.Cfg.Global.ClusterID)
+			setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to all nodes in the cluster")
+			// Untag the CNS volume which was created previously.
+			_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+			if err != nil {
+				log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
+			}
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
 	}
 	// Verify if storage policy is empty.
 	if volume.StoragePolicyId == "" {
