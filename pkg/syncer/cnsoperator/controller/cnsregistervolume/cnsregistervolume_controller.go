@@ -27,6 +27,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -82,6 +83,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Debug("Not initializing the CnsRegisterVolume Controller as its a non-WCP CSI deployment")
 		return nil
 	}
+	var volumeInfoService cnsvolumeinfo.VolumeInfoService
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 			var err error
@@ -98,6 +100,12 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 					log.Errorf("failed to init topology manager. err: %v", err)
 					return err
 				}
+				log.Info("Creating CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
+				volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
+				if err != nil {
+					return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
+				}
+				log.Infof("Successfully initialized VolumeInfoService")
 			} else {
 				if len(clusterComputeResourceMoIds) > 1 {
 					log.Infof("Not initializing the CnsRegisterVolume Controller as stretched supervisor is detected.")
@@ -122,14 +130,15 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		},
 	)
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: apis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, volumeManager, recorder))
+	return add(mgr, newReconciler(mgr, configInfo, volumeManager, recorder, volumeInfoService))
 }
 
 // newReconciler returns a new reconcile.Reconciler.
 func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo,
-	volumeManager volumes.Manager, recorder record.EventRecorder) reconcile.Reconciler {
+	volumeManager volumes.Manager, recorder record.EventRecorder,
+	volumeInfoService cnsvolumeinfo.VolumeInfoService) reconcile.Reconciler {
 	return &ReconcileCnsRegisterVolume{client: mgr.GetClient(), scheme: mgr.GetScheme(),
-		configInfo: configInfo, volumeManager: volumeManager, recorder: recorder}
+		configInfo: configInfo, volumeManager: volumeManager, recorder: recorder, volumeInfoService: volumeInfoService}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler.
@@ -164,11 +173,12 @@ var _ reconcile.Reconciler = &ReconcileCnsRegisterVolume{}
 type ReconcileCnsRegisterVolume struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver.
-	client        client.Client
-	scheme        *runtime.Scheme
-	configInfo    *commonconfig.ConfigurationInfo
-	volumeManager volumes.Manager
-	recorder      record.EventRecorder
+	client            client.Client
+	scheme            *runtime.Scheme
+	configInfo        *commonconfig.ConfigurationInfo
+	volumeManager     volumes.Manager
+	recorder          record.EventRecorder
+	volumeInfoService cnsvolumeinfo.VolumeInfoService
 }
 
 // Reconcile reads that state of the cluster for a CnsRegisterVolume object
@@ -469,18 +479,11 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	if isBound {
 		log.Infof("PVC: %s is bound", instance.Spec.PvcName)
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
-			log.Info("Loading CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
-			volumeInfoService, err := cnsvolumeinfo.InitVolumeInfoService(ctx)
-			if err != nil {
-				log.Errorf("Error initializing volumeInfoService. Error: %+v", err)
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
-			if volumeInfoService != nil {
-				log.Infof("Successfully initialized VolumeInfoService")
-			}
 			// Create CNSVolumeInfo CR for static pv
-			err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, instance.Namespace,
-				volume.StoragePolicyId, storageClassName, vc.Config.Host)
+			capacityInBytes := capacityInMb * common.MbInBytes
+			capacity := resource.NewQuantity(capacityInBytes, resource.BinarySI)
+			err = r.volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, instance.Namespace,
+				volume.StoragePolicyId, storageClassName, vc.Config.Host, capacity)
 			if err != nil {
 				log.Errorf("failed to store volumeID %q namespace %s StoragePolicyID %q StorageClassName %q and vCenter %q "+
 					"in CNSVolumeInfo CR. Error: %+v", volumeID, instance.Namespace, volume.StoragePolicyId,

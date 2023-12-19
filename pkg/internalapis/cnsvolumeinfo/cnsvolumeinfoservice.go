@@ -5,9 +5,11 @@ import (
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -56,7 +58,7 @@ type VolumeInfoService interface {
 	// CreateVolumeInfoWithPolicyInfo creates VolumeInfo CR to persist VolumeID,
 	// pvcnamespace, storage policy info and  vCenter details
 	CreateVolumeInfoWithPolicyInfo(ctx context.Context, volumeID, pvcnamespace, storagePolicyId,
-		storageClassName, vCenter string) error
+		storageClassName, vCenter string, capacity *resource.Quantity) error
 
 	// DeleteVolumeInfo deletes VolumeInfo CR for the given VolumeID
 	DeleteVolumeInfo(ctx context.Context, volumeID string) error
@@ -70,6 +72,9 @@ type VolumeInfoService interface {
 
 	// GetVolumeInfoForVolumeID fetches VolumeInfo CR for the given VolumeID and returns cnsvolumeinfo object
 	GetVolumeInfoForVolumeID(ctx context.Context, volumeID string) (*cnsvolumeinfov1alpha1.CNSVolumeInfo, error)
+
+	// PatchVolumeInfo patches the CNSVolumeInfo instance associated with volumeID in given parameters.
+	PatchVolumeInfo(ctx context.Context, volumeID string, patchBytes []byte) error
 }
 
 // InitVolumeInfoService returns the singleton VolumeInfoService.
@@ -194,11 +199,11 @@ func (volumeInfo *volumeInfo) CreateVolumeInfo(ctx context.Context, volumeID str
 
 // CreateVolumeInfoWithPolicyInfo creates VolumeInfo CR to persist VolumeID to Storage policy mapping
 func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context, volumeID string,
-	namespace, storagePolicyId, storageClassName, vCenter string) error {
+	namespace, storagePolicyId, storageClassName, vCenter string, capacity *resource.Quantity) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("creating cnsvolumeinfo for volumeID: %q, StoragePolicyID: %q, "+
-		"StorageClassName: %q, vCenter: %q in the namespace: %q",
-		volumeID, storagePolicyId, storageClassName, vCenter, csiNamespace)
+		"StorageClassName: %q, vCenter: %q, Capacity: %+v in the namespace: %q",
+		volumeID, storagePolicyId, storageClassName, vCenter, *capacity, csiNamespace)
 
 	volumeInfoCrName := getCnsColumeInfoCrName(ctx, volumeID)
 
@@ -213,20 +218,21 @@ func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context
 			VCenterServer:    vCenter,
 			StoragePolicyID:  storagePolicyId,
 			StorageClassName: storageClassName,
+			Capacity:         capacity,
 		},
 	}
 	err := volumeInfo.k8sClient.Create(ctx, &cnsvolumeinfo)
 	if err != nil {
 		if !apierrors.IsAlreadyExists(err) {
-			return logger.LogNewErrorf(log, "failed to create CR for cnsvolumeInfo %v in the namespace: %q. "+
+			return logger.LogNewErrorf(log, "failed to create CR for CnsVolumeInfo %v in the namespace: %q. "+
 				"Error: %v", cnsvolumeinfo, csiNamespace, err)
 		}
 		log.Infof("cnsvolumeInfo CR already exists for VolumeID: %q", volumeID)
 		return nil
 	}
 	log.Infof("Successfully created CNSVolumeInfo CR for volumeID: %q, StoragePolicyID: %q, "+
-		"StorageClassName: %q, vCenter: %q mapping in the namespace: %q",
-		volumeID, storagePolicyId, storageClassName, vCenter, csiNamespace)
+		"StorageClassName: %q, vCenter: %q, Capacity: %+v mapping in the namespace: %q",
+		volumeID, storagePolicyId, storageClassName, vCenter, *capacity, csiNamespace)
 	return nil
 }
 
@@ -256,24 +262,35 @@ func (volumeInfo *volumeInfo) DeleteVolumeInfo(ctx context.Context, volumeID str
 	return nil
 }
 
-// GetVolumeInfoForVolumeID return cnsvolumeinfo for the given VolumeID
-func (volumeInfo *volumeInfo) GetVolumeInfoForVolumeID(ctx context.Context,
-	volumeID string) (*cnsvolumeinfov1alpha1.CNSVolumeInfo, error) {
+// GetVolumeInfoForVolumeID return cnsVolumeInfo for the given VolumeID
+func (volumeInfo *volumeInfo) GetVolumeInfoForVolumeID(ctx context.Context, volumeID string) (
+	*cnsvolumeinfov1alpha1.CNSVolumeInfo, error) {
 	log := logger.GetLogger(ctx)
 	// Since CNSVolumeInfo is namespaced CR, we need to prefix "namespace-name/" to obtain value from the store
 	volumeInfoCrName := getCnsColumeInfoCrName(ctx, volumeID)
 	key := csiNamespace + "/" + volumeInfoCrName
 	info, found, err := volumeInfo.volumeInfoInformer.GetStore().GetByKey(key)
 	if err != nil || !found {
-		return nil, logger.LogNewErrorf(log, "Could not find cnsvolumeinfo for VolumeID: %q", volumeID)
+		return nil, logger.LogNewErrorf(log, "Could not find CnsVolumeInfo instance for volumeID: %q", volumeID)
 	}
-	cnsvolumeinfo := &cnsvolumeinfov1alpha1.CNSVolumeInfo{}
+	cnsVolumeInfo := &cnsvolumeinfov1alpha1.CNSVolumeInfo{}
 	err = runtime.DefaultUnstructuredConverter.FromUnstructured(info.(*unstructured.Unstructured).Object,
-		&cnsvolumeinfo)
+		&cnsVolumeInfo)
 	if err != nil {
-		return nil, logger.LogNewErrorf(log, "failed to parse cnsvolumeinfo object: %v, err: %v", info, err)
+		return nil, logger.LogNewErrorf(log, "failed to parse cnsVolumeInfo object: %v, err: %v", info, err)
 	}
-	return cnsvolumeinfo, nil
+	return cnsVolumeInfo, nil
+}
+
+// PatchVolumeInfo patches the CNSVolumeInfo instance associated with volumeID in given parameters.
+func (volumeInfo *volumeInfo) PatchVolumeInfo(ctx context.Context, volumeID string, patchBytes []byte) error {
+	log := logger.GetLogger(ctx)
+
+	volumeInfoInstance, err := volumeInfo.GetVolumeInfoForVolumeID(ctx, volumeID)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to fetch CnsVolumeInfo instance for volumeID: %q", volumeID)
+	}
+	return volumeInfo.k8sClient.Patch(ctx, volumeInfoInstance, client.RawPatch(types.MergePatchType, patchBytes))
 }
 
 // getCnsColumeInfoCrName replaces "file:" with "file-" as K8s only allows alphanumeric and "-" in object name."

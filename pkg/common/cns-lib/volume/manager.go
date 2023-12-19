@@ -161,6 +161,7 @@ type CnsSnapshotInfo struct {
 // CreateVolumeExtraParams consist of values required by the CreateVolume interface and
 // are not present in the CNS CreateVolume spec.
 type CreateVolumeExtraParams struct {
+	VolSizeBytes                         int64
 	StorageClassName                     string
 	Namespace                            string
 	ClusterFlavor                        cnstypes.CnsClusterFlavor
@@ -507,17 +508,11 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 
 		clusterFlavor = createVolParams.ClusterFlavor
 		if createVolParams.IsPodVMOnStretchSupervisorFSSEnabled && clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-			var (
-				storagePolicyID string
-				reservedQty     *resource.Quantity
-			)
+			var storagePolicyID string
 			if len(spec.Profile) >= 1 {
 				storagePolicyID = spec.Profile[0].(*vim25types.VirtualMachineDefinedProfileSpec).ProfileId
 			}
-			cnsBackingObjectDetails := spec.BackingObjectDetails.GetCnsBackingObjectDetails()
-			if cnsBackingObjectDetails != nil {
-				reservedQty = resource.NewQuantity(cnsBackingObjectDetails.CapacityInMb, resource.BinarySI)
-			}
+			reservedQty := resource.NewQuantity(createVolParams.VolSizeBytes, resource.BinarySI)
 			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
 				Reserved:         reservedQty,
 				StoragePolicyId:  storagePolicyID,

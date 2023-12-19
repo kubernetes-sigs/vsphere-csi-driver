@@ -52,6 +52,13 @@ spec:
                 storageClassName:
                   description: StorageClassName is the name of the storage class associated with the volume
                   type: string
+                capacity:
+                  anyOf:
+                    - type: integer
+                    - type: string
+                  description: Capacity stores the current capacity of the PersistentVolume this volume represents.
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
               required:
                 - vCenterServer
                 - volumeID
