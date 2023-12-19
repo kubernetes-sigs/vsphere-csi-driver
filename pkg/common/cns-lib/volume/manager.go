@@ -71,6 +71,9 @@ const (
 	taskInvocationStatusInProgress = cnsvolumeoperationrequest.TaskInvocationStatusInProgress
 	taskInvocationStatusSuccess    = cnsvolumeoperationrequest.TaskInvocationStatusSuccess
 	taskInvocationStatusError      = cnsvolumeoperationrequest.TaskInvocationStatusError
+
+	// MbInBytes is the number of bytes in one mebibyte.
+	MbInBytes = int64(1024 * 1024)
 )
 
 // Manager provides functionality to manage volumes.
@@ -168,10 +171,14 @@ type CreateVolumeExtraParams struct {
 	IsPodVMOnStretchSupervisorFSSEnabled bool
 }
 
+// ExpandVolumeExtraParams consist of values required by the ExpandVolume interface and
+// are not present in the CNS ExpandVolume spec
 type ExpandVolumeExtraParams struct {
-	StorageClassName                     string
-	StoragePolicyID                      string
-	Namespace                            string
+	StorageClassName string
+	StoragePolicyID  string
+	Namespace        string
+	// Capacity stores the original volume size which is from CNSVolumeInfo
+	Capacity                             *resource.Quantity
 	ClusterFlavor                        cnstypes.CnsClusterFlavor
 	IsPodVMOnStretchSupervisorFSSEnabled bool
 }
@@ -1640,7 +1647,14 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 
 		clusterFlavor = expandVolParams.ClusterFlavor
 		if expandVolParams.IsPodVMOnStretchSupervisorFSSEnabled && clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-			reservedQty := resource.NewQuantity(size, resource.BinarySI)
+			// for expand volume, reserved field in quotaInfo need to be set to the difference between the new volume size
+			// and the original volume size
+			// param "size" is the new volume size passed in. This param is passed in as sizeInMb, and we need to convert
+			// it to sizeInBytes
+			// expandVolParams.Capacity is the original volume size which is from CNSVolumeInfo.
+			sizeInBytes := size * MbInBytes
+			reservedQty := resource.NewQuantity(sizeInBytes, resource.BinarySI)
+			reservedQty.Sub(*expandVolParams.Capacity)
 			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
 				Reserved:         reservedQty,
 				StoragePolicyId:  expandVolParams.StoragePolicyID,
