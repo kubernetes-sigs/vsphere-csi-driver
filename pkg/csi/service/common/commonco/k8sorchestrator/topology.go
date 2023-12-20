@@ -497,6 +497,16 @@ func removeFromAZClusterMap(ctx context.Context, azName string) {
 	}
 }
 
+// GetAZClustersMap returns the zone to clusterMorefs map from the azClustersMap.
+func (volTopology *wcpControllerVolumeTopology) GetAZClustersMap(ctx context.Context) map[string][]string {
+	return azClustersMap
+}
+
+// GetAZClustersMap returns the zone to clusterMorefs map from the azClustersMap.
+func (volTopology *controllerVolumeTopology) GetAZClustersMap(ctx context.Context) map[string][]string {
+	return nil
+}
+
 // startTopologyCRInformer creates and starts an informer for CSINodeTopology custom resource.
 func startTopologyCRInformer(ctx context.Context, cfg *restclient.Config) (*cache.SharedIndexInformer, error) {
 	log := logger.GetLogger(ctx)
