@@ -279,6 +279,18 @@ func fetchHosts(ctx context.Context, entity mo.Reference, vCenter *cnsvsphere.Vi
 				entity.Reference(), err)
 		}
 		hosts = append(hosts, hostList...)
+	case "ComputeResource":
+		cr := object.NewComputeResource(vCenter.Client.Client, entity.Reference())
+		hostList, err := cr.Hosts(ctx)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log,
+				"failed to retrieve host from stand alone host (Compute Resource) %+v. Error: %+v",
+				entity.Reference(), err)
+		}
+		for _, host := range hostList {
+			hosts = append(hosts,
+				&cnsvsphere.HostSystem{HostSystem: object.NewHostSystem(vCenter.Client.Client, host.Reference())})
+		}
 	case "HostSystem":
 		host := cnsvsphere.HostSystem{HostSystem: object.NewHostSystem(vCenter.Client.Client, entity.Reference())}
 		hosts = append(hosts, &host)
