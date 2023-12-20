@@ -71,7 +71,7 @@ rules:
     verbs: ["get"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsvolumeoperationrequests"]
-    verbs: ["create", "get", "list", "update", "delete"]
+    verbs: ["create", "get", "list", "update", "delete", "watch"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["storagepolicyusages"]
     verbs: ["create", "get", "list", "patch", "delete"]

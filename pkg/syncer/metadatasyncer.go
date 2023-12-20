@@ -945,17 +945,19 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
 				return
 			}
-			log.Infof("cnsvolumeoperationrequestCRAdded: Successfully increased the reserved field by %v "+
+			log.Infof("cnsvolumeoperationrequestCRAdded: Successfully increased the reserved field by %v bytes "+
 				"for storagepolicyusage CR: %q", cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
 				patchedStoragePolicyUsageCR.Name)
 			return
 		} else {
+			// This is a case where, the storagePolicyUsage CR does not have Status field.
+			// The else{} block is usually executed for the 1st CreateVolume call after the
+			// podVMOnStretchedSupervisor FSS is enabled
 			var (
 				usedQty     resource.Quantity
 				reservedQty resource.Quantity
 			)
 			reservedQty = *cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved
-
 			patchedStoragePolicyUsageCR.Status = storagepolicyusagev1alpha1.StoragePolicyUsageStatus{
 				ResourceTypeLevelQuotaUsage: &storagepolicyusagev1alpha1.QuotaUsageDetails{
 					Reserved: &reservedQty,
@@ -968,7 +970,7 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
 				return
 			}
-			log.Infof("cnsvolumeoperationrequestCRAdded: Successfully increased the reserved field by %v "+
+			log.Infof("cnsvolumeoperationrequestCRAdded: Successfully increased the reserved field by %v bytes "+
 				"for storagepolicyusage CR: %q", cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
 				patchedStoragePolicyUsageCR.Name)
 			return
@@ -1047,7 +1049,7 @@ func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
 			log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
 			return
 		}
-		log.Infof("cnsvolumeoperationrequestCRDeleted: Successfully decreased the reserved field by %v "+
+		log.Infof("cnsvolumeoperationrequestCRDeleted: Successfully decreased the reserved field by %v bytes "+
 			"for storagepolicyusage CR: %q", cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
 			patchedStoragePolicyUsageCR.Name)
 	}
@@ -1150,7 +1152,7 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 					log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
 					return
 				}
-				log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully increased the reserved field by %v "+
+				log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully increased the reserved field by %v bytes "+
 					"for storagepolicyusage CR: %q", newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
 					patchedStoragePolicyUsageCR.Name)
 			}
@@ -1172,11 +1174,11 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 					patchedStoragePolicyUsageCR.Name, patchedStoragePolicyUsageCR.Namespace, err)
 				return
 			}
-			log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully decreased the reserved field by %v "+
+			log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully decreased the reserved field by %v bytes "+
 				"for storagepolicyusage CR: %q in namespace: %q",
 				oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(), patchedStoragePolicyUsageCR.Name,
 				patchedStoragePolicyUsageCR.Namespace)
-			log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully increased the used field by %v "+
+			log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully increased the used field by %v bytes "+
 				"for storagepolicyusage CR: %q in namespace: %q",
 				oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(), patchedStoragePolicyUsageCR.Name,
 				patchedStoragePolicyUsageCR.Namespace)
