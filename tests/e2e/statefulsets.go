@@ -93,15 +93,16 @@ var _ = ginkgo.Describe("statefulset", func() {
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
-		}
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
 		fss.DeleteAllStatefulSets(client, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		if supervisorCluster {
+			deleteResourceQuota(client, namespace)
+			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 	})
 
