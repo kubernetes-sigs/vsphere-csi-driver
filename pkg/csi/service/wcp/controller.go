@@ -1882,6 +1882,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 					StorageClassName:                     cnsVolumeInfo.Spec.StorageClassName,
 					StoragePolicyID:                      cnsVolumeInfo.Spec.StoragePolicyID,
 					Namespace:                            cnsVolumeInfo.Spec.Namespace,
+					Capacity:                             cnsVolumeInfo.Spec.Capacity,
 					ClusterFlavor:                        cnstypes.CnsClusterFlavorWorkload,
 					IsPodVMOnStretchSupervisorFSSEnabled: isPodVMOnStretchSupervisorFSSEnabled,
 				})
