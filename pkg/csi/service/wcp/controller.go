@@ -1056,6 +1056,9 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 
 				// Patch the StoragePolicyUsage instance.
 				patch := map[string]interface{}{
+					"metadata": map[string]interface{}{
+						"resourceVersion": storagePolicyUsageInstance.ResourceVersion,
+					},
 					"status": map[string]interface{}{
 						"quotaUsage": map[string]interface{}{
 							"used": newUsedVal,
@@ -1067,6 +1070,8 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to create patch for StoragePolicyUsage instance. Error: %+v", err)
 				}
+				log.Debugf("Patching StoragePolicyUsage instance %q in namespace %q with used as %+v",
+					storagePolicyUsageInstance.Name, storagePolicyUsageInstance.Namespace, newUsedVal)
 				err = cnsOperatorClient.Patch(ctx, storagePolicyUsageInstance,
 					client.RawPatch(apitypes.MergePatchType, patchBytes))
 				if err != nil {
@@ -1075,6 +1080,8 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 							"volume %q. Error: %+v", storagePolicyUsageInstance.Name, storagePolicyUsageInstance.Namespace,
 						req.VolumeId, err)
 				}
+				log.Infof("Patched StoragePolicyUsage instance %q in namespace %q with used as %+v",
+					storagePolicyUsageInstance.Name, storagePolicyUsageInstance.Namespace, newUsedVal)
 
 				// Delete the CNSVolumeInfo instance for this volume.
 				err = volumeInfoService.DeleteVolumeInfo(ctx, req.VolumeId)
