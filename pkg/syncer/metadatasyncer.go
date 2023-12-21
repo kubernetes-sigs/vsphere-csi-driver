@@ -304,6 +304,14 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}()
 		}
 		if isPodVMOnStretchSupervisorFSSEnabled {
+			log.Info("Loading CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
+			volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
+			if err != nil {
+				return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
+			}
+			if volumeInfoService != nil {
+				log.Infof("Successfully initialized VolumeInfoService")
+			}
 			k8sConfig, err := k8s.GetKubeConfig(ctx)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to get kubeconfig with error: %v", err)
@@ -371,23 +379,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				volumeInfoCrDeletionMap[vcconfig.Host] = make(map[string]bool)
 				volumeOperationsLock[vcconfig.Host] = &sync.Mutex{}
 			}
-			if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-				// If it is a multi VC deployment, initialize volumeInfoService
-				if len(vcconfigs) > 1 && volumeInfoService == nil {
-					volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
-					if err != nil {
-						return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
-					}
-				}
-			} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-				isPodVMOnStretchSupervisorFSSEnabled {
-				log.Info("Loading CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
+			// If it is a multi VC deployment, initialize volumeInfoService
+			if len(vcconfigs) > 1 && volumeInfoService == nil {
 				volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
 				if err != nil {
 					return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
-				}
-				if volumeInfoService != nil {
-					log.Infof("Successfully initialized VolumeInfoService")
 				}
 			}
 			// Add informer on CSINodeTopology instances and update metadataSyncer.topologyVCMap parameter.
