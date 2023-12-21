@@ -23,6 +23,7 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"google.golang.org/grpc/codes"
+
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -230,21 +231,12 @@ func LogoutAllvCenterSessions(ctx context.Context) {
 	log.Info("Logging out all vCenter sessions")
 	virtualcentermanager := cnsvsphere.GetVirtualCenterManager(ctx)
 	vCenters := virtualcentermanager.GetAllVirtualCenters()
-	managerInstanceMap := cnsvolume.GetAllManagerInstances(ctx)
 	for _, vc := range vCenters {
 		if vc.Client == nil {
 			continue
 		}
 		log.Info("Closing idle vCenter session")
 		vc.Client.CloseIdleConnections()
-		// logout vCenter session for list-view
-		mgr, ok := managerInstanceMap[vc.Config.Host]
-		if ok && mgr != nil {
-			err := mgr.LogoutListViewVCSession(ctx)
-			if err != nil {
-				continue
-			}
-		}
 		log.Infof("Disconnecting vCenter client for host %s", vc.Config.Host)
 		err := vc.Disconnect(ctx)
 		if err != nil {

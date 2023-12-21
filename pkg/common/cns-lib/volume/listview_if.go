@@ -18,8 +18,6 @@ type ListViewIf interface {
 	// SetVirtualCenter is a setter method for the reference to the global vcenter object.
 	// use case: ReloadConfiguration
 	SetVirtualCenter(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter)
-	// LogoutSession logout the vCenter Session
-	LogoutSession(ctx context.Context) error
 	// MarkTaskForDeletion marks a given task MoRef for deletion by a cleanup goroutine
 	// use case: failure to remove task due to a vc issue
 	MarkTaskForDeletion(ctx context.Context, taskMoRef types.ManagedObjectReference) error

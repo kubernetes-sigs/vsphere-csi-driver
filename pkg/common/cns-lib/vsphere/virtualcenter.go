@@ -60,6 +60,10 @@ const (
 	statusSuccess = "success"
 	// failed request
 	statusFailUnknown = "fail-unknown"
+
+	// timeout duration for a http request.
+	// set to 0 to not cause listview connection drop
+	noTimeout = 0 * time.Minute
 )
 
 // VirtualCenter holds details of a virtual center instance.
@@ -174,7 +178,7 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 		log.Debugf("using thumbprint %s for url %s ", vc.Config.Thumbprint, url.Host)
 	}
 
-	soapClient.Timeout = time.Duration(vc.Config.VCClientTimeout) * time.Minute
+	soapClient.Timeout = noTimeout
 	log.Debugf("Setting vCenter soap client timeout to %v", soapClient.Timeout)
 	vimClient, err := vim25.NewClient(ctx, soapClient)
 	if err != nil {
@@ -215,7 +219,7 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 	if vc.Config.RoundTripperCount == 0 {
 		vc.Config.RoundTripperCount = DefaultRoundTripperCount
 	}
-	rt := vim25.Retry(client.RoundTripper, vim25.TemporaryNetworkError(vc.Config.RoundTripperCount))
+	rt := vim25.Retry(client.RoundTripper, vim25.RetryTemporaryNetworkError, vc.Config.RoundTripperCount)
 	client.RoundTripper = &MetricRoundTripper{"soap", rt}
 	return client, nil
 }
