@@ -9,15 +9,19 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 
 	"github.com/davecgh/go-spew/spew"
+	jsonpatch "github.com/evanphx/json-patch"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
+	storagepolicyusagev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -794,6 +798,47 @@ func createMissingFileVolumeInfoCrs(ctx context.Context, metadataSyncer *metadat
 		_, _, _ = createVolumeOnMultiVc(ctx, pv, metadataSyncer,
 			common.FileVolumeType, metadataList, pv.Spec.CSI.VolumeHandle)
 	}
+}
+
+func getPatchData(oldObj, newObj interface{}) ([]byte, error) {
+	oldData, err := json.Marshal(oldObj)
+	if err != nil {
+		return nil, fmt.Errorf("marshal old object failed: %v", err)
+	}
+	newData, err := json.Marshal(newObj)
+	if err != nil {
+		return nil, fmt.Errorf("marshal new object failed: %v", err)
+	}
+	patchBytes, err := jsonpatch.CreateMergePatch(oldData, newData)
+	if err != nil {
+		return nil, fmt.Errorf("CreateMergePatch failed: %v", err)
+	}
+	return patchBytes, nil
+}
+func PatchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Client,
+	oldObj *storagepolicyusagev1alpha1.StoragePolicyUsage,
+	newObj *storagepolicyusagev1alpha1.StoragePolicyUsage) error {
+	log := logger.GetLogger(ctx)
+	patch, err := getPatchData(oldObj, newObj)
+	if err != nil {
+		log.Errorf("error fetching PatchData StoragePolicyUsage CR. err: %v", err)
+		return err
+	}
+	patch, err = addResourceVersion(patch, oldObj.ResourceVersion)
+	if err != nil {
+		log.Errorf("applying ResourceVersion to patch data failed: %v", err)
+		return err
+	}
+	rawPatch := client.RawPatch(apitypes.MergePatchType, patch)
+	err = cnsOperatorClient.Patch(ctx, oldObj, rawPatch)
+	log.Infof("Patching the StoragePolicyUsageCR %q on namespace: %q with the data: %+v",
+		oldObj.Name, oldObj.Namespace, rawPatch)
+	if err != nil {
+		log.Errorf("failed to patch StoragePolicyUsage instance: %q on namespace: %q. Error: %+v",
+			oldObj.Name, oldObj.Namespace, err)
+		return err
+	}
+	return nil
 }
 
 func addResourceVersion(patchBytes []byte, resourceVersion string) ([]byte, error) {

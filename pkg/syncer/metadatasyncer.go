@@ -18,7 +18,6 @@ package syncer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,7 +27,6 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/fsnotify/fsnotify"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
@@ -941,7 +939,7 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
 				*resource.NewQuantity(cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
 					cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
-			err := patchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
+			err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
 				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
@@ -964,7 +962,7 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 					Used:     &usedQty,
 				},
 			}
-			err := patchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
+			err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
 				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
@@ -1043,7 +1041,7 @@ func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
 		patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(
 			*resource.NewQuantity(cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
 				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
-		err = patchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
+		err = PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 			patchedStoragePolicyUsageCR)
 		if err != nil {
 			log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
@@ -1146,7 +1144,7 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
 					*resource.NewQuantity(newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
 						newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
-				err := patchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
+				err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 					patchedStoragePolicyUsageCR)
 				if err != nil {
 					log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
@@ -1167,10 +1165,10 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
 				*resource.NewQuantity(oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
 					oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
-			err := patchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
+			err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
-				log.Errorf("Patching operation failed for StoragePolicyUsage CR: %q in namespace: %q. err: %v",
+				log.Errorf("patching operation failed for StoragePolicyUsage CR: %q in namespace: %q. err: %v",
 					patchedStoragePolicyUsageCR.Name, patchedStoragePolicyUsageCR.Namespace, err)
 				return
 			}
@@ -1184,46 +1182,6 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 				patchedStoragePolicyUsageCR.Namespace)
 		}
 	}
-}
-func getPatchData(oldObj, newObj interface{}) ([]byte, error) {
-	oldData, err := json.Marshal(oldObj)
-	if err != nil {
-		return nil, fmt.Errorf("marshal old object failed: %v", err)
-	}
-	newData, err := json.Marshal(newObj)
-	if err != nil {
-		return nil, fmt.Errorf("marshal new object failed: %v", err)
-	}
-	patchBytes, err := jsonpatch.CreateMergePatch(oldData, newData)
-	if err != nil {
-		return nil, fmt.Errorf("CreateMergePatch failed: %v", err)
-	}
-	return patchBytes, nil
-}
-func patchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Client,
-	oldObj *storagepolicyusagev1alpha1.StoragePolicyUsage,
-	newObj *storagepolicyusagev1alpha1.StoragePolicyUsage) error {
-	log := logger.GetLogger(ctx)
-	patch, err := getPatchData(oldObj, newObj)
-	if err != nil {
-		log.Errorf("error fetching PatchData StoragePolicyUsage CR. err: %v", err)
-		return err
-	}
-	patch, err = addResourceVersion(patch, oldObj.ResourceVersion)
-	if err != nil {
-		log.Errorf("applying ResourceVersion to patch data failed: %v", err)
-		return err
-	}
-	rawPatch := client.RawPatch(k8stypes.MergePatchType, patch)
-	err = cnsOperatorClient.Patch(ctx, oldObj, rawPatch)
-	log.Infof("Patching the StoragePolicyUsageCR %q on namespace: %q with the data: %+v",
-		oldObj.Name, oldObj.Namespace, patch)
-	if err != nil {
-		log.Errorf("failed to patch StoragePolicyUsage instance: %q on namespace: %q. Error: %+v",
-			oldObj.Name, oldObj.Namespace, err)
-		return err
-	}
-	return nil
 }
 
 // topoCRAdded checks if the CSINodeTopology instance Status is set to Success
