@@ -815,6 +815,8 @@ func getPatchData(oldObj, newObj interface{}) ([]byte, error) {
 	}
 	return patchBytes, nil
 }
+
+// PatchStoragePolicyUsage patches the StoragePolicyUsage CR based
 func PatchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Client,
 	oldObj *storagepolicyusagev1alpha1.StoragePolicyUsage,
 	newObj *storagepolicyusagev1alpha1.StoragePolicyUsage) error {
@@ -841,6 +843,7 @@ func PatchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Clien
 	return nil
 }
 
+// addResourceVersion sets the resource version for the patch obj
 func addResourceVersion(patchBytes []byte, resourceVersion string) ([]byte, error) {
 	var patchMap map[string]interface{}
 	err := json.Unmarshal(patchBytes, &patchMap)

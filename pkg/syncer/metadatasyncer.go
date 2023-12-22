@@ -2384,6 +2384,58 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 // Vanills k8s and supervisor cluster.
 func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
+	if isPodVMOnStretchSupervisorFSSEnabled {
+		volumeInfo, err := volumeInfoService.GetVolumeInfoForVolumeID(ctx, pv.Spec.CSI.VolumeHandle)
+		if err != nil {
+			log.Errorf("failed to fetch CnsVolumeInfo CR. Error: %+v", err)
+			return
+		}
+		restConfig, err := config.GetConfig()
+		if err != nil {
+			log.Errorf("failed to fetch kubernetes config. Error: %+v", err)
+			return
+		}
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		if err != nil {
+			log.Errorf("failed to create CNSOperator client. Error: %+v", err)
+			return
+		}
+
+		// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
+		storagePolicyUsageInstanceName := volumeInfo.Spec.StorageClassName + "-" +
+			storagepolicyusagev1alpha1.NameSuffixForPVC
+		storagePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
+		err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
+			Namespace: volumeInfo.Spec.Namespace,
+			Name:      storagePolicyUsageInstanceName},
+			storagePolicyUsageCR)
+		if err != nil {
+			log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
+				storagepolicyusagev1alpha1.CRDSingular, storagePolicyUsageInstanceName,
+				volumeInfo.Spec.Namespace, err)
+			return
+		}
+
+		// Decrease the used capacity in StoragePolicyUsage instance as we are deleting the volume.
+		patchedStoragePolicyUsageCR := storagePolicyUsageCR.DeepCopy()
+		patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Sub(*volumeInfo.Spec.Capacity)
+		err = PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
+			patchedStoragePolicyUsageCR)
+		if err != nil {
+			log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
+			return
+		}
+		log.Infof("Successfully decreased the used capacity by %q Mb for StoragePolicyUsage: %q in namespace: %q",
+			volumeInfo.Spec.Capacity.ScaledValue(resource.Mega), storagePolicyUsageCR.Name, storagePolicyUsageCR.Namespace)
+	}
+	// Delete the CNSVolumeInfo instance for this volume.
+	if pv.Spec.CSI != nil && volumeInfoService != nil {
+		err := volumeInfoService.DeleteVolumeInfo(ctx, pv.Spec.CSI.VolumeHandle)
+		if err != nil {
+			log.Errorf("failed to delete cnsVolumeInfo CR for volume: %q. Error: %+v", pv.Spec.CSI.VolumeHandle, err)
+			return
+		}
+	}
 	if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeReleased &&
 		pv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete {
 		log.Debugf("PVDeleted: Volume deletion will be handled by Controller")
