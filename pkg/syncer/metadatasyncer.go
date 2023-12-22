@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -91,16 +92,15 @@ var (
 	nodeMgr node.Manager
 	// isPodVMOnStretchSupervisorFSSEnabled is true when PodVMOnStretchedSupervisor FSS is enabled.
 	isPodVMOnStretchSupervisorFSSEnabled bool
-
-	// For core API resource ResourceAPIGroup will be set to "". PVC is part of the core API resources
-	// and ResourceAPIgroupPVC is set to "".
-	ResourceAPIgroupPVC = ""
 )
 
 const (
 	ResourceKindPVC           = "PersistentVolumeClaim"
 	QuotaExtensionServiceName = "volume.cns.vsphere.vmware.com"
 	scParamStoragePolicyID    = "storagePolicyID"
+	// ResourceAPIgroupPVC is the API group PVCs belong to. PVC is part of the core API resources
+	// which are denoted as "".
+	ResourceAPIgroupPVC = ""
 )
 
 // newInformer returns uninitialized metadataSyncInformer.
@@ -510,7 +510,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 	err = metadataSyncer.k8sInformerManager.AddPVListener(
 		ctx,
-		nil, // Add.
+		func(obj interface{}) { // Add.
+			pvAdded(obj, metadataSyncer)
+		},
 		func(oldObj interface{}, newObj interface{}) { // Update.
 			pvUpdated(oldObj, newObj, metadataSyncer)
 		},
@@ -1719,6 +1721,73 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	}
 }
 
+func pvAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && isPodVMOnStretchSupervisorFSSEnabled {
+		ctx, log := logger.GetNewContextWithLogger()
+		// Add owner reference of PV to its corresponding CNSVolumeInfo instance, if it doesn't exist.
+		pv, ok := obj.(*v1.PersistentVolume)
+		if pv == nil || !ok {
+			log.Warnf("pvAdded: unrecognized object %+v", obj)
+			return
+		}
+		log.Debugf("pvAdded: PV object %+v", pv)
+		if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
+			log.Infof("PV %q is not a vSphere CSI volume. Skipping pvAdded functionality.", pv.Name)
+			return
+		}
+		if pv.Status.Phase != v1.VolumeBound {
+			log.Infof("PV %q not bound yet. Skipping to update owner reference "+
+				"on the corresponding CNSVolumeInfo object.", pv.Name)
+			return
+		}
+		err := setOwnerRefForCNSVolumeInfo(ctx, pv)
+		if err != nil {
+			log.Errorf("failed to set owner reference of PV %q on CNSVolumeInfo object %q. Error: %+v",
+				pv.Name, pv.Spec.CSI.VolumeHandle, err)
+			return
+		}
+	}
+}
+
+func setOwnerRefForCNSVolumeInfo(ctx context.Context, pv *v1.PersistentVolume) error {
+	log := logger.GetLogger(ctx)
+	volumeInfoObj, err := volumeInfoService.GetVolumeInfoForVolumeID(ctx, pv.Spec.CSI.VolumeHandle)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to fetch CNSVolumeInfo object for volumeID: %q",
+			pv.Spec.CSI.VolumeHandle)
+	}
+	if len(volumeInfoObj.OwnerReferences) > 0 {
+		log.Infof("Owner reference already set for CNSVolumeInfo object %+v", volumeInfoObj)
+		return nil
+	}
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"ownerReferences": []map[string]interface{}{
+				{
+					"apiVersion": "v1",
+					"kind":       "PersistentVolume",
+					"name":       pv.Name,
+					"uid":        pv.UID,
+				},
+			},
+		},
+	}
+	log.Infof("Patching CNSVolumeInfo object %q with patch %+v", pv.Spec.CSI.VolumeHandle, patch)
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to create patch with owner reference of PV %q "+
+			"for CNSVolumeInfo object %q. Error: %+v", pv.Name, pv.Spec.CSI.VolumeHandle, err)
+	}
+	err = volumeInfoService.PatchVolumeInfo(ctx, pv.Spec.CSI.VolumeHandle, patchBytes)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to patch CNSVolumeInfo object %q with owner "+
+			"reference of PV %q. Error: %+v", pv.Spec.CSI.VolumeHandle, pv.Name, err)
+	}
+	log.Infof("Successfully patched owner reference of PV %q on CNSVolumeInfo object %q",
+		pv.Name, pv.Spec.CSI.VolumeHandle)
+	return nil
+}
+
 // pvUpdated updates volume metadata on VC when volume labels on K8S cluster
 // have been updated.
 func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
@@ -1789,6 +1858,16 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 			log.Debugf("PVUpdated: PV is not a vSphere CSI Volume: %+v", newPv)
 			return
 		}
+		if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && isPodVMOnStretchSupervisorFSSEnabled {
+			if newPv.Status.Phase == v1.VolumeBound {
+				err := setOwnerRefForCNSVolumeInfo(ctx, newPv)
+				if err != nil {
+					log.Errorf("failed to set owner reference of PV %q on CNSVolumeInfo object %q. Error: %+v",
+						newPv.Name, newPv.Spec.CSI.VolumeHandle, err)
+				}
+			}
+		}
+
 		// Return if labels are unchanged.
 		if (oldPv.Status.Phase == v1.VolumeAvailable || oldPv.Status.Phase == v1.VolumeBound) &&
 			reflect.DeepEqual(newPv.GetLabels(), oldPv.GetLabels()) {
@@ -2271,7 +2350,7 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 					log.Errorf("PVUpdated: Failed to get VC host and volume manager. "+
 						"Error occurred: %+v", err)
 
-					// Could not find vcHost mapping, attempt to create the volume on all VCs utill successful
+					// Could not find vcHost mapping, attempt to create the volume on all VCs util successful
 					vcHost, _, err = createVolumeOnMultiVc(ctx, oldPv, metadataSyncer,
 						volumeType, metadataList, volumeHandle)
 					if err == nil {
@@ -2424,14 +2503,6 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 		log.Infof("Successfully decreased the used capacity by %q Mb for StoragePolicyUsage: %q in namespace: %q",
 			volumeInfo.Spec.Capacity.ScaledValue(resource.Mega), storagePolicyUsageCR.Name, storagePolicyUsageCR.Namespace)
 	}
-	// Delete the CNSVolumeInfo instance for this volume.
-	if pv.Spec.CSI != nil && volumeInfoService != nil {
-		err := volumeInfoService.DeleteVolumeInfo(ctx, pv.Spec.CSI.VolumeHandle)
-		if err != nil {
-			log.Errorf("failed to delete cnsVolumeInfo CR for volume: %q. Error: %+v", pv.Spec.CSI.VolumeHandle, err)
-			return
-		}
-	}
 	if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeReleased &&
 		pv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete {
 		log.Debugf("PVDeleted: Volume deletion will be handled by Controller")
@@ -2577,14 +2648,6 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 					log.Errorf("failed to remove CNSVolumeInfo CR for volumeID %q. Error: %+v",
 						volumeHandle, err)
 				}
-			}
-		} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-			isPodVMOnStretchSupervisorFSSEnabled {
-			// Delete CNSVolumeInfo CR for the volume ID.
-			err = volumeInfoService.DeleteVolumeInfo(ctx, volumeHandle)
-			if err != nil {
-				log.Errorf("failed to remove CNSVolumeInfo CR for volumeID %q. Error: %+v",
-					volumeHandle, err)
 			}
 		}
 	}
