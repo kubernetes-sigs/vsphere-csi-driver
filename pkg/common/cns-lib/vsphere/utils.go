@@ -32,6 +32,9 @@ const (
 	// VSphere70u3Version is a 3 digit value to indicate the minimum vSphere
 	// version to use query volume async API.
 	VSphere70u3Version int = 703
+	// VSphere80u3Version is a 3 digit value to indicate the minimum vSphere
+	// version to ensure calling supported 8.0u3 APIs
+	VSphere80u3Version int = 803
 )
 
 var (
@@ -503,7 +506,7 @@ func isVsan67u3Release(ctx context.Context, m *defaultVirtualCenterManager, host
 // IsvSphereVersion70U3orAbove checks if specified version is 7.0 Update 3 or
 // higher. The method takes aboutInfo as input which contains details about
 // VC version, build number and so on. If the version is 7.0 Update 3 or higher,
-// returns true, else returns false along with appropriate errors for the failue.
+// returns true, else returns false along with appropriate errors for the failure.
 func IsvSphereVersion70U3orAbove(ctx context.Context, aboutInfo types.AboutInfo) (bool, error) {
 	log := logger.GetLogger(ctx)
 	items := strings.Split(aboutInfo.Version, ".")
@@ -516,6 +519,29 @@ func IsvSphereVersion70U3orAbove(ctx context.Context, aboutInfo types.AboutInfo)
 		}
 		// Check if the current vSphere version is 7.0.3 or higher.
 		if vSphereVersionInt >= VSphere70u3Version {
+			return true, nil
+		}
+	}
+	// For all other versions.
+	return false, nil
+}
+
+// IsvSphereVersion80U3orAbove checks if specified version is 8.0 Update 3 or
+// higher. The method takes aboutInfo as input which contains details about
+// VC version, build number and so on. If the version is 8.0 Update 3 or higher,
+// returns true, else returns false along with appropriate errors for the failure.
+func IsvSphereVersion80U3orAbove(ctx context.Context, aboutInfo types.AboutInfo) (bool, error) {
+	log := logger.GetLogger(ctx)
+	items := strings.Split(aboutInfo.Version, ".")
+	version := strings.Join(items[:], "")
+	// Convert version string to int: e.g. "8.0.3" to 803, "8.0.3.1" to 803.
+	if len(version) >= 3 {
+		vSphereVersionInt, err := strconv.Atoi(version[0:3])
+		if err != nil {
+			return false, logger.LogNewErrorf(log, "error while converting version %q to integer, err %+v", version, err)
+		}
+		// Check if the current vSphere version is 8.0.3 or higher.
+		if vSphereVersionInt >= VSphere80u3Version {
 			return true, nil
 		}
 	}

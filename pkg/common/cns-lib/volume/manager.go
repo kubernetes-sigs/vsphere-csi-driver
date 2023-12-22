@@ -34,7 +34,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
@@ -2763,20 +2762,71 @@ func (m *defaultManager) ProtectVolumeFromVMDeletion(ctx context.Context, volume
 		log.Errorf("failed to validate volume manager with err: %+v", err)
 		return err
 	}
-	// Set up the VC connection
-	err = m.virtualCenter.ConnectVslm(ctx)
+	isvSphere80U3orAbove, err := cnsvsphere.IsvSphereVersion80U3orAbove(ctx, m.virtualCenter.Client.ServiceContent.About)
 	if err != nil {
-		log.Errorf("ConnectVslm failed with err: %+v", err)
-		return err
+		return logger.LogNewErrorf(log,
+			"Error while checking the vSphere Version %q Err= %+v",
+			m.virtualCenter.Client.ServiceContent.About.Version, err)
 	}
-	globalObjectManager := vslm.NewGlobalObjectManager(m.virtualCenter.VslmClient)
-	err = globalObjectManager.SetControlFlags(ctx, vim25types.ID{Id: volumeID}, []string{
-		string(vim25types.VslmVStorageObjectControlFlagKeepAfterDeleteVm)})
-	if err != nil {
-		log.Errorf("failed to set control flag keepAfterDeleteVm  for volumeID %q with err: %v", volumeID, err)
-		return err
+	if !isvSphere80U3orAbove {
+		log.Info("Set keepAfterDeleteVm control flag using Vslm APIs")
+		// Set up the VC connection
+		err = m.virtualCenter.ConnectVslm(ctx)
+		if err != nil {
+			log.Errorf("ConnectVslm failed with err: %+v", err)
+			return err
+		}
+		globalObjectManager := vslm.NewGlobalObjectManager(m.virtualCenter.VslmClient)
+		err = globalObjectManager.SetControlFlags(ctx, vim25types.ID{Id: volumeID}, []string{
+			string(vim25types.VslmVStorageObjectControlFlagKeepAfterDeleteVm)})
+		if err != nil {
+			log.Errorf("failed to set control flag keepAfterDeleteVm  for volumeID %q with err: %v", volumeID, err)
+			return err
+		}
+		log.Infof("Successfully set keepAfterDeleteVm control flag for volumeID: %q", volumeID)
+	} else {
+		// Re-Register volume again to set the control flag
+		// This code flow does not call Vslm API to set the control flag
+		querySelection := cnstypes.CnsQuerySelection{
+			Names: []string{
+				string(cnstypes.QuerySelectionNameTypeVolumeType),
+				string(cnstypes.QuerySelectionNameTypeVolumeName),
+				"VOLUME_METADATA",
+			},
+		}
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
+		}
+		queryResult, err := m.QueryVolumeAsync(ctx, queryFilter, &querySelection)
+		if err != nil {
+			log.Errorf("failed to set control flag keepAfterDeleteVm for "+
+				"volumeID %q QueryVolumeAsync failed with err: %v.", volumeID, err)
+			return err
+		}
+		if len(queryResult.Volumes) == 0 {
+			return logger.LogNewErrorf(log, "failed to set control flag keepAfterDeleteVm "+
+				"for volumeID %q QueryVolumeAsync did not return volume.", volumeID)
+		}
+		createSpec := &cnstypes.CnsVolumeCreateSpec{
+			Name:       queryResult.Volumes[0].Name,
+			VolumeType: queryResult.Volumes[0].VolumeType,
+			Metadata: cnstypes.CnsVolumeMetadata{
+				ContainerCluster:      queryResult.Volumes[0].Metadata.ContainerCluster,
+				ContainerClusterArray: queryResult.Volumes[0].Metadata.ContainerClusterArray,
+			},
+		}
+		createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{BackingDiskId: volumeID}
+		_, _, err = m.createVolume(ctx, createSpec)
+		// Note: m.createVolume handles CnsAlreadyRegisteredFault and does not return error for that case
+		// For other failure we will mark this Operation as failed.
+		if err != nil {
+			log.Errorf("failed to register volume %q with createSpec: %v. error: %+v",
+				volumeID, createSpec, err)
+			return err
+		}
+		log.Infof("Successfully re-registered volume to set control flag to " +
+			"protect volume from vm deletion")
 	}
-	log.Infof("Successfully set keepAfterDeleteVm control flag for volumeID: %q", volumeID)
 	return nil
 }
 
