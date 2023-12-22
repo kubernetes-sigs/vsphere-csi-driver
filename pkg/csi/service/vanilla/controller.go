@@ -1603,6 +1603,8 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		volumeInfo               *cnsvolume.CnsVolumeInfo
 		faultType                string
 		volumeID                 string
+		vcenter                  *cnsvsphere.VirtualCenter
+		vcHost                   string
 	)
 	// Get operation store
 	var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
@@ -1645,20 +1647,31 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 
 			volumeID = volumeOperationDetails.VolumeID
 			volTaskAlreadyRegistered = true
+			// Get vCenter instance.
+			if volumeOperationDetails.OperationDetails.VCenterServer != "" {
+				vcHost = volumeOperationDetails.OperationDetails.VCenterServer
+			} else {
+				vcHost = c.managers.CnsConfig.Global.VCenterIP
+			}
+			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to fetch vCenter instance %q. Error: %+v", vcHost, err)
+			}
 		} else if cnsvolume.IsTaskPending(volumeOperationDetails) {
 			var (
 				volumeInfo *cnsvolume.CnsVolumeInfo
 				vcenter    *cnsvsphere.VirtualCenter
 			)
-			// Get VirtualCenter instance
-			if multivCenterCSITopologyEnabled {
-				vcenter, err = c.managers.VcenterManager.GetVirtualCenter(ctx, c.managers.CnsConfig.Global.VCenterIP)
+			if volumeOperationDetails.OperationDetails.VCenterServer != "" {
+				vcHost = volumeOperationDetails.OperationDetails.VCenterServer
 			} else {
-				vcenter, err = c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+				vcHost = c.managers.CnsConfig.Global.VCenterIP
 			}
+			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to get vCenter. Err: %v", err)
+					"failed to fetch vCenter instance %q. Error: %+v", vcHost, err)
 			}
 			// If task is created in CNS for this volume but task is in progress, then
 			// we need to monitor the task to check if volume creation is completed or not.
@@ -1684,7 +1697,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				}
 			}()
 			if multivCenterCSITopologyEnabled {
-				volumeManager := c.managers.VolumeManagers[vcenter.Config.Host]
+				volumeManager := c.managers.VolumeManagers[vcHost]
 				volumeInfo, faultType, err = volumeManager.MonitorCreateVolumeTask(ctx,
 					&volumeOperationDetails, task, req.Name, c.managers.CnsConfig.Global.ClusterID)
 			} else {
@@ -1923,7 +1936,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 		var fsEnabledClusterToDsInfoMap map[string][]*cnsvsphere.DatastoreInfo
 		if multivCenterCSITopologyEnabled {
-			fsEnabledClusterToDsInfoMap = c.authMgrs[c.managers.CnsConfig.Global.VCenterIP].GetFsEnabledClusterToDsMap(ctx)
+			fsEnabledClusterToDsInfoMap = c.authMgrs[vcHost].GetFsEnabledClusterToDsMap(ctx)
 		} else {
 			fsEnabledClusterToDsInfoMap = c.authMgr.GetFsEnabledClusterToDsMap(ctx)
 		}
@@ -1939,26 +1952,21 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				"no datastores found to create file volume, vsan file service may be disabled")
 		}
 		if multivCenterCSITopologyEnabled {
-			vc, err := c.managers.VcenterManager.GetVirtualCenter(ctx, c.managers.CnsConfig.Global.VCenterIP)
+			vc, err := c.managers.VcenterManager.GetVirtualCenter(ctx, vcHost)
 			if err != nil {
 				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get vCenter. Error: %+v", err)
 			}
 			volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
-				vc, c.managers.VolumeManagers[vc.Config.Host], c.managers.CnsConfig, &createVolumeSpec,
+				vc, c.managers.VolumeManagers[vcHost], c.managers.CnsConfig, &createVolumeSpec,
 				filteredDatastores, filterSuspendedDatastores, false, nil)
 			if err != nil {
 				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to create volume. Error: %+v", err)
 			}
 		} else {
-			vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
-			if err != nil {
-				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to get vCenter. Error: %+v", err)
-			}
 			volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
-				vc, c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec,
+				vcenter, c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec,
 				filteredDatastores, filterSuspendedDatastores, false, nil)
 			if err != nil {
 				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
