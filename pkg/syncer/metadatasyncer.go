@@ -886,6 +886,16 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 	// 2. Cnsvolumeoperationrequest object's StorageQuotaDetails.Reserved should not be nil
 	if cnsvolumeoperationrequestObj.Status.StorageQuotaDetails != nil &&
 		cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved != nil {
+		// Check if the value is zero. This is needed because, during Syncer restart
+		// an informer add event is received for all the CRs(already created).
+		// For CRs mapping to Volumes which are in Bound state, the Reserved Value will be zero.
+		// So, we can safely skip the CRAdded event.
+		if cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value() == 0 {
+			log.Infof("cnsvolumeoperationrequestCRAdded: Received a cnsvolumeoperationrequest CR added event "+
+				"for %q, with the reserved capacity as zero(0). Skipping the informer event",
+				cnsvolumeoperationrequestObj.Name)
+			return
+		}
 		restConfig, err := config.GetConfig()
 		if err != nil {
 			log.Errorf("cnsvolumeoperationrequestCRAdded: failed to get Kubernetes config. Err: %+v", err)
