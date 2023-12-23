@@ -368,8 +368,20 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 		}
 		vSANFileBackingDetails := volume.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
 		accessPoints := make(map[string]string)
+		nfsv4AccessPointFound := false
 		for _, kv := range vSANFileBackingDetails.AccessPoints {
-			accessPoints[kv.Key] = kv.Value
+			if kv.Key == common.Nfsv4AccessPointKey {
+				accessPoints[common.Nfsv4AccessPoint] = kv.Value
+				nfsv4AccessPointFound = true
+				break
+			}
+		}
+		if !nfsv4AccessPointFound {
+			msg := fmt.Sprintf("failed to get NFSv4 access point for volume: %q. Received vSAN file backing details: %+v",
+				volumeID, vSANFileBackingDetails)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 		if len(accessPoints) == 0 {
 			msg := fmt.Sprintf("No access points found for volume: %q", volumeID)
