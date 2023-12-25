@@ -633,7 +633,7 @@ func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeI
 		log.Errorf("failed to delete disk %s, deleteDisk flag: %t with error %+v", volumeID, deleteDisk, err)
 		return faultType, err
 	}
-	log.Infof("Successfully deleted disk for volumeid: %s, deleteDisk flag: %t", volumeID, deleteDisk)
+	log.Debugf("Successfully deleted disk for volumeid: %s, deleteDisk flag: %t", volumeID, deleteDisk)
 	return "", nil
 }
 
