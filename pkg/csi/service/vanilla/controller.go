@@ -1867,8 +1867,9 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 						}
 					}
 					if len(compatibleDatastores) == 0 {
-						return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log, "No compatible datastores found "+
-							"for storage policy %q", scParams.StoragePolicyName)
+						log.Errorf("No compatible datastores found for storage policy %q on VC %s",
+							scParams.StoragePolicyName, vcHost)
+						continue
 					}
 					fsEnabledCandidateDatastores = compatibleDatastores
 				}
@@ -1879,8 +1880,9 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 
 				if len(fsEnabledCandidateDatastores) == 0 {
 					// when len(filteredDatastore)==0, it means vsan file service is not enabled on any vsan cluster
-					return nil, csifault.CSIVSanFileServiceDisabledFault, logger.LogNewErrorCode(log, codes.FailedPrecondition,
-						"no datastores found to create file volume, vsan file service may be disabled")
+					log.Errorf("No datastores found to create file volume on VC %s, vsan file service may be disabled",
+						vcHost)
+					continue
 				}
 				var vc *cnsvsphere.VirtualCenter
 				if !multivCenterTopologyDeployment {
