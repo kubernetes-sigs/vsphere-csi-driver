@@ -2414,15 +2414,24 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 
 		// Decrease the used capacity in StoragePolicyUsage instance as we are deleting the volume.
 		patchedStoragePolicyUsageCR := storagePolicyUsageCR.DeepCopy()
-		patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Sub(*volumeInfo.Spec.Capacity)
-		err = PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
-			patchedStoragePolicyUsageCR)
-		if err != nil {
-			log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
-			return
+		if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Value() < volumeInfo.Spec.Capacity.Value() {
+			log.Infof("Failed to update used capacity in StoragePolicyUsage: %q in namespace: %q "+
+				"StoragePolicyUsage has used capacity as: %v Mb and is lesser than the capacity of the volume "+
+				"getting deleted: %v Mb. Usage field computation will be deferred to CSI full sync.",
+				storagePolicyUsageCR.Name, storagePolicyUsageCR.Namespace,
+				storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.ScaledValue(resource.Mega),
+				volumeInfo.Spec.Capacity.ScaledValue(resource.Mega))
+		} else {
+			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Sub(*volumeInfo.Spec.Capacity)
+			err = PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
+				patchedStoragePolicyUsageCR)
+			if err != nil {
+				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
+				return
+			}
+			log.Infof("Successfully decreased the used capacity by %q Mb for StoragePolicyUsage: %q in namespace: %q",
+				volumeInfo.Spec.Capacity.ScaledValue(resource.Mega), storagePolicyUsageCR.Name, storagePolicyUsageCR.Namespace)
 		}
-		log.Infof("Successfully decreased the used capacity by %q Mb for StoragePolicyUsage: %q in namespace: %q",
-			volumeInfo.Spec.Capacity.ScaledValue(resource.Mega), storagePolicyUsageCR.Name, storagePolicyUsageCR.Namespace)
 	}
 	// Delete the CNSVolumeInfo instance for this volume.
 	if pv.Spec.CSI != nil && volumeInfoService != nil {
