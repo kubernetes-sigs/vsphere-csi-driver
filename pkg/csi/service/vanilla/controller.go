@@ -2819,7 +2819,8 @@ func (c *controller) processQueryResultsListVolumes(ctx context.Context, startin
 			// If this is multi-VC configuration, then
 			// skip processing query results for file volumes
 			if multivCenterCSITopologyEnabled && len(c.managers.VcenterConfigs) > 1 {
-				isTopologyAwareFileVolumeEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TopologyAwareFileVolume)
+				isTopologyAwareFileVolumeEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+					common.TopologyAwareFileVolume)
 				if !isTopologyAwareFileVolumeEnabled {
 					log.Debugf("Skipping processing for file volume %v in multi-VC configuration", cnsVolumes[i].Name)
 					continue
