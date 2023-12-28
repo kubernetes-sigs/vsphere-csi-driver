@@ -1935,9 +1935,11 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 					vcTopologySegmentsMap)
 			}
 		}
+		// When FSS for topology-aware-file-volume is disabled and topologyRequirement is nil, below code is invoked
 		filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 		var fsEnabledClusterToDsInfoMap map[string][]*cnsvsphere.DatastoreInfo
 		if multivCenterCSITopologyEnabled {
+			vcHost = c.managers.CnsConfig.Global.VCenterIP
 			fsEnabledClusterToDsInfoMap = c.authMgrs[vcHost].GetFsEnabledClusterToDsMap(ctx)
 		} else {
 			fsEnabledClusterToDsInfoMap = c.authMgr.GetFsEnabledClusterToDsMap(ctx)
