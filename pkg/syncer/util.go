@@ -866,8 +866,8 @@ func PatchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Clien
 	}
 	rawPatch := client.RawPatch(apitypes.MergePatchType, patch)
 	err = cnsOperatorClient.Patch(ctx, oldObj, rawPatch)
-	log.Infof("Patching the StoragePolicyUsageCR %q on namespace: %q with the data: %+v",
-		oldObj.Name, oldObj.Namespace, rawPatch)
+	log.Debugf("Patching the StoragePolicyUsageCR %q on namespace: %q with the quota usage data: %+v",
+		oldObj.Name, oldObj.Namespace, newObj.Status.ResourceTypeLevelQuotaUsage)
 	if err != nil {
 		log.Errorf("failed to patch StoragePolicyUsage instance: %q on namespace: %q. Error: %+v",
 			oldObj.Name, oldObj.Namespace, err)
