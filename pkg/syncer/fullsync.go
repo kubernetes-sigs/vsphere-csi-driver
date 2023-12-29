@@ -54,6 +54,12 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			migrationFeatureStateForFullSync = true
 		}
 	}
+	// Attempt to patch StoragePolicyUsage CRs
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+			storagePolicyUsageCRSync(ctx, metadataSyncer)
+		}
+	}
 	defer func() {
 		fullSyncStatus := prometheus.PrometheusPassStatus
 		if err != nil {

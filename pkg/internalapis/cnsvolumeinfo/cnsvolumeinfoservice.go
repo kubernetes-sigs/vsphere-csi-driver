@@ -132,7 +132,7 @@ func (volumeInfo *volumeInfo) ListAllVolumeInfos() []interface{} {
 func (volumeInfo *volumeInfo) VolumeInfoCrExistsForVolume(ctx context.Context, volumeID string) (bool, error) {
 	log := logger.GetLogger(ctx)
 
-	volumeInfoCrName := getCnsColumeInfoCrName(ctx, volumeID)
+	volumeInfoCrName := getCnsVolumeInfoCrName(ctx, volumeID)
 	key := csiNamespace + "/" + volumeInfoCrName
 	_, found, err := volumeInfo.volumeInfoInformer.GetStore().GetByKey(key)
 	if err != nil {
@@ -149,7 +149,7 @@ func (volumeInfo *volumeInfo) VolumeInfoCrExistsForVolume(ctx context.Context, v
 func (volumeInfo *volumeInfo) GetvCenterForVolumeID(ctx context.Context, volumeID string) (string, error) {
 	log := logger.GetLogger(ctx)
 	// Since CNSVolumeInfo is namespaced CR, we need to prefix "namespace-name/" to obtain value from the store
-	volumeInfoCrName := getCnsColumeInfoCrName(ctx, volumeID)
+	volumeInfoCrName := getCnsVolumeInfoCrName(ctx, volumeID)
 	key := csiNamespace + "/" + volumeInfoCrName
 	info, found, err := volumeInfo.volumeInfoInformer.GetStore().GetByKey(key)
 	if err != nil || !found {
@@ -171,7 +171,7 @@ func (volumeInfo *volumeInfo) CreateVolumeInfo(ctx context.Context, volumeID str
 	log.Infof("creating cnsvolumeinfo for volumeID: %q and vCenter: %q mapping in the namespace: %q",
 		volumeID, vCenter, csiNamespace)
 
-	volumeInfoCrName := getCnsColumeInfoCrName(ctx, volumeID)
+	volumeInfoCrName := getCnsVolumeInfoCrName(ctx, volumeID)
 
 	cnsvolumeinfo := cnsvolumeinfov1alpha1.CNSVolumeInfo{
 		ObjectMeta: metav1.ObjectMeta{
@@ -205,7 +205,7 @@ func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context
 		"StorageClassName: %q, vCenter: %q, Capacity: %+v in the namespace: %q",
 		volumeID, storagePolicyId, storageClassName, vCenter, *capacity, csiNamespace)
 
-	volumeInfoCrName := getCnsColumeInfoCrName(ctx, volumeID)
+	volumeInfoCrName := getCnsVolumeInfoCrName(ctx, volumeID)
 
 	cnsvolumeinfo := cnsvolumeinfov1alpha1.CNSVolumeInfo{
 		ObjectMeta: metav1.ObjectMeta{
@@ -240,7 +240,7 @@ func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context
 func (volumeInfo *volumeInfo) DeleteVolumeInfo(ctx context.Context, volumeID string) error {
 	log := logger.GetLogger(ctx)
 
-	volumeInfoCrName := getCnsColumeInfoCrName(ctx, volumeID)
+	volumeInfoCrName := getCnsVolumeInfoCrName(ctx, volumeID)
 
 	object := cnsvolumeinfov1alpha1.CNSVolumeInfo{
 		ObjectMeta: metav1.ObjectMeta{
@@ -267,7 +267,7 @@ func (volumeInfo *volumeInfo) GetVolumeInfoForVolumeID(ctx context.Context, volu
 	*cnsvolumeinfov1alpha1.CNSVolumeInfo, error) {
 	log := logger.GetLogger(ctx)
 	// Since CNSVolumeInfo is namespaced CR, we need to prefix "namespace-name/" to obtain value from the store
-	volumeInfoCrName := getCnsColumeInfoCrName(ctx, volumeID)
+	volumeInfoCrName := getCnsVolumeInfoCrName(ctx, volumeID)
 	key := csiNamespace + "/" + volumeInfoCrName
 	info, found, err := volumeInfo.volumeInfoInformer.GetStore().GetByKey(key)
 	if err != nil || !found {
@@ -293,8 +293,8 @@ func (volumeInfo *volumeInfo) PatchVolumeInfo(ctx context.Context, volumeID stri
 	return volumeInfo.k8sClient.Patch(ctx, volumeInfoInstance, client.RawPatch(types.MergePatchType, patchBytes))
 }
 
-// getCnsColumeInfoCrName replaces "file:" with "file-" as K8s only allows alphanumeric and "-" in object name."
-func getCnsColumeInfoCrName(ctx context.Context, volumeID string) string {
+// getCnsVolumeInfoCrName replaces "file:" with "file-" as K8s only allows alphanumeric and "-" in object name."
+func getCnsVolumeInfoCrName(ctx context.Context, volumeID string) string {
 	log := logger.GetLogger(ctx)
 
 	if strings.HasPrefix(volumeID, FileVolumePrefix) {
