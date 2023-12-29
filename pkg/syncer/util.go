@@ -10,7 +10,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -20,6 +22,8 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
 	storagepolicyusagev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
@@ -29,6 +33,15 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+)
+
+const (
+	// These are the values required for geenrating events on a K8s object
+
+	// Syncer component name
+	syncerComponent = "VSphere CSI Syncer"
+	// reason for PV creation failure when static volume provioining fails
+	staticVolumeProvisioningFailure = "static volume provisioning failed"
 )
 
 // getPVsInBoundAvailableOrReleased return PVs in Bound, Available or Released
@@ -482,6 +495,11 @@ func getVcHostFromTopologySegments(ctx context.Context, topologySegments []map[s
 	log := logger.GetLogger(ctx)
 	var vcHost string
 
+	if len(topologySegments) == 0 {
+		return "", logger.LogNewErrorf(log,
+			"Invalid volume %s as it does not have node affinity rules", volumeName)
+	}
+
 	for _, topology := range topologySegments {
 
 		vc, err := getVCForTopologySegments(ctx, topology)
@@ -618,9 +636,9 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 				topologySegments := getTopologySegmentsFromNodeAffinityRules(ctx, volume)
 				vCenter, err := getVcHostFromTopologySegments(ctx, topologySegments, volume.Name)
 				if err != nil {
-					return nil, logger.LogNewErrorf(log,
-						"Failed to find which VC volume %+v belongs to from ndeAffinityrules",
+					log.Debugf("Failed to find which VC volume %+v belongs to from nodeAffinityRules",
 						volume.Spec.CSI.VolumeHandle)
+					continue
 				}
 
 				if vCenter == vc {
@@ -667,6 +685,21 @@ func createVolumeOnMultiVc(ctx context.Context, pv *v1.PersistentVolume,
 	}
 	return "", nil, logger.LogNewErrorf(log,
 		"Failed to create volume %s on any of the VCs", volumeHandle)
+}
+
+func generateEventOnPv(ctx context.Context, pv *v1.PersistentVolume, failureReason string, errorMsg string) {
+	log := logger.GetLogger(ctx)
+
+	eventBroadcaster := record.NewBroadcaster()
+	k8sClient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("Failed to create k8s client. Err: %v", err)
+		return
+	}
+
+	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: k8sClient.CoreV1().Events("")})
+	eventRecorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: syncerComponent})
+	eventRecorder.Event(pv, v1.EventTypeWarning, failureReason, errorMsg)
 }
 
 func createCnsVolume(ctx context.Context, pv *v1.PersistentVolume,
