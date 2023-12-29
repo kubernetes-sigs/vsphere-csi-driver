@@ -2470,17 +2470,17 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 	if IsMultiAttachAllowed(pv) {
 		// If PV is file share volume.
 
-		// If it is a multi VC setup, then skip this volume as we do not support file share volumes
-		// on a multi VC deployment
-		if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+		// If TopologyAwareFileVolume FSS is false and it is a multi VC setup, then skip this volume
+		if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 &&
+			!metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
+				common.TopologyAwareFileVolume) {
 			log.Debugf("PVDeleted: %q is a vSphere volume claim in namespace %q."+
 				"File share volumes are not supported in a multi VC setup."+
 				"Skipping deletion of PV metadata.", pv.Name, pv.Namespace)
 			return
 		}
 
-		// Setting volumeHandle as empty as there is only 1 VC so volumeID does not matter.
-		vcHost, cnsVolumeMgr, err := getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, "")
+		vcHost, cnsVolumeMgr, err := getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, pv.Spec.CSI.VolumeHandle)
 		if err != nil {
 			log.Errorf("PVDeleted: Failed to get VC host and volume manager for single VC setup. "+
 				"Error occoured: %+v", err)
