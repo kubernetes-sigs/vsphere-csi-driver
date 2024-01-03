@@ -61,6 +61,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		clientNewGc                clientset.Interface
 		pvc                        *v1.PersistentVolumeClaim
 		isVsanHealthServiceStopped bool
+		labels_ns                  map[string]string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -69,6 +70,9 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		svcClient, svNamespace = getSvcClientAndNamespace()
 		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+		labels_ns = map[string]string{}
+		labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
+		labels_ns["e2e-framework"] = f.BaseName
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -1228,9 +1232,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 		ginkgo.By("Creating namespace on second GC")
-		ns, err := framework.CreateTestingNS(f.BaseName, clientNewGc, map[string]string{
-			"e2e-framework": f.BaseName,
-		})
+		ns, err := framework.CreateTestingNS(f.BaseName, clientNewGc, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on second GC")
 
 		namespaceNewGC := ns.Name

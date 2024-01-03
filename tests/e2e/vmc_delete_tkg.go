@@ -42,8 +42,8 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 		scParameters      map[string]string
 		storagePolicyName string
 		deleteGC          bool
-
-		vmcUser string
+		vmcUser           string
+		labels_ns         map[string]string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -106,9 +106,7 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 
 		ginkgo.By("Creating namespace on GC2")
-		ns, err := framework.CreateTestingNS(f.BaseName, clientNewGc, map[string]string{
-			"e2e-framework": f.BaseName,
-		})
+		ns, err := framework.CreateTestingNS(f.BaseName, clientNewGc, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on GC2")
 
 		namespaceNewGC := ns.Name
@@ -199,9 +197,7 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		ginkgo.By("Creating namespace on GC1")
-		ns, err = framework.CreateTestingNS(f.BaseName, client, map[string]string{
-			"e2e-framework": f.BaseName,
-		})
+		ns, err = framework.CreateTestingNS(f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on GC1")
 
 		gcNamespace := ns.Name

@@ -45,6 +45,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		isServiceDeleted    bool
 		isTKGDeleted        bool
 		missingPodAndVolume map[string]string
+		labels_ns           map[string]string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -63,6 +64,9 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+		labels_ns = map[string]string{}
+		labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
+		labels_ns["e2e-framework"] = f.BaseName
 	})
 
 	ginkgo.AfterEach(func() {
@@ -131,9 +135,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 
 		ginkgo.By("Creating namespace on Deleting TKG")
-		namespaceObj, err := framework.CreateTestingNS(f.BaseName, clientNewGc, map[string]string{
-			"e2e-framework": f.BaseName,
-		})
+		namespaceObj, err := framework.CreateTestingNS(f.BaseName, clientNewGc, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on Deleting TKG")
 		namespace := namespaceObj.Name
 
