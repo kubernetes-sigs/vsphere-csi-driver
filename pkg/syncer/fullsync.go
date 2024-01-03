@@ -26,9 +26,11 @@ import (
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	clientset "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -37,6 +39,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 // CsiFullSync reconciles volume metadata on a vanilla k8s cluster with volume
@@ -284,8 +287,10 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	go fullSyncDeleteVolumes(ctx, volToBeDeleted, metadataSyncer, &wg, migrationFeatureStateForFullSync, volManager, vc)
 	wg.Wait()
 
-	// Sync VolumeInfo CRs
-	if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+	// Sync VolumeInfo CRs for the below conditions:
+	// Either it is a Vanilla k8s deployment with Multi-VC configuration or, it's a StretchSupervisor cluster
+	if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 ||
+		(metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && isPodVMOnStretchSupervisorFSSEnabled) {
 		volumeInfoCRFullSync(ctx, metadataSyncer, vc)
 		cleanUpVolumeInfoCrDeletionMap(ctx, metadataSyncer, vc)
 	}
@@ -358,6 +363,41 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 		}
 	}
 
+	volumeIdTok8sPVMap := make(map[string]*v1.PersistentVolume)
+	scNameToPolicyIdMap := make(map[string]string)
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && isPodVMOnStretchSupervisorFSSEnabled {
+		// Create volumeIdTok8sPVMap map for easy lookup of PVs
+		for _, pv := range currentK8sPV {
+			if pv.Spec.CSI != nil {
+				volumeIdTok8sPVMap[pv.Spec.CSI.VolumeHandle] = pv
+			} else {
+				log.Errorf("PV %s: is not a CSI Volume", pv.Name)
+			}
+		}
+		config, err := k8s.GetKubeConfig(ctx)
+		if err != nil {
+			log.Errorf("storagePolicyUsageCRSync: Failed to get KubeConfig. err: %v", err)
+			return
+		}
+		k8sClient, err := clientset.NewForConfig(config)
+		if err != nil {
+			log.Errorf("storagePolicyUsageCRSync: Failed to create kubernetes client. Err: %+v", err)
+			return
+		}
+		storageClassList, err := k8sClient.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			log.Errorf("storagePolicyUsageCRSync: Failed to list storageclasses. Err: %+v", err)
+			return
+		}
+		// Create scNameToPolicyIdMap map for easy lookup of PolicyIds for a given storageclass name
+		for _, sc := range storageClassList.Items {
+			if _, ok := scNameToPolicyIdMap[sc.Parameters[scParamStoragePolicyID]]; !ok {
+				scNameToPolicyIdMap[sc.Name] =
+					sc.Parameters[scParamStoragePolicyID]
+			}
+		}
+	}
+
 	for volumeID := range currentK8sPVMap {
 		crExists, err := volumeInfoService.VolumeInfoCrExistsForVolume(ctx, volumeID)
 		if err != nil {
@@ -367,11 +407,36 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 		}
 		// Create VolumeInfo CR if not found.
 		if !crExists {
-			err := volumeInfoService.CreateVolumeInfo(ctx, volumeID, vc)
-			if err != nil {
-				log.Errorf("FullSync for VC %s: failed to create VolumeInfo CR for volume %s."+
-					"Error: %+v", vc, volumeID, err)
-				continue
+			if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+				err := volumeInfoService.CreateVolumeInfo(ctx, volumeID, vc)
+				if err != nil {
+					log.Errorf("FullSync for VC %s: failed to create VolumeInfo CR for volume %s."+
+						"Error: %+v", vc, volumeID, err)
+					continue
+				}
+			} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && isPodVMOnStretchSupervisorFSSEnabled {
+				pv := volumeIdTok8sPVMap[volumeID]
+				pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(
+					pv.Spec.ClaimRef.Namespace).Get(pv.Spec.ClaimRef.Name)
+				if err != nil {
+					log.Warnf("Failed to get pvc for namespace %s and name %s. err=%+v",
+						pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name, err)
+					continue
+				}
+				pvcCapacity := pvc.Status.Capacity[v1.ResourceStorage]
+				if pvc.Spec.StorageClassName != nil {
+					err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, pvc.Namespace,
+						scNameToPolicyIdMap[*pvc.Spec.StorageClassName], *pvc.Spec.StorageClassName, vc, &pvcCapacity)
+					if err != nil {
+						log.Warnf("FullSync for VC %s: failed to create VolumeInfo CR for volume %s."+
+							"Error: %+v", vc, volumeID, err)
+						continue
+					}
+				} else {
+					log.Warnf("FullSync for VC %s: failed to create VolumeInfo CR for volume %s."+
+						"StorageClassName not found in the PVC spec %v.", vc, volumeID, pvc.Spec)
+					continue
+				}
 			}
 		}
 	}
