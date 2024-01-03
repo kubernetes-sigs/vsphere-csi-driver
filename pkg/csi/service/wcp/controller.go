@@ -857,10 +857,21 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to get vCenter. Error: %+v", err)
 	}
-	// TODO: Update the extraParams field when file volume provisioning is supported on stretch supervisor environments.
-	volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, vc,
-		c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec, filteredDatastores,
-		filterSuspendedDatastores, isTKGSHAEnabled, nil)
+	if isPodVMOnStretchSupervisorFSSEnabled {
+		volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, vc,
+			c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec, filteredDatastores,
+			filterSuspendedDatastores, isTKGSHAEnabled, &cnsvolume.CreateVolumeExtraParams{
+				VolSizeBytes:                         volSizeBytes,
+				StorageClassName:                     req.Parameters[common.AttributeStorageClassName],
+				Namespace:                            req.Parameters[common.AttributePvcNamespace],
+				ClusterFlavor:                        cnstypes.CnsClusterFlavorWorkload,
+				IsPodVMOnStretchSupervisorFSSEnabled: isPodVMOnStretchSupervisorFSSEnabled,
+			})
+	} else {
+		volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, vc,
+			c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec, filteredDatastores,
+			filterSuspendedDatastores, isTKGSHAEnabled, nil)
+	}
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)
