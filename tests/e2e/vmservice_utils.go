@@ -64,20 +64,20 @@ func createTestWcpNs(
 	namespace := fmt.Sprintf("csi-vmsvcns-%v", r.Intn(10000))
 	nsCreationUrl := "https://" + vcIp + "/api/vcenter/namespaces/instances/v2"
 	reqBody := fmt.Sprintf(`{
-		"namespace": "%s",
-		"storage_specs": [  {
-			"policy": "%s"
-		} ],
-		"vm_service_spec":  {
-			"vm_classes": [
-				"%s"
-			],
-			"content_libraries": [
-				"%s"
-			]
-		},
-		"supervisor": "%s"
-	}`, namespace, storagePolicyId, vmClass, contentLibId, supervisorId)
+        "namespace": "%s",
+        "storage_specs": [  {
+            "policy": "%s"
+        } ],
+        "vm_service_spec":  {
+            "vm_classes": [
+                "%s"
+            ],
+            "content_libraries": [
+                "%s"
+            ]
+        },
+        "supervisor": "%s"
+    }`, namespace, storagePolicyId, vmClass, contentLibId, supervisorId)
 
 	_, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, nsCreationUrl, reqBody)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
@@ -124,20 +124,20 @@ func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
 	contentlbCreationUrl := "https://" + vcIp + "/api/content/subscribed-library"
 	reqBody := fmt.Sprintf(`{
-		"name": "%s",
-		"storage_backings": [{
-			"datastore_id": "%s",
-			"type": "DATASTORE"
-		}],
-		"subscription_info": {
-			"authentication_method": "NONE",
-			"automatic_sync_enabled": true,
-			"on_demand": true,
-			"subscription_url": "%s",
-			"ssl_thumbprint": "%s"
-		},
-		"type": "SUBSCRIBED"
-	}`, contentlibName, dsMoId, contentLibUrl, sslThumbPrint)
+        "name": "%s",
+        "storage_backings": [{
+            "datastore_id": "%s",
+            "type": "DATASTORE"
+        }],
+        "subscription_info": {
+            "authentication_method": "NONE",
+            "automatic_sync_enabled": true,
+            "on_demand": true,
+            "subscription_url": "%s",
+            "ssl_thumbprint": "%s"
+        },
+        "type": "SUBSCRIBED"
+    }`, contentlibName, dsMoId, contentLibUrl, sslThumbPrint)
 
 	resp, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, contentlbCreationUrl, reqBody)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 201))
@@ -285,7 +285,7 @@ func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespa
 	vm := vmopv1.VirtualMachine{
 		ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: namespace},
 		Spec: vmopv1.VirtualMachineSpec{
-			PowerState:   "poweredOn",
+			PowerState:   vmopv1.VirtualMachinePoweredOn,
 			ImageName:    vmi,
 			ClassName:    vmClass,
 			StorageClass: storageClassName,
@@ -328,7 +328,7 @@ func waitNgetVmsvcVM(ctx context.Context, c ctlrclient.Client, namespace string,
 }
 
 // waitNgetVmsvcVmIp wait and fetch the primary IP of the vm in give ns
-func waitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace string, name string) string {
+func waitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace string, name string) (string, error) {
 	ip := ""
 	err := wait.PollImmediate(poll*10, pollTimeout*2, func() (bool, error) {
 		vm, err := getVmsvcVM(ctx, c, namespace, name)
@@ -344,9 +344,8 @@ func waitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace strin
 		ip = vm.Status.VmIp
 		return true, nil
 	})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Found IP '%s' for VM '%s'", ip, name)
-	return ip
+	return ip, err
 }
 
 // createBootstrapSecretForVmsvcVms create bootstrap data for cloud init in the ns
@@ -724,4 +723,55 @@ func wait4Vm2ReachPowerStateInSpec(
 	})
 	framework.Logf("VM %s reached the power state %v requested in the spec", vm.Name, vm.Spec.PowerState)
 	return vm, waitErr
+}
+
+// createVmServiceVmWithPvcsWithZone creates VM via VM service with given ns, sc, vmi, pvc(s) and bootstrap data for
+// cloud init on given zone
+func createVmServiceVmWithPvcsWithZone(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
+	pvcs []*v1.PersistentVolumeClaim, vmi string, storageClassName string, secretName string,
+	zone string) *vmopv1.VirtualMachine {
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	vols := []vmopv1.VirtualMachineVolume{}
+	vmName := fmt.Sprintf("csi-test-vm-%d", r.Intn(10000))
+	for _, pvc := range pvcs {
+		vols = append(vols, vmopv1.VirtualMachineVolume{
+			Name: pvc.Name,
+			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
+				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
+			},
+		})
+	}
+	labels := make(map[string]string)
+	labels["topology.kubernetes.io/zone"] = zone
+	vm := vmopv1.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: namespace, Labels: labels},
+		Spec: vmopv1.VirtualMachineSpec{
+			PowerState:   vmopv1.VirtualMachinePoweredOn,
+			ImageName:    vmi,
+			ClassName:    vmClass,
+			StorageClass: storageClassName,
+			Volumes:      vols,
+			VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: "CloudInit", SecretName: secretName},
+		},
+	}
+	err := c.Create(ctx, &vm)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return waitNgetVmsvcVM(ctx, c, namespace, vmName)
+}
+
+// wait4VmSvcVm2BeDeleted waits for the given vmservice vm to get deleted
+func wait4VmSvcVm2BeDeleted(ctx context.Context, c ctlrclient.Client, vm *vmopv1.VirtualMachine) {
+	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
+		_, err := getVmsvcVM(ctx, c, vm.Namespace, vm.Name)
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				return false, err
+			}
+			return true, nil
+		}
+		return false, nil
+	})
+	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
 }
