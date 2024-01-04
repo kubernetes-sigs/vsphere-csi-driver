@@ -103,3 +103,13 @@ func convertToCnsVolumeOperationRequestDetails(
 		Error:                   details.Error,
 	}
 }
+
+func UpdateReservedInQuotaDetails(reserved *resource.Quantity, originalQuotaDetails *QuotaDetails) *QuotaDetails {
+	updatedQuota := QuotaDetails{
+		Reserved:         reserved,
+		StoragePolicyId:  originalQuotaDetails.StoragePolicyId,
+		StorageClassName: originalQuotaDetails.StorageClassName,
+		Namespace:        originalQuotaDetails.Namespace,
+	}
+	return &updatedQuota
+}
