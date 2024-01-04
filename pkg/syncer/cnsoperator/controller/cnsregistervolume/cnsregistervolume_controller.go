@@ -539,8 +539,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			// Patch an increase of "reserved" in storagePolicyUsageCR.
 			patchedStoragePolicyUsageCR := storagePolicyUsageCR.DeepCopy()
 			if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil {
-				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
-					*resource.NewQuantity(capacity.Value(), capacity.Format))
+				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(*capacity)
 			} else {
 				var (
 					usedQty     resource.Quantity
@@ -578,8 +577,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 					currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Format))
 			// Increase the Used field for StoragePolicyUsageCR
 			finalStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
-				*resource.NewQuantity(currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Value(),
-					currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Format))
+				*currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved)
 			err = syncer.PatchStoragePolicyUsage(ctx, cnsOperatorClient, currentStoragePolicyUsageCR,
 				finalStoragePolicyUsageCR)
 			if err != nil {

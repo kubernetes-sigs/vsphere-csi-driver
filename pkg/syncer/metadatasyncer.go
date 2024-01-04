@@ -886,6 +886,8 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 			cnsvolumeoperationrequest.CRDSingular, err)
 		return
 	}
+	log.Infof("cnsvolumeoperationrequestCRAdded: Received a CR added event for cnsvolumeoperationrequestObj %v",
+		cnsvolumeoperationrequestObj)
 	// Check for the below set of conditions:
 	// 1. Cnsvolumeoperationrequest object's StorageQuotaDetails should not be nil
 	// 2. Cnsvolumeoperationrequest object's StorageQuotaDetails.Reserved should not be nil
@@ -945,11 +947,11 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 			return
 		}
 		patchedStoragePolicyUsageCR = storagePolicyUsageCR.DeepCopy()
-		if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil {
+		if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil &&
+			storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved != nil {
 			// If StoragePolicyUsage CR has Status.QuotaUsage fields not nil update StoragePolicyUsage reserved field
 			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
-				*resource.NewQuantity(cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
-					cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
+				*cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
 			err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
@@ -1052,8 +1054,7 @@ func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
 		// Hence, the "reserved" field in StoragePolicyUsage needs to be decreased based on the
 		// deleted CnsVolumeOperationRequest object's "reserved" field.
 		patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(
-			*resource.NewQuantity(cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
-				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
+			*cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
 		err = PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 			patchedStoragePolicyUsageCR)
 		if err != nil {
@@ -1155,8 +1156,7 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil {
 				// Move forward only if StoragePolicyUsage CR has Status.QuotaUsage fields not nil
 				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
-					*resource.NewQuantity(newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
-						newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
+					*newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
 				err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 					patchedStoragePolicyUsageCR)
 				if err != nil {
@@ -1173,11 +1173,9 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			// the "reserved" field in StoragePolicyUsage needs to be decreased based on the CnsVolumeOperationRequest
 			// "reserved" field. Also, the "used" field in StoragePolicyUsage needs to be increased.
 			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(
-				*resource.NewQuantity(oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
-					oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
+				*oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
 			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
-				*resource.NewQuantity(oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
-					oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Format))
+				*oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
 			err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
@@ -2449,7 +2447,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
 				return
 			}
-			log.Infof("Successfully decreased the used capacity by %q Mb for StoragePolicyUsage: %q in namespace: %q",
+			log.Infof("Successfully decreased the used capacity by %v Mb for StoragePolicyUsage: %q in namespace: %q",
 				volumeInfo.Spec.Capacity.ScaledValue(resource.Mega), storagePolicyUsageCR.Name, storagePolicyUsageCR.Namespace)
 		}
 	}
