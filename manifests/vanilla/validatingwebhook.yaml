@@ -33,6 +33,10 @@ webhooks:
         resources:   ["storageclasses"]
       - apiGroups:   [""]
         apiVersions: ["v1", "v1beta1"]
+        operations:  ["CREATE"]
+        resources:   ["persistentvolumes"]
+      - apiGroups:   [""]
+        apiVersions: ["v1", "v1beta1"]
         operations:  ["UPDATE", "DELETE"]
         resources:   ["persistentvolumeclaims"]
         scope: "Namespaced"
