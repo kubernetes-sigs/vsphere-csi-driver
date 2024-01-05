@@ -67,6 +67,7 @@ const (
 	envClusterFlavor                           = "CLUSTER_FLAVOR"
 	envDiskSizeLarge                           = "LARGE_DISK_SIZE"
 	envCSINamespace                            = "CSI_NAMESPACE"
+	envHciMountRemoteDs                        = "USE_HCI_MESH_DS"
 	envContentLibraryUrl                       = "CONTENT_LIB_URL"
 	envContentLibraryUrlSslThumbprint          = "CONTENT_LIB_THUMBPRINT"
 	envEsxHostIP                               = "ESX_TEST_HOST_IP"
