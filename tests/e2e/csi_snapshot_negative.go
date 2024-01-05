@@ -23,6 +23,9 @@ import (
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -53,7 +56,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		namespace              string
 		scParameters           map[string]string
 		datastoreURL           string
-		fullSyncWaitTime       int
+		cnsOperatorClient      k8sClient.Client
 		pvclaims               []*v1.PersistentVolumeClaim
 		restConfig             *restclient.Config
 		guestClusterRestConfig *restclient.Config
@@ -88,17 +91,13 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// Full sync interval can be 1 min at minimum so full sync wait time has to be more than 120s
-			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
+		snapc, err = snapclient.NewForConfig(f.ClientConfig())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		cnsOperatorClient, err = k8s.NewClientForGroup(ctx, f.ClientConfig(), cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
@@ -253,7 +252,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 
 		serviceName = hostdServiceName
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
-			csiNamespace, fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
+			csiNamespace, cnsOperatorClient, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 
 	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when CSI "+
@@ -261,15 +260,15 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 
 		serviceName = "CSI"
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
-			csiNamespace, fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
+			csiNamespace, cnsOperatorClient, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 
 	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when VPXD "+
 		"goes down", ginkgo.Label(p0, block, vanilla, tkg, snapshot, disruptive), func() {
 
 		serviceName = vpxdServiceName
-		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
-			csiNamespace, fullSyncWaitTime, isServiceStopped, false, csiReplicas, pandoraSyncWaitTime)
+		snapshotOperationWhileServiceDownNegative(serviceName, namespace, client, snapc, datastoreURL,
+			cnsOperatorClient, isServiceStopped, csiReplicas, pandoraSyncWaitTime)
 	})
 
 	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when CNS goes "+
@@ -277,7 +276,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 
 		serviceName = vsanhealthServiceName
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
-			csiNamespace, fullSyncWaitTime, isServiceStopped, false, csiReplicas, pandoraSyncWaitTime)
+			csiNamespace, cnsOperatorClient, isServiceStopped, false, csiReplicas, pandoraSyncWaitTime)
 	})
 
 	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] create volume snapshot when SPS "+
@@ -285,7 +284,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 
 		serviceName = spsServiceName
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
-			csiNamespace, fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
+			csiNamespace, cnsOperatorClient, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 
 	ginkgo.It("[tkg-snapshot] create volume snapshot when SVC CSI restarts", ginkgo.Label(p0,
@@ -293,14 +292,14 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 
 		serviceName = "WCP CSI"
 		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
-			csiNamespace, fullSyncWaitTime, isServiceStopped, true, svcCsiReplicas, pandoraSyncWaitTime)
+			csiNamespace, cnsOperatorClient, isServiceStopped, true, svcCsiReplicas, pandoraSyncWaitTime)
 	})
 })
 
 // snapshotOperationWhileServiceDown creates the volumesnapshot while the services is down
-func snapshotOperationWhileServiceDown(serviceName string, namespace string,
-	client clientset.Interface, snapc *snapclient.Clientset, datastoreURL string, csiNamespace string,
-	fullSyncWaitTime int, isServiceStopped bool, isSnapshotCreated bool, csiReplicas int32, pandoraSyncWaitTime int) {
+func snapshotOperationWhileServiceDown(serviceName string, namespace string, client clientset.Interface,
+	snapc *snapclient.Clientset, datastoreURL string, csiNamespace string, cnsOperatorClient k8sClient.Client,
+	isServiceStopped bool, isSnapshotCreated bool, csiReplicas int32, pandoraSyncWaitTime int) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var storageclass *storagev1.StorageClass
@@ -396,8 +395,8 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 		isServiceStopped, err = startCSIPods(ctx, client, csiReplicas, csiNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 	} else if serviceName == hostdServiceName {
 		ginkgo.By("Fetch IPs for the all the hosts in the cluster")
 		hostIPs := getAllHostsIP(ctx)
@@ -446,8 +445,8 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 		isServiceStopped, err = startCSIPods(ctx, svcClient, csiReplicas, csiNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 	} else {
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
@@ -479,8 +478,8 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 		err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Sleeping for full sync interval")
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 	}
 
 	//After service restart
@@ -522,8 +521,8 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 			isServiceStopped, err = startCSIPods(ctx, client, csiReplicas, csiNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-			time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+			ginkgo.By("Trigger 2 full syncs")
+			triggerFullSync(ctx, client, cnsOperatorClient)
 		} else if serviceName == hostdServiceName {
 			ginkgo.By("Fetch IPs for the all the hosts in the cluster")
 			hostIPs := getAllHostsIP(ctx)
@@ -554,8 +553,8 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 				startHostDOnHost(ctx, hostIP)
 			}
 			isServiceStopped = false
-			ginkgo.By("Sleeping for full sync interval")
-			time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+			ginkgo.By("Trigger 2 full syncs")
+			triggerFullSync(ctx, client, cnsOperatorClient)
 		} else if serviceName == "WCP CSI" {
 			ginkgo.By("Stopping CSI driver")
 			svcClient, _ := getSvcClientAndNamespace()
@@ -573,9 +572,8 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 			isServiceStopped, err = startCSIPods(ctx, svcClient, csiReplicas, csiNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-			time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
-
+			ginkgo.By("Trigger 2 full syncs")
+			triggerFullSync(ctx, client, cnsOperatorClient)
 		} else {
 			ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
 			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
@@ -606,8 +604,8 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 			err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By("Sleeping for full sync interval")
-			time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+			ginkgo.By("Trigger 2 full syncs")
+			triggerFullSync(ctx, client, cnsOperatorClient)
 		}
 
 		//After service restart
@@ -650,8 +648,8 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 			isServiceStopped, err = startCSIPods(ctx, client, csiReplicas, csiNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-			time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+			ginkgo.By("Trigger 2 full syncs")
+			triggerFullSync(ctx, client, cnsOperatorClient)
 		} else if serviceName == hostdServiceName {
 			ginkgo.By("Fetch IPs for the all the hosts in the cluster")
 			hostIPs := getAllHostsIP(ctx)
@@ -699,8 +697,8 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 			isServiceStopped, err = startCSIPods(ctx, svcClient, csiReplicas, csiNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-			time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+			ginkgo.By("Trigger 2 full syncs")
+			triggerFullSync(ctx, client, cnsOperatorClient)
 
 		} else {
 			ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
@@ -732,8 +730,8 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 			err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By("Sleeping for full sync interval")
-			time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+			ginkgo.By("Trigger 2 full syncs")
+			triggerFullSync(ctx, client, cnsOperatorClient)
 		}
 	}
 
@@ -744,4 +742,170 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 	err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, snapshot.ObjectMeta.Name)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	snapshotContentCreated = false
+}
+
+// snapshotOperationWhileServiceDownNegative creates the volumesnapshot while the services is down
+func snapshotOperationWhileServiceDownNegative(serviceName string, namespace string,
+	client clientset.Interface, snapc *snapclient.Clientset, datastoreURL string,
+	cnsOperatorClient k8sClient.Client, isServiceStopped bool, csiReplicas int32, pandoraSyncWaitTime int) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var storageclass *storagev1.StorageClass
+	var pvclaim *v1.PersistentVolumeClaim
+	var pvclaims []*v1.PersistentVolumeClaim
+	var err error
+	var snapshotCreated = false
+	scParameters := make(map[string]string)
+
+	ginkgo.By("Create storage class and PVC")
+	scParameters[scParamDatastoreURL] = datastoreURL
+	storageclass, pvclaim, err = createPVCAndStorageClass(client,
+		namespace, nil, scParameters, diskSize, nil, "", false, "")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	defer func() {
+		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+
+	ginkgo.By("Expect claim to provision volume successfully")
+	pvclaims = append(pvclaims, pvclaim)
+	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+	gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+
+	defer func() {
+		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+
+	// Verify using CNS Query API if VolumeID retrieved from PV is present.
+	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+	queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+	gomega.Expect(queryResult.Volumes[0].VolumeId.Id).To(gomega.Equal(volHandle))
+
+	ginkgo.By("Create volume snapshot class")
+	volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
+		getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil), metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Volume snapshot class name is : %s", volumeSnapshotClass.Name)
+
+	defer func() {
+		err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx,
+			volumeSnapshotClass.Name, metav1.DeleteOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+
+	ginkgo.By("Create a volume snapshot")
+	snapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+		getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Volume snapshot name is : %s", snapshot.Name)
+
+	defer func() {
+		if snapshotCreated {
+			framework.Logf("Deleting volume snapshot")
+			deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, snapshot.Name, pandoraSyncWaitTime)
+
+			framework.Logf("Wait till the volume snapshot is deleted")
+			err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, snapshot.ObjectMeta.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	}()
+
+	if serviceName == "CSI" {
+		ginkgo.By("Stopping CSI driver")
+		isServiceStopped, err = stopCSIPods(ctx, client, csiSystemNamespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			if isServiceStopped {
+				framework.Logf("Starting CSI driver")
+				isServiceStopped, err = startCSIPods(ctx, client, csiReplicas, csiSystemNamespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		framework.Logf("Starting CSI driver")
+		isServiceStopped, err = startCSIPods(ctx, client, csiReplicas, csiSystemNamespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
+	} else if serviceName == hostdServiceName {
+		ginkgo.By("Fetch IPs for the all the hosts in the cluster")
+		hostIPs := getAllHostsIP(ctx)
+		isServiceStopped = true
+
+		var wg sync.WaitGroup
+		wg.Add(len(hostIPs))
+
+		for _, hostIP := range hostIPs {
+			go stopHostD(ctx, hostIP, &wg)
+		}
+		wg.Wait()
+
+		defer func() {
+			framework.Logf("In defer function to start the hostd service on all hosts")
+			if isServiceStopped {
+				for _, hostIP := range hostIPs {
+					startHostDOnHost(ctx, hostIP)
+				}
+				isServiceStopped = false
+			}
+		}()
+
+		ginkgo.By("Sleeping for 5+1 min for default provisioner timeout")
+		time.Sleep(pollTimeoutSixMin)
+
+		for _, hostIP := range hostIPs {
+			startHostDOnHost(ctx, hostIP)
+		}
+		isServiceStopped = false
+	} else {
+		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		err = invokeVCenterServiceControl(stopOperation, serviceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isServiceStopped = true
+		err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcStoppedMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			if isServiceStopped {
+				ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", serviceName))
+				err = invokeVCenterServiceControl(startOperation, serviceName, vcAddress)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				isServiceStopped = false
+			}
+		}()
+
+		ginkgo.By("Sleeping for 5+1 min for default provisioner timeout")
+		time.Sleep(pollTimeoutSixMin)
+
+		ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", serviceName))
+		err = invokeVCenterServiceControl(startOperation, serviceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isServiceStopped = false
+		err = waitVCenterServiceToBeInState(serviceName, vcAddress, svcRunningMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
+	}
+
+	//After service restart
+	bootstrap()
+
+	ginkgo.By("Verify volume snapshot is Ready to use")
+	_, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, snapshot.Name)
+	gomega.Expect(err).To(gomega.HaveOccurred())
+	snapshotCreated = true
 }

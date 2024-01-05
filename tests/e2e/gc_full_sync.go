@@ -19,10 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
-	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -36,6 +33,9 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
+	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
@@ -49,7 +49,7 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		svcPVCName        string // PVC Name in the Supervisor Cluster.
 		labelKey          string
 		labelValue        string
-		fullSyncWaitTime  int
+		cnsOperatorClient k8sClient.Client
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -65,17 +65,13 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		labelKey = "app"
 		labelValue = "e2e-labels"
 
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			// Full sync interval can be 1 min at minimum so full sync wait time
-			// has to be more than 120s.
-			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
-				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
-			}
-		} else {
-			fullSyncWaitTime = defaultFullSyncWaitTime
-		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		cnsOperatorClient, err = k8s.NewClientForGroup(ctx, f.ClientConfig(), cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, rqLimit)
 	})
@@ -166,8 +162,8 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		deployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(client, pod)
@@ -225,14 +221,6 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		fysncInterval := fmt.Sprintf("%v", int((fullSyncWaitTime-20)/120))
-		ginkgo.By(fmt.Sprintf("Reducing full sync interval to %v mins for the test...", fysncInterval))
-		_ = updateCSIDeploymentTemplateFullSyncInterval(client, fysncInterval, csiSystemNamespace)
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Resetting full sync interval to %v mins", defaultFullSyncIntervalInMin))
-			_ = updateCSIDeploymentTemplateFullSyncInterval(client, defaultFullSyncIntervalInMin, csiSystemNamespace)
-		}()
-
 		// Break connection with SVC.
 		ginkgo.By("Scaling down the csi driver to zero replica")
 		deployment := updateDeploymentReplica(client, 0, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
@@ -263,8 +251,8 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		deployment = updateDeploymentReplica(client, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 		ginkgo.By(fmt.Sprintf("Successfully scaled up the csi driver deployment:%s to one replica", deployment.Name))
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync to finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		fmt.Println("PVC name in SV", volumeID)
 		pvcUID := string(pvc.GetUID())

@@ -42,6 +42,8 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
@@ -1605,15 +1607,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		labels := make(map[string]string)
 		labels[labelKey] = labelValue
 		sts_count := 2
-		var fullSyncWaitTime int
 		var err error
-
-		// Read full-sync value.
-		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
-			framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
 
 		/* here, For 2-VC setup, we are considering all the allowed topologies of VC1 and VC2
 		i.e. k8s-zone -> zone-1,zone-2,zone-3,zone-4,zone-5
@@ -1706,8 +1700,12 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, f.ClientConfig(), cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		ginkgo.By("Trigger 2 full syncs")
+		triggerFullSync(ctx, client, cnsOperatorClient)
 
 		ginkgo.By("Waiting for labels to be updated for PVC and PV")
 		for i := 0; i < len(pvclaimsList); i++ {
