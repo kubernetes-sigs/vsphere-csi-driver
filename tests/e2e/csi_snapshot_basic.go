@@ -71,6 +71,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defaultDatastore           *object.Datastore
 		defaultDatacenter          *object.Datacenter
 		isVsanHealthServiceStopped bool
+		labels_ns                  map[string]string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -150,6 +151,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
+
+		labels_ns = map[string]string{}
+		labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
+		labels_ns["e2e-framework"] = f.BaseName
 	})
 
 	ginkgo.AfterEach(func() {
@@ -683,7 +688,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ns, err := framework.CreateTestingNS(f.BaseName, client, nil)
+		ns, err := framework.CreateTestingNS(f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Creating volume snapshot content by snapshotHandle %s", snapshothandle))
@@ -1599,7 +1604,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		var svcVolumeSnapshotName, staticSnapshotId string
 
 		ginkgo.By("Creating new namespace for the test")
-		namespace1, err := framework.CreateTestingNS(f.BaseName, client, nil)
+		namespace1, err := framework.CreateTestingNS(f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		newNamespaceName := namespace1.Name
 		isNamespaceDeleted := false
@@ -1746,7 +1751,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		ginkgo.By("Creating another new namespace for the test")
-		namespace2, err := framework.CreateTestingNS(f.BaseName, client, nil)
+		namespace2, err := framework.CreateTestingNS(f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		f.AddNamespacesToDelete(namespace2)
 		namespace2Name := namespace2.Name
@@ -6104,9 +6109,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Creating namespace on second GC")
-		ns, err := framework.CreateTestingNS(f.BaseName, clientNewGc, map[string]string{
-			"e2e-framework": f.BaseName,
-		})
+		ns, err := framework.CreateTestingNS(f.BaseName, clientNewGc, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on second GC")
 
 		namespaceNewGC := ns.Name
@@ -7295,9 +7298,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defer cancel()
 
 		ginkgo.By("Creating namespace on GC1")
-		namespace1, err := framework.CreateTestingNS(f.BaseName, client, map[string]string{
-			"e2e-framework": f.BaseName,
-		})
+		namespace1, err := framework.CreateTestingNS(f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on GC1")
 
 		ginkgo.By("Create storage class and PVC on GC1")
@@ -7377,9 +7378,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating namespace on GC2")
-		namespace2, err := framework.CreateTestingNS(f.BaseName, clientNewGc, map[string]string{
-			"e2e-framework": f.BaseName,
-		})
+		namespace2, err := framework.CreateTestingNS(f.BaseName, clientNewGc, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on second GC")
 		defer func() {
 			ginkgo.By("Delete namespace created on GC2")

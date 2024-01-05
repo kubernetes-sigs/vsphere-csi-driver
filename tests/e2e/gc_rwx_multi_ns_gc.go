@@ -46,6 +46,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", func(
 		scParameters      map[string]string
 		storagePolicyName string
 		volHealthCheck    bool
+		labels_ns         map[string]string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -62,6 +63,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", func(
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+		labels_ns = map[string]string{}
+		labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
+		labels_ns["e2e-framework"] = f.BaseName
 	})
 
 	ginkgo.AfterEach(func() {
@@ -116,9 +120,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", func(
 
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		ginkgo.By("Creating second namespace on GC")
-		ns, err := framework.CreateTestingNS(f.BaseName, client, map[string]string{
-			"e2e-framework": f.BaseName,
-		})
+		ns, err := framework.CreateTestingNS(f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on second GC")
 
 		newnamespace := ns.Name

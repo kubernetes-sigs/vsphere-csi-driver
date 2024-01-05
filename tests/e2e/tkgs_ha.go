@@ -67,6 +67,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		snapc                      *snapclient.Clientset
 		clientNewGc                clientset.Interface
 		pandoraSyncWaitTime        int
+		labels_ns                  map[string]string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -79,6 +80,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		allowedTopologyHAMap = createAllowedTopologiesMap(allowedTopologies)
 		framework.Logf("Topology map: %v, categories: %v", allowedTopologyHAMap, categories)
 		zonalPolicy = GetAndExpectStringEnvVar(envZonalStoragePolicyName)
+		labels_ns = map[string]string{}
+		labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
+		labels_ns["e2e-framework"] = f.BaseName
+
 		if zonalPolicy == "" {
 			ginkgo.Fail(envZonalStoragePolicyName + " env variable not set")
 		}
@@ -3334,9 +3339,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Error creating k8s client with %v: %v", newGcKubconfigPath, err))
 		ginkgo.By("Creating namespace on second GC")
-		ns, err := framework.CreateTestingNS(f.BaseName, clientNewGc, map[string]string{
-			"e2e-framework": f.BaseName,
-		})
+		ns, err := framework.CreateTestingNS(f.BaseName, clientNewGc, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on second GC")
 
 		namespaceNewGC := ns.Name

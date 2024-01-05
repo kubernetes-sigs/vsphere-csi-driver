@@ -46,6 +46,7 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		pvclaim           *v1.PersistentVolumeClaim
 		persistentvolumes []*v1.PersistentVolume
 		podArray          []*v1.Pod
+		labels_ns         map[string]string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -58,7 +59,9 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		}
 		pvclaims = make([]*v1.PersistentVolumeClaim, 3)
 		podArray = make([]*v1.Pod, 3)
-
+		labels_ns = map[string]string{}
+		labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
+		labels_ns["e2e-framework"] = f.BaseName
 	})
 
 	// Test to setup up predata before the Testbed is upgraded
@@ -79,7 +82,7 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		scParameters[scParamDatastoreURL] = sharedVSANDatastoreURL
 
-		namespace1, err := framework.CreateTestingNS(f.BaseName, client, nil)
+		namespace1, err := framework.CreateTestingNS(f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		namespace = namespace1.Name
@@ -125,8 +128,7 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 		var err error
 		storageClassName = "preupgrade-sc-pods"
-
-		namespace, err := framework.CreateTestingNS(f.BaseName, client, nil)
+		namespace, err := framework.CreateTestingNS(f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", true)
@@ -207,8 +209,7 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		var err error
 		var pvclaimsarray = make([]*v1.PersistentVolumeClaim, 5)
 		storageClassName = "preupgrade-sc-pvcs"
-
-		namespace, err := framework.CreateTestingNS(f.BaseName, client, nil)
+		namespace, err := framework.CreateTestingNS(f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", true)
