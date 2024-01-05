@@ -84,7 +84,7 @@ validity=180
 openssl req -nodes -new -x509 -keyout "${tmpdir}"/ca.key -days ${validity} -out "${tmpdir}"/ca.crt -subj "/CN=vSphere CSI Admission Controller Webhook CA"
 openssl genrsa -out "${tmpdir}"/webhook-server-tls.key 2048
 openssl req -new -key "${tmpdir}"/webhook-server-tls.key -subj "/CN=${service}.${namespace}.svc" -config "${tmpdir}"/server.conf \
-  | openssl x509 -req -CA "${tmpdir}"/ca.crt -CAkey "${tmpdir}"/ca.key -days $((${validity}-1)) -CAcreateserial -out "${tmpdir}"/webhook-server-tls.crt -extensions v3_req -extfile "${tmpdir}"/server.conf
+  | openssl x509 -req -CA "${tmpdir}"/ca.crt -CAkey "${tmpdir}"/ca.key -days $((validity-1)) -CAcreateserial -out "${tmpdir}"/webhook-server-tls.crt -extensions v3_req -extfile "${tmpdir}"/server.conf
 
 cat <<eof >"${tmpdir}"/webhook.config
 [WebHookConfig]
