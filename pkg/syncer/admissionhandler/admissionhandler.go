@@ -54,11 +54,12 @@ var (
 	cfg    *config
 	// COInitParams stores the input params required for initiating the
 	// CO agnostic orchestrator in the admission handler package.
-	COInitParams                          *interface{}
-	featureGateCsiMigrationEnabled        bool
-	featureGateBlockVolumeSnapshotEnabled bool
-	featureGateTKGSHaEnabled              bool
-	featureGateVolumeHealthEnabled        bool
+	COInitParams                              *interface{}
+	featureGateCsiMigrationEnabled            bool
+	featureGateBlockVolumeSnapshotEnabled     bool
+	featureGateTKGSHaEnabled                  bool
+	featureGateVolumeHealthEnabled            bool
+	featureGateTopologyAwareFileVolumeEnabled bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
@@ -156,6 +157,8 @@ func StartWebhookServer(ctx context.Context) error {
 		}
 		featureGateCsiMigrationEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+		featureGateTopologyAwareFileVolumeEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.TopologyAwareFileVolume)
 
 		if featureGateCsiMigrationEnabled || featureGateBlockVolumeSnapshotEnabled {
 			certs, err := tls.LoadX509KeyPair(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile)
@@ -269,6 +272,8 @@ func validationHandler(w http.ResponseWriter, r *http.Request) {
 				admissionResponse = validateStorageClass(ctx, &ar)
 			case "PersistentVolumeClaim":
 				admissionResponse = validatePVC(ctx, ar.Request)
+			case "PersistentVolume":
+				admissionResponse = validatePv(ctx, ar.Request)
 			default:
 				log.Infof("Skipping validation for resource type: %q", ar.Request.Kind.Kind)
 				admissionResponse = &admissionv1.AdmissionResponse{
