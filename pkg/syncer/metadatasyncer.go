@@ -1169,13 +1169,29 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			}
 		} else {
 			// This is a case where CSI Driver container decreases the value of "reserved" value in
-			// CnsVolumeOperationRequest after a successful CreateVolume operation. And subsequently,
-			// the "reserved" field in StoragePolicyUsage needs to be decreased based on the CnsVolumeOperationRequest
-			// "reserved" field. Also, the "used" field in StoragePolicyUsage needs to be increased.
+			// CnsVolumeOperationRequest. This change can be done in 2 scenarios:
+			// 1. after a successful Create/Expand volume operation: subsequently, the "reserved" field
+			// needs to be decreased and the "used" field needs to be increased in StoragePolicyUsage CR.
+			// 2. when the latest CNS task tracked by the CNSVolumeOperationRequest errors out: in this case,
+			// just the "reserved" field in StoragePolicyUsage needs to be decreased.
 			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(
 				*oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
-			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
-				*oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
+
+			// Fetch the latest task of the CNSVolumeOperationRequest instance and increment
+			// "used" only when the task is successful.
+			latestOps := newcnsvolumeoperationrequestObj.Status.LatestOperationDetails
+			latestOp := latestOps[len(latestOps)-1]
+			var increaseUsed bool
+			if latestOp.TaskStatus == cnsvolumeoperationrequest.TaskInvocationStatusSuccess {
+				log.Debugf("Latest task %q in %s instance %q succeeded. Incrementing \"used\" "+
+					"field in storagepolicyusage CR", latestOp.TaskID,
+					cnsvolumeoperationrequest.CRDSingular, newcnsvolumeoperationrequestObj.Name)
+
+				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
+					*oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
+				increaseUsed = true
+			}
+
 			err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
@@ -1183,14 +1199,16 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 					patchedStoragePolicyUsageCR.Name, patchedStoragePolicyUsageCR.Namespace, err)
 				return
 			}
-			log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully decreased the reserved field by %v bytes "+
-				"for storagepolicyusage CR: %q in namespace: %q",
-				oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(), patchedStoragePolicyUsageCR.Name,
-				patchedStoragePolicyUsageCR.Namespace)
-			log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully increased the used field by %v bytes "+
-				"for storagepolicyusage CR: %q in namespace: %q",
-				oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(), patchedStoragePolicyUsageCR.Name,
-				patchedStoragePolicyUsageCR.Namespace)
+			log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully decreased the reserved field "+
+				"by %v bytes for storagepolicyusage CR: %q in namespace: %q",
+				oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
+				patchedStoragePolicyUsageCR.Name, patchedStoragePolicyUsageCR.Namespace)
+			if increaseUsed {
+				log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully increased the used field "+
+					"by %v bytes for storagepolicyusage CR: %q in namespace: %q",
+					oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
+					patchedStoragePolicyUsageCR.Name, patchedStoragePolicyUsageCR.Namespace)
+			}
 		}
 	}
 }
