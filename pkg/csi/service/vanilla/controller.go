@@ -1866,12 +1866,12 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 							compatibleDatastores = append(compatibleDatastores, ds)
 						}
 					}
+					fsEnabledCandidateDatastores = compatibleDatastores
 					if len(compatibleDatastores) == 0 {
 						log.Errorf("No compatible datastores found for storage policy %q on VC %s",
 							scParams.StoragePolicyName, vcHost)
 						continue
 					}
-					fsEnabledCandidateDatastores = compatibleDatastores
 				}
 				log.Infof("fsEnabledCandidateDatastores %v", fsEnabledCandidateDatastores)
 				filterSuspendedDatastores := false
