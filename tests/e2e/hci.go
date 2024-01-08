@@ -85,7 +85,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 			vmknic4VsanDown = false
 		}
 		if isDatastoreInMaintenanceMode {
-			ginkgo.By("exit host from maintenence mode in cluster4")
+			ginkgo.By("exit host from maintenance mode in cluster4")
 			exitHostMM(ctx, targetHostSystem, mmStateChangeTimeout)
 			isDatastoreInMaintenanceMode = false
 		}
@@ -229,7 +229,8 @@ var _ bool = ginkgo.Describe("hci", func() {
 		workervms := getWorkerVmMos(ctx, client)
 		targetHost := e2eVSphere.getHostFromVMReference(ctx, workervms[0].Reference())
 		targetHostSystem = object.NewHostSystem(e2eVSphere.Client.Client, targetHost.Reference())
-		targetHostSystem.Properties(ctx, targetHost, []string{"name"}, targetHostSystem)
+		err = targetHostSystem.Properties(ctx, targetHost, []string{"name"}, targetHostSystem)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("target host name: %s, MOID: %s", targetHostSystem.Name(), targetHost.Value)
 		nicMgr, err = targetHostSystem.ConfigManager().VirtualNicManager(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -314,13 +315,14 @@ var _ bool = ginkgo.Describe("hci", func() {
 		workervms := getWorkerVmMos(ctx, client)
 		targetHost := e2eVSphere.getHostFromVMReference(ctx, workervms[0].Reference())
 		targetHostSystem = object.NewHostSystem(e2eVSphere.Client.Client, targetHost.Reference())
-		targetHostSystem.Properties(ctx, targetHost, []string{"name"}, targetHostSystem)
+		err = targetHostSystem.Properties(ctx, targetHost, []string{"name"}, targetHostSystem)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("target host name: %s, MOID: %s", targetHostSystem.Name(), targetHost.Value)
 		isDatastoreInMaintenanceMode = true
 		enterHostIntoMM(ctx, targetHostSystem, evacMModeType, mmStateChangeTimeout, true)
 		defer func() {
 			if isDatastoreInMaintenanceMode {
-				ginkgo.By("exit host from maintenence mode in cluster4")
+				ginkgo.By("exit host from maintenance mode in cluster4")
 				exitHostMM(ctx, targetHostSystem, mmStateChangeTimeout)
 				isDatastoreInMaintenanceMode = false
 			}
@@ -332,7 +334,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 		ginkgo.By("verify PVs are accessible")
 		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("exit host from maintenence mode in cluster4")
+		ginkgo.By("exit host from maintenance mode in cluster4")
 		exitHostMM(ctx, targetHostSystem, mmStateChangeTimeout)
 		isDatastoreInMaintenanceMode = false
 
@@ -409,7 +411,8 @@ var _ bool = ginkgo.Describe("hci", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		targetHost := e2eVSphere.getHostFromVMReference(ctx, getHostMoref4K8sNode(ctx, client, workerNode))
 		targetHostSystem = object.NewHostSystem(e2eVSphere.Client.Client, targetHost.Reference())
-		targetHostSystem.Properties(ctx, targetHost, []string{"name"}, targetHostSystem)
+		err = targetHostSystem.Properties(ctx, targetHost, []string{"name"}, targetHostSystem)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("target host name: %s, MOID: %s", targetHostSystem.Name(), targetHost.Value)
 		isTargetHostPoweredOff = true
 		err = vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, targetHostSystem.Name(), false)
