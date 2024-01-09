@@ -118,6 +118,7 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 				if len(compatibleDatastores) == 0 {
 					log.Infof("No compatible shared datastores found for storage policy %q on vCenter: %q",
 						params.StoragePolicyID, params.Vcenter.Config.Host)
+					continue
 				} else {
 					log.Infof("Shared datastores compatible with storage policy %q are %+v for vCenter: %q",
 						params.StoragePolicyID, compatibleDatastores, params.Vcenter.Config.Host)
