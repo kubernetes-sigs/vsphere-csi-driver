@@ -79,7 +79,7 @@ type OperationDetails struct {
 	// OpID stores the OpID for a task that was invoked on CNS for a volume.
 	OpID string `json:"opId,omitempty"`
 	// TaskStatus describes the current status of the task invoked on CNS.
-	// Valid strings are "In Progress", "Successful" and "Failed".
+	// Valid strings are "In Progress", "Successful", "PartiallyFailed" and "Failed".
 	TaskStatus string `json:"taskStatus,omitempty"`
 	// Error represents the error returned if the task fails on CNS.
 	// Defaults to empty string.

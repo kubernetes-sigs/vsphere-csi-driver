@@ -33,6 +33,8 @@ const (
 	TaskInvocationStatusError = "Error"
 	// TaskInvocationStatusSuccess represents a task thats status is Success.
 	TaskInvocationStatusSuccess = "Success"
+	// TaskInvocationStatusPartiallyFailed represents a task thats status is PartiallyFailed.
+	TaskInvocationStatusPartiallyFailed = "PartiallyFailed"
 )
 
 // VolumeOperationRequestDetails stores details about a single operation
