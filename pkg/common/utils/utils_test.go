@@ -141,7 +141,8 @@ func TestQuerySnapshotsUtil(t *testing.T) {
 	// Create context
 	commonUtilsTestInstance := getCommonUtilsTest(t)
 
-	volumeManager, err := cnsvolumes.GetManager(ctx, commonUtilsTestInstance.vcenter, nil, false, false, false, false)
+	volumeManager, err := cnsvolumes.GetManager(ctx, commonUtilsTestInstance.vcenter, nil, false, false, false, false,
+		"")
 	if err != nil {
 		t.Fatalf("failed to create an instance of volume manager. err=%v", err)
 	}

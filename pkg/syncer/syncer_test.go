@@ -193,7 +193,7 @@ func TestSyncerWorkflows(t *testing.T) {
 		}
 	}()
 
-	volumeManager, err = cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false, false)
+	volumeManager, err = cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false, false, "")
 	if err != nil {
 		t.Fatalf("failed to create an instance of volume manager. err=%v", err)
 	}
@@ -203,10 +203,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	configInfo := &cnsconfig.ConfigurationInfo{}
 	configInfo.Cfg = csiConfig
 	metadataSyncer.configInfo = configInfo
-	metadataSyncer.volumeManager, err = cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false, false)
-	if err != nil {
-		t.Fatalf("failed to create an instance of volume manager. err=%v", err)
-	}
+	metadataSyncer.volumeManager = volumeManager
 	metadataSyncer.host = virtualCenter.Config.Host
 	volumeOperationsLock = make(map[string]*sync.Mutex)
 	volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}

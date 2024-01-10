@@ -33,6 +33,7 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -80,7 +81,11 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 			datastoreURL)
 	}
 
-	volManager, err := volume.GetManager(ctx, m.vc, nil, false, false, false, false)
+	clusterFlavor, err := config.GetClusterFlavor(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get cluster flavor. Error: %v", err)
+	}
+	volManager, err := volume.GetManager(ctx, m.vc, nil, false, false, false, false, clusterFlavor)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}
