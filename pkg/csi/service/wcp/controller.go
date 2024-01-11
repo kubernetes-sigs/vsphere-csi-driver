@@ -164,8 +164,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 	tasksListViewEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.ListViewPerf)
-	volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled,
-		false, false, tasksListViewEnabled)
+	volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled, false, false,
+		tasksListViewEnabled, cnstypes.CnsClusterFlavorWorkload)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}
@@ -393,8 +393,8 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 
 		tasksListViewEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.ListViewPerf)
-		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
-			idempotencyHandlingEnabled, false, false, tasksListViewEnabled)
+		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled, false,
+			false, tasksListViewEnabled, cnstypes.CnsClusterFlavorWorkload)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
@@ -629,7 +629,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				VolSizeBytes:                         volSizeBytes,
 				StorageClassName:                     req.Parameters[common.AttributeStorageClassName],
 				Namespace:                            req.Parameters[common.AttributePvcNamespace],
-				ClusterFlavor:                        cnstypes.CnsClusterFlavorWorkload,
 				IsPodVMOnStretchSupervisorFSSEnabled: isPodVMOnStretchSupervisorFSSEnabled,
 			})
 	} else {
@@ -864,7 +863,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				VolSizeBytes:                         volSizeBytes,
 				StorageClassName:                     req.Parameters[common.AttributeStorageClassName],
 				Namespace:                            req.Parameters[common.AttributePvcNamespace],
-				ClusterFlavor:                        cnstypes.CnsClusterFlavorWorkload,
 				IsPodVMOnStretchSupervisorFSSEnabled: isPodVMOnStretchSupervisorFSSEnabled,
 			})
 	} else {
@@ -1814,7 +1812,6 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 					StoragePolicyID:                      cnsVolumeInfo.Spec.StoragePolicyID,
 					Namespace:                            cnsVolumeInfo.Spec.Namespace,
 					Capacity:                             cnsVolumeInfo.Spec.Capacity,
-					ClusterFlavor:                        cnstypes.CnsClusterFlavorWorkload,
 					IsPodVMOnStretchSupervisorFSSEnabled: isPodVMOnStretchSupervisorFSSEnabled,
 				})
 		} else {
