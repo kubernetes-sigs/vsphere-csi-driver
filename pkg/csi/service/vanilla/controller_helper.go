@@ -314,8 +314,9 @@ func getCandidateDSInTopologyForFileVolumes(ctx context.Context,
 		}
 		accessibleDatastoresForHosts, err := vsphere.GetAllAccessibleDatastoresForHosts(ctx, hostMoRefs)
 		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to get accessible datastores for hosts: %+v "+
+			log.Errorf("failed to get accessible datastores for hosts: %+v "+
 				"in topology segment %+v in VC: %q. Error: %+v", hostMoRefs, segments, vcenter.Config.Host, err)
+			continue
 		}
 		// Add the datastore list to sharedDatastores without duplicates.
 		for _, candidateDS := range accessibleDatastoresForHosts {

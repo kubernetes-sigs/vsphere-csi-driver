@@ -1932,7 +1932,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			}
 			if len(fsEnabledCandidateDatastores) == 0 {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to find  File Service enabled datastores for the vcTopologySegmentsMap: %+v",
+					"failed to find compatible datastores for the vcTopologySegmentsMap: %+v",
 					vcTopologySegmentsMap)
 			}
 		}
