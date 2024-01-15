@@ -1814,18 +1814,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 						return nil, csifault.CSIInternalFault, err
 					}
 				}
-				// If there are no datastores for the preferred topology requirement, fetch shared
-				// datastores for the requisite topology requirement instead.
-				if len(candidateDatastores) == 0 && topologyRequirement.GetRequisite() != nil {
-					log.Debugf("Using requisite topology")
-					candidateDatastores, err = getCandidateDSInTopologyForFileVolumes(ctx,
-						topologyRequirement.GetRequisite(), vcenter)
-					if err != nil {
-						log.Errorf("Error finding shared datastores using requisite topology: %+v",
-							topologyRequirement.GetRequisite())
-						return nil, csifault.CSIInternalFault, err
-					}
-				}
+
 				if len(candidateDatastores) == 0 {
 					log.Infof("No candidate datastores found for vcenter %q", vcenter.Config.Host)
 					continue
@@ -1868,11 +1857,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 						}
 					}
 					fsEnabledCandidateDatastores = compatibleDatastores
-					if len(compatibleDatastores) == 0 {
-						log.Errorf("No compatible datastores found for storage policy %q on VC %s",
-							scParams.StoragePolicyName, vcHost)
-						continue
-					}
 				}
 				log.Infof("fsEnabledCandidateDatastores %v", fsEnabledCandidateDatastores)
 				filterSuspendedDatastores := false
