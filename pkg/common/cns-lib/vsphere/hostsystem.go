@@ -30,7 +30,10 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 )
 
-var ErrNoSharedDSFound = errors.New("no shared datastores found among given hosts")
+var (
+	ErrNoSharedDSFound     = errors.New("no shared datastores found among given hosts")
+	ErrNoAccessibleDSFound = errors.New("no accessible datastores found among given hosts")
+)
 
 // HostSystem holds details of a host instance.
 type HostSystem struct {
@@ -185,7 +188,7 @@ func (host *HostSystem) GetHostVsanCapacity(ctx context.Context) (*VsanHostCapac
 	return &out, nil
 }
 
-// GetSharedDatastoresForHosts returns shared datastores accessible to hosts mentioned in the input parameter.
+// GetSharedDatastoresForHosts returns an intersection of datastores accessible to each host in the hosts parameter.
 func GetSharedDatastoresForHosts(ctx context.Context, hosts []*HostSystem) ([]*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	var sharedDatastores []*DatastoreInfo
@@ -195,6 +198,10 @@ func GetSharedDatastoresForHosts(ctx context.Context, hosts []*HostSystem) ([]*D
 		if err != nil {
 			return nil, logger.LogNewErrorf(log, "failed to fetch datastores from host %+v. Error: %+v",
 				host, err)
+		}
+		if len(accessibleDatastores) == 0 {
+			return nil, logger.LogNewErrorf(log, "failed to find accessible datastores for host %+v.",
+				host)
 		}
 		if len(sharedDatastores) == 0 {
 			sharedDatastores = accessibleDatastores
@@ -220,7 +227,8 @@ func GetSharedDatastoresForHosts(ctx context.Context, hosts []*HostSystem) ([]*D
 	return sharedDatastores, nil
 }
 
-// GetAllAccessibleDatastoresForHosts returns datastores accessible to hosts mentioned in the input parameter.
+// GetAllAccessibleDatastoresForHosts returns an union of all the datastores accessible
+// to each host in the hosts parameter.
 func GetAllAccessibleDatastoresForHosts(ctx context.Context, hosts []*HostSystem) ([]*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	var allAccessibleDatastores []*DatastoreInfo
@@ -235,25 +243,23 @@ func GetAllAccessibleDatastoresForHosts(ctx context.Context, hosts []*HostSystem
 		if len(accessibleDatastores) == 0 {
 			return nil, logger.LogNewErrorf(log, "failed to find accessible datastores for host %+v.",
 				host)
-		} else {
-			// Add the accessibleDatastores list to allAccessibleDatastores without duplicates.
-			for _, candidateDS := range accessibleDatastores {
-				var found bool
-				for _, ds := range allAccessibleDatastores {
-					if ds.Info.Url == candidateDS.Info.Url {
-						found = true
-						break
-					}
+		}
+		// Add the accessibleDatastores list to allAccessibleDatastores without duplicates.
+		for _, candidateDS := range accessibleDatastores {
+			var found bool
+			for _, ds := range allAccessibleDatastores {
+				if ds.Info.Url == candidateDS.Info.Url {
+					found = true
+					break
 				}
-				if !found {
-					allAccessibleDatastores = append(allAccessibleDatastores, candidateDS)
-				}
+			}
+			if !found {
+				allAccessibleDatastores = append(allAccessibleDatastores, candidateDS)
 			}
 		}
 	}
 	if len(allAccessibleDatastores) == 0 {
-		return nil, logger.LogNewErrorf(log, "failed to find accessible datastores for hosts %+v.",
-			hosts)
+		return nil, ErrNoAccessibleDSFound
 	}
 	return allAccessibleDatastores, nil
 }
