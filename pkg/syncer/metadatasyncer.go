@@ -913,40 +913,21 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 			log.Errorf("cnsvolumeoperationrequestCRAdded: Failed to create CnsOperator client. Err: %+v", err)
 			return
 		}
-		namespace := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace
-		storagePolicyUsageList := &storagepolicyusagev1alpha1.StoragePolicyUsageList{}
-		err = cnsOperatorClient.List(ctx, storagePolicyUsageList, client.InNamespace(namespace))
-		if err != nil {
-			log.Errorf("failed to list %s CR from supervisor namespace %q. Error: %+v",
-				storagepolicyusagev1alpha1.CRDSingular, namespace, err)
-			return
-		}
-		foundStoragePolicyUsageCR := false
+		// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
+		storagePolicyUsageInstanceName := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
+			storagepolicyusagev1alpha1.NameSuffixForPVC
 		storagePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
-		patchedStoragePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
-		if len(storagePolicyUsageList.Items) > 0 {
-			for _, item := range storagePolicyUsageList.Items {
-				policyId := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StoragePolicyId
-				scName := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName
-				if item.Spec.StoragePolicyId == policyId && item.Spec.StorageClassName == scName {
-					log.Debugf("cnsvolumeoperationrequestCRAdded: Found storagePolicyUsage CR with matching "+
-						"storagePolicyId: %q & storageClassName: %q in namespace: %q", policyId, scName,
-						namespace)
-					storagePolicyUsageCR = item.DeepCopy()
-					foundStoragePolicyUsageCR = true
-					break
-				}
-			}
-		}
-		if !foundStoragePolicyUsageCR {
-			log.Errorf("unable to find matching %q CR with PolicyId: %q & PolicyName: %q from "+
-				"supervisor namespace %q", storagepolicyusagev1alpha1.CRDSingular,
-				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StoragePolicyId,
-				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName,
-				namespace)
+		err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
+			Namespace: cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace,
+			Name:      storagePolicyUsageInstanceName},
+			storagePolicyUsageCR)
+		if err != nil {
+			log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
+				storagepolicyusagev1alpha1.CRDSingular, storagePolicyUsageInstanceName,
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace, err)
 			return
 		}
-		patchedStoragePolicyUsageCR = storagePolicyUsageCR.DeepCopy()
+		patchedStoragePolicyUsageCR := storagePolicyUsageCR.DeepCopy()
 		if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil &&
 			storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved != nil {
 			// If StoragePolicyUsage CR has Status.QuotaUsage fields not nil update StoragePolicyUsage reserved field
@@ -1016,40 +997,21 @@ func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
 			log.Errorf("Failed to create CnsOperator client. Err: %+v", err)
 			return
 		}
-		namespace := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace
-		storagePolicyUsageList := &storagepolicyusagev1alpha1.StoragePolicyUsageList{}
-		err = cnsOperatorClient.List(ctx, storagePolicyUsageList, client.InNamespace(namespace))
-		if err != nil {
-			log.Errorf("failed to list %s CR from supervisor namespace %q. Error: %+v",
-				storagepolicyusagev1alpha1.CRDSingular, namespace, err)
-			return
-		}
-		foundStoragePolicyUsageCR := false
+		// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
+		storagePolicyUsageInstanceName := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
+			storagepolicyusagev1alpha1.NameSuffixForPVC
 		storagePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
-		patchedStoragePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
-		if len(storagePolicyUsageList.Items) > 0 {
-			for _, item := range storagePolicyUsageList.Items {
-				policyId := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StoragePolicyId
-				scName := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName
-				if item.Spec.StoragePolicyId == policyId && item.Spec.StorageClassName == scName {
-					log.Debugf("cnsvolumeoperationrequestCRDeleted: Found storagePolicyUsage CR with matching "+
-						"storagePolicyId: %q & storageClassName: %q in namespace: %q", policyId, scName,
-						namespace)
-					storagePolicyUsageCR = item.DeepCopy()
-					foundStoragePolicyUsageCR = true
-					break
-				}
-			}
-		}
-		if !foundStoragePolicyUsageCR {
-			log.Errorf("unable to find matching %q CR with PolicyId: %q & PolicyName: %q from "+
-				"supervisor namespace %q", storagepolicyusagev1alpha1.CRDSingular,
-				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StoragePolicyId,
-				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName,
-				namespace)
+		err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
+			Namespace: cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace,
+			Name:      storagePolicyUsageInstanceName},
+			storagePolicyUsageCR)
+		if err != nil {
+			log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
+				storagepolicyusagev1alpha1.CRDSingular, storagePolicyUsageInstanceName,
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace, err)
 			return
 		}
-		patchedStoragePolicyUsageCR = storagePolicyUsageCR.DeepCopy()
+		patchedStoragePolicyUsageCR := storagePolicyUsageCR.DeepCopy()
 		// This is a case where CnsVolumeOperationRequest is cleaned up due to CreateVolume failure.
 		// Hence, the "reserved" field in StoragePolicyUsage needs to be decreased based on the
 		// deleted CnsVolumeOperationRequest object's "reserved" field.
@@ -1112,41 +1074,21 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			log.Errorf("Failed to create CnsOperator client. Err: %+v", err)
 			return
 		}
-		namespace := newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace
-		storagePolicyUsageList := &storagepolicyusagev1alpha1.StoragePolicyUsageList{}
-		err = cnsOperatorClient.List(ctx, storagePolicyUsageList, client.InNamespace(namespace))
-		if err != nil {
-			log.Errorf("failed to list %s CR from supervisor namespace %q. Error: %+v",
-				storagepolicyusagev1alpha1.CRDSingular, namespace, err)
-			return
-		}
-		foundStoragePolicyUsageCR := false
+		// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
+		storagePolicyUsageInstanceName := newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
+			storagepolicyusagev1alpha1.NameSuffixForPVC
 		storagePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
-		patchedStoragePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
-		if len(storagePolicyUsageList.Items) > 0 {
-			for _, item := range storagePolicyUsageList.Items {
-				policyId := newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StoragePolicyId
-				scName := newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName
-				if item.Spec.StoragePolicyId == policyId && item.Spec.StorageClassName == scName {
-					log.Debugf("cnsvolumeoperationrequestCRUpdated: Found storagePolicyUsage CR with matching "+
-						"storagePolicyId: %q & storageClassName: %q in namespace: %q", policyId, scName,
-						namespace)
-					storagePolicyUsageCR = item.DeepCopy()
-
-					foundStoragePolicyUsageCR = true
-					break
-				}
-			}
-		}
-		if !foundStoragePolicyUsageCR {
-			log.Errorf("unable to find matching %q CR with PolicyId: %q & PolicyName: %q from "+
-				"supervisor namespace %q", storagepolicyusagev1alpha1.CRDSingular,
-				newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StoragePolicyId,
-				newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName,
-				namespace)
+		err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
+			Namespace: newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace,
+			Name:      storagePolicyUsageInstanceName},
+			storagePolicyUsageCR)
+		if err != nil {
+			log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
+				storagepolicyusagev1alpha1.CRDSingular, storagePolicyUsageInstanceName,
+				newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace, err)
 			return
 		}
-		patchedStoragePolicyUsageCR = storagePolicyUsageCR.DeepCopy()
+		patchedStoragePolicyUsageCR := storagePolicyUsageCR.DeepCopy()
 		if newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value() >
 			oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value() {
 			// This is a case where CSI Driver container increases the value of "reserved" field in
