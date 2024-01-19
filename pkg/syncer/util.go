@@ -42,6 +42,10 @@ const (
 	syncerComponent = "VSphere CSI Syncer"
 	// reason for PV creation failure when static volume provioining fails
 	staticVolumeProvisioningFailure = "static volume provisioning failed"
+	// reason for successful PV creation for static volumes
+	staticVolumeProvisioningSuccessReason = "static volume provisioning succeeded"
+	// message for successful PV creation for static volumes
+	staticVolumeProvisioningSuccessMessage = "Successfully created container volume"
 )
 
 // getPVsInBoundAvailableOrReleased return PVs in Bound, Available or Released
@@ -710,7 +714,8 @@ func createVolumeOnMultiVc(ctx context.Context, pv *v1.PersistentVolume,
 		"Failed to create volume %s on any of the VCs", volumeHandle)
 }
 
-func generateEventOnPv(ctx context.Context, pv *v1.PersistentVolume, failureReason string, errorMsg string) {
+func generateEventOnPv(ctx context.Context, pv *v1.PersistentVolume,
+	eventType string, failureReason string, errorMsg string) {
 	log := logger.GetLogger(ctx)
 
 	eventBroadcaster := record.NewBroadcaster()
@@ -722,7 +727,7 @@ func generateEventOnPv(ctx context.Context, pv *v1.PersistentVolume, failureReas
 
 	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: k8sClient.CoreV1().Events("")})
 	eventRecorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: syncerComponent})
-	eventRecorder.Event(pv, v1.EventTypeWarning, failureReason, errorMsg)
+	eventRecorder.Event(pv, eventType, failureReason, errorMsg)
 }
 
 func createCnsVolume(ctx context.Context, pv *v1.PersistentVolume,
@@ -851,9 +856,23 @@ func createMissingFileVolumeInfoCrs(ctx context.Context, metadataSyncer *metadat
 			string(cnstypes.CnsKubernetesEntityTypePV), "", clusterIDforVolumeMetadata, nil)
 		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
 
-		_, _, _ = createVolumeOnMultiVc(ctx, pv, metadataSyncer,
+		_, _, err = createVolumeOnMultiVc(ctx, pv, metadataSyncer,
 			common.FileVolumeType, metadataList, pv.Spec.CSI.VolumeHandle)
+		if err == nil {
+			if !isDynamicallyCreatedVolume(ctx, pv) {
+				generateEventOnPv(ctx, pv, v1.EventTypeNormal,
+					staticVolumeProvisioningSuccessReason, staticVolumeProvisioningSuccessMessage)
+			}
+		}
 	}
+}
+
+func isDynamicallyCreatedVolume(ctx context.Context, pv *v1.PersistentVolume) bool {
+	isdynamicCSIPV := false
+	if pv.Spec.CSI != nil {
+		_, isdynamicCSIPV = pv.Spec.CSI.VolumeAttributes[attribCSIProvisionerID]
+	}
+	return isdynamicCSIPV
 }
 
 func getPatchData(oldObj, newObj interface{}) ([]byte, error) {

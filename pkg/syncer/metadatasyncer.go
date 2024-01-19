@@ -2285,7 +2285,8 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 				if err != nil {
 					log.Errorf("PVUpdated: Failed to get VC host and volume manager for multi VC setup. "+
 						"Error occurred: %+v", err)
-					generateEventOnPv(ctx, oldPv, staticVolumeProvisioningFailure, "Failed to identify VC for volume.")
+					generateEventOnPv(ctx, oldPv, v1.EventTypeWarning,
+						staticVolumeProvisioningFailure, "Failed to identify VC for volume.")
 					return
 				}
 			} else {
@@ -2312,7 +2313,8 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 					} else {
 						// Failed to create static PV
 						log.Errorf("PVUpdated: Failed to create static file volume %q. Error: %+v", newPv.Name, err)
-						generateEventOnPv(ctx, oldPv, staticVolumeProvisioningFailure, "Failed to create volume on any of the VCs")
+						generateEventOnPv(ctx, oldPv, v1.EventTypeWarning,
+							staticVolumeProvisioningFailure, "Failed to create volume on any of the VCs")
 						return
 					}
 					return
@@ -2326,7 +2328,8 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 			if err != nil {
 				log.Errorf("PVUpdated: Failed to get VC host and volume manager for single VC setup. "+
 					"Error occoured: %+v", err)
-				generateEventOnPv(ctx, oldPv, staticVolumeProvisioningFailure, "Failed to identify VC for volume")
+				generateEventOnPv(ctx, oldPv, v1.EventTypeWarning,
+					staticVolumeProvisioningFailure, "Failed to identify VC for volume")
 				return
 			}
 		}
@@ -2355,9 +2358,13 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 				log.Infof("PVUpdated: Verified volume: %q is not marked as container volume in CNS. "+
 					"Calling CreateVolume with BackingID to mark volume as Container Volume.", oldPv.Spec.CSI.VolumeHandle)
 				// Call CreateVolume for Static Volume Provisioning.
-				_ = createCnsVolume(ctx, oldPv, metadataSyncer, cnsVolumeMgr, volumeType, vcHost, metadataList, volumeHandle)
-				errMsg := fmt.Sprintf("Failed to create volume on VC %s", vcHost)
-				generateEventOnPv(ctx, oldPv, staticVolumeProvisioningFailure, errMsg)
+				err = createCnsVolume(ctx, oldPv, metadataSyncer, cnsVolumeMgr, volumeType, vcHost, metadataList, volumeHandle)
+				if err != nil {
+					errMsg := fmt.Sprintf("Failed to create volume on VC %s", vcHost)
+					log.Errorf(errMsg)
+					generateEventOnPv(ctx, oldPv, v1.EventTypeWarning,
+						staticVolumeProvisioningFailure, errMsg)
+				}
 				return
 			} else if queryResult.Volumes[0].VolumeId.Id == oldPv.Spec.CSI.VolumeHandle {
 				log.Infof("PVUpdated: Verified volume: %q is already marked as container volume in CNS.",
