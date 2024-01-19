@@ -480,7 +480,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 	volManager volumes.Manager, vc string) {
 	log := logger.GetLogger(ctx)
 	defer wg.Done()
-	currentK8sPVMap := make(map[string]bool)
+	currentK8sPVMap := make(map[string]*v1.PersistentVolume)
 	volumeOperationsLock[vc].Lock()
 	defer volumeOperationsLock[vc].Unlock()
 	// Get all K8s PVs in the given VC.
@@ -493,7 +493,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 	// Create map for easy lookup.
 	for _, pv := range currentK8sPV {
 		if pv.Spec.CSI != nil {
-			currentK8sPVMap[pv.Spec.CSI.VolumeHandle] = true
+			currentK8sPVMap[pv.Spec.CSI.VolumeHandle] = pv
 		} else if migrationFeatureStateForFullSync && pv.Spec.VsphereVolume != nil {
 			migrationVolumeSpec := &migration.VolumeSpec{
 				VolumePath:        pv.Spec.VsphereVolume.VolumePath,
@@ -505,7 +505,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 					vc, migrationVolumeSpec, err)
 				return
 			}
-			currentK8sPVMap[volumeHandle] = true
+			currentK8sPVMap[volumeHandle] = pv
 		}
 	}
 	for _, createSpec := range createSpecArray {
@@ -523,7 +523,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 				spew.Sdump(createSpec))
 			continue
 		}
-		if _, existsInK8s := currentK8sPVMap[volumeID]; existsInK8s {
+		if pv, existsInK8s := currentK8sPVMap[volumeID]; existsInK8s {
 			log.Debugf("FullSync for VC %s: Calling CreateVolume for volume id: %q with createSpec %+v",
 				vc, volumeID, spew.Sdump(createSpec))
 			_, _, err := volManager.CreateVolume(ctx, &createSpec, nil)
@@ -531,6 +531,11 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 				log.Warnf("FullSync for VC %s: Failed to create volume with the spec: %+v. "+
 					"Err: %+v", vc, spew.Sdump(createSpec), err)
 				continue
+			}
+
+			if !isDynamicallyCreatedVolume(ctx, pv) {
+				generateEventOnPv(ctx, pv, v1.EventTypeNormal,
+					staticVolumeProvisioningSuccessReason, staticVolumeProvisioningSuccessMessage)
 			}
 
 			if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
