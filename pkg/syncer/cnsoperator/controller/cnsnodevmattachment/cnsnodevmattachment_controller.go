@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -43,7 +44,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"

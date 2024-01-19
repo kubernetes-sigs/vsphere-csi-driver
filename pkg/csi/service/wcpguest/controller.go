@@ -30,7 +30,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator-api/api/v1alpha1"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
