@@ -1392,16 +1392,6 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
 		return nil, status.Error(codes.Unimplemented, "list volumes FSS disabled")
 	}
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-		clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
-		if err != nil {
-			log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
-			return nil, status.Error(codes.Internal, "failed to get clusterComputeResourceMoIds")
-		}
-		if len(clusterComputeResourceMoIds) > 1 {
-			return nil, status.Error(codes.Unimplemented, "list volumes is not supported on Stretched Cluster")
-		}
-	}
 	controllerListVolumeInternal := func() (*csi.ListVolumesResponse, string, error) {
 		log.Debugf("ListVolumes called with args %+v, expectedStartingIndex %v", *req, expectedStartingIndex)
 		k8sVolumeIDs := commonco.ContainerOrchestratorUtility.GetAllVolumes()
