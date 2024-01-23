@@ -1715,33 +1715,21 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			}
 		}
 
-		var multivCenterTopologyDeployment bool
 		if len(c.managers.VcenterConfigs) > 1 {
-			multivCenterTopologyDeployment = true
-		}
-		vcTopologySegmentsMap := make(map[string][]map[string]string)
-		if multivCenterTopologyDeployment {
 			if topologyRequirement == nil {
 				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
 					"accessibility requirements cannot be nil for a multi-VC environment")
 			}
-			// Get the accessibility requirements according to the VC they belong to.
+		}
+		vcTopologySegmentsMap := make(map[string][]map[string]string)
+		if topologyRequirement != nil {
+			// Get accessibility requirements.
 			vcTopologySegmentsMap, err = common.GetAccessibilityRequirementsByVC(ctx, topologyRequirement)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get accessibility requirements by VC. Error: %+v", err)
 			}
 			log.Debugf("Topology accessibility requirements per VC are %+v", vcTopologySegmentsMap)
-		} else {
-			if topologyRequirement != nil {
-				// Get accessibility requirements.
-				for _, topology := range topologyRequirement.Preferred {
-					vcTopologySegmentsMap[c.managers.CnsConfig.Global.VCenterIP] = append(
-						vcTopologySegmentsMap[c.managers.CnsConfig.Global.VCenterIP],
-						topology.GetSegments())
-				}
-				log.Debugf("Topology accessibility requirements per VC are %+v", vcTopologySegmentsMap)
-			}
 		}
 		var createVolumeSpec = common.CreateVolumeSpec{
 			CapacityMB: volSizeMB,
