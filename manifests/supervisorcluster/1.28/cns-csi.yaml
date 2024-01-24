@@ -342,9 +342,9 @@ spec:
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
             - name: INCLUSTER_CLIENT_QPS
-              value: "50"
+              value: "200"
             - name: INCLUSTER_CLIENT_BURST
-              value: "50"
+              value: "200"
             - name: GODEBUG
               value: x509sha1=1
           imagePullPolicy: "IfNotPresent"
@@ -394,9 +394,9 @@ spec:
             - name: LOGGER_LEVEL
               value: "PRODUCTION" # Options: DEVELOPMENT, PRODUCTION
             - name: INCLUSTER_CLIENT_QPS
-              value: "50"
+              value: "200"
             - name: INCLUSTER_CLIENT_BURST
-              value: "50"
+              value: "200"
             - name: GODEBUG
               value: x509sha1=1
           imagePullPolicy: "IfNotPresent"
