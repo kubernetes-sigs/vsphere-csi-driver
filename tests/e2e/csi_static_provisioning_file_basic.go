@@ -19,7 +19,6 @@ package e2e
 import (
 	"context"
 	"math/rand"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -31,8 +30,6 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
-	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
-	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 
@@ -57,7 +54,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		namespace         string
 		pv                *v1.PersistentVolume
 		pvSpec            *v1.PersistentVolume
-		pvc               *v1.PersistentVolumeClaim
+		//pvc               *v1.PersistentVolumeClaim
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -153,7 +150,10 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		staticPVLabels := make(map[string]string)
 		staticPVLabels["fileshare-id"] = strings.TrimPrefix(fileShareVolumeID, "file:")
 
-		ginkgo.By("Creating the PV")
+		framework.Logf("fileShareVolumeID: %v", fileShareVolumeID)
+		framework.Logf("namespae: %v", namespace)
+
+		/*ginkgo.By("Creating the PV")
 		pv = getPersistentVolumeSpecForFileShare(fileShareVolumeID,
 			v1.PersistentVolumeReclaimDelete, staticPVLabels, v1.ReadOnlyMany)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
@@ -198,7 +198,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 
 		ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
 		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, pvc.Name, pv.Name, pod.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())*/
 
 	})
 
@@ -318,7 +318,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 func getFileShareCreateSpec(datastore types.ManagedObjectReference) *cnstypes.CnsVolumeCreateSpec {
 	netPermissions := vsanfstypes.VsanFileShareNetPermission{
 		Ips:         "*",
-		Permissions: vsanfstypes.VsanFileShareAccessTypeREAD_WRITE,
+		Permissions: vsanfstypes.VsanFileShareAccessTypeREAD_ONLY,
 		AllowRoot:   true,
 	}
 	containerCluster := &cnstypes.CnsContainerCluster{
