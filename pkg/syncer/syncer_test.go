@@ -35,6 +35,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
@@ -439,6 +440,11 @@ func runTestMetadataSyncInformer(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Test cnsvolumeoperationrequestCRAdded workflow.
+	cnsVolumeOpRequest := getCnsVolumeOperationRequestSpec(pvName, volumeInfo.VolumeID.Id,
+		"ef09d27b-d7ea-44e9-a4f6-5fd5c521b80d", "test-zonal-policy")
+	cnsvolumeoperationrequestCRAdded(cnsVolumeOpRequest)
+
 	// Test pvcDelete workflow.
 	waitForListerSync()
 	pvcDeleted(newPvc, metadataSyncer)
@@ -620,6 +626,37 @@ func getPersistentVolumeClaimSpec(pvcName string, namespace string,
 	}
 
 	return pvc
+}
+
+// getCnsVolumeOperationRequestSpec creates CnsVolumeOperationCR spec with given PV name,
+// Volume Handle, PolicyId, StorageClassName
+func getCnsVolumeOperationRequestSpec(pvName string, volumeHandle string,
+	policyId string, scName string) *unstructured.Unstructured {
+	cnsVolumeOperationRequestCR := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "cns.vmware.com/v1alpha1",
+			"kind":       "CnsVolumeOperationRequest",
+			"metadata": map[string]interface{}{
+				"namespace":         "vmware-system-csi",
+				"name":              pvName,
+				"creationTimestamp": time.Now().Format(time.RFC3339),
+			},
+			"spec": map[string]interface{}{
+				"name": pvName,
+			},
+
+			"status": map[string]interface{}{
+				"quotaDetails": map[string]interface{}{
+					"namespace":        "test-ns",
+					"reserved":         0,
+					"storageClassName": "test-zonal-policy",
+					"storagePolicyId":  "ef09d27b-d7ea-44e9-a4f6-5fd5c521b80d",
+				},
+				"volumeID": "d2629eb0-b872-4bc4-8297-2f5ab83e8edf",
+			},
+		},
+	}
+	return cnsVolumeOperationRequestCR
 }
 
 // This test verifies the fullsync workflow:
