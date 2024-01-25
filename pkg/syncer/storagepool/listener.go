@@ -231,7 +231,8 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 		return err
 	}
 	// Get datastores from VC.
-	sharedDatastores, vsanDirectDatastores, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, &vc, spCtl.clusterID)
+	sharedDatastores, vsanDirectDatastores, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, &vc,
+		spCtl.clusterID, true)
 	if err != nil {
 		log.Errorf("Failed to find datastores from VC. Err: %+v", err)
 		return err

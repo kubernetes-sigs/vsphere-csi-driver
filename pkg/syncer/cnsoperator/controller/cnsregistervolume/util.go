@@ -52,7 +52,7 @@ const (
 func isDatastoreAccessibleToCluster(ctx context.Context, vc *vsphere.VirtualCenter,
 	clusterID string, datastoreURL string) bool {
 	log := logger.GetLogger(ctx)
-	sharedDatastores, _, err := vsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterID)
+	sharedDatastores, _, err := vsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterID, false)
 	if err != nil {
 		log.Errorf("Failed to get candidate datastores for cluster: %s with err: %+v", clusterID, err)
 		return false
@@ -73,7 +73,7 @@ func isDatastoreAccessibleToAZClusters(ctx context.Context, vc *vsphere.VirtualC
 	log := logger.GetLogger(ctx)
 	for _, clusterIDs := range azClustersMap {
 		for _, clusterID := range clusterIDs {
-			sharedDatastores, _, err := vsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterID)
+			sharedDatastores, _, err := vsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterID, false)
 			if err != nil {
 				log.Warnf("Failed to get candidate datastores for cluster: %s with err: %+v", clusterID, err)
 				continue

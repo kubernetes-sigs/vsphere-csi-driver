@@ -1553,7 +1553,7 @@ func (volTopology *wcpControllerVolumeTopology) GetSharedDatastoresInTopology(ct
 		// Call GetCandidateDatastores for each cluster moref. Ignore the vsanDirectDatastores for now.
 		if !isPodVMOnStretchedSupervisorEnabled {
 			// This code block assume we have 1 Cluster Per AZ
-			accessibleDs, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, params.Vc, clusterMorefs[0])
+			accessibleDs, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, params.Vc, clusterMorefs[0], false)
 			if err != nil {
 				return nil, logger.LogNewErrorf(log,
 					"failed to find candidate datastores to place volume in cluster %q. Error: %v",
@@ -1728,7 +1728,7 @@ func getSharedDatastoresInClusters(ctx context.Context, clusterMorefs []string,
 	log := logger.GetLogger(ctx)
 	var sharedDatastoresForclusterMorefs []*cnsvsphere.DatastoreInfo
 	for index, clusterMoref := range clusterMorefs {
-		accessibleDs, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterMoref)
+		accessibleDs, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterMoref, false)
 		if err != nil {
 			return nil, logger.LogNewErrorf(log,
 				"failed to find candidate datastores to place volume in cluster %q. Error: %v",
