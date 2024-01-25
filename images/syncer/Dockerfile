@@ -17,7 +17,7 @@
 ARG GOLANG_IMAGE=golang:1.21
 
 # This build arg allows the specification of a custom base image.
-ARG BASE_IMAGE=gcr.io/cloud-provider-vsphere/extra/csi-driver-base:latest
+ARG BASE_IMAGE=photon:4.0
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
@@ -51,8 +51,11 @@ FROM ${BASE_IMAGE}
 # This build arg is the git commit to embed in the CSI binary
 ARG GIT_COMMIT
 
-# This label will be overridden from driver base image
 LABEL git_commit=$GIT_COMMIT
+LABEL "maintainers"="Divyen Patel <divyenp@vmware.com>, Sandeep Pissay Srinivasa Rao <ssrinivas@vmware.com>, Xing Yang <yangxi@vmware.com>"
+
+# Upgrade installed packages to pick up CVE fixes
+RUN tdnf -y upgrade && tdnf clean all
 
 COPY --from=builder /build/vsphere-syncer /bin/vsphere-syncer
 
