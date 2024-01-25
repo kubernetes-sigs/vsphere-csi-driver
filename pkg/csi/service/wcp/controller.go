@@ -462,6 +462,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	topologyRequirement = req.GetAccessibilityRequirements()
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
+	topoSegToDatastoresMap := make(map[string][]*cnsvsphere.DatastoreInfo)
 	if isTKGSHAEnabled {
 		// TKGS-HA feature is enabled
 		// Identify the topology keys in Accessibility requirements.
@@ -487,8 +488,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			log.Infof("Topology aware environment detected with requirement: %+v", topologyRequirement)
 			sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
 				commoncotypes.WCPTopologyFetchDSParams{
-					TopologyRequirement: topologyRequirement,
-					Vc:                  vc})
+					TopologyRequirement:    topologyRequirement,
+					Vc:                     vc,
+					TopoSegToDatastoresMap: topoSegToDatastoresMap})
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to find shared datastores for given topology requirement. Error: %v", err)
@@ -683,10 +685,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			// Calculate accessible topology for the provisioned volume.
 			datastoreAccessibleTopology, err := c.topologyMgr.GetTopologyInfoFromNodes(ctx,
 				commoncotypes.WCPRetrieveTopologyInfoParams{
-					DatastoreURL:        selectedDatastore,
-					StorageTopologyType: storageTopologyType,
-					TopologyRequirement: topologyRequirement,
-					Vc:                  vc})
+					DatastoreURL:           selectedDatastore,
+					StorageTopologyType:    storageTopologyType,
+					TopologyRequirement:    topologyRequirement,
+					Vc:                     vc,
+					TopoSegToDatastoresMap: topoSegToDatastoresMap})
 			if err != nil {
 				// If the error is of InvalidTopologyProvisioningError type, it means we cannot
 				// recover from this error with a retry, so cleanup the volume created above.

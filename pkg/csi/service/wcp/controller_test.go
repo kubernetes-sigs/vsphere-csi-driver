@@ -205,7 +205,8 @@ func getControllerTest(t *testing.T) *controllerTest {
 }
 
 func getFakeDatastores(ctx context.Context, vc *cnsvsphere.VirtualCenter,
-	clusterID string) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
+	clusterID string, includevSANDirectDatastores bool) ([]*cnsvsphere.DatastoreInfo,
+	[]*cnsvsphere.DatastoreInfo, error) {
 	var sharedDatastoreURL string
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
 		sharedDatastoreURL = v

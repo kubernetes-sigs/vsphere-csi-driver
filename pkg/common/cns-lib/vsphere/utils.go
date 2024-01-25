@@ -396,6 +396,7 @@ func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error
 // managed datastores of given VC cluster.
 // The 1st output parameter will be shared datastores.
 // The 2nd output parameter will be vSAN-direct managed datastores.
+// NOTE: The second output will be an empty list if `includevSANDirectDatastores` is set to false.
 func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clusterID string,
 	includevSANDirectDatastores bool) ([]*DatastoreInfo, []*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
@@ -415,10 +416,6 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 		accessibleDatastores, err := host.GetAllAccessibleDatastores(ctx)
 		if err != nil {
 			return nil, nil, err
-		}
-		if len(accessibleDatastores) == 0 {
-			return nil, nil, logger.LogNewErrorf(log, "host %q does not have any accessible datastores.",
-				host.Name())
 		}
 		if index == 0 {
 			for _, accessibleDs := range accessibleDatastores {
