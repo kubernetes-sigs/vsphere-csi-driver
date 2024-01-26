@@ -199,17 +199,16 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
 		return err
 	}
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
-		log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
-		authMgr, err := common.GetAuthorizationService(ctx, vc)
-		if err != nil {
-			log.Errorf("failed to initialize authMgr. err=%v", err)
-			return err
-		}
-		c.authMgr = authMgr
-		// TODO: Invoke similar method for block volumes.
-		go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager), config.Global.CSIAuthCheckIntervalInMin)
+
+	log.Info("loading AuthorizationService")
+	authMgr, err := common.GetAuthorizationService(ctx, vc)
+	if err != nil {
+		log.Errorf("failed to initialize authMgr. err=%v", err)
+		return err
 	}
+	c.authMgr = authMgr
+	// TODO: Invoke similar method for block volumes.
+	go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager), config.Global.CSIAuthCheckIntervalInMin)
 	// Create dynamic informer for AvailabilityZone instance if FSS is enabled
 	// and CR is present in environment.
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
@@ -926,8 +925,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 
 		if !isBlockRequest {
-			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) ||
-				!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
+			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
 					"file volume feature is disabled on the cluster")
 			}

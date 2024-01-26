@@ -286,12 +286,8 @@ func (f *FakeNodeManager) GetAllNodesByVC(ctx context.Context, vcHost string) ([
 }
 
 func (f *FakeAuthManager) GetDatastoreMapForBlockVolumes(ctx context.Context) map[string]*cnsvsphere.DatastoreInfo {
-	datastoreMapForBlockVolumes := make(map[string]*cnsvsphere.DatastoreInfo)
 	fmt.Print("FakeAuthManager: GetDatastoreMapForBlockVolumes")
-	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
-		datastoreMapForBlockVolumes, _ := common.GenerateDatastoreMapForBlockVolumes(ctx, f.vcenter)
-		return datastoreMapForBlockVolumes
-	}
+	datastoreMapForBlockVolumes, _ := common.GenerateDatastoreMapForBlockVolumes(ctx, f.vcenter)
 	return datastoreMapForBlockVolumes
 }
 

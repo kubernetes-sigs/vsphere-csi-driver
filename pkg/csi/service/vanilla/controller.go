@@ -91,7 +91,7 @@ var (
 
 	// The following variables hold feature states for multi-vcenter-csi-topology, CSI Migration
 	// and authorisation check.
-	multivCenterCSITopologyEnabled, csiMigrationEnabled, isAuthCheckFSSEnabled, filterSuspendedDatastores,
+	multivCenterCSITopologyEnabled, csiMigrationEnabled, filterSuspendedDatastores,
 	isTopologyAwareFileVolumeEnabled bool
 
 	// variables for list volumes
@@ -133,7 +133,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	multivCenterCSITopologyEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.MultiVCenterCSITopology)
 	csiMigrationEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
-	isAuthCheckFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck)
 	tasksListViewEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListViewPerf)
 	filterSuspendedDatastores = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CnsMgrSuspendCreateVolume)
@@ -176,26 +175,24 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 				vc.Client.ServiceContent.About.ApiVersion, err)
 			return err
 		}
-		if isAuthCheckFSSEnabled {
-			log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
-			authMgr, err := common.GetAuthorizationService(ctx, vc)
-			if err != nil {
-				log.Errorf("failed to initialize authMgr. err=%v", err)
-				return err
-			}
-			c.authMgr = authMgr
-			go common.ComputeDatastoreMapForBlockVolumes(authMgr.(*common.AuthManager),
+		log.Info("loading AuthorizationService")
+		authMgr, err := common.GetAuthorizationService(ctx, vc)
+		if err != nil {
+			log.Errorf("failed to initialize authMgr. err=%v", err)
+			return err
+		}
+		c.authMgr = authMgr
+		go common.ComputeDatastoreMapForBlockVolumes(authMgr.(*common.AuthManager),
+			config.Global.CSIAuthCheckIntervalInMin)
+		isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx,
+			c.manager.VcenterConfig.Host)
+		if err != nil {
+			log.Errorf("failed to verify if vSAN file services is supported or not. Error:%+v", err)
+			return err
+		}
+		if isvSANFileServicesSupported {
+			go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager),
 				config.Global.CSIAuthCheckIntervalInMin)
-			isvSANFileServicesSupported, err := c.manager.VcenterManager.IsvSANFileServicesSupported(ctx,
-				c.manager.VcenterConfig.Host)
-			if err != nil {
-				log.Errorf("failed to verify if vSAN file services is supported or not. Error:%+v", err)
-				return err
-			}
-			if isvSANFileServicesSupported {
-				go common.ComputeFSEnabledClustersToDsMap(authMgr.(*common.AuthManager),
-					config.Global.CSIAuthCheckIntervalInMin)
-			}
 		}
 	} else {
 		// Multi vCenter feature enabled
@@ -242,35 +239,34 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 					vc.Client.ServiceContent.About.ApiVersion, vc.Config.Host, err)
 			}
 		}
-		if isAuthCheckFSSEnabled {
-			log.Info("CSIAuthCheck feature is enabled, loading AuthorizationService")
-			authMgrs, err := common.GetAuthorizationServices(ctx, vCenters)
+
+		log.Info("loading AuthorizationService")
+		authMgrs, err := common.GetAuthorizationServices(ctx, vCenters)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to initialize authMgr. err=%v", err)
+		}
+		c.authMgrs = authMgrs
+		for _, authMgr := range authMgrs {
+			go common.ComputeDatastoreMapForBlockVolumes(authMgr, config.Global.CSIAuthCheckIntervalInMin)
+		}
+		var vsanFileServiceNotSupported bool
+		for _, vcconfig := range c.managers.VcenterConfigs {
+			isvSANFileServicesSupported, err := c.managers.VcenterManager.IsvSANFileServicesSupported(ctx,
+				vcconfig.Host)
 			if err != nil {
-				return logger.LogNewErrorf(log, "failed to initialize authMgr. err=%v", err)
+				return logger.LogNewErrorf(log, "failed to verify if vSAN file services is supported or not for vCenter: %s. "+
+					"Error:%+v", vcconfig.Host, err)
 			}
-			c.authMgrs = authMgrs
-			for _, authMgr := range authMgrs {
-				go common.ComputeDatastoreMapForBlockVolumes(authMgr, config.Global.CSIAuthCheckIntervalInMin)
+			if !isvSANFileServicesSupported {
+				vsanFileServiceNotSupported = true
+				break
 			}
-			var vsanFileServiceNotSupported bool
-			for _, vcconfig := range c.managers.VcenterConfigs {
-				isvSANFileServicesSupported, err := c.managers.VcenterManager.IsvSANFileServicesSupported(ctx,
-					vcconfig.Host)
-				if err != nil {
-					return logger.LogNewErrorf(log, "failed to verify if vSAN file services is supported or not for vCenter: %s. "+
-						"Error:%+v", vcconfig.Host, err)
-				}
-				if !isvSANFileServicesSupported {
-					vsanFileServiceNotSupported = true
-					break
-				}
-			}
-			if vsanFileServiceNotSupported {
-				return logger.LogNewErrorf(log, "vSAN file service is not supported in one or more vCenter(s)")
-			}
-			for _, vcconfig := range c.managers.VcenterConfigs {
-				go common.ComputeFSEnabledClustersToDsMap(authMgrs[vcconfig.Host], config.Global.CSIAuthCheckIntervalInMin)
-			}
+		}
+		if vsanFileServiceNotSupported {
+			return logger.LogNewErrorf(log, "vSAN file service is not supported in one or more vCenter(s)")
+		}
+		for _, vcconfig := range c.managers.VcenterConfigs {
+			go common.ComputeFSEnabledClustersToDsMap(authMgrs[vcconfig.Host], config.Global.CSIAuthCheckIntervalInMin)
 		}
 		if multivCenterTopologyDeployment {
 			log.Info("Loading CnsVolumeInfo Service to persist mapping for VolumeID to vCenter")
@@ -778,14 +774,13 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 		}
 
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIAuthCheck) {
-			// Filter datastores which in datastoreMap from sharedDatastores.
-			sharedDatastores, err = c.filterDatastores(ctx, sharedDatastores, c.manager.VcenterConfig.Host)
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to create volume. Error: %+v", err)
-			}
+		// Filter datastores which in datastoreMap from sharedDatastores.
+		sharedDatastores, err = c.filterDatastores(ctx, sharedDatastores, c.manager.VcenterConfig.Host)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to create volume. Error: %+v", err)
 		}
+
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
 			c.manager, &createVolumeSpec, sharedDatastores, filterSuspendedDatastores, false,
 			checkCompatibleDataStores, nil)

@@ -361,8 +361,6 @@ const (
 	OnlineVolumeExtend = "online-volume-extend"
 	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI.
 	CSIMigration = "csi-migration"
-	// CSIAuthCheck is feature flag for auth check.
-	CSIAuthCheck = "csi-auth-check"
 	// AsyncQueryVolume is feature flag for using async query volume API.
 	AsyncQueryVolume = "async-query-volume"
 	// CSISVFeatureStateReplication is feature flag for SV feature state
