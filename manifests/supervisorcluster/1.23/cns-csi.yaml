@@ -335,7 +335,7 @@ spec:
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
             - name: GODEBUG
-              value: x509sha1=1
+              value: x509sha1=1,tlsmaxrsasize=16384
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
             - mountPath: /etc/vmware/wcp
@@ -383,7 +383,7 @@ spec:
             - name: INCLUSTER_CLIENT_BURST
               value: "50"
             - name: GODEBUG
-              value: x509sha1=1
+              value: x509sha1=1,tlsmaxrsasize=16384
           imagePullPolicy: "IfNotPresent"
           ports:
            - containerPort: 2113
