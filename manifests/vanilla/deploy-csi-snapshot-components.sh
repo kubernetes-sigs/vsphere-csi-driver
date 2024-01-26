@@ -197,9 +197,6 @@ check_and_deploy_crds(){
 }
 
 find_control_plane_metadata(){
-	declare -g node_tolerations=""
-	declare -g node_tolerations=""
-
 	echo -e "Looking for control plane labels and taints..."
 	controller_labels=""
 	for label in "control-plane" "controlplane" "master"; do
