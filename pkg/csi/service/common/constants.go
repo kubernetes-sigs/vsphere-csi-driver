@@ -341,6 +341,12 @@ const (
 	// CreateCSINodeAnnotation is the annotation applied by spherelet
 	// to convey to CSI driver to create a CSINode instance for each node.
 	CreateCSINodeAnnotation = "vmware-system/csi-create-csinode-object"
+
+	// KubeSystemNamespace is the namespace for system resources.
+	KubeSystemNamespace = "kube-system"
+
+	// WCPCapabilityConfigMapName is the name of the configmap where WCP component's FSS values are stored.
+	WCPCapabilityConfigMapName = "wcp-cluster-capabilities"
 )
 
 // Supported container orchestrators.
@@ -408,6 +414,11 @@ const (
 	ListViewPerf = "listview-tasks"
 	// TopologyAwareFileVolume enables provisioning of file volumes in a topology enabled environment
 	TopologyAwareFileVolume = "topology-aware-file-volume"
-	// PodVMOnStretchedSupervisor enables Pod Vm Support on stretched supervisor cluster
-	PodVMOnStretchedSupervisor = "podvm-on-stretched-supervisor"
+	// PodVMOnStretchedSupervisor is the WCP FSS which determines if PodVM
+	// support is available on stretched supervisor cluster.
+	PodVMOnStretchedSupervisor = "PodVM_On_Stretched_Supervisor_Supported"
 )
+
+var WCPFeatureStates = map[string]struct{}{
+	PodVMOnStretchedSupervisor: {},
+}

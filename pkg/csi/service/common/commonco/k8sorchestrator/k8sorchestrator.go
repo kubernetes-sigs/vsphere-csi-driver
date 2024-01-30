@@ -70,6 +70,8 @@ var (
 	operationMode            string
 	svFssCRMutex             = &sync.RWMutex{}
 	k8sOrchestratorInitMutex = &sync.RWMutex{}
+	// wcpCapabilityFssMap is the cache variable which stores the data of wcp-cluster-capabilities configmap.
+	wcpCapabilityFssMap map[string]string
 )
 
 // FSSConfigMapInfo contains details about the FSS configmap(s) present in
@@ -1076,6 +1078,33 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 			"Setting the feature state to false", featureName, c.internalFSS.configMapName)
 		return false
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		// Check if it is WCP defined feature state.
+		if _, exists := common.WCPFeatureStates[featureName]; exists {
+			log.Infof("Feature %q is a WCP defined feature state. Reading the %q configmap in %q namespace.",
+				featureName, common.WCPCapabilityConfigMapName, common.KubeSystemNamespace)
+			// Check the `wcp-cluster-capabilities` configmap in supervisor for the FSS value.
+			if wcpCapabilityFssMap == nil {
+				wcpCapabilityConfigMap, err := c.k8sClient.CoreV1().ConfigMaps(common.KubeSystemNamespace).Get(ctx,
+					common.WCPCapabilityConfigMapName, metav1.GetOptions{})
+				if err != nil {
+					log.Errorf("failed to fetch WCP FSS configmap %q/%q. Setting the feature state "+
+						"to false. Error: %+v", common.KubeSystemNamespace, common.WCPCapabilityConfigMapName, err)
+					return false
+				}
+				wcpCapabilityFssMap = wcpCapabilityConfigMap.Data
+			}
+			if fssVal, exists := wcpCapabilityFssMap[featureName]; exists {
+				supervisorFeatureState, err = strconv.ParseBool(fssVal)
+				if err != nil {
+					log.Errorf("Error while converting %q feature state with value: %q in "+
+						"%q/%q configmap to boolean. Setting the feature state to false. Error: %+v", featureName,
+						fssVal, common.KubeSystemNamespace, common.WCPCapabilityConfigMapName, err)
+					return false
+				}
+				return supervisorFeatureState
+			}
+		}
+
 		// Check SV FSS map.
 		c.supervisorFSS.featureStatesLock.RLock()
 		if flag, ok := c.supervisorFSS.featureStates[featureName]; ok {
@@ -1097,7 +1126,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 		c.internalFSS.featureStatesLock.RLock()
 		if flag, ok := c.internalFSS.featureStates[featureName]; ok {
 			c.internalFSS.featureStatesLock.RUnlock()
-			internalFeatureState, err := strconv.ParseBool(flag)
+			internalFeatureState, err = strconv.ParseBool(flag)
 			if err != nil {
 				log.Errorf("Error while converting %v feature state value: %v to boolean. "+
 					"Setting the feature state to false", featureName, internalFeatureState)
@@ -1118,7 +1147,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 		c.supervisorFSS.featureStatesLock.RLock()
 		if flag, ok := c.supervisorFSS.featureStates[featureName]; ok {
 			c.supervisorFSS.featureStatesLock.RUnlock()
-			supervisorFeatureState, err := strconv.ParseBool(flag)
+			supervisorFeatureState, err = strconv.ParseBool(flag)
 			if err != nil {
 				log.Errorf("Error while converting %v feature state value: %v to boolean. "+
 					"Setting the feature state to false", featureName, supervisorFeatureState)
