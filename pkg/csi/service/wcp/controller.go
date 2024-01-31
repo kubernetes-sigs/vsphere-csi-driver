@@ -1289,6 +1289,14 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 					timeout := 4 * time.Minute
 					pollTime := time.Duration(5) * time.Second
 					err = wait.Poll(pollTime, timeout, func() (bool, error) {
+						podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, v)
+						if err != nil {
+							if err == cnsvsphere.ErrVMNotFound {
+								log.Infof("virtual machine not found for vmUUID %q. "+
+									"Thus, assuming the volume is detached.", v)
+								return true, err
+							}
+						}
 						diskUUID, err := cnsvolume.IsDiskAttached(ctx, podVM, req.VolumeId, true)
 						if err != nil {
 							log.Infof("retrying the IsDiskAttached check again for volumeId %q. Err: %+v", req.VolumeId, err)
@@ -1303,6 +1311,10 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 						return true, nil
 					})
 					if err != nil {
+						if err == cnsvsphere.ErrVMNotFound {
+							// If VirtualMachine is not found, return success assuming volume is already detached
+							break
+						}
 						if isStillAttached {
 							// Since the disk is still attached, we need to check if the volumeId in contention is attached
 							// to the Pod on a different node. We can get the node name information for the volumeID
