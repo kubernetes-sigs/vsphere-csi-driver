@@ -50,15 +50,6 @@ if ! command -v kubectl > /dev/null; then
   exit 1
 fi
 
-feature_state=$(kubectl get configmap internal-feature-states.csi.vsphere.vmware.com -n vmware-system-csi -o jsonpath='{.data.block-volume-snapshot}')
-if [ "$feature_state" = "true" ]
-then
-        echo -e "✅ Verified that block-volume-snapshot feature is enabled"
-else
-        echo -e "❌ ERROR: Please enable the block-volume-snapshot feature to proceed"
-        exit 1
-fi
-
 qualified_version="v6.3.3"
 volumesnapshotclasses_crd="volumesnapshotclasses.snapshot.storage.k8s.io"
 volumesnapshotcontents_crd="volumesnapshotcontents.snapshot.storage.k8s.io"

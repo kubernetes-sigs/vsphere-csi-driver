@@ -196,40 +196,20 @@ func TestIsFSSEnabledInSV(t *testing.T) {
 
 // TestIsFSSEnabledInVanilla tests IsFSSEnabled in vanilla flavor - all scenarios
 func TestIsFSSEnabledInVanilla(t *testing.T) {
-	internalFSS := map[string]string{
-		"csi-migration": "true",
-		"volume-extend": "false",
-		"volume-health": "disabled",
-	}
 	internalFSSConfigMapInfo := FSSConfigMapInfo{
 		configMapName:      cnsconfig.DefaultInternalFSSConfigMapName,
 		configMapNamespace: cnsconfig.DefaultCSINamespace,
-		featureStates:      internalFSS,
 		featureStatesLock:  &sync.RWMutex{},
 	}
 	k8sOrchestrator := K8sOrchestrator{
-		clusterFlavor: cnstypes.CnsClusterFlavorVanilla,
-		internalFSS:   internalFSSConfigMapInfo,
-	}
-	// Should be enabled
-	isEnabled := k8sOrchestrator.IsFSSEnabled(ctx, "csi-migration")
-	if !isEnabled {
-		t.Errorf("csi-migration feature state is disabled!")
-	}
-	// Should be disabled
-	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "volume-extend")
-	if isEnabled {
-		t.Errorf("volume-extend feature state is enabled!")
-	}
-	// Wrong value given
-	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "volume-health")
-	if isEnabled {
-		t.Errorf("volume-health feature state is enabled even when it was assigned a wrong value!")
+		clusterFlavor:      cnstypes.CnsClusterFlavorVanilla,
+		internalFSS:        internalFSSConfigMapInfo,
+		releasedVanillaFSS: getReleasedVanillaFSS(),
 	}
 	// Feature state missing
-	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "online-volume-extend")
+	isEnabled := k8sOrchestrator.IsFSSEnabled(ctx, "unknown-performance-feature")
 	if isEnabled {
-		t.Errorf("Non existing feature state online-volume-extend is enabled!")
+		t.Errorf("Non existing feature state unknown-performance-feature is enabled!")
 	}
 }
 
