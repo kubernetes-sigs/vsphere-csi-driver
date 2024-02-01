@@ -7,7 +7,6 @@ require (
 	github.com/akutz/gofsutil v0.1.2
 	github.com/container-storage-interface/spec v1.9.0
 	github.com/davecgh/go-spew v1.1.1
-	github.com/evanphx/json-patch v4.12.0+incompatible
 	github.com/evanphx/json-patch/v5 v5.6.0
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/golang/protobuf v1.5.3
@@ -16,12 +15,11 @@ require (
 	github.com/kubernetes-csi/csi-lib-utils v0.11.0
 	github.com/kubernetes-csi/csi-proxy/client v1.0.1
 	github.com/kubernetes-csi/external-snapshotter/client/v6 v6.1.0
-	github.com/onsi/ginkgo/v2 v2.8.3
-	github.com/onsi/gomega v1.27.0
+	github.com/onsi/ginkgo/v2 v2.11.0
+	github.com/onsi/gomega v1.27.10
 	github.com/pkg/sftp v1.13.6
 	github.com/prometheus/client_golang v1.14.0
 	github.com/stretchr/testify v1.8.4
-	github.com/vmware-tanzu/vm-operator-api v0.1.4-0.20211202183846-992b48c128ae
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
 	github.com/vmware/govmomi v0.34.2
 	go.uber.org/zap v1.24.0
@@ -31,15 +29,15 @@ require (
 	google.golang.org/protobuf v1.31.0
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/yaml.v2 v2.4.0
-	k8s.io/api v0.26.10
-	k8s.io/apiextensions-apiserver v0.26.10
-	k8s.io/apimachinery v0.26.10
-	k8s.io/client-go v0.26.10
-	k8s.io/kubectl v0.26.10
-	k8s.io/kubernetes v1.26.10
-	k8s.io/mount-utils v0.26.10
-	k8s.io/pod-security-admission v0.26.10
-	k8s.io/sample-controller v0.26.10
+	k8s.io/api v0.27.10
+	k8s.io/apiextensions-apiserver v0.27.10
+	k8s.io/apimachinery v0.27.10
+	k8s.io/client-go v0.27.10
+	k8s.io/kubectl v0.27.10
+	k8s.io/kubernetes v1.27.10
+	k8s.io/mount-utils v0.27.10
+	k8s.io/pod-security-admission v0.27.10
+	k8s.io/sample-controller v0.27.10
 	k8s.io/utils v0.0.0-20221128185143-99ec85e7a448
 	sigs.k8s.io/controller-runtime v0.14.5
 )
@@ -72,6 +70,7 @@ require (
 	github.com/elazarl/goproxy v0.0.0-20230731152917-f99041a5c027 // indirect
 	github.com/emicklei/go-restful/v3 v3.9.0 // indirect
 	github.com/euank/go-kmsg-parser v2.0.0+incompatible // indirect
+	github.com/evanphx/json-patch v4.12.0+incompatible // indirect
 	github.com/exponent-io/jsonpath v0.0.0-20151013193312-d6023ce2651d // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-errors/errors v1.0.1 // indirect
@@ -80,7 +79,7 @@ require (
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
 	github.com/go-openapi/jsonreference v0.20.0 // indirect
 	github.com/go-openapi/swag v0.22.3 // indirect
-	github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0 // indirect
+	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
 	github.com/godbus/dbus/v5 v5.0.6 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
@@ -156,7 +155,7 @@ require (
 	golang.org/x/term v0.15.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
-	golang.org/x/tools v0.6.0 // indirect
+	golang.org/x/tools v0.9.3 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20230822172742-b8732ec3820d // indirect
