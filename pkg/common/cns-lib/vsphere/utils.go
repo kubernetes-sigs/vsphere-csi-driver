@@ -396,14 +396,10 @@ func GetTagManager(ctx context.Context, vc *VirtualCenter) (*tags.Manager, error
 // managed datastores of given VC cluster.
 // The 1st output parameter will be shared datastores.
 // The 2nd output parameter will be vSAN-direct managed datastores.
-func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clusterID string) (
-	[]*DatastoreInfo, []*DatastoreInfo, error) {
+// NOTE: The second output will be an empty list if `includevSANDirectDatastores` is set to false.
+func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clusterID string,
+	includevSANDirectDatastores bool) ([]*DatastoreInfo, []*DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
-	// Get all vsan direct datastore urls in VC. Later, filter in this cluster.
-	allVsanDirectUrls, err := getVsanDirectDatastores(ctx, vc, clusterID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get vSAN Direct VMFS datastores. Err: %+v", err)
-	}
 
 	// Find datastores shared across all hosts in given cluster.
 	hosts, err := vc.GetHostsByCluster(ctx, clusterID)
@@ -413,6 +409,7 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 	if len(hosts) == 0 {
 		return nil, nil, fmt.Errorf("empty List of hosts returned from VC")
 	}
+
 	sharedDatastores := make([]*DatastoreInfo, 0)
 	vsanDirectDatastores := make([]*DatastoreInfo, 0)
 	for index, host := range hosts {
@@ -422,7 +419,16 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 		}
 		if index == 0 {
 			for _, accessibleDs := range accessibleDatastores {
-				if allVsanDirectUrls[accessibleDs.Info.Url] {
+				var dsType string
+				if includevSANDirectDatastores {
+					_, dsType, err = accessibleDs.GetDatastoreURLAndType(ctx)
+					if err != nil {
+						return nil, nil, logger.LogNewErrorf(log,
+							"Unable to find datastore type and URL for %q. Error: %+v",
+							accessibleDs.Reference().Value, err)
+					}
+				}
+				if dsType == vsanDType {
 					vsanDirectDatastores = append(vsanDirectDatastores, accessibleDs)
 				} else {
 					sharedDatastores = append(sharedDatastores, accessibleDs)
@@ -431,7 +437,16 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 		} else {
 			var sharedAccessibleDatastores []*DatastoreInfo
 			for _, accessibleDs := range accessibleDatastores {
-				if allVsanDirectUrls[accessibleDs.Info.Url] {
+				var dsType string
+				if includevSANDirectDatastores {
+					_, dsType, err = accessibleDs.GetDatastoreURLAndType(ctx)
+					if err != nil {
+						return nil, nil, logger.LogNewErrorf(log,
+							"Unable to find datastore type and URL for %q. Error: %+v",
+							accessibleDs.Reference().Value, err)
+					}
+				}
+				if dsType == vsanDType {
 					vsanDirectDatastores = append(vsanDirectDatastores, accessibleDs)
 					continue
 				}
@@ -454,33 +469,6 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 	log.Infof("Found shared datastores: %+v and vSAN Direct datastores: %+v", sharedDatastores,
 		vsanDirectDatastores)
 	return sharedDatastores, vsanDirectDatastores, nil
-}
-
-// getVsanDirectDatastores returns the datastore URLs of all the vSAN-Direct
-// managed datatores in the given VirtualCenter.
-func getVsanDirectDatastores(ctx context.Context, vc *VirtualCenter, clusterID string) (map[string]bool, error) {
-	log := logger.GetLogger(ctx)
-	var datastores = make(map[string]bool)
-
-	// Get all datastores in this cluster.
-	datastoreInfos, err := vc.GetDatastoresByCluster(ctx, clusterID)
-	if err != nil {
-		log.Warnf("Not able to fetch datastores in cluster %q. Err: %v", clusterID, err)
-		return nil, err
-	}
-
-	// Filter them by datastore type of vsanD.
-	for _, dsInfo := range datastoreInfos {
-		dsURL, dsType, err := dsInfo.GetDatastoreURLAndType(ctx)
-		if err != nil {
-			log.Errorf("Not able to find datastore type and url for %s. Err: %v", dsInfo.Reference().Value, err)
-			return nil, err
-		}
-		if dsType == vsanDType {
-			datastores[dsURL] = true
-		}
-	}
-	return datastores, nil
 }
 
 // GetDatastoreInfoByURL returns info of a datastore found in given cluster
