@@ -198,6 +198,7 @@ func (m *volumeIDToNameMap) get(volumeID string) (string, bool) {
 type K8sOrchestrator struct {
 	supervisorFSS        FSSConfigMapInfo
 	internalFSS          FSSConfigMapInfo
+	releasedVanillaFSS   map[string]struct{}
 	informerManager      *k8s.InformerManager
 	clusterFlavor        cnstypes.CnsClusterFlavor
 	volumeIDToPvcMap     *volumeIDToPvcMap
@@ -287,6 +288,7 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 					return nil, fmt.Errorf("expected orchestrator params of type K8sVanillaInitParams, got %T instead", params)
 				}
 				operationMode = vanillaInitParams.OperationMode
+				k8sOrchestratorInstance.releasedVanillaFSS = getReleasedVanillaFSS()
 			} else if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest {
 				guestInitParams, ok := params.(K8sGuestInitParams)
 				if !ok {
@@ -335,6 +337,23 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 		}
 	}
 	return k8sOrchestratorInstance, nil
+}
+
+func getReleasedVanillaFSS() map[string]struct{} {
+	return map[string]struct{}{
+		common.CSIMigration:                   {},
+		common.OnlineVolumeExtend:             {},
+		common.AsyncQueryVolume:               {},
+		common.BlockVolumeSnapshot:            {},
+		common.CSIWindowsSupport:              {},
+		common.ListVolumes:                    {},
+		common.CnsMgrSuspendCreateVolume:      {},
+		common.TopologyPreferentialDatastores: {},
+		common.MaxPVSCSITargetsPerVM:          {},
+		common.MultiVCenterCSITopology:        {},
+		common.CSIInternalGeneratedClusterID:  {},
+		common.ListViewPerf:                   {},
+	}
 }
 
 // initFSS performs all the operations required to initialize the Feature
@@ -1033,11 +1052,18 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 		err                    error
 	)
 	if c.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		// Check internal FSS map.
+		// first check hard coded FSS map. these are GA'ed features
+		// we don't need a lock for this one as this is map is read only after init
+		if _, isReleased := c.releasedVanillaFSS[featureName]; isReleased {
+			return true
+		}
+
 		c.internalFSS.featureStatesLock.RLock()
-		if flag, ok := c.internalFSS.featureStates[featureName]; ok {
+		// for testing, we still need to provide a way to toggle unreleased fss.
+		// so we can look in the live configmap for these
+		if state, ok := c.internalFSS.featureStates[featureName]; ok {
 			c.internalFSS.featureStatesLock.RUnlock()
-			internalFeatureState, err = strconv.ParseBool(flag)
+			internalFeatureState, err = strconv.ParseBool(state)
 			if err != nil {
 				log.Errorf("Error while converting %v feature state value: %v to boolean. "+
 					"Setting the feature state to false", featureName, internalFeatureState)
@@ -1237,7 +1263,7 @@ func initVolumeNameToNodesMap(ctx context.Context, controllerClusterFlavor cnsty
 			func(obj interface{}) { // Add.
 				volumeAttachmentAdded(obj)
 			},
-			func(oldObj interface{}, newObj interface{}) { //Update
+			func(oldObj interface{}, newObj interface{}) { // Update
 				volumeAttachmentUpdated(oldObj, newObj)
 			},
 			func(obj interface{}) { // Delete.
