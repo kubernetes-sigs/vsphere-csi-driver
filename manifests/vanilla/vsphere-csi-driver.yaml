@@ -151,6 +151,7 @@ data:
   "trigger-csi-fullsync": "false"
   "pv-to-backingdiskobjectid-mapping": "false"
   "topology-aware-file-volume": "false"
+  "storage-quota-m2": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
