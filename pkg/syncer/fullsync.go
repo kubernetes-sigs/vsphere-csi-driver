@@ -59,7 +59,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	}
 	// Attempt to patch StoragePolicyUsage CRs
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) {
+		if IsPodVMOnStretchSupervisorFSSEnabled {
 			storagePolicyUsageCRSync(ctx, metadataSyncer)
 		}
 	}
@@ -290,7 +290,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	// Sync VolumeInfo CRs for the below conditions:
 	// Either it is a Vanilla k8s deployment with Multi-VC configuration or, it's a StretchSupervisor cluster
 	if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 ||
-		(metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && isPodVMOnStretchSupervisorFSSEnabled) {
+		(metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsPodVMOnStretchSupervisorFSSEnabled) {
 		volumeInfoCRFullSync(ctx, metadataSyncer, vc)
 		cleanUpVolumeInfoCrDeletionMap(ctx, metadataSyncer, vc)
 	}
@@ -365,7 +365,7 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 
 	volumeIdTok8sPVMap := make(map[string]*v1.PersistentVolume)
 	scNameToPolicyIdMap := make(map[string]string)
-	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && isPodVMOnStretchSupervisorFSSEnabled {
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsPodVMOnStretchSupervisorFSSEnabled {
 		// Create volumeIdTok8sPVMap map for easy lookup of PVs
 		for _, pv := range currentK8sPV {
 			if pv.Spec.CSI != nil {
@@ -414,7 +414,8 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 						"Error: %+v", vc, volumeID, err)
 					continue
 				}
-			} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && isPodVMOnStretchSupervisorFSSEnabled {
+			} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+				IsPodVMOnStretchSupervisorFSSEnabled {
 				pv := volumeIdTok8sPVMap[volumeID]
 				pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(
 					pv.Spec.ClaimRef.Namespace).Get(pv.Spec.ClaimRef.Name)

@@ -90,11 +90,10 @@ var (
 	isMultiVCenterFssEnabled bool
 	// nodeMgr stores the manager to interact with nodeVMs.
 	nodeMgr node.Manager
-	// isPodVMOnStretchSupervisorFSSEnabled is true when PodVMOnStretchedSupervisor FSS is enabled.
-	isPodVMOnStretchSupervisorFSSEnabled bool
+	// IsPodVMOnStretchSupervisorFSSEnabled is true when PodVMOnStretchedSupervisor FSS is enabled.
+	IsPodVMOnStretchSupervisorFSSEnabled bool
 
-	// For core API resource ResourceAPIGroup will be set to "". PVC is part of the core API resources
-	// and ResourceAPIgroupPVC is set to "".
+	// ResourceAPIgroupPVC is an empty string as PVC belongs to the core resource group denoted by `""`.
 	ResourceAPIgroupPVC = ""
 )
 
@@ -230,9 +229,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 			clusterIDforVolumeMetadata = configInfo.Cfg.Global.SupervisorID
 		}
-		isPodVMOnStretchSupervisorFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		IsPodVMOnStretchSupervisorFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.PodVMOnStretchedSupervisor)
-		if isPodVMOnStretchSupervisorFSSEnabled {
+		if IsPodVMOnStretchSupervisorFSSEnabled {
 			// Start watching on nodes to create CSINodes, if not already present.
 			err = commonco.ContainerOrchestratorUtility.InitializeCSINodes(ctx)
 			if err != nil {
@@ -303,7 +302,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				}
 			}()
 		}
-		if isPodVMOnStretchSupervisorFSSEnabled {
+		if IsPodVMOnStretchSupervisorFSSEnabled {
 			log.Info("Loading CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
 			volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
 			if err != nil {
@@ -730,7 +729,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				}
 			}
 		}()
-		if isPodVMOnStretchSupervisorFSSEnabled {
+		if IsPodVMOnStretchSupervisorFSSEnabled {
 			log.Info("Syncing StoragePolicyUsage CRs with the kubernetes PVs that are in Bound state")
 			storagePolicyUsageCRSync(ctx, metadataSyncer)
 		}
@@ -2366,7 +2365,7 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 // Vanills k8s and supervisor cluster.
 func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
-	if isPodVMOnStretchSupervisorFSSEnabled {
+	if IsPodVMOnStretchSupervisorFSSEnabled {
 		volumeInfo, err := volumeInfoService.GetVolumeInfoForVolumeID(ctx, pv.Spec.CSI.VolumeHandle)
 		if err != nil {
 			log.Errorf("failed to fetch CnsVolumeInfo CR. Error: %+v", err)
@@ -2574,7 +2573,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 				}
 			}
 		} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-			isPodVMOnStretchSupervisorFSSEnabled {
+			IsPodVMOnStretchSupervisorFSSEnabled {
 			// Delete CNSVolumeInfo CR for the volume ID.
 			err = volumeInfoService.DeleteVolumeInfo(ctx, volumeHandle)
 			if err != nil {

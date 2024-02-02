@@ -31,12 +31,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
-	cnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/config"
-	internalapiscnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/config"
-	csinodetopologyconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/config"
-
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	cnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/config"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -44,10 +41,13 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis"
+	internalapiscnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/config"
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology"
+	csinodetopologyconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/config"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/controller"
 )
 
@@ -57,7 +57,7 @@ var (
 	metricsPort int32 = 8383
 )
 
-type cnsOperator struct {
+type cnsOperatorInfo struct {
 	configInfo        *commonconfig.ConfigurationInfo
 	coCommonInterface commonco.COCommonInterface
 }
@@ -67,7 +67,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	configInfo *commonconfig.ConfigurationInfo, coInitParams *interface{}) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("Initializing CNS Operator")
-	cnsOperator := &cnsOperator{}
+	cnsOperator := &cnsOperatorInfo{}
 	cnsOperator.configInfo = configInfo
 
 	var volumeManager volumes.Manager
@@ -119,6 +119,8 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	// TODO: Verify leader election for CNS Operator in multi-master mode
 	// Create CRD's for WCP flavor.
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		syncer.IsPodVMOnStretchSupervisorFSSEnabled = cnsOperator.coCommonInterface.IsFSSEnabled(ctx,
+			common.PodVMOnStretchedSupervisor)
 		// Create CnsNodeVmAttachment CRD
 		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsNodeVmAttachmentCRFile,
 			cnsoperatorconfig.EmbedCnsNodeVmAttachmentCRFileName)
@@ -152,8 +154,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		if stretchedSupervisor {
 			log.Info("Observed stretchedSupervisor setup")
 		}
-		if !stretchedSupervisor ||
-			(stretchedSupervisor && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor)) {
+		if !stretchedSupervisor || (stretchedSupervisor && syncer.IsPodVMOnStretchSupervisorFSSEnabled) {
 			// Create CnsRegisterVolume CRD from manifest.
 			log.Infof("Creating %q CRD", cnsoperatorv1alpha1.CnsRegisterVolumePlural)
 			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsRegisterVolumeCRFile,
@@ -163,6 +164,27 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				return err
 			}
 			log.Infof("%q CRD is created successfully", cnsoperatorv1alpha1.CnsRegisterVolumePlural)
+
+			// Clean up routine to cleanup successful CnsRegisterVolume instances.
+			log.Info("Starting go routine to cleanup successful CnsRegisterVolume instances.")
+			err = watcher(ctx, cnsOperator)
+			if err != nil {
+				log.Error("Failed to watch on config file for changes to "+
+					"CnsRegisterVolumesCleanupIntervalInMin. Error: %+v", err)
+				return err
+			}
+			go func() {
+				for {
+					ctx, log = logger.GetNewContextWithLogger()
+					log.Infof("Triggering CnsRegisterVolume cleanup routine")
+					cleanUpCnsRegisterVolumeInstances(ctx, restConfig,
+						cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin)
+					log.Infof("Completed CnsRegisterVolume cleanup")
+					for i := 1; i <= cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin; i++ {
+						time.Sleep(time.Duration(1 * time.Minute))
+					}
+				}
+			}()
 		}
 
 		if !stretchedSupervisor {
@@ -185,30 +207,6 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 					return err
 				}
 			}
-		}
-
-		if !stretchedSupervisor ||
-			(stretchedSupervisor && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor)) {
-			// Clean up routine to cleanup successful CnsRegisterVolume instances.
-			log.Info("Starting go routine to cleanup successful CnsRegisterVolume instances.")
-			err = watcher(ctx, cnsOperator)
-			if err != nil {
-				log.Error("Failed to watch on config file for changes to CnsRegisterVolumesCleanupIntervalInMin. Error: %+v",
-					err)
-				return err
-			}
-			go func() {
-				for {
-					ctx, log = logger.GetNewContextWithLogger()
-					log.Infof("Triggering CnsRegisterVolume cleanup routine")
-					cleanUpCnsRegisterVolumeInstances(ctx, restConfig,
-						cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin)
-					log.Infof("Completed CnsRegisterVolume cleanup")
-					for i := 1; i <= cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin; i++ {
-						time.Sleep(time.Duration(1 * time.Minute))
-					}
-				}
-			}()
 		}
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		// Create CSINodeTopology CRD.
@@ -351,7 +349,7 @@ func InitCommonModules(ctx context.Context, clusterFlavor cnstypes.CnsClusterFla
 
 // watcher watches on the vsphere.conf file mounted as secret within the syncer
 // container.
-func watcher(ctx context.Context, cnsOperator *cnsOperator) error {
+func watcher(ctx context.Context, cnsOperator *cnsOperatorInfo) error {
 	log := logger.GetLogger(ctx)
 	cfgPath := commonconfig.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
@@ -395,9 +393,9 @@ func watcher(ctx context.Context, cnsOperator *cnsOperator) error {
 	return err
 }
 
-// reloadConfiguration reloads configuration from the secret, and cnsOperator
+// reloadConfiguration reloads configuration from the secret, and cnsOperatorInfo
 // with the latest configInfo.
-func reloadConfiguration(ctx context.Context, cnsOperator *cnsOperator) error {
+func reloadConfiguration(ctx context.Context, cnsOperator *cnsOperatorInfo) error {
 	log := logger.GetLogger(ctx)
 	cfg, err := commonconfig.GetConfig(ctx)
 	if err != nil {
