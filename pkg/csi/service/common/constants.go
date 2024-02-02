@@ -417,6 +417,8 @@ const (
 	// PodVMOnStretchedSupervisor is the WCP FSS which determines if PodVM
 	// support is available on stretched supervisor cluster.
 	PodVMOnStretchedSupervisor = "PodVM_On_Stretched_Supervisor_Supported"
+	// StorageQuotaM2 enables support for snapshot quota feature
+	StorageQuotaM2 = "storage-quota-m2"
 )
 
 var WCPFeatureStates = map[string]struct{}{
