@@ -222,13 +222,12 @@ spec:
       priorityClassName: system-node-critical
       containers:
         - name: csi-provisioner
-          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v3.4.0_vmware.2
+          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v3.4.0_vmware.4
           args:
             - "--v=4"
             - "--timeout=300s"
             - "--csi-address=$(ADDRESS)"
             - "--feature-gates=Topology=true"
-            - "--extra-create-metadata=false"
             - "--strict-topology"
             - "--leader-election"
             - "--enable-hostlocal-placement=true"
@@ -237,7 +236,6 @@ spec:
             - "--default-fstype=ext4"
             - "--use-service-for-placement-engine=false"
             - "--tkgs-ha=true"
-            - "--podvm-on-stretched-supervisor=false"
             - "--leader-election-lease-duration=120s"
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
