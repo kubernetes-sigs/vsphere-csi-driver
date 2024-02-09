@@ -35,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -51,8 +50,8 @@ const (
 	// and internal map that couldn't be removed due to any vc issues
 	defaultListViewCleanupInvalidTasksInMinutes = 15
 
-	// timeout duration for a http request
-	// used only for listView
+	// timeout duration for a http request.
+	// set to 0 to not cause listview connection drop
 	noTimeout = 0 * time.Minute
 
 	// VolumeOperationTimeoutInSeconds specifies the default CSI operation timeout in seconds
@@ -148,8 +147,6 @@ type Manager interface {
 		string, error)
 	// GetOperationStore returns the VolumeOperationRequest interface
 	GetOperationStore() cnsvolumeoperationrequest.VolumeOperationRequest
-	// LogoutListViewVCSession logout current vCenter session for list-view
-	LogoutListViewVCSession(ctx context.Context) error
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -344,15 +341,20 @@ func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.V
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
 	log.Infof("Re-initializing defaultManager.virtualCenter")
+	existingVCInstance := managerInstance.virtualCenter
 	managerInstance.virtualCenter = vcenter
 	if m.tasksListViewEnabled {
 		m.listViewIf.SetVirtualCenter(ctx, managerInstance.virtualCenter)
 	}
 	if m.virtualCenter.Client != nil {
-		m.virtualCenter.Client.Timeout = time.Duration(vcenter.Config.VCClientTimeout) * time.Minute
+		m.virtualCenter.Client.Timeout = noTimeout
 		log.Infof("VC client timeout is set to %v", m.virtualCenter.Client.Timeout)
 	}
 	log.Infof("Done resetting volume.defaultManager")
+	err := existingVCInstance.Disconnect(ctx)
+	if err != nil {
+		log.Errorf("Error disconnecting older vc session. err: %v", err)
+	}
 	return nil
 }
 
@@ -728,27 +730,11 @@ func (m *defaultManager) initListView() error {
 		}
 	}
 
-	err := cnsvsphere.ReadVCConfigs(ctx, m.virtualCenter)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to read VC config. err: %v", err)
-	}
-
-	useragent, err := config.GetSessionUserAgent(ctx)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to get useragent for vCenter session. error: %+v", err)
-	}
-	useragent = useragent + "-listview"
-
-	govmomiClient, err := m.virtualCenter.NewClient(ctx, useragent)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to create a separate govmomi client for listView. error: %+v", err)
-	}
-	govmomiClient.Timeout = noTimeout
-	log.Infof("created new govmomi client for listView")
-	m.listViewIf, err = NewListViewImpl(ctx, m.virtualCenter, govmomiClient)
+	impl, err := NewListViewImpl(ctx, m.virtualCenter)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to initialize listView object. err: %v", err)
 	}
+	m.listViewIf = impl
 	return nil
 }
 
@@ -2886,15 +2872,6 @@ func (m *defaultManager) ProtectVolumeFromVMDeletion(ctx context.Context, volume
 		}
 		log.Infof("Successfully re-registered volume to set control flag to " +
 			"protect volume from vm deletion")
-	}
-	return nil
-}
-
-func (m *defaultManager) LogoutListViewVCSession(ctx context.Context) error {
-	log := logger.GetLogger(ctx)
-	if m.listViewIf != nil {
-		log.Info("Logging out list view vCenter session")
-		return m.listViewIf.LogoutSession(ctx)
 	}
 	return nil
 }
