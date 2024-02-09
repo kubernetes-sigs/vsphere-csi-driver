@@ -109,7 +109,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		var fullSyncWaitTime int
 		var err error
 
-		// Read full-sync value.
+		// Read full-sync value
 		if os.Getenv(envFullSyncWaitTime) != "" {
 			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
 			framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
