@@ -13,7 +13,6 @@ export BIN_OUT ?= $(BUILD_OUT)/bin
 # DIST_OUT is the directory containting the distribution packages
 export DIST_OUT ?= $(BUILD_OUT)/dist
 
--include hack/make/docker.mk
 
 ################################################################################
 ##                             VERIFY GO VERSION                              ##
