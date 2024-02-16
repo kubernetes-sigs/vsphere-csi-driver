@@ -164,7 +164,7 @@ const (
 	pvcHealthTimestampAnnotation              = "volumehealth.storage.kubernetes.io/health-timestamp"
 	provisionerContainerName                  = "csi-provisioner"
 	quotaName                                 = "cns-test-quota"
-	regionKey                                 = "topology.csi.vmware.com/k8s-region"
+	regionKey                                 = "topology.csi.vmware.com/region-cat-609"
 	resizePollInterval                        = 2 * time.Second
 	restartOperation                          = "restart"
 	rqLimit                                   = "200Gi"
@@ -224,7 +224,7 @@ const (
 	cloudadminTKG                             = "test-cluster-e2e-script-1"
 	vmOperatorAPI                             = "/apis/vmoperator.vmware.com/v1alpha1/"
 	devopsUser                                = "testuser"
-	zoneKey                                   = "topology.csi.vmware.com/k8s-zone"
+	zoneKey                                   = "topology.csi.vmware.com/zone-cat-609"
 	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha3/namespaces" +
 		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"
 	topologykey                                = "topology.csi.vmware.com"
