@@ -97,7 +97,7 @@ else
         exit 1
 fi
 
-qualified_version="v6.3.3"
+qualified_version="v7.0.1"
 volumesnapshotclasses_crd="volumesnapshotclasses.snapshot.storage.k8s.io"
 volumesnapshotcontents_crd="volumesnapshotcontents.snapshot.storage.k8s.io"
 volumesnapshots_crd="volumesnapshots.snapshot.storage.k8s.io"
