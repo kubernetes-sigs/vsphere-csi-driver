@@ -1093,6 +1093,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 					return false
 				}
 				wcpCapabilityFssMap = wcpCapabilityConfigMap.Data
+				log.Infof("WCP cluster capabilities map - %+v", wcpCapabilityFssMap)
 			}
 			if fssVal, exists := wcpCapabilityFssMap[featureName]; exists {
 				supervisorFeatureState, err = strconv.ParseBool(fssVal)
@@ -1102,6 +1103,8 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 						fssVal, common.KubeSystemNamespace, common.WCPCapabilityConfigMapName, err)
 					return false
 				}
+				log.Debugf("Supervisor feature state %q in WCP cluster capabilities is set to %t", featureName,
+					supervisorFeatureState)
 				return supervisorFeatureState
 			}
 		}
