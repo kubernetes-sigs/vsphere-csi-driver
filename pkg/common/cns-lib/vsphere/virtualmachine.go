@@ -36,6 +36,7 @@ var (
 	ErrVMNotFound = errors.New("virtual machine wasn't found")
 	// ErrNoSharedDatastoresFound is raised when no shared datastores are found among the given NodeVMs.
 	ErrNoSharedDatastoresFound = errors.New("no shared datastores found among given NodeVMs")
+	ErrInvalidVC               = errors.New("invalid VC Object")
 )
 
 // VirtualMachine holds details of a virtual machine instance.

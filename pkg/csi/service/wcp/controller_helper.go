@@ -391,24 +391,30 @@ func getVMByInstanceUUIDInDatacenter(ctx context.Context,
 	datacenter string,
 	vmInstanceUUID string) (*vsphere.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
-	var dc *vsphere.Datacenter
-	var vm *vsphere.VirtualMachine
-	dc = &vsphere.Datacenter{
-		Datacenter: object.NewDatacenter(vc.Client.Client,
-			vimtypes.ManagedObjectReference{
-				Type:  "Datacenter",
-				Value: datacenter,
-			}),
-		VirtualCenterHost: vc.Config.Host,
+	if vc != nil && vc.Client != nil && vc.Client.Client != nil && vc.Config != nil {
+		var (
+			dc *vsphere.Datacenter
+			vm *vsphere.VirtualMachine
+		)
+		dc = &vsphere.Datacenter{
+			Datacenter: object.NewDatacenter(vc.Client.Client,
+				vimtypes.ManagedObjectReference{
+					Type:  "Datacenter",
+					Value: datacenter,
+				}),
+			VirtualCenterHost: vc.Config.Host,
+		}
+		// Get VM by UUID from datacenter.
+		vm, err := dc.GetVirtualMachineByUUID(ctx, vmInstanceUUID, true)
+		if err != nil {
+			log.Errorf("failed to find the VM from the VM Instance UUID: %s in datacenter: %+v with err: %+v",
+				vmInstanceUUID, dc, err)
+			return nil, err
+		}
+		return vm, nil
+	} else {
+		return nil, vsphere.ErrInvalidVC
 	}
-	// Get VM by UUID from datacenter.
-	vm, err := dc.GetVirtualMachineByUUID(ctx, vmInstanceUUID, true)
-	if err != nil {
-		log.Errorf("failed to find the VM from the VM Instance UUID: %s in datacenter: %+v with err: %+v",
-			vmInstanceUUID, dc, err)
-		return nil, err
-	}
-	return vm, nil
 }
 
 // getDatastoreURLFromStoragePool returns the datastoreUrl that the given

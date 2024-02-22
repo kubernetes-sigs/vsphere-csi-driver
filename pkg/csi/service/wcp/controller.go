@@ -1278,28 +1278,26 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 							"failed to connect to Virtual Center: %s", vc.Config.Host)
 					}
-					podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, v)
-					if err != nil {
-						if err == cnsvsphere.ErrVMNotFound {
-							log.Infof("virtual machine not found for vmUUID %q. "+
-								"Thus, assuming the volume is detached.", v)
-							break
-						}
-						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-							"failed to get the PodVM Moref from the PodVM UUID: %s in datacenter: %s with err: %+v",
-							v, dcMorefValue, err)
-					}
 					isStillAttached := false
 					timeout := 4 * time.Minute
 					pollTime := time.Duration(5) * time.Second
-					err = wait.Poll(pollTime, timeout, func() (bool, error) {
-						podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, v)
+					var podVM *cnsvsphere.VirtualMachine
+					err = wait.PollImmediate(pollTime, timeout, func() (bool, error) {
+						podVM, err = getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, v)
 						if err != nil {
 							if err == cnsvsphere.ErrVMNotFound {
 								log.Infof("virtual machine not found for vmUUID %q. "+
 									"Thus, assuming the volume is detached.", v)
 								return true, err
 							}
+							if err == cnsvsphere.ErrInvalidVC {
+								log.Errorf("failed to get the PodVM Moref from the PodVM UUID: %s in datacenter: "+
+									"%s with err: %+v", v, dcMorefValue, err)
+								return false, err
+							}
+							log.Errorf("failed to get the PodVM Moref from the PodVM UUID: %s in datacenter: "+
+								"%s with err: %+v. Will Retry after 5 seconds", v, dcMorefValue, err)
+							return false, nil
 						}
 						diskUUID, err := cnsvolume.IsDiskAttached(ctx, podVM, req.VolumeId, true)
 						if err != nil {
@@ -1318,6 +1316,11 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 						if err == cnsvsphere.ErrVMNotFound {
 							// If VirtualMachine is not found, return success assuming volume is already detached
 							break
+						}
+						if err == cnsvsphere.ErrInvalidVC {
+							return nil, csifault.CSIInternalFault, fmt.Errorf(
+								"failed to get the PodVM Moref from the PodVM UUID: %s in datacenter: "+
+									"%s with err: %+v", v, dcMorefValue, err)
 						}
 						if isStillAttached {
 							// Since the disk is still attached, we need to check if the volumeId in contention is attached
