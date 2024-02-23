@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	admissionapi "k8s.io/pod-security-admission/api"
 
@@ -95,6 +96,13 @@ var _ bool = ginkgo.Describe("hci", func() {
 			err := vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, targetHostSystem.Name(), false)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			isTargetHostPoweredOff = false
+		}
+		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+		fss.DeleteAllStatefulSets(client, namespace)
+		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
+		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
 
