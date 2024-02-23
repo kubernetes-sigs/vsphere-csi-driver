@@ -27,6 +27,7 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 
 	clientset "k8s.io/client-go/kubernetes"
@@ -229,9 +230,10 @@ var _ bool = ginkgo.Describe("hci", func() {
 		workervms := getWorkerVmMos(ctx, client)
 		targetHost := e2eVSphere.getHostFromVMReference(ctx, workervms[0].Reference())
 		targetHostSystem = object.NewHostSystem(e2eVSphere.Client.Client, targetHost.Reference())
-		err = targetHostSystem.Properties(ctx, targetHost, []string{"name"}, targetHostSystem)
+		var hostMo mo.HostSystem
+		err = targetHostSystem.Properties(ctx, targetHost, []string{"name"}, &hostMo)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("target host name: %s, MOID: %s", targetHostSystem.Name(), targetHost.Value)
+		framework.Logf("target host name: %s, MOID: %s", hostMo.Name, targetHost.Value)
 		nicMgr, err = targetHostSystem.ConfigManager().VirtualNicManager(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vmknic4VsanDown = true
