@@ -465,6 +465,7 @@ data:
   "list-volumes": "true"
   "cnsmgr-suspend-create-volume": "true"
   "listview-tasks": "true"
+  "cns-detach-on-supervisor": "true"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

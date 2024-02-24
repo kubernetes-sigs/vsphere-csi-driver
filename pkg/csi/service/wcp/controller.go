@@ -37,9 +37,12 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	v1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	clientset "k8s.io/client-go/kubernetes"
 
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -55,6 +58,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 const (
@@ -91,6 +95,7 @@ var (
 	expectedStartingIndex             = 0
 	cnsVolumeIDs                      = make([]string, 0)
 	vmMoidToHostMoid, volumeIDToVMMap map[string]string
+	k8sClient                         clientset.Interface
 )
 
 type controller struct {
@@ -189,6 +194,13 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("checkAPI failed for vcenter API version: %s, err=%v", vc.Client.ServiceContent.About.ApiVersion, err)
 		return err
 	}
+
+	k8sClient, err = k8s.NewClient(ctx)
+	if err != nil {
+		log.Fatalf("Creating Kubernetes client failed. Err: %v", err)
+		return err
+	}
+
 	go cnsvolume.ClearTaskInfoObjects()
 	if tasksListViewEnabled {
 		go cnsvolume.ClearInvalidTasksFromListView(false)
@@ -1080,17 +1092,17 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
-		volumeAttachment, err := commonco.ContainerOrchestratorUtility.GetVolumeAttachment(ctx, req.VolumeId, req.NodeId)
-		if err != nil {
-			log.Warnf("failed to retrieve volumeAttachment from API server Err: %v", err)
-		} else {
-			if volumeAttachment != nil && volumeAttachment.Status.Attached {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"volumeAttachment %v already has the attached status as true. "+
-						"Assuming the attach volume is due to incorrect force sync Attach from CSI Attacher",
-					volumeAttachment)
-			}
-		}
+		// volumeAttachment, err := commonco.ContainerOrchestratorUtility.GetVolumeAttachment(ctx, req.VolumeId, req.NodeId)
+		// if err != nil {
+		// 	log.Warnf("failed to retrieve volumeAttachment from API server Err: %v", err)
+		// } else {
+		// 	if volumeAttachment != nil && volumeAttachment.Status.Attached {
+		// 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+		// 			"volumeAttachment %v already has the attached status as true. "+
+		// 				"Assuming the attach volume is due to incorrect force sync Attach from CSI Attacher",
+		// 			volumeAttachment)
+		// 	}
+		// }
 
 		vmuuid, err := getVMUUIDFromK8sCloudOperatorService(ctx, req.VolumeId, req.NodeId)
 		if err != nil {
@@ -1239,23 +1251,43 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
 
-		var isVADeleted bool
-		volumeAttachment, err := commonco.ContainerOrchestratorUtility.GetVolumeAttachment(ctx, req.VolumeId, req.NodeId)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				log.Infof("VolumeAttachments object not found for volume %q & node %q. "+
-					"Thus, assuming the volume is detached.", req.VolumeId, req.NodeId)
-				isVADeleted = true
-			} else {
-				log.Errorf("failed to retrieve volumeAttachment from API server Err: %v", err)
-				return nil, csifault.CSIInternalFault, err
+		cnsDetachEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.CNSDetachOnSupervisor)
+
+		if cnsDetachEnabled {
+			// check for label on the ESXi node
+			node, err := k8sClient.CoreV1().Nodes().Get(ctx, req.NodeId, metav1.GetOptions{})
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to read node %s from cluster: %+v", req.NodeId, err)
 			}
-		}
-		if !isVADeleted {
-			log.Debugf("controllerUnpublishVolumeInternal: VA : %v", spew.Sdump(volumeAttachment))
-			for k, v := range volumeAttachment.Status.AttachmentMetadata {
-				if k == common.AttributeVmUUID {
-					log.Debugf("controllerUnpublishVolumeInternal: vmuuid value: %q", v)
+			log.Debugf("adkulkarni -> printing node object %+v", node)
+
+			csiDetachAnnotation := "CSIDetachSupport"
+			val, ok := node.Labels[csiDetachAnnotation]
+			log.Infof("adkulkarni -> node.Labels[CSIDetachSupport] -> val: %s, ok: %v", val, ok)
+			if ok {
+				var isVADeleted bool
+				var vmuuid string
+				volumeAttachment, err := commonco.ContainerOrchestratorUtility.GetVolumeAttachment(ctx, req.VolumeId, req.NodeId)
+				if err != nil {
+					if errors.IsNotFound(err) {
+						log.Infof("VolumeAttachments object not found for volume %q & node %q. "+
+							"Thus, assuming the volume is detached.", req.VolumeId, req.NodeId)
+						isVADeleted = true
+					} else {
+						log.Errorf("failed to retrieve volumeAttachment from API server Err: %v", err)
+						return nil, csifault.CSIInternalFault, err
+					}
+				}
+				if !isVADeleted {
+					log.Debugf("controllerUnpublishVolumeInternal: VA : %v", spew.Sdump(volumeAttachment))
+					for k, v := range volumeAttachment.Status.AttachmentMetadata {
+						if k == common.AttributeVmUUID {
+							log.Debugf("controllerUnpublishVolumeInternal: vmuuid value: %q", v)
+							vmuuid = v
+						}
+					}
 					vcdcMap, err := getDatacenterFromConfig(c.manager.CnsConfig)
 					if err != nil {
 						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
@@ -1278,88 +1310,44 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 							"failed to connect to Virtual Center: %s", vc.Config.Host)
 					}
-					isStillAttached := false
-					timeout := 4 * time.Minute
-					pollTime := time.Duration(5) * time.Second
-					var podVM *cnsvsphere.VirtualMachine
-					err = wait.PollImmediate(pollTime, timeout, func() (bool, error) {
-						podVM, err = getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, v)
-						if err != nil {
-							if err == cnsvsphere.ErrVMNotFound {
-								log.Infof("virtual machine not found for vmUUID %q. "+
-									"Thus, assuming the volume is detached.", v)
-								return true, err
-							}
-							if err == cnsvsphere.ErrInvalidVC {
-								log.Errorf("failed to get the PodVM Moref from the PodVM UUID: %s in datacenter: "+
-									"%s with err: %+v", v, dcMorefValue, err)
-								return false, err
-							}
-							log.Errorf("failed to get the PodVM Moref from the PodVM UUID: %s in datacenter: "+
-								"%s with err: %+v. Will Retry after 5 seconds", v, dcMorefValue, err)
-							return false, nil
-						}
-						diskUUID, err := cnsvolume.IsDiskAttached(ctx, podVM, req.VolumeId, true)
-						if err != nil {
-							log.Infof("retrying the IsDiskAttached check again for volumeId %q. Err: %+v", req.VolumeId, err)
-							return false, nil
-						}
-						if diskUUID != "" {
-							log.Infof("diskUUID: %q is still attached to podVM %q with moId %q. Retrying in 5 seconds.",
-								diskUUID, podVM.Reference().String(), podVM.Reference().Value)
-							isStillAttached = true
-							return false, nil
-						}
-						return true, nil
-					})
+					podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, vmuuid)
 					if err != nil {
-						if err == cnsvsphere.ErrVMNotFound {
-							// If VirtualMachine is not found, return success assuming volume is already detached
-							break
+						if err != cnsvsphere.ErrVMNotFound {
+							return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+								"failed to get the PodVM Moref from the PodVM UUID: %s in datacenter: %s with err: %+v",
+								vmuuid, dcMorefValue, err)
 						}
-						if err == cnsvsphere.ErrInvalidVC {
-							return nil, csifault.CSIInternalFault, fmt.Errorf(
-								"failed to get the PodVM Moref from the PodVM UUID: %s in datacenter: "+
-									"%s with err: %+v", v, dcMorefValue, err)
+						log.Infof("virtual machine not found for vmUUID %q. "+
+							"Thus, assuming the volume is detached.", vmuuid)
+					}
+
+					if podVM != nil {
+						faultType, err := common.DetachVolumeUtil(ctx, c.manager.VolumeManager, podVM, req.VolumeId)
+						if err != nil {
+							return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+								"failed to detach disk: %+q from node: %q err %+v", req.VolumeId, req.NodeId, err)
 						}
-						if isStillAttached {
-							// Since the disk is still attached, we need to check if the volumeId in contention is attached
-							// to the Pod on a different node. We can get the node name information for the volumeID
-							// from GetNodesForVolumes method. If the nodeName is same, it signifies that the Pod is in the
-							// process of getting deleted. If the nodeName is different, it signifies that the Pod got
-							// rescheduled onto another node and hence we can break out of the isDiskAttached loop
-							volumeId := []string{req.VolumeId}
-							nodesForVolume := commonco.ContainerOrchestratorUtility.GetNodesForVolumes(ctx, volumeId)
-							if len(nodesForVolume) == 0 {
-								log.Errorf("error while fetching the node names for volumeId %q", req.VolumeId)
-								return nil, csifault.CSIInternalFault, err
-							}
-							nodeNames := nodesForVolume[req.VolumeId]
-							if len(nodeNames) == 1 && nodeNames[0] == req.NodeId {
-								log.Errorf("volume %q is still attached to node %q and podVM %q with moId %q", req.VolumeId,
-									req.NodeId, podVM.Reference().String(), podVM.Reference().Value)
-								return nil, csifault.CSIDiskNotDetachedFault, err
-							}
-							log.Infof("Found another VolumeAttachment for volumeId %q. Assuming that the pod using the "+
-								"volume is scheduled on different node. Returning success for ControllerUnPublishVolume for "+
-								"volumeId: %q and VA: %q", req.VolumeId, req.VolumeId, volumeAttachment.Name)
-							break
-						}
+					}
+				}
+
+				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FakeAttach) {
+					// Check if the volume was fake attached and unmark it as not fake
+					// attached.
+					if err := commonco.ContainerOrchestratorUtility.ClearFakeAttached(ctx, req.VolumeId); err != nil {
+						msg := fmt.Sprintf("Failed to unmark volume as not fake attached. Error: %v", err)
+						log.Error(msg)
 						return nil, csifault.CSIInternalFault, err
 					}
 				}
+				return &csi.ControllerUnpublishVolumeResponse{}, "", nil
+			} else {
+				// case: CSI upgraded, spherelet not upgraded
+				return c.detachViaSpherelet(ctx, req)
 			}
+		} else {
+			// case: detach via csi is disabled
+			return c.detachViaSpherelet(ctx, req)
 		}
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FakeAttach) {
-			// Check if the volume was fake attached and unmark it as not fake
-			// attached.
-			if err := commonco.ContainerOrchestratorUtility.ClearFakeAttached(ctx, req.VolumeId); err != nil {
-				msg := fmt.Sprintf("Failed to unmark volume as not fake attached. Error: %v", err)
-				log.Error(msg)
-				return nil, csifault.CSIInternalFault, err
-			}
-		}
-		return &csi.ControllerUnpublishVolumeResponse{}, "", nil
 	}
 	resp, faultType, err := controllerUnpublishVolumeInternal()
 	log.Debugf("controllerUnpublishVolumeInternal: returns fault %q for volume %q", faultType, req.VolumeId)
@@ -1379,6 +1367,133 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
 	return resp, err
+}
+
+func (c *controller) detachViaSpherelet(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
+	*csi.ControllerUnpublishVolumeResponse, string, error) {
+	log := logger.GetLogger(ctx)
+	var isVADeleted bool
+	volumeAttachment, err := commonco.ContainerOrchestratorUtility.GetVolumeAttachment(ctx, req.VolumeId, req.NodeId)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Infof("VolumeAttachments object not found for volume %q & node %q. "+
+				"Thus, assuming the volume is detached.", req.VolumeId, req.NodeId)
+			isVADeleted = true
+		} else {
+			log.Errorf("failed to retrieve volumeAttachment from API server Err: %v", err)
+			return nil, csifault.CSIInternalFault, err
+		}
+	}
+	if !isVADeleted {
+		log.Debugf("controllerUnpublishVolumeInternal: VA : %v", spew.Sdump(volumeAttachment))
+		for k, v := range volumeAttachment.Status.AttachmentMetadata {
+			if k == common.AttributeVmUUID {
+				log.Debugf("controllerUnpublishVolumeInternal: vmuuid value: %q", v)
+				vcdcMap, err := getDatacenterFromConfig(c.manager.CnsConfig)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get datacenter from config with error: %+v", err)
+				}
+				var vCenterHost, dcMorefValue string
+				for key, value := range vcdcMap {
+					vCenterHost = key
+					dcMorefValue = value
+				}
+				vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, vCenterHost)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",
+						vc.Config.Host, err)
+				}
+				// Connect to VC.
+				err = vc.Connect(ctx)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to connect to Virtual Center: %s", vc.Config.Host)
+				}
+				isStillAttached := false
+				timeout := 4 * time.Minute
+				pollTime := time.Duration(5) * time.Second
+				var podVM *cnsvsphere.VirtualMachine
+				err = wait.PollImmediate(pollTime, timeout, func() (bool, error) {
+					podVM, err = getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, v)
+					if err != nil {
+						if err == cnsvsphere.ErrVMNotFound {
+							log.Infof("virtual machine not found for vmUUID %q. "+
+								"Thus, assuming the volume is detached.", v)
+							return true, err
+						}
+						if err == cnsvsphere.ErrInvalidVC {
+							log.Errorf("failed to get the PodVM Moref from the PodVM UUID: %s in datacenter: "+
+								"%s with err: %+v", v, dcMorefValue, err)
+							return false, err
+						}
+						log.Errorf("failed to get the PodVM Moref from the PodVM UUID: %s in datacenter: "+
+							"%s with err: %+v. Will Retry after 5 seconds", v, dcMorefValue, err)
+						return false, nil
+					}
+					diskUUID, err := cnsvolume.IsDiskAttached(ctx, podVM, req.VolumeId, true)
+					if err != nil {
+						log.Infof("retrying the IsDiskAttached check again for volumeId %q. Err: %+v", req.VolumeId, err)
+						return false, nil
+					}
+					if diskUUID != "" {
+						log.Infof("diskUUID: %q is still attached to podVM %q with moId %q. Retrying in 5 seconds.",
+							diskUUID, podVM.Reference().String(), podVM.Reference().Value)
+						isStillAttached = true
+						return false, nil
+					}
+					return true, nil
+				})
+				if err != nil {
+					if err == cnsvsphere.ErrVMNotFound {
+						// If VirtualMachine is not found, return success assuming volume is already detached
+						break
+					}
+					if err == cnsvsphere.ErrInvalidVC {
+						return nil, csifault.CSIInternalFault, fmt.Errorf(
+							"failed to get the PodVM Moref from the PodVM UUID: %s in datacenter: "+
+								"%s with err: %+v", v, dcMorefValue, err)
+					}
+					if isStillAttached {
+						// Since the disk is still attached, we need to check if the volumeId in contention is attached
+						// to the Pod on a different node. We can get the node name information for the volumeID
+						// from GetNodesForVolumes method. If the nodeName is same, it signifies that the Pod is in the
+						// process of getting deleted. If the nodeName is different, it signifies that the Pod got
+						// rescheduled onto another node and hence we can break out of the isDiskAttached loop
+						volumeId := []string{req.VolumeId}
+						nodesForVolume := commonco.ContainerOrchestratorUtility.GetNodesForVolumes(ctx, volumeId)
+						if len(nodesForVolume) == 0 {
+							log.Errorf("error while fetching the node names for volumeId %q", req.VolumeId)
+							return nil, csifault.CSIInternalFault, err
+						}
+						nodeNames := nodesForVolume[req.VolumeId]
+						if len(nodeNames) == 1 && nodeNames[0] == req.NodeId {
+							log.Errorf("volume %q is still attached to node %q and podVM %q with moId %q", req.VolumeId,
+								req.NodeId, podVM.Reference().String(), podVM.Reference().Value)
+							return nil, csifault.CSIDiskNotDetachedFault, err
+						}
+						log.Infof("Found another VolumeAttachment for volumeId %q. Assuming that the pod using the "+
+							"volume is scheduled on different node. Returning success for ControllerUnPublishVolume for "+
+							"volumeId: %q and VA: %q", req.VolumeId, req.VolumeId, volumeAttachment.Name)
+						break
+					}
+					return nil, csifault.CSIInternalFault, err
+				}
+			}
+		}
+	}
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FakeAttach) {
+		// Check if the volume was fake attached and unmark it as not fake
+		// attached.
+		if err := commonco.ContainerOrchestratorUtility.ClearFakeAttached(ctx, req.VolumeId); err != nil {
+			msg := fmt.Sprintf("Failed to unmark volume as not fake attached. Error: %v", err)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, err
+		}
+	}
+	return &csi.ControllerUnpublishVolumeResponse{}, "", nil
+
 }
 
 // ValidateVolumeCapabilities returns the capabilities of the volume.
