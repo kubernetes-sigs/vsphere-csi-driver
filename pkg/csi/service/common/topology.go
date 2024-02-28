@@ -156,11 +156,29 @@ func GetHostsForSegment(ctx context.Context, topoSegment map[string]string, vCen
 			hostList = append(hostList, hosts...)
 		}
 		log.Infof("Hosts returned for topology category: %q and tag: %q are %v", key, tag, hostList)
-		allhostSlices = append(allhostSlices, hostList)
+		uniqueHostList := removeDuplicateHosts(hostList)
+		allhostSlices = append(allhostSlices, uniqueHostList)
 	}
 	commonHosts := findCommonHostsforAllTopologyKeys(ctx, allhostSlices)
 	log.Infof("common hosts: %v for all segments: %v", commonHosts, topoSegment)
 	return commonHosts, nil
+}
+
+// removeDuplicateHosts removes duplicate entries found in the given host list.
+// This could happen for example if both a cluster and one of its hosts are
+// tagged at the same time. The list would then have the same host entry twice,
+// which breaks assumptions in findCommonHostsforAllTopologyKeys. By removing
+// duplicate entries first, this configuration can still be allowed to work.
+func removeDuplicateHosts(hostList []*cnsvsphere.HostSystem) []*cnsvsphere.HostSystem {
+	hostMap := make(map[string]bool)
+	var uniqueHosts []*cnsvsphere.HostSystem
+	for _, host := range hostList {
+		if _, exists := hostMap[host.String()]; !exists {
+			hostMap[host.String()] = true
+			uniqueHosts = append(uniqueHosts, host)
+		}
+	}
+	return uniqueHosts
 }
 
 // findCommonHostsforAllTopologyKeys helps find common hosts across all slices in hostLists
