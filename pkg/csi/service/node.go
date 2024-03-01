@@ -65,12 +65,18 @@ func (driver *vsphereCSIDriver) NodeStageVolume(
 
 	if volCap == nil {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
-			"volume capability not provided")
+			"NodeStageVolume failed: volume capability not provided")
 	}
+	if acquired := driver.volumeLocks.TryAcquire(volumeID); !acquired {
+		return nil, logger.LogNewErrorCodef(log, codes.Aborted,
+			"NodeStageVolume failed: An operation with the given Volume ID %s already exists", volumeID)
+	}
+	defer driver.volumeLocks.Release(volumeID)
+
 	caps := []*csi.VolumeCapability{volCap}
 	if err := common.IsValidVolumeCapabilities(ctx, caps); err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-			"volume capability not supported. Err: %+v", err)
+			"NodeStageVolume failed: volume capability not supported. Err: %+v", err)
 	}
 
 	var err error
@@ -109,14 +115,36 @@ func (driver *vsphereCSIDriver) NodeUnstageVolume(
 	log := logger.GetLogger(ctx)
 	log.Infof("NodeUnstageVolume: called with args %+v", *req)
 
+	// Validate arguments
+	volumeID := req.GetVolumeId()
 	stagingTarget := req.GetStagingTargetPath()
+
+	if len(volumeID) == 0 {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "NodeUnstageVolume Volume ID must be provided")
+	}
+	if len(stagingTarget) == 0 {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"NodeUnstageVolume Staging Target Path must be provided")
+	}
+
+	// There have been a few observations where the 1st NodeUnstageVolume call takes more time and remains in-progress
+	// for longer durations. However, k8s will issue a 2nd NodeUnstageVolume call assuming the 1st NodeUnstageVolume
+	// has timed out. In such cases, the 2nd NodeUnstageVolume call succeeds as the target Mountpoint is not found.
+	// Therefore, a DetachVolume will be invoked while the 1st NodeUnstageVolume is still in-progress and in-turn
+	// corrupts the volume. To avoid the such volume corruption issue, we can keep a lock per VolumeID during the
+	// NodeUnstageVolume operation.
+	if acquired := driver.volumeLocks.TryAcquire(volumeID); !acquired {
+		return nil, logger.LogNewErrorCodef(log, codes.Aborted,
+			"NodeUnstageVolume failed: An operation with the given Volume ID %s already exists", volumeID)
+	}
+	defer driver.volumeLocks.Release(volumeID)
 
 	// Figure out if the target path is present in mounts or not - Unstage is
 	// not required for file volumes.
 	targetFound, err := driver.osUtils.IsTargetInMounts(ctx, stagingTarget)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"could not retrieve existing mount points: %v", err)
+			"NodeUnstageVolume failed: could not retrieve existing mount points: %v", err)
 	}
 
 	if !targetFound {
@@ -137,7 +165,7 @@ func (driver *vsphereCSIDriver) NodeUnstageVolume(
 
 	if err := driver.osUtils.CleanupStagePath(ctx, stagingTarget, volID); err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"UnStage failed: %v\nUnStage arguments: %s\n", err, stagingTarget)
+			"NodeUnstageVolume failed: %v\nUnStage arguments: %s\n", err, stagingTarget)
 	}
 
 	log.Infof("NodeUnstageVolume successful for target %q for volume %q", stagingTarget, volID)
@@ -152,8 +180,13 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 	log := logger.GetLogger(ctx)
 	log.Infof("NodePublishVolume: called with args %+v", *req)
 	var err error
+	volumeID := req.GetVolumeId()
+	if len(volumeID) == 0 {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"NodePublishVolume: Volume ID must be provided")
+	}
 	params := osutils.NodePublishParams{
-		VolID:  req.GetVolumeId(),
+		VolID:  volumeID,
 		Target: req.GetTargetPath(),
 		Ro:     req.GetReadonly(),
 	}
@@ -173,12 +206,17 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 	volCap := req.GetVolumeCapability()
 	if volCap == nil {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
-			"volume capability not provided")
+			"NodePublishVolume failed: volume capability not provided")
 	}
+	if acquired := driver.volumeLocks.TryAcquire(volumeID); !acquired {
+		return nil, logger.LogNewErrorCodef(log, codes.Aborted,
+			"NodePublishVolume failed: An operation with the given Volume ID %s already exists", volumeID)
+	}
+	defer driver.volumeLocks.Release(volumeID)
 	caps := []*csi.VolumeCapability{volCap}
 	if err := common.IsValidVolumeCapabilities(ctx, caps); err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-			"volume capability not supported. Err: %+v", err)
+			"NodePublishVolume failed: volume capability not supported. Err: %+v", err)
 	}
 
 	// Check if this is a MountVolume or BlockVolume.
@@ -186,7 +224,7 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 		var dev *osutils.Device
 		err = driver.osUtils.VerifyVolumeAttachedAndFillParams(ctx, req.GetPublishContext(), &params, &dev)
 		if err != nil {
-			log.Errorf("error filling all params. error: %v", err)
+			log.Errorf("NodePublishVolume failed: error filling all params. error: %v", err)
 			return nil, err
 		}
 
@@ -215,12 +253,17 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 
 	if target == "" {
 		return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-			"target path %q not set", target)
+			"NodeUnpublishVolume failed: target path %q not set", target)
 	}
 
+	if acquired := driver.volumeLocks.TryAcquire(volID); !acquired {
+		return nil, logger.LogNewErrorCodef(log, codes.Aborted,
+			"NodeUnpublishVolume failed: An operation with the given Volume ID %s already exists", volID)
+	}
+	defer driver.volumeLocks.Release(volID)
 	if err := driver.osUtils.CleanupPublishPath(ctx, target, volID); err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"Unmount failed: %v\nUnmounting arguments: %s\n", err, target)
+			"NodeUnpublishVolume failed: %v\nUnmounting arguments: %s\n", err, target)
 	}
 
 	log.Infof("NodeUnpublishVolume successful for volume %q", volID)
