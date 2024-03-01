@@ -17,15 +17,20 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
@@ -79,4 +84,62 @@ func createRwxPVCwithStorageClass(client clientset.Interface, namespace string, 
 
 	// If everything is successful, return the results
 	return storageclass, pvclaim, pv, nil
+}
+
+// createPod with given claims based on node selector.
+func createStandalonePodsForRWXVolume(client clientset.Interface, namespace string, nodeSelector map[string]string,
+	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string, readOnly bool) (*v1.Pod, error) {
+	var err error
+	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+
+	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	pod.Spec.Volumes[0].VolumeSource.PersistentVolumeClaim.ReadOnly = readOnly
+
+	pod, err = client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("pod Create API error: %v", err)
+	}
+	// Waiting for pod to be running.
+	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+	if err != nil {
+		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
+	}
+	// Get fresh pod info.
+	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return pod, fmt.Errorf("pod Get API error: %v", err)
+	}
+
+	// var vmUUID string
+	// nodeName := pod.Spec.NodeName
+	// vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
+	// ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, nodeName))
+	// isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+	// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+
+	ginkgo.By("Verify the volume is accessible and Read/write is possible")
+	cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+		"cat /mnt/volume1/Pod.html "}
+	output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
+	gomega.Expect(strings.Contains(output, "Hello message from Pod")).NotTo(gomega.BeFalse())
+
+	if readOnly {
+		wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"echo 'Hello message from test into Pod' > /mnt/volume1/Pod.html"}
+		output = e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
+		// Verify that the write operation fails
+		gomega.Expect(strings.Contains(output, "Permission denied")).NotTo(gomega.BeFalse())
+	} else {
+		// For other pods, perform a successful write operation
+		wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+			"echo 'Hello message from test into Pod' > /mnt/volume1/Pod.html"}
+		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
+	}
+
+	ginkgo.By("Verify volume metadata for POD, PVC and PV")
+	err = waitAndVerifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaim, pv, pod)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return pod, nil
 }
