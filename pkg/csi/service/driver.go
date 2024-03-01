@@ -25,6 +25,7 @@ import (
 	"github.com/google/uuid"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -63,6 +64,9 @@ type vsphereCSIDriver struct {
 	mode    string
 	cnscs   csitypes.CnsController
 	osUtils *osutils.OsUtils
+	// A map storing all volumes with ongoing operations so that additional operations
+	// for that same volume (as defined by VolumeID) return an Aborted error
+	volumeLocks *node.VolumeLocks
 }
 
 // If k8s node died unexpectedly in an earlier run, the unix socket is left
