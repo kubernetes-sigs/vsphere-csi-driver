@@ -32,6 +32,8 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 // Test to verify provisioning is dependant on type of datastore
@@ -72,6 +74,17 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+
+		// cnsOpScheme := runtime.NewScheme()
+		// gomega.Expect(cnsop.AddToScheme(cnsOpScheme)).Should(gomega.Succeed())
+		// cnsopC, err := ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: cnsOpScheme})
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// storageQuotaScheme := runtime.NewScheme()
+		// gomega.Expect(storagequotav1.AddToScheme(storageQuotaScheme)).Should(gomega.Succeed())
+		// storageQuotaClient, err = ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: storageQuotaScheme})
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	})
 	ginkgo.AfterEach(func() {
 		if supervisorCluster {
@@ -293,4 +306,70 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 	})
+
+	ginkgo.It("test-wcp", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("Invoking Test to verify impact on existing pv pvc when sc recreated with different binding mode")
+		var storageclass *storagev1.StorageClass
+		var pvclaim *v1.PersistentVolumeClaim
+		var err error
+
+		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores2)
+
+		// Create Storage class and PVC
+		ginkgo.By("Creating Storage Class and PVC")
+		namespace = getNamespaceToRunTests(f)
+		profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+		scParameters[scParamStoragePolicyID] = profileID
+
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		createResourceQuota_test(cnsOperatorClient, namespace, rqLimit, storagePolicyName)
+		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+
+		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+			namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+
+		framework.Logf("storageclass name :%s", storageclass.GetName())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if supervisorCluster {
+				ginkgo.By("Delete Resource quota")
+				//deleteResourceQuota(client, namespace)
+			}
+		}()
+
+		// Waiting for PVC to be bound
+		var pvclaims []*v1.PersistentVolumeClaim
+		pvclaims = append(pvclaims, pvclaim)
+		ginkgo.By("Waiting for all claims to be in bound state")
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pv := persistentvolumes[0]
+		volHandle := pv.Spec.CSI.VolumeHandle
+		if guestCluster {
+			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		}
+
+		deleteResourceQuota_test(cnsOperatorClient, rqLimit, storagePolicyName, namespace)
+		deleteResourceQuota(client, namespace)
+
+		ginkgo.By("======================== PVC 2nd +++++===========")
+		storageclass, pvclaim, err = createPVCAndStorageClass(client,
+			namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+		framework.Logf("storageclass name :%s", storageclass.GetName())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	})
+
 })
