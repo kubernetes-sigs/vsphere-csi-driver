@@ -6058,9 +6058,10 @@ func triggerFullSync(ctx context.Context, client clientset.Interface,
 	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
 	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
-	crd = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	crd_updated := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
 	framework.Logf("INFO: full sync crd details: %v", crd)
-	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
+
+	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd_updated)
 	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
 }
