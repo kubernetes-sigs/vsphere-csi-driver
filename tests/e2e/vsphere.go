@@ -784,6 +784,7 @@ func (vs *vSphere) getVsanClusterResource(ctx context.Context, forceRefresh ...b
 
 // getAllHostsIP reads cluster, gets hosts in it and returns IP array
 func getAllHostsIP(ctx context.Context, forceRefresh ...bool) []string {
+	bootstrap()
 	var result []string
 	refresh := false
 	if len(forceRefresh) > 0 {
