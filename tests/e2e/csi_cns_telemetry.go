@@ -32,6 +32,8 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanilla-serialized] "+
@@ -190,6 +192,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
+
+		framework.Logf("Force trigger full sync for pvc metadata to reflect new changes")
+		// Get restConfig.
+		restConfig := getRestConfigClient()
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+		triggerFullSync(ctx, cnsOperatorClient)
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult for PVC2 with VolumeID: %s", volHandle2))
 		queryResult2, err := e2eVSphere.queryCNSVolumeWithResult(volHandle2)

@@ -2253,7 +2253,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
-			triggerFullSync(ctx, client, cnsOperatorClient)
+			triggerFullSync(ctx, cnsOperatorClient)
 		} else if supervisorCluster {
 			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow 2 full sync cycles to finish", fullSyncWaitTime))
 			time.Sleep(time.Duration(fullSyncWaitTime*2) * time.Second)

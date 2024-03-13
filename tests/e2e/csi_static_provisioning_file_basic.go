@@ -284,11 +284,9 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting PV-1")
-		err = client.CoreV1().PersistentVolumes().Delete(ctx, pvSpec.Name, *metav1.NewDeleteOptions(0))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.ExpectNoError(fpv.DeletePersistentVolume(client, pvSpec.Name))
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pvSpec.Name, poll, pollTimeout))
+		framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(fileShareVolumeID))
 
 		ginkgo.By("Creating PV-2")
 		pv2, err := client.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})

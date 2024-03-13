@@ -2467,7 +2467,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
-			triggerFullSync(ctx, client, cnsOperatorClient)
+			triggerFullSync(ctx, cnsOperatorClient)
 
 			// Verify volume metadata for static POD, PVC and PV
 			ginkgo.By("Verify volume metadata for static POD, PVC and PV")

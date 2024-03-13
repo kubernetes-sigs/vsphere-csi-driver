@@ -959,33 +959,33 @@ func createStaticPvAndPvcInParallel(client clientset.Interface, ctx context.Cont
 // triggerFullSyncInParallel triggers full sync on demand in parallel. Here, we are
 // ignoring full sync failures due to site failover/failback. Hence, we are not
 // using triggerFullSync() here
-func triggerFullSyncInParallel(ctx context.Context, client clientset.Interface,
+func triggerFullSyncInParallel(ctx context.Context,
 	cnsOperatorClient client.Client, wg *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
-	err := waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
+	err := waitForFullSyncToFinish(ctx, cnsOperatorClient)
 	if err != nil {
 		framework.Logf("Full sync did not finish in given time, ignoring this error: %v", err)
 	}
 
-	crd := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	crd := getTriggerFullSyncCrd(ctx, cnsOperatorClient)
 	framework.Logf("INFO: full sync crd details: %v", crd)
 	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
-	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
+	err = waitForFullSyncToFinish(ctx, cnsOperatorClient)
 	if err != nil {
 		framework.Logf("Full sync did not finish in given time, ignoring this error: %v", err)
 	}
-	crd = getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	crd = getTriggerFullSyncCrd(ctx, cnsOperatorClient)
 	framework.Logf("INFO: full sync crd details: %v", crd)
 	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
-	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
+	err = waitForFullSyncToFinish(ctx, cnsOperatorClient)
 	if err != nil {
 		framework.Logf("Full sync did not finish in given time, ignoring this error: %v", err)
 	}
 }
 
 // getTriggerFullSyncCrd fetches full sync crd from the list of crds in k8s cluster
-func getTriggerFullSyncCrd(ctx context.Context, client clientset.Interface,
+func getTriggerFullSyncCrd(ctx context.Context,
 	cnsOperatorClient client.Client) *triggercsifullsyncv1alpha1.TriggerCsiFullSync {
 	fullSyncCrd := &triggercsifullsyncv1alpha1.TriggerCsiFullSync{}
 	err := cnsOperatorClient.Get(ctx,
@@ -1003,18 +1003,28 @@ func updateTriggerFullSyncCrd(ctx context.Context, cnsOperatorClient client.Clie
 	lastSyncId := crd.Status.LastTriggerSyncID
 	triggerSyncID := lastSyncId + 1
 	crd.Spec.TriggerSyncID = triggerSyncID
+
 	err := cnsOperatorClient.Update(ctx, &crd)
 	framework.Logf("Error is %v", err)
+
+	if apierrors.IsConflict(err) {
+		latest_crd := getTriggerFullSyncCrd(ctx, cnsOperatorClient)
+		framework.Logf("INFO: full sync crd details: %v", latest_crd)
+		lastSyncId := latest_crd.Status.LastTriggerSyncID
+		triggerSyncID := lastSyncId + 1
+		latest_crd.Spec.TriggerSyncID = triggerSyncID
+		err = cnsOperatorClient.Update(ctx, latest_crd)
+	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("instance is %v after update", crd)
 }
 
 // waitForFullSyncToFinish waits for a given full sync to finish by checking
 // InProgress field in trigger full sync crd
-func waitForFullSyncToFinish(client clientset.Interface, ctx context.Context,
+func waitForFullSyncToFinish(ctx context.Context,
 	cnsOperatorClient client.Client) error {
 	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
-		crd := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+		crd := getTriggerFullSyncCrd(ctx, cnsOperatorClient)
 		framework.Logf("crd is: %v", crd)
 		if !crd.Status.InProgress {
 			return true, nil

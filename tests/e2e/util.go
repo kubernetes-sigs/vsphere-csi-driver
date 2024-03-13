@@ -6049,20 +6049,19 @@ func enableFullSyncTriggerFss(ctx context.Context, client clientset.Interface, n
 }
 
 // triggerFullSync triggers 2 full syncs on demand
-func triggerFullSync(ctx context.Context, client clientset.Interface,
-	cnsOperatorClient client.Client) {
-	err := waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
+func triggerFullSync(ctx context.Context, cnsOperatorClient client.Client) {
+	err := waitForFullSyncToFinish(ctx, cnsOperatorClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
-	crd := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	crd := getTriggerFullSyncCrd(ctx, cnsOperatorClient)
 	framework.Logf("INFO: full sync crd details: %v", crd)
 	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd)
-	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
+	err = waitForFullSyncToFinish(ctx, cnsOperatorClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
-	crd_updated := getTriggerFullSyncCrd(ctx, client, cnsOperatorClient)
+	crd_updated := getTriggerFullSyncCrd(ctx, cnsOperatorClient)
 	framework.Logf("INFO: full sync crd details: %v", crd)
 
 	updateTriggerFullSyncCrd(ctx, cnsOperatorClient, *crd_updated)
-	err = waitForFullSyncToFinish(client, ctx, cnsOperatorClient)
+	err = waitForFullSyncToFinish(ctx, cnsOperatorClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Full sync did not finish in given time")
 }
 
