@@ -330,7 +330,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		for i := 0; i < len(statefulSets); i++ {
 			err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 				scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-				allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+				allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -475,7 +475,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 			"verify pv affinity and pod affinity")
 		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
-			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")

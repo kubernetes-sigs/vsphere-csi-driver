@@ -308,7 +308,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm
 				framework.Logf("Scale up StatefulSet1 replica count to 14")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 1 {
@@ -317,7 +317,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm
 				framework.Logf("Scale down StatefulSet2 replica count to 5")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -397,7 +397,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm
 				framework.Logf("Scale down StatefulSet1 replica count to 3")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 1 {
@@ -406,7 +406,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm
 				framework.Logf("Scale up StatefulSet2 replica count to 9")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 2 {
@@ -416,7 +416,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm
 					"Scale down StatefulSet1 replica count to 3")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}

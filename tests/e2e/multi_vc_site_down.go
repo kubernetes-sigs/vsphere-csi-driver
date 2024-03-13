@@ -274,7 +274,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up StatefulSet1 replica count to 7")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 1 {
@@ -283,7 +283,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale down StatefulSet2 replica count to 5")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 2 {
@@ -293,7 +293,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 					"count  to 9")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -399,7 +399,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 		stsScaleDown = false
 		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
-			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring up  ESXi host which were powered off in VC1 in a multi setup")
@@ -523,7 +523,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up StatefulSet1 replica count to 12")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 1 {
@@ -532,7 +532,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale down StatefulSet1 replica count to 12")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 2 {
@@ -541,7 +541,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up replica count to 15 and later scale down replica count to 1")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -662,7 +662,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up StatefulSet1 replica count to 12")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 1 {
@@ -671,7 +671,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale down StatefulSet1 replica count to 12")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 2 {
@@ -680,7 +680,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up replica count to 15 and later scale down replica count to 1")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -837,7 +837,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up StatefulSet1 replica count to 12")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 1 {
@@ -846,7 +846,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale down StatefulSet1 replica count to 12")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 2 {
@@ -855,7 +855,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up replica count to 15 and later scale down replica count to 1")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}

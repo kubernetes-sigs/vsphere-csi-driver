@@ -67,6 +67,9 @@ func createCustomisedStatefulSets(client clientset.Interface, namespace string,
 	if accessMode == "" {
 		// If accessMode is not specified, set the default accessMode.
 		accessMode = v1.ReadWriteOnce
+	} else {
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
+			accessMode
 	}
 
 	if modifyStsSpec {
@@ -337,12 +340,12 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	scaleUpReplicaCount int32, scaleDownReplicaCount int32, statefulset *appsv1.StatefulSet,
 	parallelStatefulSetCreation bool, namespace string,
 	allowedTopologies []v1.TopologySelectorLabelRequirement, stsScaleUp bool, stsScaleDown bool,
-	verifyTopologyAffinity bool) error {
+	verifyTopologyAffinity bool, isMultiVcSetup bool) error {
 
 	if stsScaleDown {
 		framework.Logf("Scale down statefulset replica")
 		err := scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
-			parallelStatefulSetCreation, true)
+			parallelStatefulSetCreation, isMultiVcSetup)
 		if err != nil {
 			return fmt.Errorf("error scaling down statefulset: %v", err)
 		}
@@ -351,7 +354,7 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	if stsScaleUp {
 		framework.Logf("Scale up statefulset replica")
 		err := scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
-			parallelStatefulSetCreation, true)
+			parallelStatefulSetCreation, isMultiVcSetup)
 		if err != nil {
 			return fmt.Errorf("error scaling up statefulset: %v", err)
 		}
@@ -386,7 +389,7 @@ func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 	framework.Logf("Create StatefulSet")
 	statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
 		replicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet, modifyStsSpec,
-		"", "", nil)
+		"", accessMode, sc)
 
 	if verifyTopologyAffinity {
 		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")

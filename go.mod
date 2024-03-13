@@ -10,7 +10,7 @@ require (
 	github.com/evanphx/json-patch/v5 v5.6.0
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/golang/protobuf v1.5.3
-	github.com/google/uuid v1.4.0
+	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-version v1.6.0
 	github.com/kubernetes-csi/csi-lib-utils v0.17.0
 	github.com/kubernetes-csi/csi-proxy/client v1.1.3
@@ -21,7 +21,7 @@ require (
 	github.com/prometheus/client_golang v1.18.0
 	github.com/stretchr/testify v1.8.4
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
-	github.com/vmware/govmomi v0.34.2
+	github.com/vmware/govmomi v0.35.0
 	go.uber.org/zap v1.26.0
 	golang.org/x/crypto v0.18.0
 	golang.org/x/sync v0.4.0
@@ -51,6 +51,7 @@ require (
 	github.com/Microsoft/go-winio v0.4.17 // indirect
 	github.com/Microsoft/hcsshim v0.8.22 // indirect
 	github.com/NYTimes/gziphandler v1.1.1 // indirect
+	github.com/a8m/tree v0.0.0-20240104212747-2c8764a5f17e // indirect
 	github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e // indirect
 	github.com/aws/aws-sdk-go v1.44.116 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -67,6 +68,7 @@ require (
 	github.com/cyphar/filepath-securejoin v0.2.3 // indirect
 	github.com/docker/distribution v2.8.1+incompatible // indirect
 	github.com/docker/go-units v0.5.0 // indirect
+	github.com/dougm/pretty v0.0.0-20171025230240-2ee9d7453c02 // indirect
 	github.com/elazarl/goproxy v0.0.0-20230731152917-f99041a5c027 // indirect
 	github.com/emicklei/go-restful/v3 v3.9.0 // indirect
 	github.com/euank/go-kmsg-parser v2.0.0+incompatible // indirect
@@ -100,6 +102,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/karrick/godirwalk v1.17.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect

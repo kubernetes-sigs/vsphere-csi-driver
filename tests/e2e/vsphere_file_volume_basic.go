@@ -163,7 +163,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 })
 
 func testHelperForCreateFileVolumeWithNoDatastoreURLInSC(f *framework.Framework,
-	client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode) {
+	client clientset.Interface, namespace string, accessMode v1.PersistentVolumeAccessMode) (*storagev1.StorageClass, *v1.PersistentVolumeClaim) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scParameters := make(map[string]string)
@@ -230,6 +230,8 @@ func testHelperForCreateFileVolumeWithNoDatastoreURLInSC(f *framework.Framework,
 	// Verify if VolumeID is created on the datastore from list of datacenters provided in vsphere.conf
 	gomega.Expect(isDatastoreBelongsToDatacenterSpecifiedInConfig(queryResult.Volumes[0].DatastoreUrl)).To(
 		gomega.BeTrue(), "Volume is not provisioned on the datastore specified on config file")
+
+	return storageclass, pvclaim
 }
 
 func testHelperForCreateFileVolumeWithDatastoreURLInSC(f *framework.Framework, client clientset.Interface,

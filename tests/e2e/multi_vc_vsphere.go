@@ -399,3 +399,72 @@ func (vs *multiVCvSphere) waitForCNSVolumeToBeCreatedInMultiVC(volumeID string) 
 	})
 	return err
 }
+
+// queryCNSVolumeWithResult Call CnsQueryVolume and returns CnsQueryResult to client
+func (vs *multiVCvSphere) queryCNSVolumeWithResultInMultiVc(fcdID string) (*cnstypes.CnsQueryResult, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var res *cnstypes.CnsQueryVolumeResponse
+
+	// Connects to multiple VCs
+	connectMultiVC(ctx, vs)
+	var volumeIds []cnstypes.CnsVolumeId
+	volumeIds = append(volumeIds, cnstypes.CnsVolumeId{
+		Id: fcdID,
+	})
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: volumeIds,
+		Cursor: &cnstypes.CnsCursor{
+			Offset: 0,
+			Limit:  100,
+		},
+	}
+	req := cnstypes.CnsQueryVolume{
+		This:   cnsVolumeManagerInstance,
+		Filter: queryFilter,
+	}
+
+	// Connects to multiple CNS clients
+	err := connectMultiVcCns(ctx, vs)
+	if err != nil {
+		return nil, err
+	}
+	for i := 0; i < len(vs.multiVcCnsClient); i++ {
+		res, err = cnsmethods.CnsQueryVolume(ctx, vs.multiVcCnsClient[i].Client, &req)
+		if res.Returnval.Volumes == nil {
+			continue
+		}
+
+		if res.Returnval.Volumes != nil && err == nil {
+			return &res.Returnval, nil
+		}
+
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &res.Returnval, nil
+}
+
+// verifyPreferredDatastoreMatch verify if any of the given dsUrl matches with the datstore url for the volumeid
+func (vs *multiVCvSphere) verifyPreferredDatastoreMatchInMultiVc(volumeID string, dsUrls []string) bool {
+	actualDatastoreUrl := fetchDsUrlForCnsVolForMultiVc(multiVCe2eVSphere, volumeID)
+	flag := false
+	for _, dsUrl := range dsUrls {
+		if actualDatastoreUrl == dsUrl {
+			flag = true
+			return flag
+		}
+	}
+	return flag
+}
+
+// fetchDsUrl4CnsVol executes query CNS volume to get the datastore
+// where the volume is Present
+func fetchDsUrlForCnsVolForMultiVc(multiVCe2eVSphere multiVCvSphere, volHandle string) string {
+	framework.Logf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle)
+	queryResult, err := multiVCe2eVSphere.queryCNSVolumeWithResultInMultiVC(volHandle)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+	return queryResult.Volumes[0].DatastoreUrl
+}

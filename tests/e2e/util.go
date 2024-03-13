@@ -4093,6 +4093,7 @@ func createPod(client clientset.Interface, namespace string, nodeSelector map[st
 		pod.Spec.Containers[0].Image = windowsImageOnMcr
 		pod.Spec.Containers[0].Command = commands
 		pod.Spec.Containers[0].VolumeMounts[0].MountPath = pod.Spec.Containers[0].VolumeMounts[0].MountPath + "/"
+
 	} else {
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 	}
