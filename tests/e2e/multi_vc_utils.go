@@ -1159,7 +1159,7 @@ func (vs *multiVCvSphere) createFCDInMultiVC(ctx context.Context, fcdname string
 		return "", err
 	}
 	task := object.NewTask(vs.multiVcClient[clientIndex].Client, res.Returnval)
-	taskInfo, err := task.WaitForResult(ctx, nil)
+	taskInfo, err := task.WaitForResultEx(ctx, nil)
 	if err != nil {
 		return "", err
 	}
@@ -1180,7 +1180,7 @@ func (vs *multiVCvSphere) deleteFCDInMultiVc(ctx context.Context, fcdID string,
 		return err
 	}
 	task := object.NewTask(vs.multiVcClient[clientIndex].Client, res.Returnval)
-	_, err = task.WaitForResult(ctx, nil)
+	_, err = task.WaitForResultEx(ctx, nil)
 	if err != nil {
 		framework.Logf(err.Error())
 	}

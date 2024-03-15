@@ -280,7 +280,7 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 
 		log.Info("Starting listening for task updates...")
 		pc := property.DefaultCollector(l.govmomiClient.Client)
-		err := property.WaitForUpdates(l.waitForUpdatesContext, pc, filter, func(updates []types.ObjectUpdate) bool {
+		err := property.WaitForUpdatesEx(l.waitForUpdatesContext, pc, filter, func(updates []types.ObjectUpdate) bool {
 			log.Debugf("Got %d property collector update(s)", len(updates))
 			for _, update := range updates {
 				for _, prop := range update.ChangeSet {
