@@ -380,7 +380,7 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 	if m.tasksListViewEnabled {
 		taskInfo, err = m.waitOnTask(ctx, task.Reference())
 	} else {
-		taskInfo, err = task.WaitForResult(ctx, nil)
+		taskInfo, err = task.WaitForResultEx(ctx, nil)
 	}
 	if err != nil {
 		if cnsvsphere.IsManagedObjectNotFound(err, task.Reference()) {

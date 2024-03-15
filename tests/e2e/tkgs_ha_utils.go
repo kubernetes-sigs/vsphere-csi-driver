@@ -789,7 +789,7 @@ func enterHostIntoMM(ctx context.Context, host *object.HostSystem, mmModeType st
 	task, err := host.EnterMaintenanceMode(ctx, timeout, false, &hostMMSpec)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	_, err = task.WaitForResult(ctx, nil)
+	_, err = task.WaitForResultEx(ctx, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	framework.Logf("Host: %v in in maintenance mode", host)
@@ -800,7 +800,7 @@ func exitHostMM(ctx context.Context, host *object.HostSystem, timeout int32) {
 	task, err := host.ExitMaintenanceMode(ctx, timeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	_, err = task.WaitForResult(ctx, nil)
+	_, err = task.WaitForResultEx(ctx, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	framework.Logf("Host: %v exited from maintenance mode", host)

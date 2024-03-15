@@ -865,7 +865,7 @@ func fileExistsOnSharedDatastore(ctx context.Context, volPath string) (bool, err
 	}
 	task, err := b.SearchDatastore(ctx, volPath, &spec)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	_, err = task.WaitForResult(ctx, nil)
+	_, err = task.WaitForResultEx(ctx, nil)
 	if err != nil {
 		if types.IsFileNotFound(err) {
 			return false, nil

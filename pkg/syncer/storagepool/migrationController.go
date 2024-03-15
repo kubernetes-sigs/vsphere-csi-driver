@@ -108,7 +108,7 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 		}
 		return err
 	}
-	taskInfo, err := task.WaitForResult(ctx)
+	taskInfo, err := task.WaitForResultEx(ctx)
 	if err != nil {
 		return err
 	}

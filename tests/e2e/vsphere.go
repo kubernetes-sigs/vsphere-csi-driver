@@ -525,7 +525,7 @@ func (vs *vSphere) createFCD(ctx context.Context, fcdname string,
 		return "", err
 	}
 	task := object.NewTask(vs.Client.Client, res.Returnval)
-	taskInfo, err := task.WaitForResult(ctx, nil)
+	taskInfo, err := task.WaitForResultEx(ctx, nil)
 	if err != nil {
 		return "", err
 	}
@@ -562,7 +562,7 @@ func (vs *vSphere) createFCDwithValidProfileID(ctx context.Context, fcdname stri
 		return "", err
 	}
 	task := object.NewTask(vs.Client.Client, res.Returnval)
-	taskInfo, err := task.WaitForResult(ctx, nil)
+	taskInfo, err := task.WaitForResultEx(ctx, nil)
 	if err != nil {
 		return "", err
 	}
@@ -582,7 +582,7 @@ func (vs *vSphere) deleteFCD(ctx context.Context, fcdID string, dsRef vim25types
 		return err
 	}
 	task := object.NewTask(vs.Client.Client, res.Returnval)
-	_, err = task.WaitForResult(ctx, nil)
+	_, err = task.WaitForResultEx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -613,7 +613,7 @@ func (vs *vSphere) relocateFCD(ctx context.Context, fcdID string,
 		return err
 	}
 	task := object.NewTask(vs.Client.Client, res.Returnval)
-	_, err = task.WaitForResult(ctx, nil)
+	_, err = task.WaitForResultEx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -1131,7 +1131,7 @@ func (vs *vSphere) cnsRelocateVolume(e2eVSphere vSphere, ctx context.Context, fc
 	}
 	task := object.NewTask(e2eVSphere.Client.Client, res.Returnval)
 	if waitForTaskTocomplete {
-		taskInfo, err := task.WaitForResult(ctx, nil)
+		taskInfo, err := task.WaitForResultEx(ctx, nil)
 		framework.Logf("taskInfo: %v", taskInfo)
 		framework.Logf("error: %v", err)
 		if err != nil {
@@ -1279,7 +1279,7 @@ func waitForCNSTaskToComplete(ctx context.Context, task *object.Task) *vim25type
 		pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 	}
 
-	taskInfo, err := task.WaitForResult(ctx, nil)
+	taskInfo, err := task.WaitForResultEx(ctx, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1301,7 +1301,7 @@ func (vs *vSphere) svmotionVM2DiffDs(ctx context.Context, vm *object.VirtualMach
 	framework.Logf("Starting relocation of vm %s to datastore %s", vmname, dsref.Value)
 	task, err := vm.Relocate(ctx, relocateSpec, vim25types.VirtualMachineMovePriorityHighPriority)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	_, err = task.WaitForResult(ctx)
+	_, err = task.WaitForResultEx(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Relocation of vm %s to datastore %s completed successfully", vmname, dsref.Value)
 }
