@@ -246,6 +246,8 @@ const (
 	vsphereClusterIdConfigMapName              = "vsphere-csi-cluster-id"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
+	podVMOnStretchedSupervisor = "stretched-svc"
+	stretchedSVCTopologyLevels = 1
 )
 
 /*
@@ -311,6 +313,7 @@ var (
 	wcpVsanDirectCluster bool
 	vcptocsi             bool
 	windowsEnv           bool
+	stretchedSVC         bool
 )
 
 // For busybox pod image
@@ -458,5 +461,11 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	workerNode := os.Getenv("WORKER_TYPE")
 	if strings.TrimSpace(string(workerNode)) == "WINDOWS" {
 		windowsEnv = true
+	}
+
+	//Check if its stretched SVC testbed
+	testbedType := os.Getenv("STRETCHED_SVC")
+	if strings.TrimSpace(string(testbedType)) == "1" {
+		stretchedSVC = true
 	}
 }
