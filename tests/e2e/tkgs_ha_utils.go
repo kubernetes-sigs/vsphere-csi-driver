@@ -131,6 +131,20 @@ func verifyAnnotationsAndNodeAffinity(allowedTopologyHAMap map[string][]string,
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
+// verifyAnnotationsAndNodeAffinity verifies annotations on SVC PVC
+// and node affinities and pod location of volumes on correct zones
+func verifyAnnotationsAndNodeAffinityInSVC(allowedTopologyHAMap map[string][]string,
+	pod *v1.Pod, nodeList *v1.NodeList, pv *v1.PersistentVolume) {
+
+	framework.Logf("Verify  PV has has required  node affinity details")
+	_, err := verifyVolumeTopologyForLevel5(pv, allowedTopologyHAMap)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("SVC PV: %s has required Pv node affinity details", pv.Name)
+
+	_, err = verifyPodLocationLevel5(pod, nodeList, allowedTopologyHAMap)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
 // verifyVolumeProvisioningWithServiceDown brings the service down and creates the statefulset and then brings up
 // the service and validates the volumes are bound and required annotations and node affinity are present
 func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace string, client clientset.Interface,
@@ -422,6 +436,7 @@ func verifyVolumeMetadataOnStatefulsets(client clientset.Interface, ctx context.
 					pvcName, metav1.GetOptions{})
 				gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 				volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 				svcPVCName := pv.Spec.CSI.VolumeHandle

@@ -232,6 +232,7 @@ const (
 	topologyHaMap                              = "TOPOLOGY_HA_MAP"
 	topologyFeature                            = "TOPOLOGY_FEATURE"
 	topologyTkgHaName                          = "tkgs_ha"
+	podVMOnStretchedSupervisor                 = "stretched-svc"
 	tkgHATopologyKey                           = "topology.kubernetes.io"
 	tkgHAccessibleAnnotationKey                = "csi.vsphere.volume-accessible-topology"
 	tkgHARequestedAnnotationKey                = "csi.vsphere.volume-requested-topology"
@@ -241,6 +242,7 @@ const (
 	topologyCluster                            = "TOPOLOGY_CLUSTERS"
 	topologyLength                             = 5
 	tkgshaTopologyLevels                       = 1
+	stretchedSVCTopologyLevels                 = 1
 	vmClassBestEffortSmall                     = "best-effort-small"
 	vmcPrdEndpoint                             = "https://vmc.vmware.com/vmc/api/orgs/"
 	vsphereClusterIdConfigMapName              = "vsphere-csi-cluster-id"
@@ -311,6 +313,7 @@ var (
 	wcpVsanDirectCluster bool
 	vcptocsi             bool
 	windowsEnv           bool
+	stretchedSVC         bool
 )
 
 // For busybox pod image
@@ -458,5 +461,11 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	workerNode := os.Getenv("WORKER_TYPE")
 	if strings.TrimSpace(string(workerNode)) == "WINDOWS" {
 		windowsEnv = true
+	}
+
+	//Check if its stretched SVC testbed
+	testbedType := os.Getenv("STRETCHED_SVC")
+	if strings.TrimSpace(string(testbedType)) == "1" {
+		stretchedSVC = true
 	}
 }
