@@ -30,6 +30,7 @@ import (
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	storagepolicyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
+        cnsmigratevolumev1alpha1 "sigs.k8s.io/zhibin-fang/vsphere-csi-driver/tree/pv-migration-poc/pkg/apis/cnsoperator/cnsmigratevolume/v1alpha1"
 )
 
 // GroupName represents the group for cns operator apis
@@ -61,6 +62,8 @@ var (
 	CnsStoragePolicyQuotaSingular = "storagepolicyquota"
 	// CnsStoragePolicyQuotaPlural is plural of StoragePolicyQuota
 	CnsStoragePolicyQuotaPlural = "storagepolicyquotas"
+        // CnsMigrateVolumePlural is plural of CnsMigrateVolume
+        CnsMigrateVolumePlural = "cnsmigratevolumes"
 )
 
 var (
@@ -118,6 +121,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&storagepolicyv1alpha1.StoragePolicyUsage{},
 		&storagepolicyv1alpha1.StoragePolicyUsageList{},
 	)
+
+        scheme.AddKnownTypes(
+                SchemeGroupVersion,
+                &cnsmigratevolumev1alpha1.CnsMigrateVolume{},
+                &cnsmigratevolumev1alpha1.CnsMigrateVolumeList{},
+        )
 
 	scheme.AddKnownTypes(
 		SchemeGroupVersion,

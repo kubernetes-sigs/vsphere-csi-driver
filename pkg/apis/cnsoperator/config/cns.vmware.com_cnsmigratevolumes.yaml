@@ -1,0 +1,90 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: cnsmigratevolumes.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: CnsMigrateVolume
+    listKind: CnsMigrateVolumeList
+    plural: cnsmigratevolumes
+    singular: cnsmigratevolume
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: CnsMigrateVolume is the Schema for the cnsmigratevolumes API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: CnsMigrateVolumeSpec defines the desired state of CnsMigrateVolume
+            properties:
+              datastoreurl:
+                description: Datastore url indicates the destination datastore to
+                  be migrated.
+                type: string
+              namespace:
+                description: Namespace to be migrated.
+                type: string
+              storageclass:
+                description: |-
+                  Storage class to be migrated, DatastoreUrl should be within
+                  the storage class of volume if this is unset.
+                type: string
+              storagepolicyname:
+                description: |-
+                  Storage policy name of destination datastore, the default policy
+                  of the destination datastore is applied if this is unset.
+                type: string
+              volumename:
+                description: |-
+                  VolumeName indicates the name of the volume on the supervisor Cluster.
+                  This is guaranteed to be unique in Supervisor cluster.
+                type: string
+            required:
+            - datastoreurl
+            - volumename
+            type: object
+          status:
+            description: CnsMigrateVolumeStatus defines the observed state of CnsMigrateVolume
+            properties:
+              error:
+                description: |-
+                  The last error encountered during migrate operation, if any.
+                  This field must only be set by the entity completing the migrate
+                  operation, i.e. the CNS Operator.
+                type: string
+              migrated:
+                description: |-
+                  Indicates the volume is successfully migrated.
+                  This field must only be set by the entity completing the migrate
+                  operation, i.e. the CNS Operator.
+                type: boolean
+            required:
+            - migrated
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
