@@ -150,7 +150,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			} else if serviceName == hostdServiceName {
 				framework.Logf("In afterEach function to start the hostd service on all hosts")
-				hostIPs := getAllHostsIP(ctx)
+				hostIPs := getAllHostsIP(ctx, true)
 				for _, hostIP := range hostIPs {
 					startHostDOnHost(ctx, hostIP)
 				}
@@ -400,7 +400,7 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 	} else if serviceName == hostdServiceName {
 		ginkgo.By("Fetch IPs for the all the hosts in the cluster")
-		hostIPs := getAllHostsIP(ctx)
+		hostIPs := getAllHostsIP(ctx, true)
 		isServiceStopped = true
 
 		var wg sync.WaitGroup
@@ -526,7 +526,7 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 			time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 		} else if serviceName == hostdServiceName {
 			ginkgo.By("Fetch IPs for the all the hosts in the cluster")
-			hostIPs := getAllHostsIP(ctx)
+			hostIPs := getAllHostsIP(ctx, true)
 			isServiceStopped = true
 
 			var wg sync.WaitGroup
@@ -654,7 +654,7 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 			time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 		} else if serviceName == hostdServiceName {
 			ginkgo.By("Fetch IPs for the all the hosts in the cluster")
-			hostIPs := getAllHostsIP(ctx)
+			hostIPs := getAllHostsIP(ctx, true)
 			isServiceStopped = true
 
 			var wg sync.WaitGroup

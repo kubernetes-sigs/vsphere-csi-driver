@@ -28,13 +28,20 @@ var e2eVSphere vSphere
 var testConfig *e2eTestConfig
 
 // bootstrap function takes care of initializing necessary tests context for e2e tests
-func bootstrap(withoutDc ...bool) {
+func bootstrap(optionArgs ...bool) {
 	var err error
 	testConfig, err = getConfig()
+	refresh := false
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	if len(withoutDc) > 0 {
-		if withoutDc[0] {
+	if len(optionArgs) > 0 {
+		if optionArgs[0] {
 			(*testConfig).Global.Datacenters = ""
+		}
+
+		if len(optionArgs) > 1 {
+			if optionArgs[1] {
+				refresh = true
+			}
 		}
 	}
 	e2eVSphere = vSphere{
@@ -42,7 +49,7 @@ func bootstrap(withoutDc ...bool) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	connect(ctx, &e2eVSphere)
+	connect(ctx, &e2eVSphere, refresh)
 	if framework.TestContext.RepoRoot != "" {
 		testfiles.AddFileSource(testfiles.RootFileSource{Root: framework.TestContext.RepoRoot})
 	}

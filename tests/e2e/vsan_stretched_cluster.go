@@ -3576,7 +3576,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("Bring down the primary site while full sync is going on")
 		var wg sync.WaitGroup
 		wg.Add(2)
-		go triggerFullSyncInParallel(ctx, client, cnsOperatorClient, &wg)
+		go triggerFullSyncInParallel(ctx, cnsOperatorClient, &wg)
 		go siteFailureInParallel(true, &wg)
 		wg.Wait()
 
@@ -3598,7 +3598,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Trigger 2 full syncs as full sync might be interrupted during site failover")
-		triggerFullSync(ctx, client, cnsOperatorClient)
+		triggerFullSync(ctx, cnsOperatorClient)
 
 		ginkgo.By("Checking whether pods are in Running state")
 		for _, pod := range pods {
@@ -3907,7 +3907,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("Bring down the secondary site while full sync is going on")
 		var wg sync.WaitGroup
 		wg.Add(2)
-		go triggerFullSyncInParallel(ctx, client, cnsOperatorClient, &wg)
+		go triggerFullSyncInParallel(ctx, cnsOperatorClient, &wg)
 		go siteFailureInParallel(false, &wg)
 		wg.Wait()
 
@@ -3929,7 +3929,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Trigger 2 full syncs as full sync might be interrupted during site failover")
-		triggerFullSync(ctx, client, cnsOperatorClient)
+		triggerFullSync(ctx, cnsOperatorClient)
 
 		ginkgo.By("Checking whether pods are in Running state")
 		for _, pod := range pods {

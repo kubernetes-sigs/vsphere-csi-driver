@@ -56,9 +56,17 @@ var (
 // connect helps make a connection to vCenter Server.
 // No actions are taken if a connection exists and alive. Otherwise, a new
 // client will be created.
-func connect(ctx context.Context, vs *vSphere) {
+func connect(ctx context.Context, vs *vSphere, forceRefresh ...bool) {
 	clientLock.Lock()
 	var err error
+	refresh := false
+
+	if len(forceRefresh) > 0 {
+		if forceRefresh[0] {
+			refresh = true
+		}
+	}
+
 	defer clientLock.Unlock()
 	if vs.Client == nil {
 		framework.Logf("Creating new VC session")
@@ -67,9 +75,11 @@ func connect(ctx context.Context, vs *vSphere) {
 	manager := session.NewManager(vs.Client.Client)
 	userSession, err := manager.UserSession(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	if userSession != nil {
+
+	if userSession != nil && !refresh {
 		return
 	}
+
 	framework.Logf("Current session is not valid or not authenticated, trying to logout from it")
 	err = vs.Client.Logout(ctx)
 	if err != nil {

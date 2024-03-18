@@ -784,13 +784,13 @@ func (vs *vSphere) getVsanClusterResource(ctx context.Context, forceRefresh ...b
 
 // getAllHostsIP reads cluster, gets hosts in it and returns IP array
 func getAllHostsIP(ctx context.Context, forceRefresh ...bool) []string {
-	bootstrap()
 	var result []string
 	refresh := false
 	if len(forceRefresh) > 0 {
 		refresh = forceRefresh[0]
 	}
 
+	bootstrap(false, true)
 	cluster := e2eVSphere.getVsanClusterResource(ctx, refresh)
 	hosts, err := cluster.Hosts(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
