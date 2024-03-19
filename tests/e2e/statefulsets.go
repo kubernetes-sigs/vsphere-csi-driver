@@ -35,6 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
@@ -78,7 +79,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		categories           []string
 		labels_ns            map[string]string
 		allowedTopologyHAMap map[string][]string
-		//nodeList             *v1.NodeList
+		nodeList             *v1.NodeList
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -111,16 +112,17 @@ var _ = ginkgo.Describe("statefulset", func() {
 			}
 			framework.Logf("zonal policy: %s and zonal wffc policy: %s", zonalPolicy, zonalWffcPolicy)
 
+			topologyHaMap := GetAndExpectStringEnvVar(topologyHaMap)
 			_, categories = createTopologyMapLevel5(topologyHaMap, stretchedSVCTopologyLevels)
 			allowedTopologies := createAllowedTopolgies(topologyHaMap, stretchedSVCTopologyLevels)
 			allowedTopologyHAMap = createAllowedTopologiesMap(allowedTopologies)
 			framework.Logf("Topology map: %v, categories: %v", allowedTopologyHAMap, categories)
 		}
 
-		// if stretchedSVC {
-		// 	nodeList, err = fnodes.GetReadySchedulableNodes(client)
-		// 	framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
-		// }
+		if stretchedSVC {
+			nodeList, err = fnodes.GetReadySchedulableNodes(client)
+			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
+		}
 	})
 
 	ginkgo.AfterEach(func() {
@@ -326,7 +328,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					if stretchedSVC {
-						//verifyAnnotationsAndNodeAffinityInSVC(allowedTopologyHAMap, pod, nodeList, pv)
+						verifyAnnotationsAndNodeAffinityInSVC(allowedTopologyHAMap, pod, nodeList, pv)
 					}
 				}
 			}
@@ -1224,7 +1226,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 					if stretchedSVC {
-						//verifyAnnotationsAndNodeAffinityInSVC(allowedTopologyHAMap, pod, nodeList, pv)
+						verifyAnnotationsAndNodeAffinityInSVC(allowedTopologyHAMap, pod, nodeList, pv)
 					}
 
 				}
@@ -1248,13 +1250,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
 
-		// decide which test setup is available to run
-		scParameters = nil
-		ginkgo.By("CNS_TEST: Running for WCP setup")
-		profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-		scParameters[scParamStoragePolicyID] = profileID
-		//createResourceQuota(client, namespace, rqLimit, defaultNginxStorageClassName)
-		//storageClassName = defaultNginxStorageClassName
 		storageClassName = zonalPolicy
 
 		ginkgo.By("Creating service")
@@ -1273,12 +1268,21 @@ var _ = ginkgo.Describe("statefulset", func() {
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+		storageClassName = storageclass.Name
 
 		// ginkgo.By(fmt.Sprintf("test1: %v test2: %v test3: %v",
 		// 	allowedTopologyHAMap, categories, stretchedSVCTopologyLevels))
 
-		allowedTopologies := getTopologySelector(allowedTopologyHAMap, categories,
+		ginkgo.By("++++++Topology selector++++++++")
+		topologyHaMap := GetAndExpectStringEnvVar(topologyHaMap)
+
+		_, categories = createTopologyMapLevel5(topologyHaMap, stretchedSVCTopologyLevels)
+		allowedTopologies := createAllowedTopolgies(topologyHaMap, stretchedSVCTopologyLevels)
+		allowedTopologyHAMap = createAllowedTopologiesMap(allowedTopologies)
+		allowedTopologies = getTopologySelector(allowedTopologyHAMap, categories,
 			stretchedSVCTopologyLevels)
+		allowedTopologyHAMap = createAllowedTopologiesMap(allowedTopologies)
+
 		storageClassName = storageclass.Name
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storageclass.Name
@@ -1426,7 +1430,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 					if stretchedSVC {
-						//verifyAnnotationsAndNodeAffinityInSVC(allowedTopologyHAMap, pod, nodeList, pv)
+						verifyAnnotationsAndNodeAffinityInSVC(allowedTopologyHAMap, pod, nodeList, pv)
 					}
 
 				}
