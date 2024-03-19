@@ -20,7 +20,7 @@ require (
 	github.com/pkg/sftp v1.13.6
 	github.com/prometheus/client_golang v1.18.0
 	github.com/stretchr/testify v1.9.0
-	github.com/vmware-tanzu/vm-operator/api v1.8.2
+	github.com/vmware-tanzu/vm-operator/api v1.8.5
 	github.com/vmware/govmomi v0.36.1
 	go.uber.org/zap v1.26.0
 	golang.org/x/crypto v0.18.0
