@@ -1339,23 +1339,25 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 							if len(nodeNames) == 1 && nodeNames[0] == req.NodeId {
 								log.Errorf("volume %q is still attached to node %q and podVM %q", req.VolumeId,
 									req.NodeId, podVM.Reference().String())
-								podvmpowerstate, err := podVM.PowerState(ctx)
-								if err != nil {
+								podvmpowerstate, powerstateErr := podVM.PowerState(ctx)
+								if powerstateErr != nil {
 									log.Errorf("failed to check the power state of pod vm: %q, error: %v",
-										podVM.Reference(), err)
-									return nil, csifault.CSIInternalFault, err
+										podVM.Reference(), powerstateErr)
+									return nil, csifault.CSIInternalFault, fmt.Errorf("volume %q is still attached to "+
+										"node %q and podVM %q Error while checking power state of Pod VM. Error: %v",
+										req.VolumeId, req.NodeId, podVM.Reference().String(), powerstateErr)
 								}
 								log.Infof("power state of pod vm: %q is %q", podVM.Reference(), podvmpowerstate)
 								if podvmpowerstate == types.VirtualMachinePowerStatePoweredOff {
 									log.Debugf("attempting to detach volume %q from "+
 										"powered off Pod VM %q", req.VolumeId, podVM.Reference().String())
-									detachFault, err := c.manager.VolumeManager.DetachVolume(ctx, podVM, req.VolumeId)
-									if err == nil {
+									detachFault, detachErr := c.manager.VolumeManager.DetachVolume(ctx, podVM, req.VolumeId)
+									if detachErr == nil {
 										log.Infof("successfully detached volume %q from Pod VM %q", req.VolumeId, podVM.Reference().String())
 										return &csi.ControllerUnpublishVolumeResponse{}, "", nil
 									} else {
 										log.Errorf("failed to detach volume %q from Pod VM %q", req.VolumeId, podVM.Reference().String())
-										return nil, detachFault, err
+										return nil, detachFault, detachErr
 									}
 								}
 								return nil, csifault.CSIDiskNotDetachedFault, err
