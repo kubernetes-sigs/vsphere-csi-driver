@@ -81,7 +81,9 @@ func init() {
 
 // NewDriver returns a new Driver.
 func NewDriver() Driver {
-	return &vsphereCSIDriver{}
+	return &vsphereCSIDriver{
+		volumeLocks: node.NewVolumeLocks(),
+	}
 }
 
 func (driver *vsphereCSIDriver) GetController() csi.ControllerServer {
