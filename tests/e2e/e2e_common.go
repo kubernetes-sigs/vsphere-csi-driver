@@ -388,6 +388,11 @@ var (
 	envTestbedInfoJsonPathVC3         = "TESTBEDINFO_JSON_VC3"
 )
 
+// For rwx
+var (
+	envVsanDatastoreUrlCluster1 = "VSAN_DATASTORE_URL_CLUSTER1"
+)
+
 // VolumeSnapshotClass env variables for tkg-snapshot
 var (
 	envVolSnapClassDel = "VOLUME_SNAPSHOT_CLASS_DELETE"

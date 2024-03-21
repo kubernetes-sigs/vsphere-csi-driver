@@ -75,8 +75,6 @@ func createCustomisedStatefulSets(client clientset.Interface, namespace string,
 	if modifyStsSpec {
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Annotations["volume.beta.kubernetes.io/storage-class"] = sc.Name
-		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
-			accessMode
 		statefulset.Name = stsName
 		statefulset.Spec.Template.Labels["app"] = statefulset.Name
 		statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
