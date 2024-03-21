@@ -94,6 +94,7 @@ const (
 	envVsanDDatastore2URL                      = "SHARED_VSAND_DATASTORE2_URL"
 	envStoragePolicyNameForNonSharedDatastores = "STORAGE_POLICY_FOR_NONSHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores    = "STORAGE_POLICY_FOR_SHARED_DATASTORES"
+	envStoragePolicyNameForSharedDatastores1   = "STORAGE_POLICY_FOR_SHARED_DATASTORES1"
 	envStoragePolicyNameForHCIRemoteDatastores = "STORAGE_POLICY_FOR_HCI_REMOTE_DS"
 	envStoragePolicyNameForVsanVmfsDatastores  = "STORAGE_POLICY_FOR_VSAN_VMFS_DATASTORES"
 	envStoragePolicyNameForSharedDatastores2   = "STORAGE_POLICY_FOR_SHARED_DATASTORES_2"
@@ -103,7 +104,9 @@ const (
 	envStoragePolicyNameFromInaccessibleZone   = "STORAGE_POLICY_FROM_INACCESSIBLE_ZONE"
 	envStoragePolicyNameWithThickProvision     = "STORAGE_POLICY_WITH_THICK_PROVISIONING"
 	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
+	envSupervisorClusterNamespace1             = "SVC_NAMESPACE1"
 	envSupervisorClusterNamespaceToDelete      = "SVC_NAMESPACE_TO_DELETE"
+	envSupervisorClusterNamespaceToDelete1     = "SVC_NAMESPACE_TO_DELETE1"
 	envTopologyWithOnlyOneNode                 = "TOPOLOGY_WITH_ONLY_ONE_NODE"
 	envTopologyWithInvalidTagInvalidCat        = "TOPOLOGY_WITH_INVALID_TAG_INVALID_CAT"
 	envTopologyWithInvalidTagValidCat          = "TOPOLOGY_WITH_INVALID_TAG_VALID_CAT"
@@ -113,6 +116,9 @@ const (
 	envVmsvcVmImageName                        = "VMSVC_IMAGE_NAME"
 	envVolumeOperationsScale                   = "VOLUME_OPS_SCALE"
 	envComputeClusterName                      = "COMPUTE_CLUSTER_NAME"
+	envComputeClusterName1                     = "COMPUTE_CLUSTER_NAME1"
+	envNfsDatastoreName                        = "NFS_DATASTORE_NAME"
+	envNfsDatastoreIP                          = "NFS_DATASTORE_IP"
 	envTKGImage                                = "TKG_IMAGE_NAME"
 	envVmknic4Vsan                             = "VMKNIC_FOR_VSAN"
 	execCommand                                = "/bin/df -T /mnt/volume1 | " +
@@ -157,6 +163,7 @@ const (
 	pollTimeout                               = 5 * time.Minute
 	pollTimeoutShort                          = 1 * time.Minute
 	pollTimeoutSixMin                         = 6 * time.Minute
+	pwdRotationTimeout                        = 10 * time.Minute
 	healthStatusPollTimeout                   = 20 * time.Minute
 	healthStatusPollInterval                  = 30 * time.Second
 	psodTime                                  = "120"
@@ -246,6 +253,9 @@ const (
 	vsphereClusterIdConfigMapName              = "vsphere-csi-cluster-id"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
+	roleCnsDatastore                = "CNS-Datastore"
+	roleCnsSearchAndSpbm            = "CNS-SEARCH-AND-SPBM"
+	roleSupervisorServiceRootFolder = "SupervisorServiceRootFolder"
 )
 
 /*

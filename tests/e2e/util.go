@@ -92,7 +92,9 @@ import (
 var (
 	defaultCluster         *object.ClusterComputeResource
 	svcClient              clientset.Interface
+	svcClient1             clientset.Interface
 	svcNamespace           string
+	svcNamespace1          string
 	vsanHealthClient       *VsanClient
 	clusterComputeResource []*object.ClusterComputeResource
 	hosts                  []*object.HostSystem
@@ -1083,6 +1085,25 @@ func getSvcClientAndNamespace() (clientset.Interface, string) {
 	return svcClient, svcNamespace
 }
 
+func getMultiSvcClientAndNamespace() ([]clientset.Interface, []string) {
+	var err error
+	if svcClient == nil {
+		if k8senv := GetAndExpectStringEnvVar("KUBECONFIG"); k8senv != "" {
+			svcClient, err = createKubernetesClientFromConfig(k8senv)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		svcNamespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+	}
+	if svcClient1 == nil {
+		if k8senv := GetAndExpectStringEnvVar("KUBECONFIG1"); k8senv != "" {
+			svcClient1, err = createKubernetesClientFromConfig(k8senv)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		svcNamespace1 = GetAndExpectStringEnvVar(envSupervisorClusterNamespace1)
+	}
+	return []clientset.Interface{svcClient, svcClient1}, []string{svcNamespace, svcNamespace1}
+}
+
 // updateCSIDeploymentTemplateFullSyncInterval helps to update the
 // FULL_SYNC_INTERVAL_MINUTES in deployment template. For this to take effect,
 // we need to terminate the running csi controller pod.
@@ -1938,6 +1959,38 @@ func replacePasswordRotationTime(file, host string) error {
 	}
 
 	sshCmd = fmt.Sprintf("vmon-cli -r %s", wcpServiceName)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err = fssh.SSH(sshCmd, host, framework.TestContext.Provider)
+	time.Sleep(sleepTimeOut)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	return nil
+}
+
+// performPasswordRotationOnSupervisor invokes the given command to replace the password
+//
+//	Vmon-cli is used to restart the wcp service after changing the time.
+func performPasswordRotationOnSupervisor(supervisor_id string, host string) error {
+	sshCmd := fmt.Sprintf("vmon-cli --stop %s", wcpServiceName)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
+	time.Sleep(sleepTimeOut)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+
+	sshCmd = fmt.Sprintf("cd /etc/vmware/wcp; sudo -u wcp psql -U wcpuser -d VCDB -c \"update cluster_db_configs set last_storage_pwd_rotation_timestamp=1684717716 where instance_id='%s'\"", supervisor_id)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err = fssh.SSH(sshCmd, host, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+
+	sshCmd = fmt.Sprintf("vmon-cli --start %s", wcpServiceName)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
 	result, err = fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 	time.Sleep(sleepTimeOut)
@@ -3046,6 +3099,12 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 		case "list-volume-threshold":
 			config.Global.ListVolumeThreshold, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
+		case "ca-file":
+			config.Global.CaFile = value
+		case "supervisor-id":
+			config.Global.SupervisorID = value
+		case "targetvSANFileShareClusters":
+			config.Global.TargetVsanFileShareClusters = value
 
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
