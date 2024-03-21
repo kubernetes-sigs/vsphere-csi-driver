@@ -126,6 +126,18 @@ datacenters should be comma separated if deployed on multi-datacenters
     export GATEWAY_VM_USER=<user>
     export GATEWAY_VM_PASSWD=<passwd>
 
+### To run MultiSvc tests need to do extra steps
+
+    export SUPERVISOR_TYPE="MULTI_SVC"
+    export SVC_NAMESPACE1="e2e-test-namespace1"
+    export STORAGE_POLICY_FOR_SHARED_DATASTORES_SVC1="shared-ds-policy1"
+    export STORAGE_POLICY_FOR_SHARED_DATASTORES_SVC2="shared-ds-policy2"
+    export KUBECONFIG1="~/kube1.config"
+    export CSI_NAMESPACE="vmware-system-csi"
+    export COMPUTE_CLUSTER_NAME1="wcpe2e-compute-cluster1"
+    export NFS_DATASTORE_IP="<nfs-datastore-ip>"
+    export NFS_DATASTORE_NAME="nfs-test"
+
 ## Requirements
 
 Go version: 1.21

@@ -299,6 +299,7 @@ const (
 	level5              = "level5"
 	negative            = "negative"
 	listVolume          = "listVolume"
+	multiSvc            = "multiSvc"
 )
 
 // The following variables are required to know cluster type to run common e2e
@@ -311,6 +312,7 @@ var (
 	wcpVsanDirectCluster bool
 	vcptocsi             bool
 	windowsEnv           bool
+	multipleSvc          bool
 )
 
 // For busybox pod image
@@ -409,6 +411,20 @@ var (
 		" { Add-Content /mnt/volume1/Pod1.html 'Hello message from Pod1'; sleep 1 }"
 )
 
+// multiSvc env variables
+var (
+	vcSessionWaitTime                   = 5 * time.Minute
+	envStoragePolicyNameForSharedDsSvc1 = "STORAGE_POLICY_FOR_SHARED_DATASTORES_SVC1"
+	envStoragePolicyNameForSharedDsSvc2 = "STORAGE_POLICY_FOR_SHARED_DATASTORES_SVC2"
+	envSupervisorClusterNamespace1      = "SVC_NAMESPACE1"
+	envNfsDatastoreName                 = "NFS_DATASTORE_NAME"
+	envNfsDatastoreIP                   = "NFS_DATASTORE_IP"
+	pwdRotationTimeout                  = 10 * time.Minute
+	roleCnsDatastore                    = "CNS-Datastore"
+	roleCnsSearchAndSpbm                = "CNS-SEARCH-AND-SPBM"
+	roleCnsHostConfigStorageAndCnsVm    = "CNS-HOST-CONFIG-STORAGE-AND-CNS-VM"
+)
+
 // GetAndExpectStringEnvVar parses a string from env variable.
 func GetAndExpectStringEnvVar(varName string) string {
 	varValue := os.Getenv(varName)
@@ -458,5 +474,11 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	workerNode := os.Getenv("WORKER_TYPE")
 	if strings.TrimSpace(string(workerNode)) == "WINDOWS" {
 		windowsEnv = true
+	}
+
+	// Check if it's multiple supervisor cluster setup
+	svcType := os.Getenv("SUPERVISOR_TYPE")
+	if strings.TrimSpace(string(svcType)) == "MULTI_SVC" {
+		multipleSvc = true
 	}
 }

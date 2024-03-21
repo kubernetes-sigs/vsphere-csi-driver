@@ -93,7 +93,9 @@ import (
 var (
 	defaultCluster         *object.ClusterComputeResource
 	svcClient              clientset.Interface
+	svcClient1             clientset.Interface
 	svcNamespace           string
+	svcNamespace1          string
 	vsanHealthClient       *VsanClient
 	clusterComputeResource []*object.ClusterComputeResource
 	hosts                  []*object.HostSystem
@@ -1087,6 +1089,31 @@ func getSvcClientAndNamespace() (clientset.Interface, string) {
 	return svcClient, svcNamespace
 }
 
+// create kubernetes client for multi-supervisors clusters and returns it along with namespaces
+func getMultiSvcClientAndNamespace() ([]clientset.Interface, []string, []error) {
+	var err error
+	if svcClient == nil {
+		if k8senv := GetAndExpectStringEnvVar("KUBECONFIG"); k8senv != "" {
+			svcClient, err = createKubernetesClientFromConfig(k8senv)
+			if err != nil {
+				return []clientset.Interface{}, []string{}, []error{err, nil}
+			}
+		}
+		svcNamespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+	}
+	if svcClient1 == nil {
+		if k8senv := GetAndExpectStringEnvVar("KUBECONFIG1"); k8senv != "" {
+			svcClient1, err = createKubernetesClientFromConfig(k8senv)
+			if err != nil {
+				return []clientset.Interface{}, []string{}, []error{nil, err}
+			}
+		}
+		svcNamespace1 = GetAndExpectStringEnvVar(envSupervisorClusterNamespace1)
+	}
+	// returns list of clientset, namespace and error if any for both svc
+	return []clientset.Interface{svcClient, svcClient1}, []string{svcNamespace, svcNamespace1}, []error{}
+}
+
 // updateCSIDeploymentTemplateFullSyncInterval helps to update the
 // FULL_SYNC_INTERVAL_MINUTES in deployment template. For this to take effect,
 // we need to terminate the running csi controller pod.
@@ -1958,6 +1985,58 @@ func replacePasswordRotationTime(ctx context.Context, file, host string) error {
 	return nil
 }
 
+// performPasswordRotationOnSupervisor invokes the given command to replace the password
+//
+//	Vmon-cli is used to restart the wcp service after changing the time.
+func performPasswordRotationOnSupervisor(client clientset.Interface, ctx context.Context,
+	csiNamespace string, host string) (bool, error) {
+	// getting supervisorID and password
+	vsphereCfg, err := getSvcConfigSecretData(client, ctx, csiNamespace)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	oldPassword := vsphereCfg.Global.Password
+	// stopping wcp service
+	sshCmd := fmt.Sprintf("vmon-cli --stop %s", wcpServiceName)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
+	time.Sleep(sleepTimeOut)
+	if err != nil || result.Code != 0 {
+		return false, fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+
+	// To set last_storage_pwd_rotation_timestamp with 12 hrs prior to current timestamp
+	currentTimestamp := time.Now()
+	twelveHoursAgoTimestamp := (currentTimestamp.Add(-12 * time.Hour)).Unix()
+	sshCmd = fmt.Sprintf("cd /etc/vmware/wcp; sudo -u wcp psql -U wcpuser -d VCDB -c "+
+		"\"update cluster_db_configs set last_storage_pwd_rotation_timestamp=%v "+
+		"where instance_id='%s'\"", twelveHoursAgoTimestamp, vsphereCfg.Global.SupervisorID)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err = fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		return false, fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	// Starting wcp service
+	sshCmd = fmt.Sprintf("vmon-cli --start %s", wcpServiceName)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err = fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
+	time.Sleep(sleepTimeOut)
+	if err != nil || result.Code != 0 {
+		return false, fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	// waiting for the changed password to reflect in CSI config file
+	waitErr := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pwdRotationTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			vsphereCfg, err := getSvcConfigSecretData(client, ctx, csiNamespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			changedPassword := vsphereCfg.Global.Password
+			framework.Logf("Password from Config Secret of svc: %v", changedPassword)
+			if changedPassword != oldPassword {
+				return true, nil
+			}
+			return false, nil
+		})
+	return true, waitErr
+}
+
 // getVCentreSessionId gets vcenter session id to work with vcenter apis
 func getVCentreSessionId(hostname string, username string, password string) string {
 
@@ -2247,17 +2326,37 @@ func getValidTopology(topologyMap map[string][]string) ([]string, []string) {
 func createResourceQuota(client clientset.Interface, namespace string, size string, scName string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	var storagePolicyNameForSharedDatastores string
+	var storagePolicyNameForSvc1 string
+	var storagePolicyNameForSvc2 string
+
 	waitTime := 15
 	var executeCreateResourceQuota bool
 	executeCreateResourceQuota = true
-	storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+	if !multipleSvc {
+		// reading export variable from a single supervisor cluster
+		storagePolicyNameForSharedDatastores = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+	} else {
+		// reading multiple export variables from a multi svc setup
+		storagePolicyNameForSvc1 = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDsSvc1)
+		storagePolicyNameForSvc2 = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDsSvc2)
+	}
 
 	if supervisorCluster {
 		_, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace+"-storagequota", metav1.GetOptions{})
-		if err != nil || !(scName == storagePolicyNameForSharedDatastores) {
-			executeCreateResourceQuota = true
+		if !multipleSvc {
+			if err != nil || !(scName == storagePolicyNameForSharedDatastores) {
+				executeCreateResourceQuota = true
+			} else {
+				executeCreateResourceQuota = false
+			}
 		} else {
-			executeCreateResourceQuota = false
+			if err != nil || !(scName == storagePolicyNameForSvc1) || !(scName == storagePolicyNameForSvc2) {
+				executeCreateResourceQuota = true
+			} else {
+				executeCreateResourceQuota = false
+			}
 		}
 	}
 
@@ -3058,6 +3157,12 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 		case "list-volume-threshold":
 			config.Global.ListVolumeThreshold, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
+		case "ca-file":
+			config.Global.CaFile = value
+		case "supervisor-id":
+			config.Global.SupervisorID = value
+		case "targetvSANFileShareClusters":
+			config.Global.TargetVsanFileShareClusters = value
 
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
