@@ -2886,6 +2886,73 @@ func policyQuotaCRAdded(obj interface{}) {
 	}
 }
 
+// policyQuotaCRDeleted, on deletion of StoragePolicyQuota object, deletes StoragePolicyUsage object
+// for the Storage Policy Id and storage classes asspociated, in given same namespace as of StoragePolicyQuota object.
+func policyQuotaCRDeleted(obj interface{}) {
+	ctx, log := logger.GetNewContextWithLogger()
+	// Verify object received.
+	var policyQuotaObj storagepolicyusagev1alpha1.StoragePolicyQuota
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object,
+		&policyQuotaObj)
+	if err != nil {
+		log.Errorf("policyQuotaCRDeleted: failed to cast object %+v to %s. Error: %v", obj,
+			cnsoperatorv1alpha1.CnsStoragePolicyQuotaSingular, err)
+		return
+	}
+	namespace := policyQuotaObj.Namespace
+	storagePolicyId := policyQuotaObj.Spec.StoragePolicyId
+	// Get storage classes associated with storage policy id of StoragePolicyQuota CR added
+	config, err := k8s.GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("policyQuotaCRDeleted: Failed to get KubeConfig. err: %v", err)
+		return
+	}
+	storageQuotaClient, err := k8s.NewClientForGroup(ctx, config, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		log.Errorf("policyQuotaCRDeleted: Failed to create CnsOperator client. Err: %+v", err)
+		return
+	}
+	policyUsageList := &storagepolicyusagev1alpha1.StoragePolicyUsageList{}
+	err = storageQuotaClient.List(ctx, policyUsageList, &client.ListOptions{
+		Namespace: namespace,
+	})
+	if err != nil {
+		log.Errorf("policyQuotaCRDeleted: Failed to list %v CRs associated in namespace %v. Err: %+v",
+			cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular, namespace, err)
+		return
+	}
+	// For each storagepolicyusage matching with the storage policy id, delete the usage CR.
+	for _, usage := range policyUsageList.Items {
+		if usage.Spec.StoragePolicyId == storagePolicyId &&
+			usage.Spec.ResourceKind == ResourceKindPVC {
+			policyUsageCR := storagepolicyusagev1alpha1.StoragePolicyUsage{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      usage.Name,
+					Namespace: namespace,
+				},
+			}
+			err := storageQuotaClient.Delete(ctx, &policyUsageCR)
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					log.Infof("policyQuotaCRDeleted: StoragePolicyUsageCR instance %q/%q already deleted. "+
+						"Returning success for the delete operation", namespace, usage.Name)
+					continue
+				}
+				log.Errorf("policyQuotaCRDeleted: Failed to delete StoragePolicyUsageCR for policyID %v "+
+					"storageclass %v resourceKind %v. Err: %+v",
+					storagePolicyId, usage.Spec.StorageClassName, ResourceAPIgroupPVC, err)
+				continue
+			}
+			log.Infof("policyQuotaCRDeleted: StoragePolicyUsageCR instance %q/%q successfully deleted.",
+				namespace, usage.Name)
+			continue
+		}
+		log.Infof("policyQuotaCRDeleted: StoragePolicyUsageCR instance %q/%q does not have the matching "+
+			"storagepolicyid %v with the quota object getting deleted. Ignoring this usage CR object.",
+			namespace, usage.Name, storagePolicyId)
+	}
+}
+
 // startStoragePolicyQuotaCRInformer creates and starts an informer for StoragePolicyQuota custom resource.
 func startStoragePolicyQuotaCRInformer(ctx context.Context, cfg *restclient.Config) error {
 	log := logger.GetLogger(ctx)
@@ -2900,6 +2967,9 @@ func startStoragePolicyQuotaCRInformer(ctx context.Context, cfg *restclient.Conf
 	_, err = policyQuotaInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			policyQuotaCRAdded(obj)
+		},
+		DeleteFunc: func(obj interface{}) {
+			policyQuotaCRDeleted(obj)
 		},
 	})
 	if err != nil {
