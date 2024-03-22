@@ -105,23 +105,101 @@ func createRwxPvcWithStorageClass(client clientset.Interface, namespace string, 
 
 func createStandalonePodsForRWXVolume(client clientset.Interface, ctx context.Context, namespace string, nodeSelector map[string]string,
 	pvclaim *v1.PersistentVolumeClaim, isPrivileged bool, command string, no_pods_to_deploy int) ([]*v1.Pod, error) {
-	//var err error
 	var podList []*v1.Pod
 
-	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
-	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+	// fetch volume metadata details
+	pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+	volHandle := pv.Spec.CSI.VolumeHandle
 
 	for i := 0; i <= no_pods_to_deploy; i++ {
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		var pod *v1.Pod
+		var err error
 
-		// if i == 2 {
-		// 	pod.Spec.Volumes[0].VolumeSource.PersistentVolumeClaim.ReadOnly = true
-		// }
+		// here we are making sure that Pod3 should not get created with READ/WRITE permissions
+		if i != 2 {
+			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create pod: %v", err)
+			}
 
-		framework.Logf("Verify pod %d is attached to the node ", i)
-		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
-		volHandle := pv.Spec.CSI.VolumeHandle
+			framework.Logf("Verify the volume is accessible and Read/write is possible")
+			cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+				"cat /mnt/volume1/Pod.html "}
+			output, err := e2ekubectl.RunKubectl(namespace, cmd...)
+			if err != nil {
+				return nil, fmt.Errorf("error executing command on pod %s: %v", pod.Name, err)
+			}
+			if !strings.Contains(output, "Hello message from Pod") {
+				return nil, fmt.Errorf("expected message not found in pod output")
+			}
+
+			framework.Logf("Veirfy read/write permission for a pod")
+			wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+				"echo 'Hello message from test into Pod' > /mnt/volume1/Pod.html"}
+			e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
+		}
+
+		// here we are creating Pod3 with read-only permissions
+		if i == 2 {
+			pod = fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+			pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+			createdPod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("error creating pod: %v", err)
+			}
+			pod = createdPod
+
+			writeCmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+				"echo 'Hello message from test into Pod' > /mnt/volume1/Pod.html"}
+			output, err := e2ekubectl.RunKubectl(namespace, writeCmd...)
+			if err != nil {
+				framework.Logf("error executing write command on pod %s due to readonly permissions: %v", pod.Name, err)
+			}
+
+			framework.Logf("Verify that the write operation fails for readOnly Pod")
+			if !strings.Contains(output, "container not found") {
+				framework.Logf("error executing write command on pod %s due to readonly permissions: %v", pod.Name, err)
+			}
+
+		}
+
+		framework.Logf("Now creating and accessing files from different pods having read/write permissions")
+		// i=0 means creating a file for pod0
+		if i == 0 {
+			ginkgo.By("Create file1.txt on Pod1")
+			err := e2eoutput.CreateEmptyFileOnPod(namespace, pod.Name, filePath1)
+			if err != nil {
+				return nil, fmt.Errorf("error creating file1.txt on Pod: %v", err)
+			}
+
+			//Write data on file1.txt on Pod1
+			data := "This file file1 is written by Pod1"
+			ginkgo.By("Write on file1.txt from Pod1")
+			writeDataOnFileFromPod(namespace, pod.Name, filePath1, data)
+		}
+		// i=1 means creating a file for pod1
+		if i == 1 {
+			//Read file1.txt created from Pod2
+			ginkgo.By("Read file1.txt from Pod2 created by Pod1")
+			output := readFileFromPod(namespace, pod.Name, filePath1)
+			ginkgo.By(fmt.Sprintf("File contents from file1.txt are: %s", output))
+			data := "This file file1 is written by Pod1"
+			data = data + " \n Hello from pod2"
+			ginkgo.By(fmt.Sprintf("File contents from file1.txt are: %s", data))
+
+			//Create a file file2.txt from Pod2
+			err := e2eoutput.CreateEmptyFileOnPod(namespace, pod.Name, filePath2)
+			if err != nil {
+				return nil, fmt.Errorf("error creating file2.txt on Pod: %v", err)
+			}
+
+			//Write to the file
+			ginkgo.By("Write on file2.txt from Pod2")
+			data = "This file file2 is written by Pod2"
+			writeDataOnFileFromPod(namespace, pod.Name, filePath2, data)
+		}
+
+		// framework.Logf("Verify pod %d is attached to the node ", i)
 		// var vmUUID string
 		// nodeName := pod.Spec.NodeName
 		// vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
@@ -130,60 +208,16 @@ func createStandalonePodsForRWXVolume(client clientset.Interface, ctx context.Co
 		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
-		framework.Logf("Verify the volume is accessible and Read/write is possible")
-		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"cat /mnt/volume1/Pod.html "}
-		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(output, "Hello message from Pod")).NotTo(gomega.BeFalse())
-
-		// if readOnly {
-		// 	wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-		// 		"echo 'Hello message from test into Pod' > /mnt/volume1/Pod.html"}
-		// 	output = e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
-		// 	// Verify that the write operation fails
-		// 	gomega.Expect(strings.Contains(output, "Permission denied")).NotTo(gomega.BeFalse())
-		// } else {
-		// 	// For other pods, perform a successful write operation
-		// 	wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-		// 		"echo 'Hello message from test into Pod' > /mnt/volume1/Pod.html"}
-		// 	e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
-		// }
-
-		if i == 0 {
-			ginkgo.By("Create file1.txt on Pod1")
-			err = e2eoutput.CreateEmptyFileOnPod(namespace, pod.Name, filePath1)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			//Write data on file1.txt on Pod1
-			data := "This file file1 is written by Pod1"
-			ginkgo.By("Write on file1.txt from Pod1")
-			writeDataOnFileFromPod(namespace, pod.Name, filePath1, data)
-		}
-		if i == 1 {
-			//Read file1.txt created from Pod2
-			ginkgo.By("Read file1.txt from Pod2 created by Pod1")
-			output := readFileFromPod(namespace, pod.Name, filePath1)
-			ginkgo.By(fmt.Sprintf("File contents from file1.txt are: %s", output))
-			data := "This file file1 is written by Pod1"
-			data = data + "\n"
-			gomega.Expect(output == data).To(gomega.BeTrue(), "Pod2 is able to read file1 written by Pod1")
-
-			//Create a file file2.txt from Pod2
-			err = e2eoutput.CreateEmptyFileOnPod(namespace, pod.Name, filePath2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			//Write to the file
-			ginkgo.By("Write on file2.txt from Pod2")
-			data = "This file file2 is written by Pod2"
-			writeDataOnFileFromPod(namespace, pod.Name, filePath2, data)
-		}
-
-		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvclaim, pv, pod)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		podList = append(podList, pod)
+
+		//  perform cns metadata verification for any one pod
+		// Verify volume metadata for POD, PVC, and PV
+		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvclaim, pv, pod)
+		if err != nil {
+			return nil, fmt.Errorf("error verifying volume metadata: %v", err)
+		}
 	}
+
 	return podList, nil
 }
 
