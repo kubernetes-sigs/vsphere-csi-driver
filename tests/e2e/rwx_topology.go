@@ -58,6 +58,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		leafNodeTag1            int
 		leafNodeTag2            int
 		topologyLength          int
+		datastoreListMap        []map[string]string
 		rack1DatastoreListMap   map[string]string
 		rack2DatastoreListMap   map[string]string
 		rack3DatastoreListMap   map[string]string
@@ -150,13 +151,10 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		// fetching list of datastores available in different racks
 		rack1DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0])
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		fmt.Println(rack1DatastoreListMap)
 		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[1])
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		fmt.Println(rack2DatastoreListMap)
 		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[2])
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		fmt.Println(rack3DatastoreListMap)
 
 		// create datastore map for each cluster
 		for _, value := range rack1DatastoreListMap {
@@ -170,6 +168,10 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		for _, value := range rack3DatastoreListMap {
 			datastoreUrlsRack3 = append(datastoreUrlsRack3, value)
 		}
+
+		datastoreListMap = append(datastoreListMap, rack1DatastoreListMap)
+		datastoreListMap = append(datastoreListMap, rack2DatastoreListMap)
+		datastoreListMap = append(datastoreListMap, rack3DatastoreListMap)
 
 		// snapshot
 		restConfig = getRestConfigClient()
@@ -391,7 +393,6 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		storagePolicyName = GetAndExpectStringEnvVar(envVsanDatastoreCluster1StoragePolicy)
 		scParameters["storagepolicyname"] = storagePolicyName
 
-		// Get allowed topologies for Storage Class (rack > rack1)
 		ginkgo.By("Set specific allowed topology for node selector terms")
 		allowedTopologies = getTopologySelector(topologyAffinityDetails, topologyCategories,
 			topologyLength, leafNode, leafNodeTag0)[4:]
@@ -419,7 +420,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		}()
 
 		ginkgo.By("Verify volume placement")
-		isCorrectPlacement := e2eVSphere.verifyPreferredDatastoreMatch(volHandle, datastoreUrlsRack3)
+		isCorrectPlacement := e2eVSphere.verifyPreferredDatastoreMatch(volHandle, datastoreUrlsRack1)
 		gomega.Expect(isCorrectPlacement).To(gomega.BeTrue(), fmt.Sprintf("Volume provisioning has happened on the wrong datastore. Expected 'true', got '%v'", isCorrectPlacement))
 
 		ginkgo.By("Create Deployments")
@@ -480,7 +481,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		labelsMap := make(map[string]string)
 		labelsMap["app"] = "test"
 		scParameters[scParamFsType] = nfs4FSType
-		storagePolicyName = GetAndExpectStringEnvVar(storagePolicyForDatastoreSpecificToCluster)
+		storagePolicyName = GetAndExpectStringEnvVar(envNonVsanFSDatastoreUrl)
 		scParameters["storagepolicyname"] = storagePolicyName
 
 		/* Get allowed topologies for Storage Class
