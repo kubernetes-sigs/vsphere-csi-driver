@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"time"
 
-	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	vmoperatorv1alpha2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	v1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -48,12 +48,13 @@ import (
 
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 	storagev1 "k8s.io/api/storage/v1"
+
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
-	internalapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis"
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
@@ -180,8 +181,8 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 
 	scheme := runtime.NewScheme()
 	switch groupName {
-	case vmoperatorv1alpha1.GroupName:
-		err = vmoperatorv1alpha1.AddToScheme(scheme)
+	case vmoperatorv1alpha2.GroupName:
+		err = vmoperatorv1alpha2.AddToScheme(scheme)
 		if err != nil {
 			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err
@@ -262,13 +263,13 @@ func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config,
 	log := logger.GetLogger(ctx)
 
 	scheme := runtime.NewScheme()
-	err = vmoperatorv1alpha1.AddToScheme(scheme)
+	err = vmoperatorv1alpha2.AddToScheme(scheme)
 	if err != nil {
 		log.Errorf("failed to add to scheme with err: %+v", err)
 	}
 	gvk := schema.GroupVersionKind{
-		Group:   vmoperatorv1alpha1.SchemeGroupVersion.Group,
-		Version: vmoperatorv1alpha1.SchemeGroupVersion.Version,
+		Group:   vmoperatorv1alpha2.SchemeGroupVersion.Group,
+		Version: vmoperatorv1alpha2.SchemeGroupVersion.Version,
 		Kind:    virtualMachineKind,
 	}
 
