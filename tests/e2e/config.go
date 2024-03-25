@@ -65,6 +65,12 @@ type e2eTestConfig struct {
 		// ListVolumeThreshold specifies the maximum number of differences in volume that can exist between CNS
 		// and kubernetes
 		ListVolumeThreshold int `gcfg:"list-volume-threshold"`
+		// CA file
+		CaFile string `gcfg:"ca-file"`
+		// Supervisor-id
+		SupervisorID string `gcfg:"supervisor-id"`
+		// targetvSANFileShareClusters
+		TargetVsanFileShareClusters string `gcfg:"targetvSANFileShareClusters"`
 	}
 	// Multiple sets of Net Permissions applied to all file shares
 	// The string can uniquely represent each Net Permissions config
