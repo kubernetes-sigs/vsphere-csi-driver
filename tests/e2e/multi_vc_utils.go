@@ -341,7 +341,7 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	verifyTopologyAffinity bool, isMultiVcSetup bool) error {
 
 	if stsScaleDown {
-		framework.Logf("Scale down statefulset replica")
+		framework.Logf("Scale down statefulset replica count to %d", scaleDownReplicaCount)
 		err := scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
 			parallelStatefulSetCreation, isMultiVcSetup)
 		if err != nil {
@@ -350,7 +350,7 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	}
 
 	if stsScaleUp {
-		framework.Logf("Scale up statefulset replica")
+		framework.Logf("Scale up statefulset replica count to %d", scaleUpReplicaCount)
 		err := scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
 			parallelStatefulSetCreation, isMultiVcSetup)
 		if err != nil {

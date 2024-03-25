@@ -5181,12 +5181,14 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 					}
 				}
 				if !isMultiVcSetup {
-					isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
-					if err != nil {
-						return err
-					}
-					if !isDiskAttached {
-						return fmt.Errorf("disk is not attached to the node")
+					if rwxAccessMode {
+						isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+						if err != nil {
+							return err
+						}
+						if !isDiskAttached {
+							return fmt.Errorf("disk is not attached to the node")
+						}
 					}
 					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)

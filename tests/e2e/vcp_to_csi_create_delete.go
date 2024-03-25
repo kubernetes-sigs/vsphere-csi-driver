@@ -1034,8 +1034,7 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 					framework.Logf("POD name '%v' does not match Pod name in metadata '%v', for volume id %v",
 						pod.Name, entityMetadata.EntityName, volumeID)
 					podEntryFound = false
-					//break
-					continue
+					break
 				}
 				if refferedEntityCheck {
 					if verifyPvcEntry {

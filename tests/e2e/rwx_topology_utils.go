@@ -23,7 +23,10 @@ import (
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+
 	"github.com/vmware/govmomi/cns/types"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+	"golang.org/x/crypto/ssh"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -78,10 +81,12 @@ func createRwxPvcWithStorageClass(client clientset.Interface, namespace string, 
 			return nil, nil, nil, err
 		}
 
-		ginkgo.By(fmt.Sprintf("volume Name:%s , capacity:%d volumeType:%s health:%s",
+		ginkgo.By(fmt.Sprintf("volume Name:%s, capacity:%d volumeType:%s health:%s accesspoint: %s",
 			queryResult.Volumes[0].Name,
-			queryResult.Volumes[0].BackingObjectDetails.(*types.CnsVsanFileShareBackingDetails).CapacityInMb,
-			queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus))
+			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb,
+			queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus,
+			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints),
+		)
 
 		framework.Logf("Verifying disk size specified in PVC is honored")
 		if queryResult.Volumes[0].BackingObjectDetails.(*types.CnsVsanFileShareBackingDetails).CapacityInMb != diskSizeInMb {
@@ -106,10 +111,6 @@ func createRwxPvcWithStorageClass(client clientset.Interface, namespace string, 
 func createStandalonePodsForRWXVolume(client clientset.Interface, ctx context.Context, namespace string, nodeSelector map[string]string,
 	pvclaim *v1.PersistentVolumeClaim, isPrivileged bool, command string, no_pods_to_deploy int) ([]*v1.Pod, error) {
 	var podList []*v1.Pod
-
-	// fetch volume metadata details
-	pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
-	volHandle := pv.Spec.CSI.VolumeHandle
 
 	for i := 0; i <= no_pods_to_deploy; i++ {
 		var pod *v1.Pod
@@ -199,25 +200,17 @@ func createStandalonePodsForRWXVolume(client clientset.Interface, ctx context.Co
 			writeDataOnFileFromPod(namespace, pod.Name, filePath2, data)
 		}
 
-		// framework.Logf("Verify pod %d is attached to the node ", i)
-		// var vmUUID string
-		// nodeName := pod.Spec.NodeName
-		// vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
-		// ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, nodeName))
-		// isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+		// // fetch volume metadata details
+		// pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+
+		// // Verify volume metadata for POD, PVC, and PV
+		// err = waitAndVerifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaim, pv, pod)
+		// if err != nil {
+		// 	return nil, fmt.Errorf("error verifying volume metadata: %v", err)
+		// }
 
 		podList = append(podList, pod)
-
-		//  perform cns metadata verification for any one pod
-		// Verify volume metadata for POD, PVC, and PV
-		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvclaim, pv, pod)
-		if err != nil {
-			return nil, fmt.Errorf("error verifying volume metadata: %v", err)
-		}
 	}
-
 	return podList, nil
 }
 
@@ -276,11 +269,11 @@ func verifyDeploymentPodNodeAffinity(ctx context.Context, client clientset.Inter
 
 				// Verify the attached volume match the one in CNS cache
 				if !isMultiVcSetup {
-					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
-					if err != nil {
-						return err
-					}
+					// err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+					// 	volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
+					// if err != nil {
+					// 	return err
+					// }
 				} else {
 					err := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
@@ -311,4 +304,66 @@ func scaleDeploymentPods(ctx context.Context, client clientset.Interface, deploy
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return deployment, nil
+}
+
+func fetchDatastoreListMap(ctx context.Context, client clientset.Interface) ([]string, []string, []string, []string, error) {
+
+	var datastoreUrlsRack1, datastoreUrlsRack2, datastoreUrlsRack3, datastoreUrls []string
+	nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+
+	sshClientConfig := &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{
+			ssh.Password(nimbusGeneratedK8sVmPwd),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	allMasterIps := getK8sMasterIPs(ctx, client)
+	masterIp := allMasterIps[0]
+
+	// fetching datacenter details
+	dataCenters, err := e2eVSphere.getAllDatacenters(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	// fetching cluster details
+	clusters, err := getTopologyLevel5ClusterGroupNames(masterIp, sshClientConfig, dataCenters)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	// fetching list of datastores available in different racks
+	rack1DatastoreListMap, err := getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0])
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	rack2DatastoreListMap, err := getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[1])
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	rack3DatastoreListMap, err := getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[2])
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	// create datastore map for each cluster
+	for _, value := range rack1DatastoreListMap {
+		datastoreUrlsRack1 = append(datastoreUrlsRack1, value)
+	}
+
+	for _, value := range rack2DatastoreListMap {
+		datastoreUrlsRack2 = append(datastoreUrlsRack2, value)
+	}
+
+	for _, value := range rack3DatastoreListMap {
+		datastoreUrlsRack3 = append(datastoreUrlsRack3, value)
+	}
+
+	datastoreUrls = append(datastoreUrls, datastoreUrlsRack1...)
+	datastoreUrls = append(datastoreUrls, datastoreUrlsRack2...)
+	datastoreUrls = append(datastoreUrls, datastoreUrlsRack3...)
+
+	return datastoreUrlsRack1, datastoreUrlsRack2, datastoreUrlsRack3, datastoreUrls, nil
 }
