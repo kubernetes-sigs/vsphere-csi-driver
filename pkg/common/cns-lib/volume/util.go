@@ -549,11 +549,3 @@ func queryCreatedSnapshotByName(ctx context.Context, m *defaultManager, volumeID
 	}
 	return nil, false
 }
-
-// IsNotFoundFault returns true if a given faultType value is vim.fault.NotFound
-func IsNotFoundFault(ctx context.Context, faultType string) bool {
-	log := logger.GetLogger(ctx)
-	log.Infof("Checking fault type: %q is vim.fault.NotFound", faultType)
-	return faultType == "vim.fault.NotFound"
-
-}
