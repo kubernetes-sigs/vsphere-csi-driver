@@ -23,21 +23,15 @@ import (
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
-
-var networkInterfaceGVR = schema.GroupVersionResource{
-	Group:    "netoperator.vmware.com",
-	Version:  "v1alpha1",
-	Resource: "networkinterfaces",
-}
 
 var virtualNetworkGVR = schema.GroupVersionResource{
 	Group:    "vmware.com",
@@ -127,34 +121,9 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 			return "", fmt.Errorf("failed to get SNAT IP annotation from VirtualMachine %s/%s", vmNamespace, vmName)
 		}
 	} else {
-		networkInterfaceName := networkName + "-" + vmName
-		networkInterfaceInstance, err := dc.Resource(networkInterfaceGVR).Namespace(vmNamespace).Get(ctx,
-			networkInterfaceName, metav1.GetOptions{})
-		if err != nil {
-			return "", err
-		}
-		log.Debugf("Got NetworkInterface instance %+v", networkInterfaceInstance)
-		ipConfigs, exists, err := unstructured.NestedSlice(networkInterfaceInstance.Object, "status", "ipConfigs")
-		if err != nil {
-			return "", err
-		}
-		if !exists {
-			return "", fmt.Errorf("status.ipConfigs does not exist in NetworkInterface instance %s/%s",
-				vmNamespace, networkInterfaceName)
-		}
-		if len(ipConfigs) == 0 {
-			return "", fmt.Errorf("length of status.ipConfigs should be greater than one for NetworkInterface instance %s/%s",
-				vmNamespace, networkInterfaceName)
-		}
-		// Assuming only a single ipConfig is supported per VM. Revisit this logic
-		// when multiple ipConfigs are supported.
-		ip, exists, err = unstructured.NestedString(ipConfigs[0].(map[string]interface{}), "ip")
-		if err != nil {
-			return "", err
-		}
-		if !exists {
-			return "", fmt.Errorf("status.ipConfigs.ip does not exist in NetworkInterface instance %s/%s",
-				vmNamespace, networkInterfaceName)
+		ip = virtualMachineInstance.Status.VmIp
+		if ip == "" {
+			return "", fmt.Errorf("vm.Status.VmIp is not populated for %s/%s", vmNamespace, vmName)
 		}
 	}
 	log.Infof("Found external IP Address %s for VirtualMachine %s/%s", ip, vmNamespace, vmName)
