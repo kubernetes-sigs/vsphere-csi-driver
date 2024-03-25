@@ -39,6 +39,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/hashicorp/go-version"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -647,6 +648,7 @@ func verifyVolumeMetadataInCNS(vs *vSphere, volumeID string,
 	if err != nil {
 		return err
 	}
+	framework.Logf("queryResult: %s", spew.Sdump(queryResult))
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
 	if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
 		return fmt.Errorf("failed to query cns volume %s", volumeID)
