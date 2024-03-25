@@ -114,7 +114,6 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 		// The assumption is that a TKG VM will have only a single network interface.
 		// This logic needs to be revisited when multiple network interface support
 		// is added.
-
 		networkName = networkInterface.Network.Name
 	}
 	log.Debugf("VirtualMachine %s/%s is configured with network %s", vmNamespace, vmName, networkName)
@@ -134,10 +133,14 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 			return "", fmt.Errorf("failed to get SNAT IP annotation from VirtualMachine %s/%s", vmNamespace, vmName)
 		}
 	} else {
-		ip = virtualMachineInstance.Status.Network.PrimaryIP4
+		networkStatus := virtualMachineInstance.Status.Network
+		if networkStatus == nil {
+			return "", fmt.Errorf("vm.Status.Network is not populated for %s/%s", vmNamespace, vmName)
+		}
+
+		ip = networkStatus.PrimaryIP4
 		if ip == "" {
-			return "", fmt.Errorf("vm.Status.Network.PrimaryIP4 is not populated "+
-				"for %s/%s", vmNamespace, vmName)
+			return "", fmt.Errorf("vm.Status.Network.PrimaryIP4 is not populated for %s/%s", vmNamespace, vmName)
 		}
 	}
 	log.Infof("Found external IP Address %s for VirtualMachine %s/%s", ip, vmNamespace, vmName)

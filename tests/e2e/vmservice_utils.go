@@ -44,6 +44,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
+
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 )
 
@@ -346,10 +347,11 @@ func waitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace strin
 			}
 			return false, nil
 		}
-		if vm.Status.Network.PrimaryIP4 == "" {
+		networkStatus := vm.Status.Network
+		if networkStatus == nil || networkStatus.PrimaryIP4 == "" {
 			return false, nil
 		}
-		ip = vm.Status.Network.PrimaryIP4
+		ip = networkStatus.PrimaryIP4
 		return true, nil
 	})
 	framework.Logf("Found IP '%s' for VM '%s'", ip, name)
