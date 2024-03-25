@@ -55,7 +55,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
+	resource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -86,6 +86,8 @@ import (
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	storagepolicyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
+
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
@@ -2262,6 +2264,111 @@ func createResourceQuota(client clientset.Interface, namespace string, size stri
 		ginkgo.By(fmt.Sprintf("Waiting for %v seconds to allow resourceQuota to be claimed", waitTime))
 		time.Sleep(time.Duration(waitTime) * time.Second)
 	}
+}
+
+// createResourceQuota creates resource quota for the specified namespace.
+func createResourceQuota_test(cnsOperatorClient client.Client, namespace string, size string, scName string) {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	waitTime := 15
+	var executeCreateResourceQuota bool
+	executeCreateResourceQuota = true
+	storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+
+	if supervisorCluster {
+		// Get list of CnsRegisterVolume instances from all namespaces.
+		storagePolicyQuota := &storagepolicyv1alpha1.StoragePolicyQuota{}
+		err := cnsOperatorClient.Get(ctx, pkgtypes.NamespacedName{Name: scName + "-storagepolicyquota", Namespace: namespace}, storagePolicyQuota)
+		if err != nil || !(scName == storagePolicyNameForSharedDatastores) {
+			executeCreateResourceQuota = true
+		} else {
+			executeCreateResourceQuota = false
+		}
+	}
+
+	if executeCreateResourceQuota {
+		ginkgo.By(fmt.Sprintf("storagePolicyName: %s", scName))
+		StoragePolicyId := e2eVSphere.GetSpbmPolicyID(scName)
+		framework.Logf(" storagePolicy Profile ID :%s", StoragePolicyId)
+		ginkgo.By(fmt.Sprintf("Create Resource quota: %+v", size))
+
+		quotaLimit := getResourceLimit(size)
+		storageQuota := getStoragePolicyQuotaSpecSpec(namespace, quotaLimit, scName, StoragePolicyId)
+		err := cnsOperatorClient.Create(ctx, storageQuota)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Waiting for %v seconds to allow resourceQuota to be claimed", waitTime))
+		time.Sleep(time.Duration(waitTime) * time.Second)
+	}
+}
+
+func queryStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config,
+	storageQuotaName string, namespace string) bool {
+	isPresent := false
+	framework.Logf("reading queryStoragePolicyQuota : start")
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Get list of CnsRegisterVolume instances from all namespaces.
+	storageQuotaList := &storagepolicyv1alpha1.StoragePolicyQuotaList{}
+	err = cnsOperatorClient.List(ctx, storageQuotaList)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	cns := &storagepolicyv1alpha1.StoragePolicyQuota{}
+	err = cnsOperatorClient.Get(ctx, pkgtypes.NamespacedName{Name: storageQuotaName, Namespace: namespace}, cns)
+	if err == nil {
+		framework.Logf("CNS RegisterVolume %s Found in the namespace  %s:", storageQuotaName, namespace)
+		isPresent = true
+	}
+	return isPresent
+
+}
+
+func deleteResourceQuota_test(cnsOperatorClient client.Client, size string, scName string, namespace string) {
+	framework.Logf("deleteResourceQuota_test : start")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	StoragePolicyId := e2eVSphere.GetSpbmPolicyID(scName)
+	quotaLimit := getResourceLimit(size)
+	storageQuota := getStoragePolicyQuotaSpecSpec(namespace, quotaLimit, scName, StoragePolicyId)
+	cnsOperatorClient.Delete(ctx, storageQuota)
+	// _, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, quotaName, metav1.GetOptions{})
+	// if err == nil {
+	// 	err = client.CoreV1().ResourceQuotas(namespace).Delete(ctx, quotaName, *metav1.NewDeleteOptions(0))
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	ginkgo.By(fmt.Sprintf("Deleted Resource quota: %+v", quotaName))
+	// }
+}
+
+// Function to create CnsRegisterVolume spec, with given FCD ID and PVC name.
+func getStoragePolicyQuotaSpecSpec(namespace string, quotaLimit *resource.Quantity, scName string,
+	StoragePolicyId string) *storagepolicyv1alpha1.StoragePolicyQuota {
+	var (
+		storagePolicyQuota *storagepolicyv1alpha1.StoragePolicyQuota
+	)
+	framework.Logf("get storagePolicyQuota spec")
+	storagePolicyQuota = &storagepolicyv1alpha1.StoragePolicyQuota{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scName + "-storagepolicyquota",
+			Namespace: namespace,
+		},
+		Spec: storagepolicyv1alpha1.StoragePolicyQuotaSpec{
+			Limit:           quotaLimit,
+			StoragePolicyId: StoragePolicyId,
+		},
+	}
+	return storagePolicyQuota
+}
+
+func getResourceLimit(quotaLimit string) *resource.Quantity {
+
+	limit, err := resource.ParseQuantity(quotaLimit)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	fmt.Println("Parsed Quantity:", limit)
+	return &limit
+
 }
 
 // deleteResourceQuota deletes resource quota for the specified namespace,
