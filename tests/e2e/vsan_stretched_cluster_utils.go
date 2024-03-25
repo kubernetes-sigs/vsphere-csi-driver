@@ -52,6 +52,12 @@ import (
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 )
 
+const (
+	filePath1  = "/mnt/volume1/file1.txt"
+	filePath2  = "/mnt/volume1/file2.txt"
+	accessMode = v1.ReadWriteMany
+)
+
 type FaultDomains struct {
 	primarySiteHosts   []string
 	secondarySiteHosts []string
@@ -217,10 +223,13 @@ func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout
 	if len(timeout) > 0 {
 		pollTime = timeout[0]
 	} else {
-		if os.Getenv("K8S_NODE_UP_WAIT_TIME") != "" {
+		framework.Logf("inside else block")
+		if os.Getenv("K8S_NODES_UP_WAIT_TIME") != "" {
 			k8sNodeWaitTime, err := strconv.Atoi(os.Getenv(envK8sNodesUpWaitTime))
+			framework.Logf("k8sNodeWaitTime: %v, %T", k8sNodeWaitTime, k8sNodeWaitTime)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pollTime = time.Duration(k8sNodeWaitTime) * time.Minute
+			framework.Logf("pollTime: %v, %T", pollTime, pollTime)
 		} else {
 			pollTime = time.Duration(defaultK8sNodesUpWaitTime) * time.Minute
 		}
@@ -234,7 +243,9 @@ func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout
 		framework.Logf("error is %v", err)
 
 		if err != nil && !strings.Contains(err.Error(), "has prevented the request") &&
-			!strings.Contains(err.Error(), "TLS handshake timeout") {
+			!strings.Contains(err.Error(), "TLS handshake timeout") &&
+			!strings.Contains(err.Error(), "dial tcp") &&
+			!strings.Contains(err.Error(), ": EOF") {
 			return false, err
 		}
 		for _, node := range nodes.Items {
@@ -279,10 +290,16 @@ func deletePodsInParallel(client clientset.Interface, namespace string, pods []*
 // createPvcInParallel creates number of PVC in a given namespace in parallel
 func createPvcInParallel(client clientset.Interface, namespace string, diskSize string, sc *storagev1.StorageClass,
 	ch chan *v1.PersistentVolumeClaim, lock *sync.Mutex, wg *sync.WaitGroup, volumeOpsScale int) {
+	var err error
+	var pvc *v1.PersistentVolumeClaim
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	for i := 0; i < volumeOpsScale; i++ {
-		pvc, err := createPVC(client, namespace, nil, diskSize, sc, "")
+		if rwxAccessMode {
+			pvc, err = createPVC(client, namespace, nil, diskSize, sc, accessMode)
+		} else {
+			pvc, err = createPVC(client, namespace, nil, diskSize, sc, "")
+		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		lock.Lock()
 		ch <- pvc
@@ -392,12 +409,18 @@ func deletePvcInParallel(client clientset.Interface, pvclaims []*v1.PersistentVo
 // createPodsInParallel creates Pods in a given namespace in parallel
 func createPodsInParallel(client clientset.Interface, namespace string, pvclaims []*v1.PersistentVolumeClaim,
 	ctx context.Context, lock *sync.Mutex, ch chan *v1.Pod, wg *sync.WaitGroup, volumeOpsScale int) {
-
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
+	var pod *v1.Pod
 
 	for i := 0; i < volumeOpsScale; i++ {
-		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaims[i]}, false, execCommand)
+		if rwxAccessMode {
+			pod = fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaims[i]}, false, "")
+
+		} else {
+			pod = fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaims[i]}, false, execCommand)
+
+		}
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err := client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -405,6 +428,7 @@ func createPodsInParallel(client clientset.Interface, namespace string, pvclaims
 		ch <- pod
 		lock.Unlock()
 	}
+
 }
 
 // updatePvcLabelsInParallel updates the labels of pvc in a namespace in parallel
@@ -689,35 +713,75 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 // volumeLifecycleActions creates pvc and pod and waits for them to be in healthy state and then deletes them
 func volumeLifecycleActions(ctx context.Context, client clientset.Interface, namespace string,
 	sc *storagev1.StorageClass) {
-	pvc1, err := createPVC(client, namespace, nil, diskSize, sc, "")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var pod1 *v1.Pod
 
-	pvs, err := fpv.WaitForPVClaimBoundPhase(
-		client, []*v1.PersistentVolumeClaim{pvc1}, framework.ClaimProvisionTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	volHandle := pvs[0].Spec.CSI.VolumeHandle
+	if vanillaCluster {
+		pvc1, err := createPVC(client, namespace, nil, diskSize, sc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvs, err := fpv.WaitForPVClaimBoundPhase(
+			client, []*v1.PersistentVolumeClaim{pvc1}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := pvs[0].Spec.CSI.VolumeHandle
 
-	vmUUID := getNodeUUID(ctx, client, pod1.Spec.NodeName)
-	framework.Logf("VMUUID : %s", vmUUID)
-	isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
-		"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
+		pod1, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	framework.Logf("Verify the volume is accessible")
-	_, err = e2eoutput.LookForStringInPodExec(namespace, pod1.Name,
-		[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vmUUID := getNodeUUID(ctx, client, pod1.Spec.NodeName)
+		framework.Logf("VMUUID : %s", vmUUID)
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
+			"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
 
-	deletePodAndWaitForVolsToDetach(ctx, client, pod1)
+		framework.Logf("Verify the volume is accessible")
+		_, err = e2eoutput.LookForStringInPodExec(namespace, pod1.Name,
+			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = fpv.DeletePersistentVolumeClaim(client, pvc1.Name, namespace)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[0].Spec.CSI.VolumeHandle)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		deletePodAndWaitForVolsToDetach(ctx, client, pod1)
+
+		err = fpv.DeletePersistentVolumeClaim(client, pvc1.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[0].Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	if rwxAccessMode {
+		pvc1, err := createPVC(client, namespace, nil, "", sc, v1.ReadWriteMany)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		pvs, err := fpv.WaitForPVClaimBoundPhase(
+			client, []*v1.PersistentVolumeClaim{pvc1}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := pvs[0].Spec.CSI.VolumeHandle
+
+		verifyVolPropertiesFromCnsQueryResults(e2eVSphere, volHandle)
+
+		//Create Pod1
+		ginkgo.By(fmt.Sprintf("create pod with pvc: %s", pvc1.Name))
+		pod1, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		//Create file1.txt on Pod1
+		ginkgo.By("Create file1.txt on Pod1")
+		err = e2eoutput.CreateEmptyFileOnPod(namespace, pod1.Name, filePath1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		//Write data on file1.txt on Pod1
+		data := "This file file1 is written by Pod1"
+		ginkgo.By("Write on file1.txt from Pod1")
+		writeDataOnFileFromPod(namespace, pod1.Name, filePath1, data)
+
+		ginkgo.By(fmt.Sprintf("Deleting the pod : %s in namespace %s", pod1.Name, namespace))
+		err = fpod.DeletePodWithWait(client, pod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		err = fpv.DeletePersistentVolumeClaim(client, pvc1.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[0].Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
 }
 
 // scaleDownStsAndVerifyPodMetadata scales down replica of a statefulset if required
@@ -725,6 +789,9 @@ func volumeLifecycleActions(ctx context.Context, client clientset.Interface, nam
 func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interface,
 	namespace string, statefulset *appsv1.StatefulSet, ssPodsBeforeScaleDown *v1.PodList,
 	replicas int32, isScaleDownRequired bool, verifyCnsVolumes bool) {
+	framework.Logf("Inside scaleDownStsAndVerifyPodMetadata")
+	framework.Logf("values1=%v values2=%v  values3=%v values4=%v values5=%v  values6=%v ",
+		namespace, statefulset.Name, ssPodsBeforeScaleDown.Items[0], replicas, isScaleDownRequired, verifyCnsVolumes)
 	if isScaleDownRequired {
 		framework.Logf(fmt.Sprintf("Scaling down statefulset: %v to number of Replica: %v",
 			statefulset.Name, replicas))
