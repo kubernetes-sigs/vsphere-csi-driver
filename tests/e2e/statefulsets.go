@@ -116,13 +116,18 @@ var _ = ginkgo.Describe("statefulset", func() {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
 			storageClassName = "nginx-sc-default"
+			scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
+			sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
 		} else {
-			ginkgo.By("CNS_TEST: Running for WCP setup")
+			storageClassName = storagePolicyName
+			ginkgo.By("Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			storageClassName = defaultNginxStorageClassName
-			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, defaultNginxStorageClassName)
 		}
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
@@ -312,22 +317,22 @@ var _ = ginkgo.Describe("statefulset", func() {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
 			storageClassName = "nginx-sc-parallel"
+			scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
+			sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+
 		} else {
-			storageClassName = defaultNginxStorageClassName
+			storageClassName = storagePolicyName
 			ginkgo.By("Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storageClassName)
+			//createResourceQuota(client, namespace, rqLimit, storageClassName)
 		}
-
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating service")
 		service := CreateService(namespace, client)
@@ -516,25 +521,27 @@ var _ = ginkgo.Describe("statefulset", func() {
 			sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 			scParameters[scParamDatastoreURL] = sharedVSANDatastoreURL
 		} else {
-			storageClassName = defaultNginxStorageClassName
+			storagePolicyName := e2eVSphere.GetSpbmPolicyID(vsanDefaultStoragePolicyName)
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storageClassName)
+
 		}
 		if !vcptocsi {
 			scSpec = getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", true)
 		} else {
 			scSpec = getVcpVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", true)
 		}
-		sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+		if !supervisorCluster {
+			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		}
 
 		ginkgo.By("Creating service")
 		service := CreateService(namespace, client)
@@ -718,13 +725,11 @@ var _ = ginkgo.Describe("statefulset", func() {
 			scParameters = nil
 			storageClassName = "nginx-sc-default"
 		} else {
-			storageClassName = defaultNginxStorageClassName
 			ginkgo.By("Running for WCP setup")
 
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storageClassName)
 		}
 
 		ginkgo.By("scale down CSI driver POD to 1 , so that it will" +
@@ -740,13 +745,16 @@ var _ = ginkgo.Describe("statefulset", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+		if !supervisorCluster {
+			scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
+			sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+
+		}
 
 		ginkgo.By("Creating service")
 		service := CreateService(namespace, client)
