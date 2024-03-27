@@ -313,9 +313,9 @@ var _ = ginkgo.Describe("statefulset", func() {
 			scParameters = nil
 			storageClassName = "nginx-sc-parallel"
 		} else {
-			storageClassName = defaultNginxStorageClassName
+			storageClassName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 			ginkgo.By("Running for WCP setup")
-			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			profileID := e2eVSphere.GetSpbmPolicyID(storageClassName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storageClassName)
