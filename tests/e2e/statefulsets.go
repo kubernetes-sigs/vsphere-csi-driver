@@ -320,7 +320,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		} else {
 			storageClassName = storagePolicyName
 			ginkgo.By("Running for WCP setup")
-			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			profileID := e2eVSphere.GetSpbmPolicyID(storageClassName)
 			scParameters[scParamStoragePolicyID] = profileID
 		}
 
