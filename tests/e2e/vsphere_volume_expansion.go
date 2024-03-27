@@ -45,7 +45,6 @@ import (
 	restclient "k8s.io/client-go/rest"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
-	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
@@ -69,7 +68,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		defaultDatastore           *object.Datastore
 		isVsanHealthServiceStopped bool
 		isSPSServiceStopped        bool
-		nodeList                   *v1.NodeList
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -87,12 +85,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 			profileID = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			defaultDatastore = getDefaultDatastore(ctx)
-		}
-
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
-		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
-		if !(len(nodeList.Items) > 0) {
-			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
 		if os.Getenv(envPandoraSyncWaitTime) != "" {
@@ -2507,7 +2499,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	/**
 	Offline and online volume expansion on stretched SVC
 	*/
-	ginkgo.It("volume-expansion-on-stretched-SVC", ginkgo.Label(p1, block, newTest), func() {
+	ginkgo.It("[strteched-svc] volume-expansion-on-stretched-SVC", ginkgo.Label(p1, block, newTest), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pvclaims []*v1.PersistentVolumeClaim

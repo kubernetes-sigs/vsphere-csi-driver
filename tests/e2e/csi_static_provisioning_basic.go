@@ -1530,7 +1530,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 2. Create Resource quota.
 	// 3. Create CNS register volume with above created FCD.
 	// 4. Verify the error message.
-	ginkgo.It("[csi-supervisor] Verify creating static provisioning workflow when FCD "+
+	ginkgo.It("[csi-supervisor] [strteched-svc] Verify creating static provisioning workflow when FCD "+
 		"with no storage policy", ginkgo.Label(p2, block, wcp, negative), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
