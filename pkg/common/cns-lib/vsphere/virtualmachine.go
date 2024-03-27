@@ -439,16 +439,19 @@ func (vm *VirtualMachine) GetTopologyLabels(ctx context.Context, tagManager *tag
 			val, exists := topologyCategories[category.Name]
 			log.Debugf("Found category %q for object %+v with tag: %q ", val, obj.Self, tag.Name)
 			if exists {
-				// Update the value if it doesn't already exist.
+				// If the category already exists, update the value.
+				// Either the value is empty because it hasn't been
+				// set, or one of the entities lower in the hierarchy
+				// had the same tag. The higher-level entity takes
+				// precedent (i.e. prefer cluster over host).
 				if val == "" {
 					log.Infof("Found category: %s for object %v with tag: %s",
 						category.Name, obj.Self, tag.Name)
-					topologyCategories[category.Name] = tag.Name
 				} else {
-					// Error out on duplicate values for the same category.
-					return logger.LogNewErrorf(log, "duplicate values detected for category %s as %q and %q",
+					log.Warnf("duplicate values detected for category %s as %q and %q",
 						category.Name, val, tag.Name)
 				}
+				topologyCategories[category.Name] = tag.Name
 			}
 			// Check if values for all topology domains have been retrieved.
 			// If yes, then return.
