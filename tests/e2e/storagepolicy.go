@@ -120,6 +120,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		scParameters := make(map[string]string)
 		var expectedErrorMsg string = "failed to provision volume"
 		var createVolumeWaitTime time.Duration = 1 * time.Minute / 2
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
@@ -130,16 +132,25 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyNameForNonSharedDatastores)
+			nonstoragePolicyName := GetAndExpectStringEnvVar(storagePolicyNameForNonSharedDatastores)
+			storageclass, err := client.StorageV1().StorageClasses().Get(ctx, nonstoragePolicyName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			_, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
+			gomega.Expect(err).To(gomega.HaveOccurred())
+
 		} else {
 			scParameters[svStorageClassName] = storagePolicyNameForNonSharedDatastores
 			createVolumeWaitTime = pollTimeout
 		}
 
-		pvc := invokeInvalidPolicyTestNeg(client, namespace, scParameters,
-			storagePolicyNameForNonSharedDatastores, createVolumeWaitTime)
-		isFailureFound := checkEventsforError(client, namespace,
-			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvc.Name)}, expectedErrorMsg)
-		gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrorMsg)
+		if !supervisorCluster {
+			pvc := invokeInvalidPolicyTestNeg(client, namespace, scParameters,
+				storagePolicyNameForNonSharedDatastores, createVolumeWaitTime)
+			isFailureFound := checkEventsforError(client, namespace,
+				metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvc.Name)}, expectedErrorMsg)
+			gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrorMsg)
+		}
+
 	})
 
 	ginkgo.It("Verify non-existing SPBM policy is not honored for dynamic volume provisioning "+

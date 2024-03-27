@@ -670,22 +670,21 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
 			storageClassName = "nginx-sc-label-updates"
+			ginkgo.By("Creating StorageClass for Statefulset")
+			scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
+			sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
 		} else {
-			storageClassName = defaultNginxStorageClassName
+			storageClassName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storageClassName)
 		}
-		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+
 		ginkgo.By("Creating service")
 		service := CreateService(namespace, client)
 		defer func() {

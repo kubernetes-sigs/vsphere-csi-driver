@@ -511,12 +511,13 @@ var _ = ginkgo.Describe("statefulset", func() {
 			sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 			scParameters[scParamDatastoreURL] = sharedVSANDatastoreURL
 		} else {
-			storagePolicyName := e2eVSphere.GetSpbmPolicyID(vsanDefaultStoragePolicyName)
+			storageClassName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+			framework.Logf("storageClassName %v", storageClassName)
 			ginkgo.By("CNS_TEST: Running for WCP setup")
-			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			profileID := e2eVSphere.GetSpbmPolicyID(storageClassName)
 			scParameters[scParamStoragePolicyID] = profileID
-
 		}
+
 		if !vcptocsi {
 			scSpec = getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", true)
 		} else {

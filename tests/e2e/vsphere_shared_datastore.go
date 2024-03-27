@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		var pvclaim *v1.PersistentVolumeClaim
 		var err error
 		if !vanillaCluster {
-			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores2)
+			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		}
 		// Create Storage class and PVC
 		ginkgo.By("Creating Storage Class and PVC")
@@ -174,7 +174,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			namespace = getNamespaceToRunTests(f)
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 				namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
 		} else if vanillaCluster {
