@@ -175,7 +175,7 @@ const (
 	resizerContainerName                      = "csi-resizer"
 	scParamDatastoreURL                       = "DatastoreURL"
 	scParamFsType                             = "csi.storage.k8s.io/fstype"
-	scParamStoragePolicyID                    = "StoragePolicyId"
+	scParamStoragePolicyID                    = "storagePolicyID"
 	scParamStoragePolicyName                  = "StoragePolicyName"
 	shortProvisionerTimeout                   = "10"
 	snapshotapigroup                          = "snapshot.storage.k8s.io"
