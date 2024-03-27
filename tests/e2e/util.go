@@ -89,6 +89,7 @@ import (
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	storagepolicyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
@@ -6973,4 +6974,48 @@ func getHostMoref4K8sNode(
 	ctx context.Context, client clientset.Interface, node *v1.Node) vim25types.ManagedObjectReference {
 	vmIp2MoRefMap := vmIpToMoRefMap(ctx)
 	return vmIp2MoRefMap[getK8sNodeIP(node)]
+}
+
+// set storagePolicyQuota
+func setStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config,
+	scName string, namespace string, quota string) {
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	spq := &storagepolicyv1alpha1.StoragePolicyQuota{}
+	err = cnsOperatorClient.Get(ctx,
+		pkgtypes.NamespacedName{Name: scName + storagePolicyQuota, Namespace: namespace}, spq)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	spq.Spec.Limit.Reset()
+	spq.Spec.Limit.Add(resource.MustParse(quota))
+	framework.Logf("set quota %s", quota)
+
+	err = cnsOperatorClient.Update(ctx, spq)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// Remove storagePolicy Quota
+func removeStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config,
+	scName string, namespace string) {
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	spq := &storagepolicyv1alpha1.StoragePolicyQuota{}
+	err = cnsOperatorClient.Get(ctx,
+		pkgtypes.NamespacedName{Name: scName + storagePolicyQuota, Namespace: namespace}, spq)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	increaseLimit := spq.Spec.Limit
+	framework.Logf("Present quota Limit  %s", increaseLimit)
+	spq.Spec.Limit.Reset()
+
+	err = cnsOperatorClient.Update(ctx, spq)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	spq = &storagepolicyv1alpha1.StoragePolicyQuota{}
+	err = cnsOperatorClient.Get(ctx,
+		pkgtypes.NamespacedName{Name: scName + storagePolicyQuota, Namespace: namespace}, spq)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Quota after removing:  %s", spq.Spec.Limit)
+
 }

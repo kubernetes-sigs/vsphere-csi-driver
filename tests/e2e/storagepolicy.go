@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -130,12 +131,23 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyNameForNonSharedDatastores)
 			scParameters[scParamStoragePolicyID] = profileID
+
+			storageclass, err := client.StorageV1().StorageClasses().Get(ctx,
+				storagePolicyNameForNonSharedDatastores, metav1.GetOptions{})
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				storageclass, err = createStorageClass(client, scParameters, nil,
+					"", "", true, storagePolicyNameForNonSharedDatastores)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storagePolicyNameForNonSharedDatastores)
-			nonstoragePolicyName := GetAndExpectStringEnvVar(storagePolicyNameForNonSharedDatastores)
-			storageclass, err := client.StorageV1().StorageClasses().Get(ctx, nonstoragePolicyName, metav1.GetOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			_, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyNameForNonSharedDatastores, namespace, defaultrqLimit)
+
+			pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", storageclass, nil, accessMode)
+			_, err = fpv.CreatePVC(ctx, client, namespace, pvcspec)
 			gomega.Expect(err).To(gomega.HaveOccurred())
 
 		} else {
