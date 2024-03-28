@@ -248,6 +248,7 @@ const (
 		"/api-tokens/authorize"
 	podVMOnStretchedSupervisor = "stretched-svc"
 	stretchedSVCTopologyLevels = 1
+	envZonalStoragePolicyName2 = "ZONAL2_STORAGECLASS"
 )
 
 /*
