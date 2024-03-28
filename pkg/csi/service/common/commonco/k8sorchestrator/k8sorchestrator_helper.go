@@ -145,7 +145,7 @@ func (c *K8sOrchestrator) updateVolumeSnapshotAnnotations(ctx context.Context,
 	limit := 5 * time.Minute
 	// TODO: make this configurable
 	// Attempt to update the annotation every second for 5minutes
-	annotateUpdateErr := wait.PollImmediate(interval, limit, func() (bool, error) {
+	annotateUpdateErr := wait.PollUntilContextTimeout(ctx, interval, limit, true, func(ctx context.Context) (bool, error) {
 		retryCount++
 		// Retrieve the volume snapshot and verify that it exists
 		volumeSnapshot, err := c.snapshotterClient.SnapshotV1().VolumeSnapshots(volumeSnapshotNamespace).

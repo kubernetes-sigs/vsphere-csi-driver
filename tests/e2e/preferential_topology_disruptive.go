@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	ginkgo "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/object"
 	"golang.org/x/crypto/ssh"
@@ -82,7 +82,7 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		nodeList, err = fnodes.GetReadySchedulableNodes(f.ClientSet)
+		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -178,7 +178,7 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(client, namespace)
+		fss.DeleteAllStatefulSets(ctx, client, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 		if !apierrors.IsNotFound(err) {
@@ -292,13 +292,13 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		replicas := *(statefulset.Spec.Replicas)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		// Waiting for pods status to be Ready.
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -371,9 +371,9 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods := fss.GetPodList(client, statefulset)
+		ssPods := fss.GetPodList(ctx, client, statefulset)
 		for _, pod := range ssPods.Items {
-			err := fpod.WaitForPodRunningInNamespace(client, &pod)
+			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -436,9 +436,9 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods = fss.GetPodList(client, statefulset)
+		ssPods = fss.GetPodList(ctx, client, statefulset)
 		for _, pod := range ssPods.Items {
-			err := fpod.WaitForPodRunningInNamespace(client, &pod)
+			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -555,13 +555,13 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		replicas := *(statefulset.Spec.Replicas)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		// Waiting for pods status to be Ready.
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -601,17 +601,17 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		}()
 
 		ginkgo.By("Creating PVC")
-		pvclaim1, err := createPVC(client, namespace, nil, "", sc, "")
+		pvclaim1, err := createPVC(ctx, client, namespace, nil, "", sc, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		var pvclaims1 []*v1.PersistentVolumeClaim
 		pvclaims1 = append(pvclaims1, pvclaim1)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs1, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims1, framework.ClaimProvisionTimeout)
+		pvs1, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims1, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs1).NotTo(gomega.BeEmpty())
 		pv1 := pvs1[0]
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim1.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Verify PVs, volumes are deleted from CNS")
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv1.Spec.CSI.VolumeHandle)
@@ -620,11 +620,11 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		}()
 
 		ginkgo.By("Creating pod")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -781,13 +781,13 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		replicas := *(statefulset.Spec.Replicas)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		// Waiting for pods status to be Ready.
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -834,17 +834,17 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		}()
 
 		ginkgo.By("Creating PVC")
-		pvclaim1, err := createPVC(client, namespace, nil, "", sc, "")
+		pvclaim1, err := createPVC(ctx, client, namespace, nil, "", sc, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		var pvclaims1 []*v1.PersistentVolumeClaim
 		pvclaims1 = append(pvclaims1, pvclaim1)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs1, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims1, framework.ClaimProvisionTimeout)
+		pvs1, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims1, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs1).NotTo(gomega.BeEmpty())
 		pv1 := pvs1[0]
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim1.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Verify PVs, volumes are deleted from CNS")
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv1.Spec.CSI.VolumeHandle)
@@ -853,11 +853,11 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		}()
 
 		ginkgo.By("Creating pod")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -1018,13 +1018,13 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		replicas := *(statefulset.Spec.Replicas)
 		defer func() {
 			framework.Logf("Deleting all statefulset in namespace: %v", namespace)
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
 
 		// Waiting for pods status to be Ready.
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -1065,17 +1065,17 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		}()
 
 		ginkgo.By("Creating PVC")
-		pvclaim1, err := createPVC(client, namespace, nil, "", sc, "")
+		pvclaim1, err := createPVC(ctx, client, namespace, nil, "", sc, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		var pvclaims1 []*v1.PersistentVolumeClaim
 		pvclaims1 = append(pvclaims1, pvclaim1)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs1, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims1, framework.ClaimProvisionTimeout)
+		pvs1, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims1, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs1).NotTo(gomega.BeEmpty())
 		pv1 := pvs1[0]
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim1.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim1.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Verify PVs, volumes are deleted from CNS")
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv1.Spec.CSI.VolumeHandle)
@@ -1084,11 +1084,11 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		}()
 
 		ginkgo.By("Creating pod")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(client, pod)
+			err = fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 

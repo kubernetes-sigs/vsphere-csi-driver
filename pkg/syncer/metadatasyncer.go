@@ -1999,7 +1999,7 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 		// pvcUpdated and pvUpdated. This helps avoid race condition between
 		// pvUpdated and pvcUpdated handlers when static PV and PVC is created
 		// almost at the same time using single YAML file.
-		err := wait.Poll(5*time.Second, time.Minute, func() (bool, error) {
+		err = wait.PollUntilContextTimeout(ctx, 5*time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
 			queryFilter := cnstypes.CnsQueryFilter{
 				VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeHandle}},
 			}

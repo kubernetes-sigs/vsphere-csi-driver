@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	ginkgo "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
@@ -65,10 +65,10 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		namespace = os.Getenv("SVC_NAMESPACE")
 
 		bootstrap()
-		_, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		nodeList, err := fnodes.GetReadySchedulableNodes(client)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -102,17 +102,17 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pvclaim, err = fpv.CreatePVC(client, namespace,
+		pvclaim, err = fpv.CreatePVC(ctx, client, namespace,
 			getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, v1.ReadWriteOnce))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, pvclaim.Namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
@@ -130,7 +130,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		defer func() {
 			// Delete Pod.
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err := fpod.DeletePodWithWait(client, pod)
+			err := fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s",
@@ -207,9 +207,9 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		}()
 
 		// Waiting for pods status to be Ready
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -233,10 +233,10 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas-1))
-		_, scaledownErr := fss.Scale(client, statefulset, replicas-1)
+		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas-1)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas-1)
-		ssPodsAfterScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas-1)
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas-1)).To(gomega.BeTrue(),
@@ -295,12 +295,12 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
-		_, scaleupErr := fss.Scale(client, statefulset, replicas)
+		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
-		ssPodsAfterScaleUp := fss.GetPodList(client, statefulset)
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -309,7 +309,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		// After scale up, verify all vSphere volumes are attached to node VMs.
 		ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
 		for _, sspod := range ssPodsAfterScaleUp.Items {
-			err := fpod.WaitTimeoutForPodReadyInNamespace(client, sspod.Name, statefulset.Namespace, pollTimeout)
+			err := fpod.WaitTimeoutForPodReadyInNamespace(ctx, client, sspod.Name, statefulset.Namespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -340,15 +340,15 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		}
 		replicas = 0
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
-		_, scaledownErr = fss.Scale(client, statefulset, replicas)
+		_, scaledownErr = fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		ssPodsAfterScaleDown = fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		ssPodsAfterScaleDown = fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
 		framework.Logf("Deleting statefulset %v", statefulset.Name)
-		fss.WaitForStatusReadyReplicas(client, statefulset, 0)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 0)
 		err = client.AppsV1().StatefulSets(statefulset.Namespace).Delete(context.TODO(),
 			statefulset.Name, metav1.DeleteOptions{OrphanDependents: new(bool)})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -356,7 +356,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		ginkgo.By("Wait and verify PVC is fully deleted")
 		for _, volume := range volumesBeforeScaleDown {
 			ginkgo.By(fmt.Sprintf("Wait and verify PVC is fully deleted %s", volume))
-			err := fpv.DeletePersistentVolumeClaim(client, volume, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, volume, namespace)
 			if !apierrors.IsNotFound(err) {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
@@ -440,9 +440,9 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		}()
 
 		// Waiting for pods status to be Ready
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -467,10 +467,10 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 
 		replicas -= 1
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
-		_, scaledownErr := fss.Scale(client, statefulset, replicas)
+		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		ssPodsAfterScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -529,12 +529,12 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 
 		replicas += 4
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
-		_, scaleupErr := fss.Scale(client, statefulset, replicas)
+		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
-		ssPodsAfterScaleUp := fss.GetPodList(client, statefulset)
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -543,7 +543,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		// After scale up, verify all vSphere volumes are attached to node VMs.
 		ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
 		for _, sspod := range ssPodsAfterScaleUp.Items {
-			err := fpod.WaitTimeoutForPodReadyInNamespace(client, sspod.Name, statefulset.Namespace, pollTimeout)
+			err := fpod.WaitTimeoutForPodReadyInNamespace(ctx, client, sspod.Name, statefulset.Namespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -579,15 +579,15 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		}
 		replicas = 0
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
-		_, scaledownErr = fss.Scale(client, statefulset, replicas)
+		_, scaledownErr = fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		ssPodsAfterScaleDown = fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		ssPodsAfterScaleDown = fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
 		framework.Logf("Deleting statefulset %v", statefulset.Name)
-		fss.WaitForStatusReadyReplicas(client, statefulset, 0)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 0)
 		err = client.AppsV1().StatefulSets(statefulset.Namespace).Delete(context.TODO(),
 			statefulset.Name, metav1.DeleteOptions{OrphanDependents: new(bool)})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -595,7 +595,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		ginkgo.By("Wait and verify PVC is fully deleted")
 		for _, volume := range volumesBeforeScaleDown {
 			ginkgo.By(fmt.Sprintf("Wait and verify PVC is fully deleted %s", volume))
-			err := fpv.DeletePersistentVolumeClaim(client, volume, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, volume, namespace)
 			if !apierrors.IsNotFound(err) {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
@@ -679,9 +679,9 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		}()
 
 		// Waiting for pods status to be Ready
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -741,12 +741,12 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 
 		incresedReplicaCount := replicas + 1
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", incresedReplicaCount))
-		_, scaleupErr := fss.Scale(client, statefulset, incresedReplicaCount)
+		_, scaleupErr := fss.Scale(ctx, client, statefulset, incresedReplicaCount)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, incresedReplicaCount)
-		fss.WaitForStatusReadyReplicas(client, statefulset, incresedReplicaCount)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, incresedReplicaCount)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, incresedReplicaCount)
 
-		ssPodsBeforeScaleDown = fss.GetPodList(client, statefulset)
+		ssPodsBeforeScaleDown = fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(incresedReplicaCount)).To(gomega.BeTrue(),
@@ -783,15 +783,15 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 
 		replicas = 0
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
-		_, scaledownErr := fss.Scale(client, statefulset, replicas)
+		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas)
-		ssPodsAfterScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
 		framework.Logf("Deleting statefulset %v", statefulset.Name)
-		fss.WaitForStatusReadyReplicas(client, statefulset, 0)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 0)
 		err = client.AppsV1().StatefulSets(statefulset.Namespace).Delete(context.TODO(),
 			statefulset.Name, metav1.DeleteOptions{OrphanDependents: new(bool)})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -799,7 +799,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		ginkgo.By("Wait and verify PVC is fully deleted")
 		for _, volume := range volumesBeforeScaleDown {
 			ginkgo.By(fmt.Sprintf("Wait and verify PVC is fully deleted %s", volume))
-			err := fpv.DeletePersistentVolumeClaim(client, volume, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, volume, namespace)
 			if !apierrors.IsNotFound(err) {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
@@ -816,17 +816,17 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pvc, err = fpv.CreatePVC(client, namespace,
+		pvc, err = fpv.CreatePVC(ctx, client, namespace,
 			getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, v1.ReadWriteOnce))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc},
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -839,7 +839,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		}()
 
 		ginkgo.By("Creating pod")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -872,7 +872,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		createAndVerifyFilesOnVolume(namespace, pod.Name, []string{newEmptyFileName}, volumeFiles)
 
 		ginkgo.By("Deleting the pod")
-		err = fpod.DeletePodWithWait(client, pod)
+		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s",
@@ -883,7 +883,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 				vmUUID, pv.Spec.CSI.VolumeHandle))
 
 		ginkgo.By("Creating a new pod using the same volume")
-		pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err = createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = client.CoreV1().Pods(namespace).Delete(ctx, pod.Name, *metav1.NewDeleteOptions(0))
@@ -912,7 +912,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		volumeFiles = append(volumeFiles, newEmptyFileName)
 		createAndVerifyFilesOnVolume(namespace, pod.Name, []string{newEmptyFileName}, volumeFiles)
 		ginkgo.By("Deleting the pod")
-		err = fpod.DeletePodWithWait(client, pod)
+		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s",
@@ -938,19 +938,19 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pvclaim, err = fpv.CreatePVC(client, namespace,
+		pvclaim, err = fpv.CreatePVC(ctx, client, namespace,
 			getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, v1.ReadWriteOnce))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, pvclaim.Namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -964,7 +964,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 
 		fsGroupInt64 := &fsGroup
 		runAsUserInt64 := &runAsUser
-		pod, err := createPodForFSGroup(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
+		pod, err := createPodForFSGroup(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
 			false, execCommand, fsGroupInt64, runAsUserInt64)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -992,7 +992,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 
 		// Delete POD
 		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-		err = fpod.DeletePodWithWait(client, pod)
+		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", volumeID, vmUUID))
@@ -1028,19 +1028,19 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pvclaim, err = fpv.CreatePVC(client, namespace,
+		pvclaim, err = fpv.CreatePVC(ctx, client, namespace,
 			getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, v1.ReadWriteOnce))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, pvclaim.Namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1054,10 +1054,10 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 			[]*v1.PersistentVolumeClaim{pvclaim}, "", false, busyBoxImageOnGcr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pods, err := fdep.GetPodsForDeployment(client, dep)
+		pods, err := fdep.GetPodsForDeployment(ctx, client, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pod := pods.Items[0]
-		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+		err = fpod.WaitForPodNameRunningInNamespace(ctx, client, pod.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		increaseSizeOfPvcAttachedToPodWithoutF(client, namespace, pvclaim, &pod)
@@ -1065,7 +1065,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		ginkgo.By("Scale down deployment to 0 replica")
 		dep, err = client.AppsV1().Deployments(namespace).Get(ctx, dep.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pods, err = fdep.GetPodsForDeployment(client, dep)
+		pods, err = fdep.GetPodsForDeployment(ctx, client, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pod = pods.Items[0]
 		rep := dep.Spec.Replicas
@@ -1073,7 +1073,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		dep.Spec.Replicas = rep
 		dep, err = client.AppsV1().Deployments(namespace).Update(ctx, dep, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = fpod.WaitForPodNotFoundInNamespace(client, pod.Name, namespace, pollTimeout)
+		err = fpod.WaitForPodNotFoundInNamespace(ctx, client, pod.Name, namespace, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -1112,12 +1112,12 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pvclaim, err = fpv.CreatePVC(client, namespace,
+		pvclaim, err = fpv.CreatePVC(ctx, client, namespace,
 			getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, v1.ReadWriteOnce))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
@@ -1125,7 +1125,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		pv = persistentvolumes[0]
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, pvclaim.Namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1137,7 +1137,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		defer func() {
 			// Delete POD
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err := fpod.DeletePodWithWait(client, pod)
+			err := fpod.DeletePodWithWait(ctx, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s",
@@ -1166,7 +1166,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
 		ginkgo.By("Deleting Pod after triggering online expansion on PVC")
-		err = fpod.DeletePodWithWait(client, pod)
+		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s",
@@ -1213,19 +1213,19 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pvclaim, err = fpv.CreatePVC(client, namespace,
+		pvclaim, err = fpv.CreatePVC(ctx, client, namespace,
 			getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, v1.ReadWriteOnce))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, pvclaim.Namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1252,7 +1252,7 @@ func createPODandVerifyVolumeMountWithoutF(ctx context.Context, client clientset
 	namespace string, pvclaim *v1.PersistentVolumeClaim, volHandle string) (*v1.Pod, string) {
 	// Create a Pod to use this PVC, and verify volume has been attached
 	ginkgo.By("Creating pod to attach PV to the node")
-	pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+	pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	defer func() {

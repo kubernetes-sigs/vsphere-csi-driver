@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"os"
 
-	ginkgo "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
@@ -52,7 +52,9 @@ var _ = ginkgo.Describe("Upgrade TKG", func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
 		svcClient, svNamespace = getSvcClientAndNamespace()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		if !(len(nodeList.Items) > 0) {
@@ -141,10 +143,10 @@ var _ = ginkgo.Describe("Upgrade TKG", func() {
 		}()
 
 		ginkgo.By("Creating statefulset")
-		statefulset := fss.CreateStatefulSet(client, manifestPath, namespace)
+		statefulset := fss.CreateStatefulSet(ctx, client, manifestPath, namespace)
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(client, namespace)
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
 			if supervisorCluster {
 				ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 				err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
@@ -153,9 +155,9 @@ var _ = ginkgo.Describe("Upgrade TKG", func() {
 		}()
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready.
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleUp := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -203,11 +205,11 @@ var _ = ginkgo.Describe("Upgrade TKG", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas+5))
-		_, scaleupErr := fss.Scale(client, statefulset, replicas+5)
+		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas+5)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReplicas(client, statefulset, replicas+5)
-		fss.WaitForStatusReadyReplicas(client, statefulset, replicas+5)
-		ssPodsAfterScaleUp := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas+5)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas+5)
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas+5)).To(gomega.BeTrue(),
@@ -249,10 +251,10 @@ var _ = ginkgo.Describe("Upgrade TKG", func() {
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", 0))
-		_, scaledownErr := fss.Scale(client, statefulset, 0)
+		_, scaledownErr := fss.Scale(ctx, client, statefulset, 0)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
-		fss.WaitForStatusReadyReplicas(client, statefulset, 0)
-		ssPodsAfterScaleDown := fss.GetPodList(client, statefulset)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 0)
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(0)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 

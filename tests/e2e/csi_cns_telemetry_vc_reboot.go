@@ -23,7 +23,7 @@ import (
 	"strconv"
 	"time"
 
-	ginkgo "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -50,7 +50,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		bootstrap()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -108,7 +108,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		// Decide which test setup is available to run.
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for Vanilla setup")
-			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
+			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -118,12 +118,12 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		}()
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Waiting for claim to be in bound phase")
-		pvc, err := fpv.WaitForPVClaimBoundPhase(client,
+		pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, 2*framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
@@ -131,7 +131,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		volumeID := pv.Spec.CSI.VolumeHandle
 
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var vmUUID string
@@ -149,7 +149,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 
 		ginkgo.By("Rebooting VC")
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		err = invokeVCenterReboot(vcAddress)
+		err = invokeVCenterReboot(ctx, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -176,7 +176,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		// Decide which test setup is available to run.
 		if vanillaCluster {
 			ginkgo.By("Creating another PVC for Vanilla setup")
-			storageclass2, pvclaim2, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
+			storageclass2, pvclaim2, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -186,7 +186,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		}()
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -200,7 +200,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		bootstrap()
 
 		ginkgo.By("Waiting for PVC2 claim to be in bound phase")
-		pvc2, err := fpv.WaitForPVClaimBoundPhase(client,
+		pvc2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim2}, 2*framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc2).NotTo(gomega.BeEmpty())
@@ -208,7 +208,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		volumeID2 := pv2.Spec.CSI.VolumeHandle
 
 		ginkgo.By("Creating pod to attach PV2 to the node")
-		pod2, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, "")
+		pod2, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		nodeName2 := pod2.Spec.NodeName
@@ -234,11 +234,11 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 			gomega.Equal(vanillaClusterDistributionWithSpecialChar), "Wrong/empty cluster-distribution name present on CNS")
 
 		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-		err = fpod.DeletePodWithWait(client, pod)
+		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-		err = fpod.DeletePodWithWait(client, pod2)
+		err = fpod.DeletePodWithWait(ctx, client, pod2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if vanillaCluster {
@@ -291,7 +291,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 
 		ginkgo.By("Rebooting VC")
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		err = invokeVCenterReboot(vcAddress)
+		err = invokeVCenterReboot(ctx, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -319,7 +319,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		// Decide which test setup is available to run.
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for Vanilla setup")
-			storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
+			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -329,7 +329,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		}()
 
 		ginkgo.By("Waiting for claim to be in bound phase")
-		pvc, err := fpv.WaitForPVClaimBoundPhase(client,
+		pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, 2*framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
@@ -337,12 +337,12 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		volumeID := pv.Spec.CSI.VolumeHandle
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var vmUUID string
@@ -370,7 +370,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 			gomega.Equal(vanillaClusterDistributionWithSpecialChar), "Wrong/empty cluster-distribution name present on CNS")
 
 		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-		err = fpod.DeletePodWithWait(client, pod)
+		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if vanillaCluster {
