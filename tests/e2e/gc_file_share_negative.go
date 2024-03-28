@@ -19,7 +19,7 @@ package e2e
 import (
 	"context"
 
-	ginkgo "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -44,7 +44,9 @@ var _ = ginkgo.Describe("[csi-guest] File Share on Non File Service enabled setu
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -92,7 +94,7 @@ var _ = ginkgo.Describe("[csi-guest] File Share on Non File Service enabled setu
 		scParameters[svStorageClassName] = storagePolicyName
 
 		ginkgo.By("Creating a Storage class and PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -103,23 +105,23 @@ var _ = ginkgo.Describe("[csi-guest] File Share on Non File Service enabled setu
 
 		//Waiting for the bound timeout as the events messages are dynamic
 		ginkgo.By("Expect claim to fail")
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,
 			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.SingleCallTimeout/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, pvclaim.Namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		framework.Logf("Creating ReadOnly PVC")
-		pvclaim, err = fpv.CreatePVC(client, namespace, getPersistentVolumeClaimSpecWithStorageClass(namespace,
+		pvclaim, err = fpv.CreatePVC(ctx, client, namespace, getPersistentVolumeClaimSpecWithStorageClass(namespace,
 			diskSize, storageclasspvc, nil, v1.ReadOnlyMany))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			if pvclaim != nil {
-				err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, pvclaim.Namespace)
+				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
 				if !apierrors.IsNotFound(err) {
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -127,7 +129,7 @@ var _ = ginkgo.Describe("[csi-guest] File Share on Non File Service enabled setu
 		}()
 
 		//Waiting for the bound timeout as the events messages are dynamic
-		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,
 			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.SingleCallTimeout/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 	})

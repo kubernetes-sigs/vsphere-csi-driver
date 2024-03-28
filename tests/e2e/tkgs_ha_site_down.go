@@ -71,8 +71,9 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			ginkgo.Fail(envZonalWffcStoragePolicyName + " env variable not set")
 		}
 		framework.Logf("zonal policy: %s and zonal wffc policy: %s", zonalPolicy, zonalWffcPolicy)
-
-		nodeList, err := fnodes.GetReadySchedulableNodes(client)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -129,7 +130,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
-		nodeList, err := fnodes.GetReadySchedulableNodes(client)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -180,10 +181,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
@@ -196,16 +197,16 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 
 		ginkgo.By("Verify if all sts replicas are in Running state")
 		for _, statefulset := range stsList {
-			fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-			gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-			ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+			fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+			ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 			gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 				"Number of Pods in the statefulset should match with number of replicas")
 		}
 		ignoreLabels := make(map[string]string)
-		podList, err := fpod.GetPodsInNamespace(client, namespace, ignoreLabels)
+		podList, err := fpod.GetPodsInNamespace(ctx, client, namespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring down ESX hosts of AZ1")
@@ -271,7 +272,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
-		nodeList, err := fnodes.GetReadySchedulableNodes(client)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -324,10 +325,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
@@ -340,9 +341,9 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 
 		ginkgo.By("Verify if all sts replicas are in Running state")
 		for _, statefulset := range stsList {
-			fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-			gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-			ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+			fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+			ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 			gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -350,7 +351,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		}
 
 		ignoreLabels := make(map[string]string)
-		podList, err := fpod.GetPodsInNamespace(client, namespace, ignoreLabels)
+		podList, err := fpod.GetPodsInNamespace(ctx, client, namespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var powerOffHostsList []string
@@ -439,7 +440,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
-		nodeList, err := fnodes.GetReadySchedulableNodes(client)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -495,10 +496,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
@@ -511,9 +512,9 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 
 		ginkgo.By("Verify if all sts replicas are in Running state")
 		for _, statefulset := range stsList {
-			fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-			gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-			ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+			fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+			ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 			gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -571,7 +572,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
-		nodeList, err := fnodes.GetReadySchedulableNodes(client)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -624,10 +625,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
@@ -640,9 +641,9 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 
 		ginkgo.By("Verify if all sts replicas are in Running state")
 		for _, statefulset := range stsList {
-			fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-			gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-			ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+			fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+			ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 			gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -692,7 +693,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
-		nodeList, err := fnodes.GetReadySchedulableNodes(client)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -745,10 +746,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
@@ -761,9 +762,9 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 
 		ginkgo.By("Verify if all sts replicas are in Running state")
 		for _, statefulset := range stsList {
-			fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-			gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-			ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+			fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+			ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 			gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -820,7 +821,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
-		nodeList, err := fnodes.GetReadySchedulableNodes(client)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -874,10 +875,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
@@ -890,9 +891,9 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 
 		ginkgo.By("Verify if all sts replicas are in Running state")
 		for _, statefulset := range stsList {
-			fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-			gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-			ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+			fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+			ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 			gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -900,7 +901,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		}
 
 		ignoreLabels := make(map[string]string)
-		podList, err := fpod.GetPodsInNamespace(client, namespace, ignoreLabels)
+		podList, err := fpod.GetPodsInNamespace(ctx, client, namespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Put 2 ESX host of AZ2 into MM - evacuateAllData and power off 1 ESX in AZ2")
@@ -912,7 +913,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		host := strings.Split(hostPath, "/")
 		hostIp := host[len(host)-1]
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		powerOffHostParallel([]string{hostIp})
+		powerOffHostParallel(ctx, []string{hostIp})
 		defer func() {
 			framework.Logf("Exit the hosts from MM and power on ESX" +
 				"before terminating the test")

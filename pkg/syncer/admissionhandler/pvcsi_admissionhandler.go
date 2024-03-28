@@ -2,6 +2,7 @@ package admissionhandler
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"os"
 	"strconv"
@@ -63,8 +64,19 @@ func startPVCSIWebhookManager(ctx context.Context) {
 	}
 
 	log.Infof("registering validating webhook with the endpoint %v", PVCSIValidationWebhookPath)
-	// we should not allow TLS < 1.2
-	mgr.GetWebhookServer().TLSMinVersion = PVCSIWebhookTlsMinVersion
+	// CipherSuites allows us to specify TLS 1.2 cipher suites that have been recommended by the Security team
+	webhookServer := webhook.NewServer(webhook.Options{
+		TLSOpts: []func(*tls.Config){
+			func(t *tls.Config) {
+				t.MinVersion = tls.VersionTLS12
+			},
+		}})
+
+	err = mgr.Add(webhookServer)
+	if err != nil {
+		log.Fatal(err, "unable to add webhook server to manager")
+	}
+
 	mgr.GetWebhookServer().Register(PVCSIValidationWebhookPath, &webhook.Admission{Handler: &CSIGuestWebhook{
 		Client:       mgr.GetClient(),
 		clientConfig: mgr.GetConfig(),

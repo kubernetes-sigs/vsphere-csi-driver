@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	ginkgo "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,6 +22,7 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		scParameters         map[string]string
 		storagePolicyName    string
 		ctx                  context.Context
+		cancel               context.CancelFunc
 		nimbusGeneratedVcPwd string
 		clientIndex          int
 	)
@@ -32,7 +33,9 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel = context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -73,12 +76,12 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 		// Create Storage class and PVC
 		ginkgo.By("Creating Storage Class and PVC")
-		_, pvc, err := createPVCAndStorageClass(client, namespace, nil,
+		_, pvc, err := createPVCAndStorageClass(ctx, client, namespace, nil,
 			scParameters, "", nil, "", false, "", storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -101,7 +104,7 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		username := vsphereCfg.Global.User
 		currentPassword := vsphereCfg.Global.Password
 		newPassword := e2eTestPassword
-		err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, newPassword, vcAddress,
+		err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, newPassword, vcAddress,
 			false, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -117,7 +120,7 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 
 		defer func() {
 			ginkgo.By("Reverting the password change")
-			err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, currentPassword, vcAddress, false,
+			err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, currentPassword, vcAddress, false,
 				clientIndex)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -132,7 +135,7 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 
 		// As we are in the same vCenter session, deletion of PVC should go through
 		ginkgo.By("Deleting PVC")
-		err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
+		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 

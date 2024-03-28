@@ -1283,7 +1283,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 					timeout := 4 * time.Minute
 					pollTime := time.Duration(5) * time.Second
 					var podVM *cnsvsphere.VirtualMachine
-					err = wait.PollImmediate(pollTime, timeout, func() (bool, error) {
+					err = wait.PollUntilContextTimeout(ctx, pollTime, timeout, true, func(ctx context.Context) (bool, error) {
 						podVM, err = getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, v)
 						if err != nil {
 							if err == cnsvsphere.ErrVMNotFound {

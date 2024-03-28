@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	ginkgo "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/cns"
 	cnsmethods "github.com/vmware/govmomi/cns/methods"
@@ -41,7 +41,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	labels "k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
@@ -56,7 +56,7 @@ import (
 createCustomisedStatefulSets util methods creates statefulset as per the user's
 specific requirement and returns the customised statefulset
 */
-func createCustomisedStatefulSets(client clientset.Interface, namespace string,
+func createCustomisedStatefulSets(ctx context.Context, client clientset.Interface, namespace string,
 	isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
 	allowedTopologies []v1.TopologySelectorLabelRequirement, allowedTopologyLen int,
 	podAntiAffinityToSet bool, modifyStsSpec bool, stsName string,
@@ -113,9 +113,9 @@ func createCustomisedStatefulSets(client clientset.Interface, namespace string,
 	CreateStatefulSet(namespace, statefulset, client)
 
 	framework.Logf("Wait for StatefulSet pods to be in up and running state")
-	fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
-	gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-	ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
+	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+	gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -157,7 +157,7 @@ func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interfa
 		if ss, err = scaleStatefulSetPods(c, ss, 0); err != nil {
 			errList = append(errList, fmt.Sprintf("%v", err))
 		}
-		fss.WaitForStatusReplicas(c, ss, 0)
+		fss.WaitForStatusReplicas(ctx, c, ss, 0)
 		framework.Logf("Deleting statefulset %v", ss.Name)
 		if err := c.AppsV1().StatefulSets(ss.Namespace).Delete(context.TODO(), ss.Name,
 			metav1.DeleteOptions{OrphanDependents: new(bool)}); err != nil {
@@ -165,7 +165,7 @@ func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interfa
 		}
 	}
 	pvNames := sets.NewString()
-	pvcPollErr := wait.PollImmediate(StatefulSetPoll, StatefulSetTimeout, func() (bool, error) {
+	pvcPollErr := wait.PollUntilContextTimeout(ctx, StatefulSetPoll, StatefulSetTimeout, true, func(ctx context.Context) (bool, error) {
 		pvcList, err := c.CoreV1().PersistentVolumeClaims(ns).List(context.TODO(),
 			metav1.ListOptions{LabelSelector: labels.Everything().String()})
 		if err != nil {
@@ -175,7 +175,7 @@ func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interfa
 		for _, pvc := range pvcList.Items {
 			pvNames.Insert(pvc.Spec.VolumeName)
 			framework.Logf("Deleting pvc: %v with volume %v", pvc.Name, pvc.Spec.VolumeName)
-			if err := c.CoreV1().PersistentVolumeClaims(ns).Delete(context.TODO(), pvc.Name,
+			if err := c.CoreV1().PersistentVolumeClaims(ns).Delete(ctx, pvc.Name,
 				metav1.DeleteOptions{}); err != nil {
 				return false, nil
 			}
@@ -186,7 +186,7 @@ func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interfa
 		errList = append(errList, "Timeout waiting for pvc deletion.")
 	}
 
-	pollErr := wait.PollImmediate(StatefulSetPoll, StatefulSetTimeout, func() (bool, error) {
+	pollErr := wait.PollUntilContextTimeout(ctx, StatefulSetPoll, StatefulSetTimeout, true, func(ctx context.Context) (bool, error) {
 		pvList, err := c.CoreV1().PersistentVolumes().List(context.TODO(),
 			metav1.ListOptions{LabelSelector: labels.Everything().String()})
 		if err != nil {
@@ -384,7 +384,7 @@ func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 	service := CreateService(namespace, client)
 
 	framework.Logf("Create StatefulSet")
-	statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
+	statefulset := createCustomisedStatefulSets(ctx, client, namespace, parallelPodPolicy,
 		replicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet, modifyStsSpec,
 		"", "", nil)
 
@@ -826,7 +826,7 @@ func readVsphereConfSecret(client clientset.Interface, ctx context.Context,
 /*
 setNewNameSpaceInCsiYaml util installs the csi yaml in new namespace
 */
-func setNewNameSpaceInCsiYaml(client clientset.Interface, sshClientConfig *ssh.ClientConfig, originalNS string,
+func setNewNameSpaceInCsiYaml(ctx context.Context, client clientset.Interface, sshClientConfig *ssh.ClientConfig, originalNS string,
 	newNS string, allMasterIps []string) error {
 
 	var controlIp string
@@ -870,13 +870,13 @@ func setNewNameSpaceInCsiYaml(client clientset.Interface, sshClientConfig *ssh.C
 	}
 
 	// Wait for the CSI Pods to be up and Running
-	list_of_pods, err := fpod.GetPodsInNamespace(client, newNS, ignoreLabels)
+	list_of_pods, err := fpod.GetPodsInNamespace(ctx, client, newNS, ignoreLabels)
 	if err != nil {
 		return err
 	}
 	num_csi_pods := len(list_of_pods)
-	err = fpod.WaitForPodsRunningReady(client, newNS, int32(num_csi_pods), 0,
-		pollTimeout, ignoreLabels)
+	err = fpod.WaitForPodsRunningReady(ctx, client, newNS, int32(num_csi_pods), 0,
+		pollTimeout)
 	if err != nil {
 		return err
 	}
@@ -1028,7 +1028,7 @@ func powerOffEsxiHostsInMultiVcCluster(ctx context.Context, vs *multiVCvSphere,
 				powerOffHostsList = append(powerOffHostsList, esxHostName)
 				err := vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, esxHostName, false)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = waitForHostToBeDown(esxInfo["ip"])
+				err = waitForHostToBeDown(ctx, esxInfo["ip"])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -1043,7 +1043,7 @@ Here, this util is expecting what datastore operation to perform, it can be susp
 Next input parameter is the datastore name on which suspend operation needs to be performed
 and last is on which of the multivc setup we need to perform this datastore operation
 */
-func suspendDatastore(opName string, dsNameToPowerOff string, testbedInfoJsonIndex string) string {
+func suspendDatastore(ctx context.Context, opName string, dsNameToPowerOff string, testbedInfoJsonIndex string) string {
 	dsName := ""
 	readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(testbedInfoJsonIndex))
 
@@ -1052,7 +1052,7 @@ func suspendDatastore(opName string, dsNameToPowerOff string, testbedInfoJsonInd
 			dsName = dsInfo["vmName"]
 			err := datatoreOperations(tbinfo.user, tbinfo.location, tbinfo.podname, dsName, opName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitForHostToBeDown(dsInfo["ip"])
+			err = waitForHostToBeDown(ctx, dsInfo["ip"])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			break
 		}
@@ -1125,7 +1125,7 @@ func createStaticFCDPvAndPvc(ctx context.Context, f *framework.Framework,
 
 	// Wait for PV and PVC to Bind.
 	ginkgo.By("Wait for PV and PVC to Bind")
-	framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(),
+	framework.ExpectNoError(fpv.WaitOnPVandPVC(ctx, client, f.Timeouts,
 		namespace, staticPv, staticPvc))
 
 	ginkgo.By("Verifying CNS entry is present in cache")

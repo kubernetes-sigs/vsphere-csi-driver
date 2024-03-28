@@ -31,6 +31,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
+
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -317,7 +318,7 @@ func IsVolumeSnapshotReady(ctx context.Context, client snapshotterClientSet.Inte
 	isReadyToUse := false
 	var svs *snap.VolumeSnapshot
 
-	waitErr := wait.PollImmediate(5*time.Second, timeout, func() (done bool, err error) {
+	waitErr := wait.PollUntilContextTimeout(ctx, 5*time.Second, timeout, true, func(ctx context.Context) (done bool, err error) {
 		svs, err = client.SnapshotV1().VolumeSnapshots(namespace).
 			Get(ctx, supervisorVolumeSnapshotName, metav1.GetOptions{})
 		if err != nil {
