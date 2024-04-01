@@ -142,12 +142,12 @@ func (vs *vSphere) queryCNSVolumeSnapshotWithResult(fcdID string,
 }
 
 // verifySnapshotIsDeletedInCNS verifies the snapshotId's presence on CNS
-func verifySnapshotIsDeletedInCNS(volumeId string, snapshotId string, isMultiVcSetup bool) error {
+func verifySnapshotIsDeletedInCNS(volumeId string, snapshotId string) error {
 	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",
 		volumeId, snapshotId))
 	var querySnapshotResult *cnstypes.CnsSnapshotQueryResult
 	var err error
-	if !isMultiVcSetup {
+	if !multivc {
 		querySnapshotResult, err = e2eVSphere.queryCNSVolumeSnapshotWithResult(volumeId, snapshotId)
 	} else {
 		querySnapshotResult, err = multiVCe2eVSphere.queryCNSVolumeSnapshotWithResultInMultiVC(volumeId, snapshotId)
@@ -163,12 +163,12 @@ func verifySnapshotIsDeletedInCNS(volumeId string, snapshotId string, isMultiVcS
 }
 
 // verifySnapshotIsCreatedInCNS verifies the snapshotId's presence on CNS
-func verifySnapshotIsCreatedInCNS(volumeId string, snapshotId string, isMultiVC bool) error {
+func verifySnapshotIsCreatedInCNS(volumeId string, snapshotId string) error {
 	ginkgo.By(fmt.Sprintf("Invoking queryCNSVolumeSnapshotWithResult with VolumeID: %s and SnapshotID: %s",
 		volumeId, snapshotId))
 	var querySnapshotResult *cnstypes.CnsSnapshotQueryResult
 	var err error
-	if !isMultiVC {
+	if !multivc {
 		querySnapshotResult, err = e2eVSphere.queryCNSVolumeSnapshotWithResult(volumeId, snapshotId)
 	} else {
 		querySnapshotResult, err = multiVCe2eVSphere.queryCNSVolumeSnapshotWithResultInMultiVC(volumeId, snapshotId)

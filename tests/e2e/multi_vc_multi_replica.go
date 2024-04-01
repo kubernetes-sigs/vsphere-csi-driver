@@ -214,7 +214,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-replica] Multi-VC-Replica", func() {
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-				statefulSets[i], namespace, allowedTopologies, parallelStatefulSetCreation, true)
+				statefulSets[i], namespace, allowedTopologies, parallelStatefulSetCreation)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -226,7 +226,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-replica] Multi-VC-Replica", func() {
 				framework.Logf("Scale down StatefulSet1 replica count to 3")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 1 {
@@ -236,7 +236,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-replica] Multi-VC-Replica", func() {
 					"kill vsphere syncer container")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				framework.Logf("Kill Vsphere-Syncer container")
@@ -252,7 +252,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-replica] Multi-VC-Replica", func() {
 				scaleDownReplicaCount = 2
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}

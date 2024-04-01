@@ -766,7 +766,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		}()
 		ginkgo.By("Creating statefulset with replica 3")
 		statefulset, _, volumesBeforeScaleUp := createStsDeployment(ctx, client, namespace, sc, false,
-			false, 0, "", v1.ReadWriteMany, false)
+			false, 0, "", v1.ReadWriteMany)
 		replicas := *(statefulset.Spec.Replicas)
 
 		//List volume responses will show up in the interval of every 1 minute.

@@ -168,7 +168,7 @@ func waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx context.Context,
 func waitForCNSSnapshotToBeDeleted(volumeId string, snapshotId string) error {
 	var err error
 	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
-		err = verifySnapshotIsDeletedInCNS(volumeId, snapshotId, false)
+		err = verifySnapshotIsDeletedInCNS(volumeId, snapshotId)
 		if err != nil {
 			if strings.Contains(err.Error(), "snapshot entry is still present") {
 				return false, nil
@@ -318,7 +318,7 @@ func deleteVolumeSnapshot(ctx context.Context, snapc *snapclient.Clientset, name
 	}
 
 	framework.Logf("Verify snapshot entry is deleted from CNS")
-	err = verifySnapshotIsDeletedInCNS(volHandle, snapshotID, false)
+	err = verifySnapshotIsDeletedInCNS(volHandle, snapshotID)
 	if err != nil {
 		return snapshotCreated, snapshotContentCreated, err
 	}
@@ -717,7 +717,7 @@ func waitForVolumeSnapshotContentReadyToUse(client snapclient.Clientset, ctx con
 func waitForCNSSnapshotToBeCreated(volumeId string, snapshotId string) error {
 	var err error
 	waitErr := wait.PollImmediate(poll, pollTimeout*2, func() (bool, error) {
-		err = verifySnapshotIsCreatedInCNS(volumeId, snapshotId, false)
+		err = verifySnapshotIsCreatedInCNS(volumeId, snapshotId)
 		if err != nil {
 			if strings.Contains(err.Error(), "snapshot entry is not present in CNS") {
 				return false, nil

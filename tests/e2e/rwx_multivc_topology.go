@@ -221,7 +221,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		nodeSelectorTerms := getNodeSelectorMapForDeploymentPods(allowedTopologies)
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", v1.ReadWriteMany, nfs4FSType))
-		storageclass1, pvclaim1, _, err := createRwxPvcWithStorageClass(client, namespace, labelsMap, scParameters, "", nil, bindingMode, false, accessmode, true)
+		storageclass1, pvclaim1, _, err := createRwxPvcWithStorageClass(client, namespace, labelsMap, scParameters, "", nil, bindingMode, false, accessmode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass1.Name, *metav1.NewDeleteOptions(0))
@@ -252,7 +252,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify deployment pods are scheduled on a selected node selector terms")
-		err = verifyDeploymentPodNodeAffinity(ctx, client, namespace, allowedTopologies, true, pods, pv)
+		err = verifyDeploymentPodNodeAffinity(ctx, client, namespace, allowedTopologies, pods, pv)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// here in 3-VC setup, node affinity is taken as  k8s-zone -> zone-1,zone-2 and zone-3 i.e all 3 VCs allowed topology
@@ -270,7 +270,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", v1.ReadWriteMany, nfs4FSType))
 		storageclass2, _, _, err := createRwxPvcWithStorageClass(client, namespace, labelsMap, scParameters, "",
-			nil, "", false, v1.ReadWriteMany, true)
+			nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass2.Name, *metav1.NewDeleteOptions(0))
@@ -361,7 +361,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, false, namespace,
-			allowedTopologies, stsScaleUp, stsScaleDown, false, true)
+			allowedTopologies, stsScaleUp, stsScaleDown, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -408,7 +408,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			topValEndIndex)
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", v1.ReadWriteMany, nfs4FSType))
-		storageclass, pvclaim, pv, err := createRwxPvcWithStorageClass(client, namespace, nil, scParameters, "", allowedTopologies, "", false, accessmode, false)
+		storageclass, pvclaim, pv, err := createRwxPvcWithStorageClass(client, namespace, nil, scParameters, "", allowedTopologies, "", false, accessmode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pv.Spec.CSI.VolumeHandle
 		defer func() {
@@ -733,7 +733,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulSets[i],
-				namespace, allowedTopologies, false, true)
+				namespace, allowedTopologies, false)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -742,7 +742,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		for i := 0; i < len(statefulSets); i++ {
 			err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 				scaleDownReplicaCount, statefulSets[i], false, namespace,
-				allowedTopologies, stsScaleUp, stsScaleDown, false, true)
+				allowedTopologies, stsScaleUp, stsScaleDown, false)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
@@ -910,7 +910,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulSets[i],
-				namespace, allowedTopologies, false, true)
+				namespace, allowedTopologies, false)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -918,7 +918,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulSets[0], false, namespace,
-			allowedTopologies, stsScaleUp, stsScaleDown, false, true)
+			allowedTopologies, stsScaleUp, stsScaleDown, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -989,7 +989,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, false, true)
+			namespace, allowedTopologies, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring down SPS service")
@@ -1032,7 +1032,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulSets[i],
-				namespace, allowedTopologies, false, true)
+				namespace, allowedTopologies, false)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -1040,7 +1040,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			"verify pv affinity and pod affinity")
 		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulSets[0], false, namespace,
-			allowedTopologies, stsScaleUp, stsScaleDown, false, true)
+			allowedTopologies, stsScaleUp, stsScaleDown, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -1105,15 +1105,15 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		}()
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
 		statefulset, deployment, volumesBeforeScaleUp := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", "", true)
+			false, 0, "", "")
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, false, true)
+			namespace, allowedTopologies, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx, client, deployment, namespace,
-			allowedTopologies, true, true)
+			allowedTopologies, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		//List volume responses will show up in the interval of every 1 minute.
@@ -1130,7 +1130,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Perform scaleup operation on statefulset and verify pv affinity and pod affinity")
 		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, false, namespace,
-			allowedTopologies, stsScaleUp, stsScaleDown, false, true)
+			allowedTopologies, stsScaleUp, stsScaleDown, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		//List volume responses will show up in the interval of every 1 minute.

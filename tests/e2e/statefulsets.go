@@ -903,7 +903,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 
 		ginkgo.By("Creating statfulset and deployment from storageclass")
 		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", "", false)
+			false, 0, "", "")
 		replicas := *(statefulset.Spec.Replicas)
 		csiNs := GetAndExpectStringEnvVar(envCSINamespace)
 		csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})

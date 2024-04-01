@@ -49,7 +49,7 @@ const (
 /*
  */
 func createRwxPvcWithStorageClass(client clientset.Interface, namespace string, pvclaimlabels map[string]string, scParameters map[string]string, ds string, allowedTopologies []v1.TopologySelectorLabelRequirement,
-	bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool, accessMode v1.PersistentVolumeAccessMode, isMultiVc bool) (*storagev1.StorageClass, *v1.PersistentVolumeClaim, *v1.PersistentVolume, error) {
+	bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool, accessMode v1.PersistentVolumeAccessMode) (*storagev1.StorageClass, *v1.PersistentVolumeClaim, *v1.PersistentVolume, error) {
 
 	var queryResult *types.CnsQueryResult
 	var pv *v1.PersistentVolume
@@ -72,7 +72,7 @@ func createRwxPvcWithStorageClass(client clientset.Interface, namespace string, 
 		volHandle := pv.Spec.CSI.VolumeHandle
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
-		if isMultiVc {
+		if multivc {
 			queryResult, err = multiVCe2eVSphere.queryCNSVolumeWithResultInMultiVc(volHandle)
 		} else {
 			queryResult, err = e2eVSphere.queryCNSVolumeWithResult(volHandle)
@@ -232,7 +232,7 @@ func getNodeSelectorMapForDeploymentPods(allowedTopologies []v1.TopologySelector
 
 func verifyDeploymentPodNodeAffinity(ctx context.Context, client clientset.Interface,
 	namespace string, allowedTopologies []v1.TopologySelectorLabelRequirement,
-	isMultiVcSetup bool, pods *v1.PodList, pv *v1.PersistentVolume) error {
+	pods *v1.PodList, pv *v1.PersistentVolume) error {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	for _, pod := range pods.Items {
 		_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
@@ -268,7 +268,7 @@ func verifyDeploymentPodNodeAffinity(ctx context.Context, client clientset.Inter
 				}
 
 				// Verify the attached volume match the one in CNS cache
-				if !isMultiVcSetup {
+				if !multivc {
 					// err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 					// 	volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
 					// if err != nil {

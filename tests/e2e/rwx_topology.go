@@ -48,7 +48,8 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 	var (
 		client                  clientset.Interface
 		namespace               string
-		bindingMode             storagev1.VolumeBindingMode
+		bindingModeWffc         storagev1.VolumeBindingMode
+		bindingModeImm          storagev1.VolumeBindingMode
 		topologyAffinityDetails map[string][]string
 		topologyCategories      []string
 		leafNode                int
@@ -93,7 +94,8 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		scParameters = make(map[string]string)
 		labelsMap = make(map[string]string)
 		accessmode = v1.ReadWriteMany
-		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
+		bindingModeWffc = storagev1.VolumeBindingWaitForFirstConsumer
+		bindingModeImm = storagev1.VolumeBindingImmediate
 
 		// pandora sync wait time
 		if os.Getenv(envPandoraSyncWaitTime) != "" {
@@ -153,7 +155,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		replica := 3
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with no allowed topology specified", accessmode, nfs4FSType))
-		storageclass, pvclaim, pv, err := createRwxPvcWithStorageClass(client, namespace, labelsMap, scParameters, "", nil, "", false, accessmode, false)
+		storageclass, pvclaim, pv, err := createRwxPvcWithStorageClass(client, namespace, labelsMap, scParameters, diskSize, nil, bindingModeImm, false, accessmode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -208,7 +210,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		scaleDownReplicaCount := 1
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with no allowed topology specified and with WFFC binding mode", accessmode, nfs4FSType))
-		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", bindingMode, false)
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", bindingModeWffc, false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -227,7 +229,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 
 		ginkgo.By("Perform scaleup/scaledown operation on statefulsets")
 		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, int32(scaleUpReplicaCount), int32(scaleDownReplicaCount),
-			statefulset, false, namespace, nil, true, true, false, false)
+			statefulset, false, namespace, nil, true, true, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -262,7 +264,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, topologyLength, leafNode, leafNodeTag2)
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with allowed topology set to cluster-3", accessmode, nfs4FSType))
-		storageclass, pvclaim, pv, err := createRwxPvcWithStorageClass(client, namespace, nil, scParameters, "", allowedTopologyForSC, "", false, accessmode, false)
+		storageclass, pvclaim, pv, err := createRwxPvcWithStorageClass(client, namespace, nil, scParameters, diskSize, allowedTopologyForSC, bindingModeImm, false, accessmode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -338,7 +340,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with higher level allowed topology", accessmode, nfs4FSType))
 		storageclass, pvclaim, pv, err := createRwxPvcWithStorageClass(client, namespace, labelsMap, scParameters, "",
-			allowedTopologyForSC, "", false, accessmode, false)
+			allowedTopologyForSC, "", false, accessmode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -377,7 +379,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify deployment pods are scheduled on a specified node selector terms")
-		err = verifyDeploymentPodNodeAffinity(ctx, client, namespace, allowedTopologies, false, pods, pv)
+		err = verifyDeploymentPodNodeAffinity(ctx, client, namespace, allowedTopologies, pods, pv)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// ginkgo.By("Verify volume metadata for POD, PVC and PV")
@@ -507,7 +509,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with allowed topology specified to cluster3", accessmode, nfs4FSType))
 		storageclass, pvclaim, pv, err := createRwxPvcWithStorageClass(client, namespace, labelsMap, scParameters, "",
-			allowedTopologyForSC, "", false, accessmode, false)
+			allowedTopologyForSC, "", false, accessmode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -546,7 +548,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify deployment pods are scheduled on a selected node selector terms")
-		err = verifyDeploymentPodNodeAffinity(ctx, client, namespace, allowedTopologies, true, pods, pv)
+		err = verifyDeploymentPodNodeAffinity(ctx, client, namespace, allowedTopologies, pods, pv)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume metadata for POD, PVC and PV")
@@ -568,7 +570,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify deployment pods are scheduled on a selected node selector terms")
-		err = verifyDeploymentPodNodeAffinity(ctx, client, namespace, allowedTopologies, false, pods, pv)
+		err = verifyDeploymentPodNodeAffinity(ctx, client, namespace, allowedTopologies, pods, pv)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -664,7 +666,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 	*/
 
 	/*
-		TESTCASE-11 -----------> complete
+		TESTCASE-11
 		Volume expansion on file volumes
 		SC → all levels of topology details with Immediate Binding mode
 
@@ -850,7 +852,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 			topologyLength, leafNode, leafNodeTag0)
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", accessmode, nfs4FSType))
-		storageclass, pvclaim, pv, err := createRwxPvcWithStorageClass(client, namespace, labelsMap, scParameters, "", allowedTopologyForSC, "", false, accessmode, false)
+		storageclass, pvclaim, pv, err := createRwxPvcWithStorageClass(client, namespace, labelsMap, scParameters, "", allowedTopologyForSC, "", false, accessmode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -951,7 +953,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 			topologyLength, leafNode, leafNodeTag0)
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", accessmode, nfs4FSType))
-		storageclass, pvclaim, pv, err := createRwxPvcWithStorageClass(client, namespace, labelsMap, scParameters, "", allowedTopologyForSC, "", false, accessmode, false)
+		storageclass, pvclaim, pv, err := createRwxPvcWithStorageClass(client, namespace, labelsMap, scParameters, "", allowedTopologyForSC, "", false, accessmode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {

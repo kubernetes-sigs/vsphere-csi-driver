@@ -129,7 +129,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 		// fetching list of datastores available in different VCs
 		ClusterdatastoreListVC1, ClusterdatastoreListVC2,
 			ClusterdatastoreListVC3, err = getDatastoresListFromMultiVCs(masterIp, sshClientConfig,
-			clusterComputeResource[0], true)
+			clusterComputeResource[0])
 		ClusterdatastoreListVC = append(ClusterdatastoreListVC, ClusterdatastoreListVC1,
 			ClusterdatastoreListVC2, ClusterdatastoreListVC3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -256,7 +256,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-				statefulSets[i], namespace, allowedTopologies, parallelStatefulSetCreation, true)
+				statefulSets[i], namespace, allowedTopologies, parallelStatefulSetCreation)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -274,7 +274,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up StatefulSet1 replica count to 7")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 1 {
@@ -283,7 +283,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale down StatefulSet2 replica count to 5")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 2 {
@@ -293,7 +293,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 					"count  to 9")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -357,7 +357,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-			statefulset, namespace, allowedTopologies, parallelStatefulSetCreation, true)
+			statefulset, namespace, allowedTopologies, parallelStatefulSetCreation)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring down few ESXI hosts i.e. partial site down on VC1 in a multi-setup")
@@ -399,7 +399,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 		stsScaleDown = false
 		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 			scaleDownReplicaCount, statefulset, parallelStatefulSetCreation, namespace,
-			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+			allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring up  ESXi host which were powered off in VC1 in a multi setup")
@@ -523,7 +523,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up StatefulSet1 replica count to 12")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 1 {
@@ -532,7 +532,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale down StatefulSet1 replica count to 12")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 2 {
@@ -541,7 +541,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up replica count to 15 and later scale down replica count to 1")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -662,7 +662,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up StatefulSet1 replica count to 12")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 1 {
@@ -671,7 +671,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale down StatefulSet1 replica count to 12")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 2 {
@@ -680,7 +680,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up replica count to 15 and later scale down replica count to 1")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -737,13 +737,12 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 
 		framework.Logf("Fetch worker vms sitting on VC-2")
 		clientIndex = 1
-		vMsToMigrate, err := fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[0],
-			true, clientIndex)
+		vMsToMigrate, err := fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[0], clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Move worker vms to destination datastore in VC-2")
 		isMigrateSuccess, err := migrateVmsFromDatastore(masterIp, sshClientConfig, destDsName,
-			vMsToMigrate, true, clientIndex)
+			vMsToMigrate, clientIndex)
 		gomega.Expect(isMigrateSuccess).To(gomega.BeTrue(), "Migration of vms failed")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -776,25 +775,23 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 
 		framework.Logf("Fetch worker vms sitting on VC-3")
 		clientIndex = 2
-		vMsToMigrate, err = fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[0],
-			true, clientIndex)
+		vMsToMigrate, err = fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[0], clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Move all the vms to destination datastore")
-		isMigrateSuccess, err = migrateVmsFromDatastore(masterIp, sshClientConfig, destDsName, vMsToMigrate,
-			true, clientIndex)
+		isMigrateSuccess, err = migrateVmsFromDatastore(masterIp, sshClientConfig, destDsName, vMsToMigrate, clientIndex)
 		gomega.Expect(isMigrateSuccess).To(gomega.BeTrue(), "Migration of vms failed")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Put source datastore in maintenance mode on VC-3 multi setup")
 		err = preferredDatastoreInMaintenanceMode(masterIp, sshClientConfig, dataCenters, soureDsName,
-			true, clientIndex)
+			clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isDatastoreInMaintenanceMode = true
 		defer func() {
 			if isDatastoreInMaintenanceMode {
 				err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig, dataCenters, soureDsName,
-					true, clientIndex)
+					clientIndex)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isDatastoreInMaintenanceMode = false
 			}
@@ -824,7 +821,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 		suspendDatastoreOp = "off"
 
 		framework.Logf("Exit datastore from maintenance mode residing on VC-3")
-		err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig, dataCenters, soureDsName, true, 2)
+		err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig, dataCenters, soureDsName, 2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isDatastoreInMaintenanceMode = false
 
@@ -837,7 +834,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up StatefulSet1 replica count to 12")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 1 {
@@ -846,7 +843,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale down StatefulSet1 replica count to 12")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if i == 2 {
@@ -855,7 +852,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				framework.Logf("Scale up replica count to 15 and later scale down replica count to 1")
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
 					scaleDownReplicaCount, statefulSets[i], parallelStatefulSetCreation, namespace,
-					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity, true)
+					allowedTopologies, stsScaleUp, stsScaleDown, verifyTopologyAffinity)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}

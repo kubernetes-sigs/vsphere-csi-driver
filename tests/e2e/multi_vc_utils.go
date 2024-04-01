@@ -338,12 +338,12 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	scaleUpReplicaCount int32, scaleDownReplicaCount int32, statefulset *appsv1.StatefulSet,
 	parallelStatefulSetCreation bool, namespace string,
 	allowedTopologies []v1.TopologySelectorLabelRequirement, stsScaleUp bool, stsScaleDown bool,
-	verifyTopologyAffinity bool, isMultiVcSetup bool) error {
+	verifyTopologyAffinity bool) error {
 
 	if stsScaleDown {
 		framework.Logf("Scale down statefulset replica count to %d", scaleDownReplicaCount)
 		err := scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
-			parallelStatefulSetCreation, isMultiVcSetup)
+			parallelStatefulSetCreation)
 		if err != nil {
 			return fmt.Errorf("error scaling down statefulset: %v", err)
 		}
@@ -352,7 +352,7 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	if stsScaleUp {
 		framework.Logf("Scale up statefulset replica count to %d", scaleUpReplicaCount)
 		err := scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
-			parallelStatefulSetCreation, isMultiVcSetup)
+			parallelStatefulSetCreation)
 		if err != nil {
 			return fmt.Errorf("error scaling up statefulset: %v", err)
 		}
@@ -361,7 +361,7 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	if verifyTopologyAffinity {
 		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
 		err := verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+			namespace, allowedTopologies, parallelStatefulSetCreation)
 		if err != nil {
 			return fmt.Errorf("error verifying PV node affinity and POD node details: %v", err)
 		}
@@ -392,7 +392,7 @@ func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 	if verifyTopologyAffinity {
 		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
 		err := verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+			namespace, allowedTopologies, parallelStatefulSetCreation)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error verifying PV node affinity and POD node details: %v", err)
 		}
@@ -604,7 +604,7 @@ This util will return key-value combination of datastore-name:datastore-url of a
 in a multi-vc setup
 */
 func getDatastoresListFromMultiVCs(masterIp string, sshClientConfig *ssh.ClientConfig,
-	cluster *object.ClusterComputeResource, isMultiVcSetup bool) (map[string]string, map[string]string,
+	cluster *object.ClusterComputeResource) (map[string]string, map[string]string,
 	map[string]string, error) {
 	ClusterdatastoreListMapVc1 := make(map[string]string)
 	ClusterdatastoreListMapVc2 := make(map[string]string)
