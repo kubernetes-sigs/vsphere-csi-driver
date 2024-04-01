@@ -87,7 +87,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		9. Delete PVC, PV and Storage Class
 	*/
 
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-serialized] verify volume "+
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-serialized] [stretched-svc] verify volume "+
 		"operations on VC works fine after vc reboots", ginkgo.Label(p1, block, wcp, vanilla, tkg, core), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -111,6 +111,12 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(client,
 				namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
+		} else if stretchedSVC {
+			ginkgo.By("CNS_TEST: Running for WCP setup")
+			zonalPolicy := GetAndExpectStringEnvVar(envZonalStoragePolicyName)
+			scParameters[svStorageClassName] = zonalPolicy
+			storagePolicyName = zonalPolicy
+			ginkgo.By(fmt.Sprintf("storagePolicyName: %s", storagePolicyName))
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
@@ -121,7 +127,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			if !supervisorCluster {
+			if !supervisorCluster || !stretchedSVC {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
@@ -156,7 +162,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		var vmUUID string
 		var exists bool
 		nodeName := pod.Spec.NodeName
-		if supervisorCluster {
+		if supervisorCluster || stretchedSVC {
 			annotations := pod.Annotations
 			vmUUID, exists = annotations[vmUUIDLabel]
 			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
@@ -197,7 +203,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
 		err = fpod.DeletePodWithWait(client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		if supervisorCluster {
+		if supervisorCluster || stretchedSVC {
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", volumeID, nodeName))
 			_, err := e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
 			gomega.Expect(err).To(gomega.HaveOccurred(),

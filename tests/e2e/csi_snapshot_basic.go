@@ -5695,12 +5695,17 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   Cleanup the snapshots, PVC and SC
 	*/
 
-	ginkgo.It("[tkg-snapshot] Verify Snapshot creation should fail on supervisor cluster", ginkgo.Label(p0,
+	ginkgo.It("[tkg-snapshot] [stretched-svc] Verify Snapshot creation should fail on supervisor cluster", ginkgo.Label(p0,
 		snapshot, tkg, newTest, negative), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		if stretchedSVC {
+			zonalPolicy := GetAndExpectStringEnvVar(envZonalStoragePolicyName)
+			scParameters[svStorageClassName] = zonalPolicy
+			storagePolicyName = zonalPolicy
+		}
 		storageclass, err := svcClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
