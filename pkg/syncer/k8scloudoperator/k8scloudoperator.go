@@ -136,55 +136,56 @@ func (k8sCloudOperator *k8sCloudOperator) GetPodVMUUIDAnnotation(ctx context.Con
 	// Use vmUuidNotFoundError to set to false for all error paths except
 	// vm-uuid annotation not found on the pod
 	vmUuidNotFoundError := true
-	err = wait.Poll(pollTime, timeout, func() (bool, error) {
-		var pod *v1.Pod
-		// Retrieve the pod name and namespace only if they are non-empty.
-		// If they are already pre-populated, use them to get the pod
-		// info from API server.
-		if podName == "" || podNamespace == "" {
-			pod, err = k8sCloudOperator.getPod(ctx, pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace, nodeName)
-			if err != nil {
-				log.Infof("retrying the getPod operation again with PVC: %s on namespace: %s on node: %s. Err: %+v",
-					pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace, nodeName, err)
-				return false, nil
-			}
-			if pod != nil {
-				podName = pod.Name
-				podNamespace = pod.Namespace
-			} else {
-				log.Infof("pod info is empty for PVC: %s. Retrying the operation again.",
-					pv.Spec.ClaimRef.Name)
-				return false, nil
-			}
-		}
-		if pod == nil {
-			pod, err = k8sCloudOperator.k8sClient.CoreV1().Pods(podNamespace).Get(ctx, podName, metav1.GetOptions{})
-			if err != nil {
-				if apierrors.IsNotFound(err) {
-					// When the pod itself is not found in the api server, we still mark the error as
-					// vmUuidNotFoundError because from GetPodVMUUIDAnnotation's perspective the final error is that
-					// it could not find the annotation. Also, there are no distinct notFound error codes
-					// in grpc error codes. Refer - go/pkg/mod/google.golang.org/grpc@v1.27.1/codes/codes.go
-					vmUuidNotFoundError = true
-				} else {
-					// Set vmUuidNotFoundError as false to indicate other errors
-					vmUuidNotFoundError = false
+	err = wait.PollUntilContextTimeout(ctx, pollTime, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			var pod *v1.Pod
+			// Retrieve the pod name and namespace only if they are non-empty.
+			// If they are already pre-populated, use them to get the pod
+			// info from API server.
+			if podName == "" || podNamespace == "" {
+				pod, err = k8sCloudOperator.getPod(ctx, pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace, nodeName)
+				if err != nil {
+					log.Infof("retrying the getPod operation again with PVC: %s on namespace: %s on node: %s. Err: %+v",
+						pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace, nodeName, err)
+					return false, nil
 				}
-				return false, logger.LogNewErrorf(log,
-					"Failed to get the pod with name: %s on namespace: %s using K8s Cloud Operator informer. Err: %+v",
-					podName, podNamespace, err)
+				if pod != nil {
+					podName = pod.Name
+					podNamespace = pod.Namespace
+				} else {
+					log.Infof("pod info is empty for PVC: %s. Retrying the operation again.",
+						pv.Spec.ClaimRef.Name)
+					return false, nil
+				}
 			}
-		}
-		annotations := pod.Annotations
-		vmuuid, vmUuidAnnotationexists = annotations[vmUUIDLabel]
-		if !vmUuidAnnotationexists {
-			log.Debugf("Waiting for %s annotation in Pod: %s", vmUUIDLabel, spew.Sdump(pod))
-			return false, nil
-		}
-		vmUuidNotFoundError = false
-		log.Debugf("%s annotation with value: %s found in Pod: %s", vmUUIDLabel, vmuuid, spew.Sdump(pod))
-		return true, nil
-	})
+			if pod == nil {
+				pod, err = k8sCloudOperator.k8sClient.CoreV1().Pods(podNamespace).Get(ctx, podName, metav1.GetOptions{})
+				if err != nil {
+					if apierrors.IsNotFound(err) {
+						// When the pod itself is not found in the api server, we still mark the error as
+						// vmUuidNotFoundError because from GetPodVMUUIDAnnotation's perspective the final error is that
+						// it could not find the annotation. Also, there are no distinct notFound error codes
+						// in grpc error codes. Refer - go/pkg/mod/google.golang.org/grpc@v1.27.1/codes/codes.go
+						vmUuidNotFoundError = true
+					} else {
+						// Set vmUuidNotFoundError as false to indicate other errors
+						vmUuidNotFoundError = false
+					}
+					return false, logger.LogNewErrorf(log,
+						"Failed to get the pod with name: %s on namespace: %s using K8s Cloud Operator informer. Err: %+v",
+						podName, podNamespace, err)
+				}
+			}
+			annotations := pod.Annotations
+			vmuuid, vmUuidAnnotationexists = annotations[vmUUIDLabel]
+			if !vmUuidAnnotationexists {
+				log.Debugf("Waiting for %s annotation in Pod: %s", vmUUIDLabel, spew.Sdump(pod))
+				return false, nil
+			}
+			vmUuidNotFoundError = false
+			log.Debugf("%s annotation with value: %s found in Pod: %s", vmUUIDLabel, vmuuid, spew.Sdump(pod))
+			return true, nil
+		})
 	if err != nil {
 		if podName == "" {
 			return nil, logger.LogNewErrorf(log,

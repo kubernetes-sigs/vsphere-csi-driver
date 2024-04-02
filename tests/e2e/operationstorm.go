@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	ginkgo "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storage "k8s.io/api/storage/v1"
@@ -76,7 +76,9 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -99,17 +101,19 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 	})
 
 	ginkgo.AfterEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
 		}
 		ginkgo.By("Deleting all PVCs")
 		for _, claim := range pvclaims {
-			err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		ginkgo.By("Verify PVs, volumes are deleted from CNS")
 		for _, pv := range persistentvolumes {
-			err := fpv.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll, framework.PodDeleteTimeout)
+			err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll, framework.PodDeleteTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
@@ -149,18 +153,18 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		ginkgo.By("Creating PVCs using the Storage Class")
 		count := 0
 		for count < volumeOpsScale {
-			pvclaims[count], err = fpv.CreatePVC(client, namespace,
+			pvclaims[count], err = fpv.CreatePVC(ctx, client, namespace,
 				getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, ""))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			count++
 		}
 
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating pod to attach PVs to the node")
-		pod, err := createPod(client, namespace, nil, pvclaims, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, pvclaims, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err = client.CoreV1().Pods(namespace).Delete(ctx, pod.Name, *metav1.NewDeleteOptions(0))
@@ -200,7 +204,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		}
 
 		ginkgo.By("Deleting pod")
-		framework.ExpectNoError(fpod.DeletePodWithWait(client, pod))
+		framework.ExpectNoError(fpod.DeletePodWithWait(ctx, client, pod))
 
 		ginkgo.By("Verify volumes are detached from the node")
 		for _, pv := range persistentvolumes {
@@ -272,21 +276,21 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		count := 0
 		for count < volumeOpsScale {
 			ginkgo.By("Creating PVCs using the Storage Class")
-			pvclaims[count], err = fpv.CreatePVC(client, namespace,
+			pvclaims[count], err = fpv.CreatePVC(ctx, client, namespace,
 				getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, ""))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			count++
 		}
 
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		podCount := 0
 		for podCount < volumeOpsScale {
 			ginkgo.By("Creating pod to attach PVs to the node")
 			pvclaim = pvclaims[podCount]
-			podArray[podCount], err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+			podArray[podCount], err = createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			podCount++
 		}

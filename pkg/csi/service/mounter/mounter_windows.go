@@ -27,6 +27,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	disk "github.com/kubernetes-csi/csi-proxy/client/api/disk/v1"
 	diskclient "github.com/kubernetes-csi/csi-proxy/client/groups/disk/v1"
+
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
 	fs "github.com/kubernetes-csi/csi-proxy/client/api/filesystem/v1"
@@ -238,7 +239,22 @@ func (mounter *csiProxyMounter) IsLikelyNotMountPoint(path string) (bool, error)
 		return false, err
 	}
 	return !response.IsSymlink, nil
-	//TODO check if formatted else error out
+	// TODO check if formatted else error out
+}
+
+// CanSafelySkipMountPointCheck always returns false on Windows
+func (mounter *csiProxyMounter) CanSafelySkipMountPointCheck() bool {
+	return false
+}
+
+// IsMountPoint: determines if a directory is a mountpoint.
+// Ref - https://github.com/kubernetes/mount-utils/blob/master/mount_windows.go#L253-L260
+func (mounter *csiProxyMounter) IsMountPoint(file string) (bool, error) {
+	isNotMnt, err := mounter.IsLikelyNotMountPoint(file)
+	if err != nil {
+		return false, err
+	}
+	return !isNotMnt, nil
 }
 
 // FormatAndMount - accepts the source disk number, target path to mount, the fstype to format with and options to be used.
