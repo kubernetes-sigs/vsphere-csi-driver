@@ -661,7 +661,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	    9. Perform cleanup by deleting Pods, PVCs and SC
 	*/
 
-	ginkgo.It("TC9", ginkgo.Label(p1, block,
+	ginkgo.It("TCtest", ginkgo.Label(p1, block,
 		vanilla, multiVc, newTest, negative), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())

@@ -5180,7 +5180,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 					}
 				}
 				if !multivc {
-					if rwxAccessMode {
+					if !rwxAccessMode {
 						isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 						if err != nil {
 							return err

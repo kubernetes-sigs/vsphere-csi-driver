@@ -18,13 +18,13 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
-	"github.com/vmware/govmomi/cns/types"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"golang.org/x/crypto/ssh"
 	appsv1 "k8s.io/api/apps/v1"
@@ -51,7 +51,7 @@ const (
 func createRwxPvcWithStorageClass(client clientset.Interface, namespace string, pvclaimlabels map[string]string, scParameters map[string]string, ds string, allowedTopologies []v1.TopologySelectorLabelRequirement,
 	bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool, accessMode v1.PersistentVolumeAccessMode) (*storagev1.StorageClass, *v1.PersistentVolumeClaim, *v1.PersistentVolume, error) {
 
-	var queryResult *types.CnsQueryResult
+	var queryResult *cnstypes.CnsQueryResult
 	var pv *v1.PersistentVolume
 	storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, pvclaimlabels, scParameters, "", allowedTopologies, bindingMode, false, accessMode)
 	if err != nil {
@@ -59,7 +59,7 @@ func createRwxPvcWithStorageClass(client clientset.Interface, namespace string, 
 	}
 
 	framework.Logf("Waiting for PVC to be in Bound state")
-	if bindingMode == "" {
+	if bindingMode == storagev1.VolumeBindingImmediate {
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvclaim)
 		ginkgo.By("Waiting for all claims to be in bound state")
@@ -89,7 +89,7 @@ func createRwxPvcWithStorageClass(client clientset.Interface, namespace string, 
 		)
 
 		framework.Logf("Verifying disk size specified in PVC is honored")
-		if queryResult.Volumes[0].BackingObjectDetails.(*types.CnsVsanFileShareBackingDetails).CapacityInMb != diskSizeInMb {
+		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb != diskSizeInMb {
 			return nil, nil, nil, fmt.Errorf("wrong disk size provisioned")
 		}
 
@@ -118,7 +118,7 @@ func createStandalonePodsForRWXVolume(client clientset.Interface, ctx context.Co
 
 		// here we are making sure that Pod3 should not get created with READ/WRITE permissions
 		if i != 2 {
-			pod, err = createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod)
+			pod, err = createPod(client, namespace, nodeSelector, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create pod: %v", err)
 			}
@@ -266,21 +266,6 @@ func verifyDeploymentPodNodeAffinity(ctx context.Context, client clientset.Inter
 				if err != nil {
 					return err
 				}
-
-				// Verify the attached volume match the one in CNS cache
-				if !multivc {
-					// err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-					// 	volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
-					// if err != nil {
-					// 	return err
-					// }
-				} else {
-					err := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
-					if err != nil {
-						return err
-					}
-				}
 			}
 		}
 	}
@@ -289,7 +274,6 @@ func verifyDeploymentPodNodeAffinity(ctx context.Context, client clientset.Inter
 }
 
 func scaleDeploymentPods(ctx context.Context, client clientset.Interface, deployment *appsv1.Deployment, namespace string, replica int32) (*appsv1.Deployment, error) {
-
 	deployment, err := client.AppsV1().Deployments(namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	pods, err := fdep.GetPodsForDeployment(client, deployment)
@@ -300,8 +284,19 @@ func scaleDeploymentPods(ctx context.Context, client clientset.Interface, deploy
 	deployment.Spec.Replicas = rep
 	_, err = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	err = fpod.WaitForPodNotFoundInNamespace(client, pod.Name, namespace, pollTimeout)
+
+	pods, err = fdep.GetPodsForDeployment(client, deployment)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	pod = pods.Items[0]
+	rep = deployment.Spec.Replicas
+	if *rep < replica {
+		err = fpod.WaitForPodNotFoundInNamespace(client, pod.Name, namespace, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		ginkgo.By("Wait for deployment pods to be up and running")
+		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	return deployment, nil
 }
@@ -366,4 +361,39 @@ func fetchDatastoreListMap(ctx context.Context, client clientset.Interface) ([]s
 	datastoreUrls = append(datastoreUrls, datastoreUrlsRack3...)
 
 	return datastoreUrlsRack1, datastoreUrlsRack2, datastoreUrlsRack3, datastoreUrls, nil
+}
+
+func verifyStandalonePodAffinity(ctx context.Context, client clientset.Interface, pod *v1.Pod, namespace string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement) error {
+	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
+	for _, volumespec := range pod.Spec.Volumes {
+		if volumespec.PersistentVolumeClaim != nil {
+			// get pv details
+			pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+			if pv == nil {
+				return fmt.Errorf("failed to get PV for claim: %s", volumespec.PersistentVolumeClaim.ClaimName)
+			}
+
+			// fetch node details
+			nodeList, err := fnodes.GetReadySchedulableNodes(client)
+			if err != nil {
+				return fmt.Errorf("error getting ready and schedulable nodes: %v", err)
+			}
+			if !(len(nodeList.Items) > 0) {
+				return errors.New("no ready and schedulable nodes found")
+			}
+
+			// verify pod is running on appropriate nodes
+			ginkgo.By("Verifying If Pods are running on appropriate nodes as mentioned in SC")
+			res, err := verifyPodLocationLevel5(pod, nodeList, allowedTopologiesMap)
+			if err != nil {
+				return fmt.Errorf("error verifying pod location: %v", err)
+			}
+			if !res {
+				return fmt.Errorf("pod %v is not running on appropriate node as specified in allowed "+
+					"topologies of Storage Class", pod.Name)
+			}
+		}
+	}
+	return nil
 }

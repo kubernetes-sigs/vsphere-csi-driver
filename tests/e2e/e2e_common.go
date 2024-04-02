@@ -390,9 +390,10 @@ var (
 
 // For rwx
 var (
-	envVsanDatastoreCluster1StoragePolicy = "VSAN_DATASTORE_CLUSTER1_STORAGE_POLICY"
-	envVsanDatastoreCluster3StoragePolicy = "VSAN_DATASTORE_CLUSTER3_STORAGE_POLICY"
-	envNonVsanFSDatastoreUrl              = "NON_VSAN_DATASTOREURL"
+	envVsanDsStoragePolicyCluster1 = "VSAN_DATASTORE_CLUSTER1_STORAGE_POLICY"
+	envVsanDsStoragePolicyCluster3 = "VSAN_DATASTORE_CLUSTER3_STORAGE_POLICY"
+	envNonVsanDsUrl                = "NON_VSAN_DATASTOREURL"
+	envVsanDsUrlCluster3           = "VSAN_DATASTOREURL_CLUSTER3"
 )
 
 // VolumeSnapshotClass env variables for tkg-snapshot
