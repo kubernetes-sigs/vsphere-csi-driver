@@ -48,64 +48,110 @@ const (
 
 /*
  */
-func createRwxPvcWithStorageClass(client clientset.Interface, namespace string, pvclaimlabels map[string]string, scParameters map[string]string, ds string, allowedTopologies []v1.TopologySelectorLabelRequirement,
-	bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool, accessMode v1.PersistentVolumeAccessMode) (*storagev1.StorageClass, *v1.PersistentVolumeClaim, *v1.PersistentVolume, error) {
+func createAndVerifyPvcWithStorageClass(client clientset.Interface, namespace string, pvclaimlabels map[string]string, scParameters map[string]string, ds string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement,
+	bindingMode storagev1.VolumeBindingMode, allowVolumeExpansion bool, accessMode v1.PersistentVolumeAccessMode,
+	storageClassName string, skipstorageClassCreation bool, skipPvcCreation bool, pvcItr int, verifyImmPvc bool,
+	verifyWffcPvc bool, storagePolicyName string, datastoreUrl string) (*storagev1.StorageClass, []*v1.PersistentVolumeClaim, []*v1.PersistentVolume, error) {
 
+	// variable declaration
 	var queryResult *cnstypes.CnsQueryResult
 	var pv *v1.PersistentVolume
-	storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, pvclaimlabels, scParameters, "", allowedTopologies, bindingMode, false, accessMode)
-	if err != nil {
-		return nil, nil, nil, err
+	var storageclass *storagev1.StorageClass
+	var err error
+	var pvclaim *v1.PersistentVolumeClaim
+	var pvclaims []*v1.PersistentVolumeClaim
+	var pvs []*v1.PersistentVolume
+
+	// set this parameter to true if want to skip storage class creation
+	if !skipstorageClassCreation {
+		scName := ""
+		if len(storageClassName) > 0 {
+			scName = storageClassName
+		}
+		storageclass, err = createStorageClass(client, scParameters,
+			allowedTopologies, "", bindingMode, allowVolumeExpansion, scName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
-	framework.Logf("Waiting for PVC to be in Bound state")
-	if bindingMode == storagev1.VolumeBindingImmediate {
-		var pvclaims []*v1.PersistentVolumeClaim
-		pvclaims = append(pvclaims, pvclaim)
-		ginkgo.By("Waiting for all claims to be in bound state")
-		_, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
-		if err != nil {
-			return nil, nil, nil, err
-		}
+	// set this parameter to true if want to skip pvc creation
+	if !skipPvcCreation {
+		for i := 0; i < pvcItr; i++ {
+			// creating pvcs based on the pvcItr value passed
+			pvclaim, err = createPVC(client, namespace, pvclaimlabels, ds, storageclass, accessMode)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvclaims = append(pvclaims, pvclaim)
 
-		pv = getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
-		volHandle := pv.Spec.CSI.VolumeHandle
+			// checking if PVC reach to Bound state or not
+			if verifyWffcPvc || verifyImmPvc {
+				framework.Logf("Waiting for PVC to be in Bound state")
+				_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
+				if err != nil {
+					return storageclass, pvclaims, nil, err
+				}
 
-		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
-		if multivc {
-			queryResult, err = multiVCe2eVSphere.queryCNSVolumeWithResultInMultiVc(volHandle)
-		} else {
-			queryResult, err = e2eVSphere.queryCNSVolumeWithResult(volHandle)
-		}
-		if err != nil {
-			return nil, nil, nil, err
-		}
+				pv = getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+				pvs = append(pvs, pv)
+				volHandle := pv.Spec.CSI.VolumeHandle
 
-		ginkgo.By(fmt.Sprintf("volume Name:%s, capacity:%d volumeType:%s health:%s accesspoint: %s",
-			queryResult.Volumes[0].Name,
-			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb,
-			queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus,
-			queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints),
-		)
+				// cns side verification
+				ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+				if multivc {
+					queryResult, err = multiVCe2eVSphere.queryCNSVolumeWithResultInMultiVc(volHandle)
+				} else {
+					queryResult, err = e2eVSphere.queryCNSVolumeWithResult(volHandle)
+				}
 
-		framework.Logf("Verifying disk size specified in PVC is honored")
-		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb != diskSizeInMb {
-			return nil, nil, nil, fmt.Errorf("wrong disk size provisioned")
-		}
+				if len(queryResult.Volumes) == 0 {
+					return storageclass, pvclaims, pvs, fmt.Errorf("queryCNSVolumeWithResult returned no volume")
+				}
 
-		framework.Logf("Verifying volume type specified in PVC is honored")
-		if queryResult.Volumes[0].VolumeType != testVolumeType {
-			return nil, nil, nil, fmt.Errorf("volume type is not %q", testVolumeType)
-		}
+				// if it is an rwx volume
+				if rwxAccessMode {
+					ginkgo.By(fmt.Sprintf("volume Name:%s, capacity:%d volumeType:%s health:%s accesspoint: %s",
+						queryResult.Volumes[0].Name,
+						queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb,
+						queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus,
+						queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints),
+					)
 
-		framework.Logf("Verify if VolumeID is created on the VSAN datastores")
-		if !strings.HasPrefix(queryResult.Volumes[0].DatastoreUrl, "ds:///vmfs/volumes/vsan:") {
-			return nil, nil, nil, fmt.Errorf("volume is not provisioned on vSan datastore")
+					framework.Logf("Verifying disk size specified in PVC is honored")
+					if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).CapacityInMb != diskSizeInMb {
+						return storageclass, pvclaims, pvs, fmt.Errorf("wrong disk size provisioned")
+					}
+
+					framework.Logf("Verify if VolumeID is created on the VSAN datastores")
+					if !strings.HasPrefix(queryResult.Volumes[0].DatastoreUrl, "ds:///vmfs/volumes/vsan:") {
+						return storageclass, pvclaims, pvs, fmt.Errorf("volume is not provisioned on vSan datastore")
+					}
+				}
+
+				framework.Logf("Verifying volume type specified in PVC is honored")
+				if queryResult.Volumes[0].VolumeType != testVolumeType {
+					return storageclass, pvclaims, pvs, fmt.Errorf("volume type is not %q", testVolumeType)
+				}
+
+				framework.Logf("Verify the volume is provisioned using specified storage policy")
+				if storagePolicyName != "" {
+					storagePolicyID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+					gomega.Expect(storagePolicyID == queryResult.Volumes[0].StoragePolicyId).To(gomega.BeTrue(),
+						fmt.Sprintf("Storage policy verification failed. Actual storage policy: %q does not match "+
+							"with the Expected storage policy: %q", queryResult.Volumes[0].StoragePolicyId, storagePolicyID))
+				}
+
+				framework.Logf("Verify the volume is provisioned on the datastore url specified in the Storage Class")
+				if datastoreUrl != "" {
+					if queryResult.Volumes[0].DatastoreUrl != datastoreUrl {
+						return storageclass, pvclaims, pvs, fmt.Errorf("volume is not provisioned on wrong datastore")
+					}
+
+				}
+			}
 		}
 	}
 
 	// If everything is successful, return the results
-	return storageclass, pvclaim, pv, nil
+	return storageclass, pvclaims, pvs, nil
 }
 
 func createStandalonePodsForRWXVolume(client clientset.Interface, ctx context.Context, namespace string, nodeSelector map[string]string,

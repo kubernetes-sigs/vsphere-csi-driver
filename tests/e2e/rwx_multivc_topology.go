@@ -221,7 +221,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		nodeSelectorTerms := getNodeSelectorMapForDeploymentPods(allowedTopologies)
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", v1.ReadWriteMany, nfs4FSType))
-		storageclass1, pvclaim1, _, err := createRwxPvcWithStorageClass(client, namespace, labelsMap, scParameters, "", nil, bindingMode, false, accessmode)
+		storageclass1, pvclaim1, _, err := createAndVerifyPvcWithStorageClass(client, namespace, labelsMap, scParameters, diskSize, allowedTopologies, bindingMode, false, accessmode, "", false, false, 1, false, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass1.Name, *metav1.NewDeleteOptions(0))
@@ -229,7 +229,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		}()
 
 		ginkgo.By("Create Deployments")
-		deployment, err := createDeployment(ctx, client, int32(replica), labelsMap, nodeSelectorTerms, namespace, []*v1.PersistentVolumeClaim{pvclaim1}, execRWXCommandPod1, false, nginxImage)
+		deployment, err := createDeployment(ctx, client, int32(replica), labelsMap, nodeSelectorTerms, namespace, []*v1.PersistentVolumeClaim{pvclaim1[0]}, execRWXCommandPod1, false, nginxImage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			framework.Logf("Delete deployment set")
@@ -244,11 +244,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pv := getPvFromClaim(client, pvclaim1.Namespace, pvclaim1.Name)
+		pv := getPvFromClaim(client, pvclaim1[0].Namespace, pvclaim1[0].Name)
 		volHandle := pv.Spec.CSI.VolumeHandle
 
 		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvclaim1, pv, &pod)
+		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvclaim1[0], pv, &pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify deployment pods are scheduled on a selected node selector terms")
@@ -269,8 +269,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		scParameters[scParamFsType] = nfs4FSType
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", v1.ReadWriteMany, nfs4FSType))
-		storageclass2, _, _, err := createRwxPvcWithStorageClass(client, namespace, labelsMap, scParameters, "",
-			nil, "", false, v1.ReadWriteMany)
+		storageclass2, _, _, err := createAndVerifyPvcWithStorageClass(client, namespace, labelsMap, scParameters, diskSize,
+			allowedTopologies, "", false, accessmode, "", false, false, 1, true, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass2.Name, *metav1.NewDeleteOptions(0))
@@ -408,23 +408,23 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			topValEndIndex)
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", v1.ReadWriteMany, nfs4FSType))
-		storageclass, pvclaim, pv, err := createRwxPvcWithStorageClass(client, namespace, nil, scParameters, "", allowedTopologies, "", false, accessmode)
+		storageclass, pvclaim, pv, err := createAndVerifyPvcWithStorageClass(client, namespace, labelsMap, scParameters, diskSize, allowedTopologies, bindingMode, false, accessmode, "", false, false, 1, false, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volHandle := pv.Spec.CSI.VolumeHandle
+		volHandle := pv[0].Spec.CSI.VolumeHandle
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim[0].Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Create Deployments")
-		deployment, err := createDeployment(ctx, client, int32(replica), labelsMap, nil, namespace, []*v1.PersistentVolumeClaim{pvclaim}, execRWXCommandPod1, false, nginxImage)
+		deployment, err := createDeployment(ctx, client, int32(replica), labelsMap, nil, namespace, []*v1.PersistentVolumeClaim{pvclaim[0]}, execRWXCommandPod1, false, nginxImage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			framework.Logf("Delete deployment set")
@@ -467,7 +467,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		gomega.Expect(output == data2+"\n").To(gomega.BeTrue(), "Pod is not able to read file2.txt")
 
 		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvclaim, pv, &pod1)
+		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvclaim[0], pv[0], &pod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Scale up deployment to 5 replicas")

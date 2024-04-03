@@ -399,45 +399,45 @@ func createDynamicVolumeSnapshot(ctx context.Context, namespace string,
 	volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
 		getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
 	if err != nil {
-		return nil, nil, false, false, "", err
+		return volumeSnapshot, nil, false, false, "", err
 	}
 	framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
 
 	ginkgo.By("Verify volume snapshot is created")
 	volumeSnapshot, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, volumeSnapshot.Name)
 	if err != nil {
-		return nil, nil, false, false, "", err
+		return volumeSnapshot, nil, false, false, "", err
 	}
 
 	snapshotCreated := true
 	if volumeSnapshot.Status.RestoreSize.Cmp(resource.MustParse(diskSize)) != 0 {
-		return nil, nil, false, false, "", fmt.Errorf("unexpected restore size")
+		return volumeSnapshot, nil, false, false, "", fmt.Errorf("unexpected restore size")
 	}
 
 	ginkgo.By("Verify volume snapshot content is created")
 	snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
 		*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
 	if err != nil {
-		return nil, nil, false, false, "", err
+		return volumeSnapshot, snapshotContent, false, false, "", err
 	}
 	snapshotContentCreated := true
 	snapshotContent, err = waitForVolumeSnapshotContentReadyToUse(*snapc, ctx, snapshotContent.Name)
 	if err != nil {
-		return nil, nil, false, false, "", fmt.Errorf("volume snapshot content is not ready to use")
+		return volumeSnapshot, snapshotContent, false, false, "", fmt.Errorf("volume snapshot content is not ready to use")
 	}
 
 	framework.Logf("Get volume snapshot ID from snapshot handle")
 	snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, snapshotContent, volumeSnapshotClass,
 		volHandle)
 	if err != nil {
-		return nil, nil, false, false, "", err
+		return volumeSnapshot, snapshotContent, false, false, snapshotId, err
 	}
 
 	if performCnsQueryVolumeSnapshot {
 		ginkgo.By("Query CNS and check the volume snapshot entry")
 		err = waitForCNSSnapshotToBeCreated(volHandle, snapshotId)
 		if err != nil {
-			return nil, nil, false, false, snapshotId, err
+			return volumeSnapshot, snapshotContent, false, false, snapshotId, err
 		}
 	}
 
