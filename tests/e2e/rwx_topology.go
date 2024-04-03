@@ -219,7 +219,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		pv = pvs[0]
 
 		ginkgo.By("Create Deployment")
-		deployment, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap, pvclaim)
+		deployment, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap, pvclaim, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			framework.Logf("Delete deployment set")
@@ -431,7 +431,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		}()
 
 		ginkgo.By("Verify PVC Bound state and CNS side verification")
-		pvs, err = checkVolumeStateAndPerformCnsVerification(client, pvclaims, "", "")
+		pvs, err = checkVolumeStateAndPerformCnsVerification(client, pvclaims, storagePolicyName, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// taking pvclaims and pvs 0th index because we are creating only single RWX PVC in this case
@@ -446,7 +446,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 			"the wrong datastore. Expected 'true', got '%v'", isCorrectPlacement))
 
 		ginkgo.By("Create Deployments and specify node selector terms")
-		deployment, pods, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap, pvclaim)
+		deployment, pods, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap, pvclaim, nodeSelectorTerms)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			framework.Logf("Delete deployment set")
@@ -460,7 +460,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 
 		ginkgo.By("Scale up deployment to 6 replica")
 		replica = 6
-		deployment, pods, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, true, labelsMap, pvclaim)
+		deployment, pods, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, true, labelsMap, pvclaim, nodeSelectorTerms)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify deployment pods are scheduled on a specified node selector terms")
@@ -469,7 +469,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 
 		ginkgo.By("Scale down deployment to 1 replica")
 		replica = 1
-		deployment, pods, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, true, labelsMap, pvclaim)
+		deployment, pods, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, true, labelsMap, pvclaim, nodeSelectorTerms)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume metadata for deployment pod, pvc and pv")
@@ -637,7 +637,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 
 		ginkgo.By("Scale up deployment to 3 replica")
 		replica = 3
-		deployment, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, nil, nil)
+		deployment, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, nil, nil, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify deployment pods are scheduled on a selected node selector terms")
@@ -856,7 +856,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 
 		ginkgo.By("Scale up deployment to 3 replica")
 		replica = 3
-		deployment, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, nil, nil)
+		deployment, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, nil, nil, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify deployment pods are scheduled on a selected node selector terms")

@@ -474,12 +474,12 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		ginkgo.By("Scale up deployment to 5 replicas")
 		replica = 5
-		_, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, nil, nil)
+		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, nil, nil, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Scale down deployment to replica 1")
 		replica = 1
-		_, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, nil, nil)
+		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, nil, nil, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 

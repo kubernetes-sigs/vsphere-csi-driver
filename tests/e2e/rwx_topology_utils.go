@@ -320,7 +320,8 @@ func verifyDeploymentPodNodeAffinity(ctx context.Context, client clientset.Inter
 }
 
 func createVerifyAndScaleDeploymentPods(ctx context.Context, client clientset.Interface, namespace string, replica int32,
-	scaleDeploymentPod bool, labelsMap map[string]string, pvclaim *v1.PersistentVolumeClaim) (*appsv1.Deployment, *v1.PodList, error) {
+	scaleDeploymentPod bool, labelsMap map[string]string, pvclaim *v1.PersistentVolumeClaim,
+	nodeSelectorTerms map[string]string) (*appsv1.Deployment, *v1.PodList, error) {
 
 	var deployment *appsv1.Deployment
 	var pods *v1.PodList
