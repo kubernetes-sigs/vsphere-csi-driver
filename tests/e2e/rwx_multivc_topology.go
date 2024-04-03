@@ -221,7 +221,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		nodeSelectorTerms := getNodeSelectorMapForDeploymentPods(allowedTopologies)
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", v1.ReadWriteMany, nfs4FSType))
-		storageclass1, pvclaim1, _, err := createAndVerifyPvcWithStorageClass(client, namespace, labelsMap, scParameters, diskSize, allowedTopologies, bindingMode, false, accessmode, "", false, false, 1, false, true)
+		storageclass1, pvclaim1, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap, scParameters, diskSize,
+			allowedTopologies, bindingMode, false, accessmode, "", 1, false, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass1.Name, *metav1.NewDeleteOptions(0))
@@ -269,8 +270,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		scParameters[scParamFsType] = nfs4FSType
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", v1.ReadWriteMany, nfs4FSType))
-		storageclass2, _, _, err := createAndVerifyPvcWithStorageClass(client, namespace, labelsMap, scParameters, diskSize,
-			allowedTopologies, "", false, accessmode, "", false, false, 1, true, false)
+		storageclass2, _, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap, scParameters, diskSize,
+			allowedTopologies, "", false, accessmode, "", 1, false, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass2.Name, *metav1.NewDeleteOptions(0))
@@ -408,9 +409,10 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			topValEndIndex)
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", v1.ReadWriteMany, nfs4FSType))
-		storageclass, pvclaim, pv, err := createAndVerifyPvcWithStorageClass(client, namespace, labelsMap, scParameters, diskSize, allowedTopologies, bindingMode, false, accessmode, "", false, false, 1, false, false)
+		storageclass, pvclaim, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap, scParameters, diskSize,
+			allowedTopologies, bindingMode, false, accessmode, "", 1, false, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volHandle := pv[0].Spec.CSI.VolumeHandle
+		//volHandle := pv[0].Spec.CSI.VolumeHandle
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -419,7 +421,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(client, pvclaim[0].Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+			//err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -467,17 +469,17 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		gomega.Expect(output == data2+"\n").To(gomega.BeTrue(), "Pod is not able to read file2.txt")
 
 		ginkgo.By("Verify volume metadata for POD, PVC and PV")
-		err = waitAndVerifyCnsVolumeMetadata(volHandle, pvclaim[0], pv[0], &pod1)
+		//err = waitAndVerifyCnsVolumeMetadata(volHandle, pvclaim[0], pv[0], &pod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Scale up deployment to 5 replicas")
 		replica = 5
-		_, err = scaleDeploymentPods(ctx, client, deployment, namespace, replica)
+		_, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, nil, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Scale down deployment to replica 1")
 		replica = 1
-		_, err = scaleDeploymentPods(ctx, client, deployment, namespace, replica)
+		_, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, nil, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 

@@ -117,7 +117,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		replica := 3
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", v1.ReadWriteMany, nfs4FSType))
-		storageclass1, pvclaim1, _, err := createAndVerifyPvcWithStorageClass(client, namespace, labelsMap, scParameters, diskSize, nil, "", false, "", "", false, false, 1, true, false)
+		storageclass1, pvclaim1, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap, scParameters, diskSize,
+			nil, "", false, "", "", 1, false, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaims := append(pvclaims, pvclaim1[0])
 		defer func() {

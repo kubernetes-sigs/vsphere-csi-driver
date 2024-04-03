@@ -366,7 +366,6 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 			return fmt.Errorf("error verifying PV node affinity and POD node details: %v", err)
 		}
 	}
-
 	return nil
 }
 
