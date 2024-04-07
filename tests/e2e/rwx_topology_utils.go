@@ -245,16 +245,6 @@ func createStandalonePodsForRWXVolume(client clientset.Interface, ctx context.Co
 			data = "This file file2 is written by Pod2"
 			writeDataOnFileFromPod(namespace, pod.Name, filePath2, data)
 		}
-
-		// // fetch volume metadata details
-		// pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
-
-		// // Verify volume metadata for POD, PVC, and PV
-		// err = waitAndVerifyCnsVolumeMetadata(pv.Spec.CSI.VolumeHandle, pvclaim, pv, pod)
-		// if err != nil {
-		// 	return nil, fmt.Errorf("error verifying volume metadata: %v", err)
-		// }
-
 		podList = append(podList, pod)
 	}
 	return podList, nil
@@ -321,34 +311,36 @@ func verifyDeploymentPodNodeAffinity(ctx context.Context, client clientset.Inter
 
 func createVerifyAndScaleDeploymentPods(ctx context.Context, client clientset.Interface, namespace string, replica int32,
 	scaleDeploymentPod bool, labelsMap map[string]string, pvclaim *v1.PersistentVolumeClaim,
-	nodeSelectorTerms map[string]string) (*appsv1.Deployment, *v1.PodList, error) {
+	nodeSelectorTerms map[string]string, skipDeploymentCreation bool, dep *appsv1.Deployment) (*appsv1.Deployment, *v1.PodList, error) {
 
 	var deployment *appsv1.Deployment
 	var pods *v1.PodList
 	var err error
 
-	// create deployment Pod
-	deployment, err = createDeployment(ctx, client, int32(replica), labelsMap, nil, namespace, []*v1.PersistentVolumeClaim{pvclaim},
-		execRWXCommandPod, false, nginxImage)
-	if err != nil {
-		return deployment, nil, fmt.Errorf("failed to create deployment: %w", err)
-	}
+	// creating deployment when skipDeploymentCreation is set to false
+	if !skipDeploymentCreation {
+		deployment, err = createDeployment(ctx, client, int32(replica), labelsMap, nodeSelectorTerms, namespace, []*v1.PersistentVolumeClaim{pvclaim},
+			execRWXCommandPod, false, nginxImage)
+		if err != nil {
+			return deployment, nil, fmt.Errorf("failed to create deployment: %w", err)
+		}
 
-	// checking replica pod running status
-	framework.Logf("Wait for deployment pods to be up and running")
-	pods, err = fdep.GetPodsForDeployment(client, deployment)
-	if err != nil {
-		return deployment, pods, fmt.Errorf("failed to get pods for deployment: %w", err)
-	}
-	pod := pods.Items[0]
-	err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
-	if err != nil {
-		return deployment, pods, fmt.Errorf("failed to wait for pod running: %w", err)
+		// checking replica pod running status
+		framework.Logf("Wait for deployment pods to be up and running")
+		pods, err = fdep.GetPodsForDeployment(client, deployment)
+		if err != nil {
+			return deployment, pods, fmt.Errorf("failed to get pods for deployment: %w", err)
+		}
+		pod := pods.Items[0]
+		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
+		if err != nil {
+			return deployment, pods, fmt.Errorf("failed to wait for pod running: %w", err)
+		}
 	}
 
 	// get deployment pod replicas
 	if scaleDeploymentPod {
-		deployment, err = client.AppsV1().Deployments(namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
+		deployment, err = client.AppsV1().Deployments(namespace).Get(ctx, dep.Name, metav1.GetOptions{})
 		if err != nil {
 			return deployment, pods, fmt.Errorf("failed to get deployment: %w", err)
 		}
@@ -357,7 +349,7 @@ func createVerifyAndScaleDeploymentPods(ctx context.Context, client clientset.In
 		if err != nil {
 			return deployment, pods, fmt.Errorf("failed to get pods for deployment: %w", err)
 		}
-		pod = pods.Items[0]
+		pod := pods.Items[0]
 		rep := deployment.Spec.Replicas
 		*rep = replica
 		deployment.Spec.Replicas = rep
@@ -481,6 +473,31 @@ func verifyStandalonePodAffinity(ctx context.Context, client clientset.Interface
 			if !res {
 				return fmt.Errorf("pod %v is not running on appropriate node as specified in allowed "+
 					"topologies of Storage Class", pod.Name)
+			}
+		}
+	}
+	return nil
+}
+
+func volumePlacementVerificationForSts(ctx context.Context, client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string) error {
+	ssPods := GetListOfPodsInSts(client, statefulset)
+	for _, sspod := range ssPods.Items {
+		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to get pod %s: %v", sspod.Name, err)
+		}
+
+		for _, volumespec := range sspod.Spec.Volumes {
+			if volumespec.PersistentVolumeClaim != nil {
+				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				_, _, _, datastoreUrls, err := fetchDatastoreListMap(ctx, client)
+				if err != nil {
+					return fmt.Errorf("failed to fetch datastore list map: %v", err)
+				}
+				isCorrectPlacement := e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, datastoreUrls)
+				if !isCorrectPlacement {
+					return fmt.Errorf("volume provisioning has happened on the wrong datastore for pod %s", sspod.Name)
+				}
 			}
 		}
 	}
