@@ -250,19 +250,20 @@ func invokeVCRestAPIDeleteRequest(vcRestSessionId string, url string) ([]byte, i
 // waitNGetVmiForImageName waits and fetches VM image CR for given image name in the specified namespace
 func waitNGetVmiForImageName(ctx context.Context, c ctlrclient.Client, namespace string, imageName string) string {
 	vmi := ""
-	err := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
-		vmImagesList := &vmopv1.VirtualMachineImageList{}
-		err := c.List(ctx, vmImagesList)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		for _, instance := range vmImagesList.Items {
-			if instance.Status.ImageName == imageName {
-				framework.Logf("Found vmi %v for image name %v", instance.Name, imageName)
-				vmi = instance.Name
-				return true, nil
+	err := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			vmImagesList := &vmopv1.VirtualMachineImageList{}
+			err := c.List(ctx, vmImagesList)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, instance := range vmImagesList.Items {
+				if instance.Status.ImageName == imageName {
+					framework.Logf("Found vmi %v for image name %v", instance.Name, imageName)
+					vmi = instance.Name
+					return true, nil
+				}
 			}
-		}
-		return false, nil
-	})
+			return false, nil
+		})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return vmi
 }
@@ -312,16 +313,17 @@ func getVmsvcVM(
 func waitNgetVmsvcVM(ctx context.Context, c ctlrclient.Client, namespace string, vmName string) *vmopv1.VirtualMachine {
 	vm := &vmopv1.VirtualMachine{}
 	var err error
-	err = wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
-		vm, err = getVmsvcVM(ctx, c, namespace, vmName)
-		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return false, err
+	err = wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			vm, err = getVmsvcVM(ctx, c, namespace, vmName)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					return false, err
+				}
+				return false, nil
 			}
-			return false, nil
-		}
-		return true, nil
-	})
+			return true, nil
+		})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Found VM %s in namespace %s", vmName, namespace)
 	return vm
@@ -330,20 +332,21 @@ func waitNgetVmsvcVM(ctx context.Context, c ctlrclient.Client, namespace string,
 // waitNgetVmsvcVmIp wait and fetch the primary IP of the vm in give ns
 func waitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace string, name string) (string, error) {
 	ip := ""
-	err := wait.PollImmediate(poll*10, pollTimeout*2, func() (bool, error) {
-		vm, err := getVmsvcVM(ctx, c, namespace, name)
-		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return false, err
+	err := wait.PollUntilContextTimeout(ctx, poll*10, pollTimeout*2, true,
+		func(ctx context.Context) (bool, error) {
+			vm, err := getVmsvcVM(ctx, c, namespace, name)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					return false, err
+				}
+				return false, nil
 			}
-			return false, nil
-		}
-		if vm.Status.VmIp == "" {
-			return false, nil
-		}
-		ip = vm.Status.VmIp
-		return true, nil
-	})
+			if vm.Status.VmIp == "" {
+				return false, nil
+			}
+			ip = vm.Status.VmIp
+			return true, nil
+		})
 	framework.Logf("Found IP '%s' for VM '%s'", ip, name)
 	return ip, err
 }
@@ -398,16 +401,17 @@ func waitNgetVmLbSvc(
 	ctx context.Context, c ctlrclient.Client, namespace string, name string) *vmopv1.VirtualMachineService {
 	vmLbSvc := &vmopv1.VirtualMachineService{}
 	var err error
-	err = wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
-		vmLbSvc, err = getVmsvcVmLbSvc(ctx, c, namespace, name)
-		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return false, err
+	err = wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			vmLbSvc, err = getVmsvcVmLbSvc(ctx, c, namespace, name)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					return false, err
+				}
+				return false, nil
 			}
-			return false, nil
-		}
-		return true, nil
-	})
+			return true, nil
+		})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return vmLbSvc
 }
@@ -481,16 +485,17 @@ func getCnsNodeVmAttachmentCR(
 func waitNverifyPvcsAreAttachedToVmsvcVm(ctx context.Context, vmopC ctlrclient.Client, cnsopC ctlrclient.Client,
 	vm *vmopv1.VirtualMachine, pvcs []*v1.PersistentVolumeClaim) error {
 
-	err := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
-		vm, err := getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
-		if err != nil {
-			return false, err
-		}
-		if verifyPvcsAreAttachedToVmsvcVm(ctx, cnsopC, vm, pvcs) {
-			return true, nil
-		}
-		return false, nil
-	})
+	err := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			vm, err := getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
+			if err != nil {
+				return false, err
+			}
+			if verifyPvcsAreAttachedToVmsvcVm(ctx, cnsopC, vm, pvcs) {
+				return true, nil
+			}
+			return false, nil
+		})
 
 	return err
 }
@@ -652,20 +657,21 @@ func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
 func wait4PvcAttachmentFailure(
 	ctx context.Context, vmopC ctlrclient.Client, vm *vmopv1.VirtualMachine, pvc *v1.PersistentVolumeClaim) error {
 	var returnErr error
-	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
-		vm, err := getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		for _, vol := range vm.Status.Volumes {
-			if vol.Name == pvc.Name {
-				if !vol.Attached {
-					returnErr = fmt.Errorf(vol.Error)
-					return true, nil
+	waitErr := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			vm, err := getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, vol := range vm.Status.Volumes {
+				if vol.Name == pvc.Name {
+					if !vol.Attached {
+						returnErr = fmt.Errorf(vol.Error)
+						return true, nil
+					}
+					break
 				}
-				break
 			}
-		}
-		return false, nil
-	})
+			return false, nil
+		})
 	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
 	return returnErr
 }
@@ -713,16 +719,17 @@ func wait4Vm2ReachPowerStateInSpec(
 	ctx context.Context, c ctlrclient.Client, vm *vmopv1.VirtualMachine) (*vmopv1.VirtualMachine, error) {
 
 	var err error
-	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
-		vm, err = getVmsvcVM(ctx, c, vm.Namespace, vm.Name) // refresh vm info
-		if err != nil {
-			return false, err
-		}
-		if vm.Status.PowerState == vm.Spec.PowerState {
-			return true, nil
-		}
-		return false, nil
-	})
+	waitErr := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			vm, err = getVmsvcVM(ctx, c, vm.Namespace, vm.Name) // refresh vm info
+			if err != nil {
+				return false, err
+			}
+			if vm.Status.PowerState == vm.Spec.PowerState {
+				return true, nil
+			}
+			return false, nil
+		})
 	framework.Logf("VM %s reached the power state %v requested in the spec", vm.Name, vm.Spec.PowerState)
 	return vm, waitErr
 }
@@ -765,31 +772,33 @@ func createVmServiceVmWithPvcsWithZone(ctx context.Context, c ctlrclient.Client,
 
 // wait4VmSvcVm2BeDeleted waits for the given vmservice vm to get deleted
 func wait4VmSvcVm2BeDeleted(ctx context.Context, c ctlrclient.Client, vm *vmopv1.VirtualMachine) {
-	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
-		_, err := getVmsvcVM(ctx, c, vm.Namespace, vm.Name)
-		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return false, err
+	waitErr := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			_, err := getVmsvcVM(ctx, c, vm.Namespace, vm.Name)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					return false, err
+				}
+				return true, nil
 			}
-			return true, nil
-		}
-		return false, nil
-	})
+			return false, nil
+		})
 	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
 }
 
 // wait4Pvc2Detach waits for PVC to detach from given VM
 func wait4Pvc2Detach(
 	ctx context.Context, vmopC ctlrclient.Client, vm *vmopv1.VirtualMachine, pvc *v1.PersistentVolumeClaim) {
-	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
-		vm, err := getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		for _, vol := range vm.Status.Volumes {
-			if vol.Name == pvc.Name {
-				return false, nil
+	waitErr := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			vm, err := getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, vol := range vm.Status.Volumes {
+				if vol.Name == pvc.Name {
+					return false, nil
+				}
 			}
-		}
-		return true, nil
-	})
+			return true, nil
+		})
 	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
 }

@@ -1999,23 +1999,24 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 		// pvcUpdated and pvUpdated. This helps avoid race condition between
 		// pvUpdated and pvcUpdated handlers when static PV and PVC is created
 		// almost at the same time using single YAML file.
-		err := wait.Poll(5*time.Second, time.Minute, func() (bool, error) {
-			queryFilter := cnstypes.CnsQueryFilter{
-				VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeHandle}},
-			}
-			// Query with empty selection. CNS returns only the volume ID from
-			// its cache.
-			queryResult, err := cnsVolumeMgr.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
-			if err != nil {
-				log.Errorf("PVCUpdated: QueryVolume failed for volume %q with err=%+v", volumeHandle, err.Error())
-				return false, err
-			}
-			if queryResult != nil && len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == volumeHandle {
-				log.Infof("PVCUpdated: volume %q found", volumeHandle)
-				volumeFound = true
-			}
-			return volumeFound, nil
-		})
+		err = wait.PollUntilContextTimeout(ctx, 5*time.Second, time.Minute, true,
+			func(ctx context.Context) (bool, error) {
+				queryFilter := cnstypes.CnsQueryFilter{
+					VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeHandle}},
+				}
+				// Query with empty selection. CNS returns only the volume ID from
+				// its cache.
+				queryResult, err := cnsVolumeMgr.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
+				if err != nil {
+					log.Errorf("PVCUpdated: QueryVolume failed for volume %q with err=%+v", volumeHandle, err.Error())
+					return false, err
+				}
+				if queryResult != nil && len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == volumeHandle {
+					log.Infof("PVCUpdated: volume %q found", volumeHandle)
+					volumeFound = true
+				}
+				return volumeFound, nil
+			})
 		if err != nil {
 			log.Errorf("PVCUpdated: Error occurred while polling to check if volume is marked as container volume. "+
 				"err: %+v", err)

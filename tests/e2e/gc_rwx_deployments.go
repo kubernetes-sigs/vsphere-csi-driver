@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	ginkgo "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
@@ -57,7 +57,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, rqLimit)
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -110,7 +112,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = storagePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -128,7 +130,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim, pvc2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -145,12 +147,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		gomega.Expect(fcd2IDInCNS).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, pvclaim.Namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcd1IDInCNS)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			err = fpv.DeletePersistentVolumeClaim(client, pvc2.Name, pvc2.Namespace)
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc2.Name, pvc2.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcd2IDInCNS)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -207,10 +209,10 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		}
 
 		//Add a check to validate CnsVolumeMetadata crd
-		err = waitAndVerifyCnsVolumeMetadata4GCVol(fcd1IDInCNS, pvc1NameInSV, pvclaim, persistentvolumes[0], nil)
+		err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, fcd1IDInCNS, pvc1NameInSV, pvclaim, persistentvolumes[0], nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		err = waitAndVerifyCnsVolumeMetadata4GCVol(fcd2IDInCNS, pvc2NameInSV, pvc2, persistentvolumes[1], nil)
+		err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, fcd2IDInCNS, pvc2NameInSV, pvc2, persistentvolumes[1], nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		labelsMap := make(map[string]string)
@@ -227,7 +229,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pods, err := fdep.GetPodsForDeployment(client, dep)
+		pods, err := fdep.GetPodsForDeployment(ctx, client, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		for _, ddpod := range pods.Items {
@@ -235,7 +237,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, ddpod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			err = fpod.WaitForPodNameRunningInNamespace(client, ddpod.Name, namespace)
+			err = fpod.WaitForPodNameRunningInNamespace(ctx, client, ddpod.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod with pvc1")
@@ -258,10 +260,10 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(sleepTimeOut * time.Second)
 
-		_, err = fdep.GetPodsForDeployment(client, dep)
+		_, err = fdep.GetPodsForDeployment(ctx, client, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		list_of_pods, err := fpod.GetPodsInNamespace(client, namespace, ignoreLabels)
+		list_of_pods, err := fpod.GetPodsInNamespace(ctx, client, namespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if list_of_pods[0].Name == pods.Items[0].Name {
@@ -273,7 +275,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		framework.Logf("Missing Pod name is %s", missingPod.Name)
 
 		ginkgo.By("Verifying whether Pod is Deleted or not")
-		err = fpod.WaitForPodNotFoundInNamespace(client, missingPod.Name, namespace, pollTimeout)
+		err = fpod.WaitForPodNotFoundInNamespace(ctx, client, missingPod.Name, namespace, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod with pvc1")
@@ -297,10 +299,10 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(sleepTimeOut * time.Second)
 
-		err = fpod.WaitForPodsRunningReady(client, namespace, int32(5), 0, pollTimeout, ignoreLabels)
+		err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int32(5), 0, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pods, err = fdep.GetPodsForDeployment(client, dep)
+		pods, err = fdep.GetPodsForDeployment(ctx, client, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		for _, ddpod := range pods.Items {
@@ -308,7 +310,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, ddpod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			err = fpod.WaitForPodNameRunningInNamespace(client, ddpod.Name, namespace)
+			err = fpod.WaitForPodNameRunningInNamespace(ctx, client, ddpod.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod with pvc1")
@@ -323,7 +325,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		ginkgo.By("Scale down deployment to 0 replica")
 		dep, err = client.AppsV1().Deployments(namespace).Get(ctx, dep.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pods, err = fdep.GetPodsForDeployment(client, dep)
+		pods, err = fdep.GetPodsForDeployment(ctx, client, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		*rep = 0
@@ -332,7 +334,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		for _, ddpod := range pods.Items {
-			err = fpod.WaitForPodNotFoundInNamespace(client, ddpod.Name, namespace, pollTimeout)
+			err = fpod.WaitForPodNotFoundInNamespace(ctx, client, ddpod.Name, namespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not")

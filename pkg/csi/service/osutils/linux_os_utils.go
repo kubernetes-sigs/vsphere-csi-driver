@@ -35,6 +35,7 @@ import (
 	k8svol "k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util/fs"
 	"k8s.io/mount-utils"
+
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/mounter"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -170,7 +171,7 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 // CleanupStagePath will unmount the volume from node and remove the stage directory
 func (osUtils *OsUtils) CleanupStagePath(ctx context.Context, stagingTarget string, volID string) error {
 	log := logger.GetLogger(ctx)
-	/// Block volume.
+	// / Block volume.
 	isMounted, err := osUtils.IsBlockVolumeMounted(ctx, volID, stagingTarget)
 	if err != nil {
 		return err
@@ -318,13 +319,13 @@ func (osUtils *OsUtils) IsBlockVolumePublished(ctx context.Context, volID string
 
 	if dev == nil {
 		// check if target is mount point
-		notMountPoint, err := mount.IsNotMountPoint(osUtils.Mounter, target)
+		isMountPoint, err := osUtils.Mounter.IsMountPoint(target)
 		if err != nil {
 			log.Errorf("error while checking target path %q is mount point err: %v", target, err)
 			return false, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to verify mount point %q. Error: %v", target, err)
 		}
-		if !notMountPoint {
+		if isMountPoint {
 			log.Infof("target %q is mount point", target)
 			return true, nil
 		}
@@ -840,7 +841,7 @@ func (osUtils *OsUtils) GetSystemUUID(ctx context.Context) (string, error) {
 		return "", err
 	}
 	uuidFromFile := string(idb[:])
-	//strip leading and trailing white space and new line char
+	// strip leading and trailing white space and new line char
 	uuid := strings.TrimSpace(uuidFromFile)
 	log.Debugf("product_serial in string: %s", uuid)
 	// check the uuid starts with "VMware-"

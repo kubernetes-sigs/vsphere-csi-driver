@@ -25,7 +25,7 @@ import (
 
 	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v6/apis/volumesnapshot/v1"
 	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
-	ginkgo "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -84,16 +84,17 @@ func waitForVolumeSnapshotReadyToUse(client snapclient.Clientset, ctx context.Co
 	name string) (*snapV1.VolumeSnapshot, error) {
 	var volumeSnapshot *snapV1.VolumeSnapshot
 	var err error
-	waitErr := wait.PollImmediate(poll, pollTimeout*2, func() (bool, error) {
-		volumeSnapshot, err = client.SnapshotV1().VolumeSnapshots(namespace).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return false, fmt.Errorf("error fetching volumesnapshot details : %v", err)
-		}
-		if volumeSnapshot.Status != nil && *volumeSnapshot.Status.ReadyToUse {
-			return true, nil
-		}
-		return false, nil
-	})
+	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeout*2, true,
+		func(ctx context.Context) (bool, error) {
+			volumeSnapshot, err = client.SnapshotV1().VolumeSnapshots(namespace).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				return false, fmt.Errorf("error fetching volumesnapshot details : %v", err)
+			}
+			if volumeSnapshot.Status != nil && *volumeSnapshot.Status.ReadyToUse {
+				return true, nil
+			}
+			return false, nil
+		})
 	return volumeSnapshot, waitErr
 }
 
@@ -101,18 +102,19 @@ func waitForVolumeSnapshotReadyToUse(client snapclient.Clientset, ctx context.Co
 func waitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx context.Context,
 	name string) error {
 	var err error
-	waitErr := wait.PollImmediate(poll, 2*pollTimeout, func() (bool, error) {
-		_, err = client.SnapshotV1().VolumeSnapshotContents().Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				framework.Logf("VolumeSnapshotContent: %s is deleted", name)
-				return true, nil
-			} else {
-				return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
+	waitErr := wait.PollUntilContextTimeout(ctx, poll, 2*pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			_, err = client.SnapshotV1().VolumeSnapshotContents().Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					framework.Logf("VolumeSnapshotContent: %s is deleted", name)
+					return true, nil
+				} else {
+					return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
+				}
 			}
-		}
-		return false, nil
-	})
+			return false, nil
+		})
 	return waitErr
 }
 
@@ -148,36 +150,38 @@ func deleteVolumeSnapshotContentWithPandoraWait(ctx context.Context, snapc *snap
 func waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx context.Context, snapc *snapclient.Clientset,
 	name string, pandoraSyncWaitTime int) error {
 	var err error
-	waitErr := wait.PollImmediate(poll, 2*pollTimeout, func() (bool, error) {
-		_, err = snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
-				time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
-				return true, nil
-			} else {
-				return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
+	waitErr := wait.PollUntilContextTimeout(ctx, poll, 2*pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			_, err = snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+					time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+					return true, nil
+				} else {
+					return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
+				}
 			}
-		}
-		return false, err
-	})
+			return false, err
+		})
 	return waitErr
 }
 
 // waitForCNSSnapshotToBeDeleted wait till the give snapshot is deleted from CNS
 func waitForCNSSnapshotToBeDeleted(volumeId string, snapshotId string) error {
 	var err error
-	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
-		err = verifySnapshotIsDeletedInCNS(volumeId, snapshotId, false)
-		if err != nil {
-			if strings.Contains(err.Error(), "snapshot entry is still present") {
-				return false, nil
+	waitErr := wait.PollUntilContextTimeout(context.Background(), poll, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			err = verifySnapshotIsDeletedInCNS(volumeId, snapshotId, false)
+			if err != nil {
+				if strings.Contains(err.Error(), "snapshot entry is still present") {
+					return false, nil
+				}
+				return false, err
 			}
-			return false, err
-		}
-		framework.Logf("Snapshot with ID: %v for volume with ID: %v is deleted from CNS now...", snapshotId, volumeId)
-		return true, nil
-	})
+			framework.Logf("Snapshot with ID: %v for volume with ID: %v is deleted from CNS now...", snapshotId, volumeId)
+			return true, nil
+		})
 	return waitErr
 }
 
@@ -367,22 +371,23 @@ func createVolumeSnapshotClass(ctx context.Context, snapc *snapclient.Clientset,
 			framework.Failf("%s volume snapshotclass is not supported"+
 				" in Supervisor or Guest Cluster", deletionPolicy)
 		}
-		waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
-			volumeSnapshotClass, err = snapc.SnapshotV1().VolumeSnapshotClasses().Get(ctx,
-				volumeSnapshotClassName, metav1.GetOptions{})
-			framework.Logf("volumesnapshotclass %v, err:%v", volumeSnapshotClass, err)
-			if !apierrors.IsNotFound(err) && err != nil {
-				return false, fmt.Errorf("couldn't find "+
-					"snapshotclass: %s due to error: %v", volumeSnapshotClassName, err)
-			}
-			if volumeSnapshotClass.Name != "" {
-				framework.Logf("Found volumesnapshotclass %s", volumeSnapshotClassName)
-				return true, nil
-			}
-			framework.Logf("waiting to get volumesnapshotclass %s", volumeSnapshotClassName)
-			return false, nil
-		})
-		if waitErr == wait.ErrWaitTimeout {
+		waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
+			func(ctx context.Context) (bool, error) {
+				volumeSnapshotClass, err = snapc.SnapshotV1().VolumeSnapshotClasses().Get(ctx,
+					volumeSnapshotClassName, metav1.GetOptions{})
+				framework.Logf("volumesnapshotclass %v, err:%v", volumeSnapshotClass, err)
+				if !apierrors.IsNotFound(err) && err != nil {
+					return false, fmt.Errorf("couldn't find "+
+						"snapshotclass: %s due to error: %v", volumeSnapshotClassName, err)
+				}
+				if volumeSnapshotClass.Name != "" {
+					framework.Logf("Found volumesnapshotclass %s", volumeSnapshotClassName)
+					return true, nil
+				}
+				framework.Logf("waiting to get volumesnapshotclass %s", volumeSnapshotClassName)
+				return false, nil
+			})
+		if wait.Interrupted(waitErr) {
 			return nil, fmt.Errorf("couldn't find volumesnapshotclass: %s", volumeSnapshotClassName)
 		}
 	}
@@ -612,10 +617,10 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 	pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 		v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
 
-	pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+	pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
+	persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 		[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
@@ -627,8 +632,8 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 	if verifyPodCreation {
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false,
-			execRWXCommandPod1)
+		pod, err := createPod(ctx, client, namespace, nil,
+			[]*v1.PersistentVolumeClaim{pvclaim2}, false, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var vmUUID string
@@ -664,15 +669,15 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 
 // createPVCAndQueryVolumeInCNS creates PVc with a given storage class on a given namespace
 // and verifies cns metadata of that volume if verifyCNSVolume is set to true
-func createPVCAndQueryVolumeInCNS(client clientset.Interface, namespace string,
+func createPVCAndQueryVolumeInCNS(ctx context.Context, client clientset.Interface, namespace string,
 	pvclaimLabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
 	ds string, storageclass *storagev1.StorageClass,
 	verifyCNSVolume bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume) {
-	pvclaim, err := createPVC(client, namespace, pvclaimLabels, ds, storageclass, accessMode)
+	pvclaim, err := createPVC(ctx, client, namespace, pvclaimLabels, ds, storageclass, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Expect claim to provision volume successfully")
-	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 		[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout*2)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
@@ -698,35 +703,37 @@ func waitForVolumeSnapshotContentReadyToUse(client snapclient.Clientset, ctx con
 	var volumeSnapshotContent *snapV1.VolumeSnapshotContent
 	var err error
 
-	waitErr := wait.PollImmediate(poll, pollTimeout*2, func() (bool, error) {
-		volumeSnapshotContent, err = client.SnapshotV1().VolumeSnapshotContents().Get(ctx, name, metav1.GetOptions{})
-		framework.Logf("volumesnapshotcontent details: %v", volumeSnapshotContent)
-		if err != nil {
-			return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
-		}
-		if volumeSnapshotContent.Status != nil && *volumeSnapshotContent.Status.ReadyToUse {
-			framework.Logf("%s volume snapshotContent is in ready state", name)
-			return true, nil
-		}
-		return false, nil
-	})
+	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeout*2, true,
+		func(ctx context.Context) (bool, error) {
+			volumeSnapshotContent, err = client.SnapshotV1().VolumeSnapshotContents().Get(ctx, name, metav1.GetOptions{})
+			framework.Logf("volumesnapshotcontent details: %v", volumeSnapshotContent)
+			if err != nil {
+				return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
+			}
+			if volumeSnapshotContent.Status != nil && *volumeSnapshotContent.Status.ReadyToUse {
+				framework.Logf("%s volume snapshotContent is in ready state", name)
+				return true, nil
+			}
+			return false, nil
+		})
 	return volumeSnapshotContent, waitErr
 }
 
 // waitForCNSSnapshotToBeCreated wait till the give snapshot is created in CNS
 func waitForCNSSnapshotToBeCreated(volumeId string, snapshotId string) error {
 	var err error
-	waitErr := wait.PollImmediate(poll, pollTimeout*2, func() (bool, error) {
-		err = verifySnapshotIsCreatedInCNS(volumeId, snapshotId, false)
-		if err != nil {
-			if strings.Contains(err.Error(), "snapshot entry is not present in CNS") {
-				return false, nil
+	waitErr := wait.PollUntilContextTimeout(context.Background(), poll, pollTimeout*2, true,
+		func(ctx context.Context) (bool, error) {
+			err = verifySnapshotIsCreatedInCNS(volumeId, snapshotId, false)
+			if err != nil {
+				if strings.Contains(err.Error(), "snapshot entry is not present in CNS") {
+					return false, nil
+				}
+				return false, err
 			}
-			return false, err
-		}
-		framework.Logf("Snapshot with ID: %v for volume with ID: %v is created in CNS now...", snapshotId, volumeId)
-		return true, nil
-	})
+			framework.Logf("Snapshot with ID: %v for volume with ID: %v is created in CNS now...", snapshotId, volumeId)
+			return true, nil
+		})
 	return waitErr
 }
 

@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -130,7 +131,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	backOffDuration = make(map[string]time.Duration)
 
 	// Watch for changes to primary resource TriggerCsiFullSync.
-	err = c.Watch(&source.Kind{Type: &triggercsifullsyncv1alpha1.TriggerCsiFullSync{}},
+	err = c.Watch(source.Kind(mgr.GetCache(), &triggercsifullsyncv1alpha1.TriggerCsiFullSync{}),
 		&handler.EnqueueRequestForObject{})
 	if err != nil {
 		log.Errorf("Failed to watch for changes to TriggerCsiFullSync resource with error: %+v", err)

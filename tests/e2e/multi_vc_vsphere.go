@@ -262,22 +262,23 @@ func (vs *multiVCvSphere) waitForVolumeDetachedFromNodeInMultiVC(client clientse
 		}
 		return false, err
 	}
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
-		var vmUUID string
-		if vanillaCluster {
-			vmUUID = getNodeUUID(ctx, client, nodeName)
-		} else {
-			vmUUID, _ = getVMUUIDFromNodeName(nodeName)
-		}
-		diskAttached, err := vs.verifyVolumeIsAttachedToVMInMultiVC(client, volumeID, vmUUID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		if !diskAttached {
-			framework.Logf("Disk: %s successfully detached", volumeID)
-			return true, nil
-		}
-		framework.Logf("Waiting for disk: %q to be detached from the node :%q", volumeID, nodeName)
-		return false, nil
-	})
+	err := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			var vmUUID string
+			if vanillaCluster {
+				vmUUID = getNodeUUID(ctx, client, nodeName)
+			} else {
+				vmUUID, _ = getVMUUIDFromNodeName(nodeName)
+			}
+			diskAttached, err := vs.verifyVolumeIsAttachedToVMInMultiVC(client, volumeID, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !diskAttached {
+				framework.Logf("Disk: %s successfully detached", volumeID)
+				return true, nil
+			}
+			framework.Logf("Waiting for disk: %q to be detached from the node :%q", volumeID, nodeName)
+			return false, nil
+		})
 	if err != nil {
 		return false, nil
 	}
@@ -289,19 +290,20 @@ waitForCNSVolumeToBeDeletedInMultiVC executes QueryVolume API on vCenter and ver
 volume entries are deleted from vCenter Database
 */
 func (vs *multiVCvSphere) waitForCNSVolumeToBeDeletedInMultiVC(volumeID string) error {
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
-		queryResult, err := vs.queryCNSVolumeWithResultInMultiVC(volumeID)
-		if err != nil {
-			return true, err
-		}
+	err := wait.PollUntilContextTimeout(context.Background(), poll, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			queryResult, err := vs.queryCNSVolumeWithResultInMultiVC(volumeID)
+			if err != nil {
+				return true, err
+			}
 
-		if len(queryResult.Volumes) == 0 {
-			framework.Logf("volume %q has successfully deleted", volumeID)
-			return true, nil
-		}
-		framework.Logf("waiting for Volume %q to be deleted.", volumeID)
-		return false, nil
-	})
+			if len(queryResult.Volumes) == 0 {
+				framework.Logf("volume %q has successfully deleted", volumeID)
+				return true, nil
+			}
+			framework.Logf("waiting for Volume %q to be deleted.", volumeID)
+			return false, nil
+		})
 	if err != nil {
 		return err
 	}
@@ -314,16 +316,17 @@ volume labels are updated by metadata-syncer
 */
 func (vs *multiVCvSphere) waitForLabelsToBeUpdatedInMultiVC(volumeID string, matchLabels map[string]string,
 	entityType string, entityName string, entityNamespace string) error {
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
-		err := vs.verifyLabelsAreUpdatedInMultiVC(volumeID, matchLabels, entityType, entityName, entityNamespace)
-		if err == nil {
-			return true, nil
-		} else {
-			return false, nil
-		}
-	})
+	err := wait.PollUntilContextTimeout(context.Background(), poll, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			err := vs.verifyLabelsAreUpdatedInMultiVC(volumeID, matchLabels, entityType, entityName, entityNamespace)
+			if err == nil {
+				return true, nil
+			} else {
+				return false, nil
+			}
+		})
 	if err != nil {
-		if err == wait.ErrWaitTimeout {
+		if wait.Interrupted(err) {
 			return fmt.Errorf("labels are not updated to %+v for %s %q for volume %s",
 				matchLabels, entityType, entityName, volumeID)
 		}
@@ -384,18 +387,19 @@ waitForCNSVolumeToBeCreatedInMultiVC executes QueryVolume API on vCenter and ver
 volume entries are created in a multi vCenter database
 */
 func (vs *multiVCvSphere) waitForCNSVolumeToBeCreatedInMultiVC(volumeID string) error {
-	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
-		queryResult, err := vs.queryCNSVolumeWithResultInMultiVC(volumeID)
-		if err != nil {
-			return true, err
-		}
+	err := wait.PollUntilContextTimeout(context.Background(), poll, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			queryResult, err := vs.queryCNSVolumeWithResultInMultiVC(volumeID)
+			if err != nil {
+				return true, err
+			}
 
-		if len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == volumeID {
-			framework.Logf("volume %q has successfully created", volumeID)
-			return true, nil
-		}
-		framework.Logf("waiting for Volume %q to be created.", volumeID)
-		return false, nil
-	})
+			if len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == volumeID {
+				framework.Logf("volume %q has successfully created", volumeID)
+				return true, nil
+			}
+			framework.Logf("waiting for Volume %q to be created.", volumeID)
+			return false, nil
+		})
 	return err
 }
