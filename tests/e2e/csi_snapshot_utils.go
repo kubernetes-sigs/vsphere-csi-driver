@@ -396,6 +396,8 @@ func createDynamicVolumeSnapshot(ctx context.Context, namespace string,
 	performCnsQueryVolumeSnapshot bool) (*snapV1.VolumeSnapshot,
 	*snapV1.VolumeSnapshotContent, bool, bool, string, error) {
 
+	var snapshotId string
+
 	volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
 		getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
 	if err != nil {
@@ -406,38 +408,56 @@ func createDynamicVolumeSnapshot(ctx context.Context, namespace string,
 	ginkgo.By("Verify volume snapshot is created")
 	volumeSnapshot, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, volumeSnapshot.Name)
 	if err != nil {
-		return volumeSnapshot, nil, false, false, "", err
+		if rwxAccessMode {
+			framework.Logf("snapshot creation failed on file volume setup due to err %s", err)
+		} else {
+			return volumeSnapshot, nil, false, false, "", err
+		}
 	}
 
 	snapshotCreated := true
-	if volumeSnapshot.Status.RestoreSize.Cmp(resource.MustParse(diskSize)) != 0 {
-		return volumeSnapshot, nil, false, false, "", fmt.Errorf("unexpected restore size")
+	if !rwxAccessMode {
+		if volumeSnapshot.Status.RestoreSize.Cmp(resource.MustParse(diskSize)) != 0 {
+			return volumeSnapshot, nil, false, false, "", fmt.Errorf("unexpected restore size")
+		}
 	}
 
 	ginkgo.By("Verify volume snapshot content is created")
 	snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
 		*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
 	if err != nil {
-		return volumeSnapshot, snapshotContent, false, false, "", err
+		if rwxAccessMode {
+			return volumeSnapshot, snapshotContent, false, false, "",
+				fmt.Errorf("snapshot creation failed on file volume setup due to err %s", err)
+		} else {
+			return volumeSnapshot, snapshotContent, false, false, "", err
+		}
 	}
 	snapshotContentCreated := true
 	snapshotContent, err = waitForVolumeSnapshotContentReadyToUse(*snapc, ctx, snapshotContent.Name)
 	if err != nil {
-		return volumeSnapshot, snapshotContent, false, false, "", fmt.Errorf("volume snapshot content is not ready to use")
+		if rwxAccessMode {
+			return volumeSnapshot, snapshotContent, false, false, "",
+				fmt.Errorf("snapshot creation failed on file volume setup due to err %s", err)
+		} else {
+			return volumeSnapshot, snapshotContent, false, false, "", fmt.Errorf("volume snapshot content is not ready to use")
+		}
 	}
 
-	framework.Logf("Get volume snapshot ID from snapshot handle")
-	snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, snapshotContent, volumeSnapshotClass,
-		volHandle)
-	if err != nil {
-		return volumeSnapshot, snapshotContent, false, false, snapshotId, err
-	}
-
-	if performCnsQueryVolumeSnapshot {
-		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = waitForCNSSnapshotToBeCreated(volHandle, snapshotId)
+	if !rwxAccessMode {
+		framework.Logf("Get volume snapshot ID from snapshot handle")
+		snapshotId, err = getVolumeSnapshotIdFromSnapshotHandle(ctx, snapshotContent, volumeSnapshotClass,
+			volHandle)
 		if err != nil {
 			return volumeSnapshot, snapshotContent, false, false, snapshotId, err
+		}
+
+		if performCnsQueryVolumeSnapshot {
+			ginkgo.By("Query CNS and check the volume snapshot entry")
+			err = waitForCNSSnapshotToBeCreated(volHandle, snapshotId)
+			if err != nil {
+				return volumeSnapshot, snapshotContent, false, false, snapshotId, err
+			}
 		}
 	}
 

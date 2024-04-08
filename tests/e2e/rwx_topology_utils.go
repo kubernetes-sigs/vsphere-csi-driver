@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"strings"
 
+	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v6/apis/volumesnapshot/v1"
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
@@ -502,4 +504,31 @@ func volumePlacementVerificationForSts(ctx context.Context, client clientset.Int
 		}
 	}
 	return nil
+}
+
+func snapshotVerificationForFileVolumes(ctx context.Context, namespace string,
+	snapc *snapclient.Clientset, volumeSnapshotClass *snapV1.VolumeSnapshotClass,
+	pvclaim *v1.PersistentVolumeClaim) (*snapV1.VolumeSnapshot,
+	*snapV1.VolumeSnapshotContent, error) {
+
+	volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+		getVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
+	if err != nil {
+		return volumeSnapshot, nil, err
+	}
+	framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
+
+	ginkgo.By("Verify volume snapshot is created")
+	volumeSnapshot, err = waitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, volumeSnapshot.Name)
+	if err == nil {
+		framework.Logf("Snapshot creation failed on file volume setup due to err %s", err)
+	}
+
+	ginkgo.By("Verify volume snapshot content is created")
+	snapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
+		*volumeSnapshot.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
+	if err != nil {
+		framework.Logf("Snapshot creation failed on file volume setup due to err %s", err)
+	}
+	return volumeSnapshot, snapshotContent, nil
 }

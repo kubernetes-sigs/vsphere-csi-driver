@@ -230,7 +230,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		}()
 
 		ginkgo.By("Create Deployments")
-		deployment, err := createDeployment(ctx, client, int32(replica), labelsMap, nodeSelectorTerms, namespace, []*v1.PersistentVolumeClaim{pvclaim1[0]}, execRWXCommandPod1, false, nginxImage)
+		deployment, err := createDeployment(ctx, client, int32(replica), labelsMap, nodeSelectorTerms, namespace,
+			[]*v1.PersistentVolumeClaim{pvclaim1[0]}, execRWXCommandPod1, false, nginxImage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			framework.Logf("Delete deployment set")

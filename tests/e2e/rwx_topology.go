@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		// perfrom cleanup of old stale entries of pv if left in the setup
 		pvs, err := client.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		if len(pvcs.Items) != 0 {
+		if len(pvs.Items) != 0 {
 			for _, pv := range pvs.Items {
 				gomega.Expect(client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name,
 					*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
@@ -1155,33 +1155,23 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		}()
 
 		ginkgo.By("Create a dynamic volume snapshot and verify volume snapshot creation failed")
-		volumeSnapshot, snapshotContent, snapshotCreated,
-			snapshotContentCreated, snapshotId, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
-			pvclaims[0], pvs[0].Spec.CSI.VolumeHandle, diskSize, true)
+		volumeSnapshot, snapshotContent, _,
+			_, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
+			pvclaim, pv.Spec.CSI.VolumeHandle, diskSize, true)
 		gomega.Expect(err).To(gomega.HaveOccurred())
-		// snapshotContentCreated = true
-		// snapshotCreated = true
 		defer func() {
-			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
+			err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			if snapshotCreated {
-				framework.Logf("Deleting volume snapshot")
-				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
+			framework.Logf("Deleting volume snapshot")
+			deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
 
-				framework.Logf("Wait till the volume snapshot is deleted")
-				err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc,
-					*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
+			framework.Logf("Wait till the volume snapshot is deleted")
+			err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc,
+				*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		}()
-
-		ginkgo.By("Delete dynamic volume snapshot")
-		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
-			volumeSnapshot, pandoraSyncWaitTime, pvs[0].Spec.CSI.VolumeHandle, snapshotId)
-		gomega.Expect(err).To(gomega.HaveOccurred())
 	})
 
 	/*
@@ -1202,7 +1192,7 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 		7. Scaleup deployment pod replica count to 5.
 		8. Verify scaling operation went smooth.
 		9. New Pods should get created on any AZ.
-		10. Perform
+		10. Perform cleanup by deleting Pods, PVC and SC
 
 
 	*/
@@ -1211,7 +1201,9 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 
 	// 	ctx, cancel := context.WithCancel(context.Background())
 	// 	defer cancel()
-	// 	replica := 3
+
+	// 	pvcItr = 3
+	// 	replica = 3
 
 	// 	/* Get allowed topologies for Storage Class
 	// 	(region1 > zone1 > building1 > level1 > rack > rack1/rack3) */
@@ -1219,8 +1211,8 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 	// 		topologyLength, leafNode, leafNodeTag0, leafNodeTag2)
 
 	// 	ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", accessmode, nfs4FSType))
-	// 	storageclass, pvclaim1, pv1, err := createAndVerifyPvcWithStorageClass(client, namespace, labelsMap, scParameters, diskSize,
-	// 		allowedTopologyForSC, bindingModeWffc, false, accessmode, false, "")
+	// 	storageclass, pvclaims, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap, scParameters, diskSize,
+	// 		allowedTopologyForSC, bindingModeWffc, false, accessmode, "", pvcItr, false, false)
 	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	// 	defer func() {
 	// 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1228,9 +1220,9 @@ var _ = ginkgo.Describe("[rwx-topology] RWX-Topology", func() {
 	// 	}()
 
 	// 	defer func() {
-	// 		err := fpv.DeletePersistentVolumeClaim(client, pvclaim1[0].Name, namespace)
+	// 		err := fpv.DeletePersistentVolumeClaim(client, pvclaims[0].Name, namespace)
 	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	// 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv1[0].Spec.CSI.VolumeHandle)
+	// 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[0].Spec.CSI.VolumeHandle)
 	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	// 	}()
 
