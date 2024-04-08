@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// fetching cluster details
-		clusters, err = getTopologyLevel5ClusterGroupNames(masterIp, sshClientConfig, dataCenters)
+		clusters, err = getTopologyLevel5ClusterGroupNames(masterIp, sshClientConfig, dataCenters, 0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap,
@@ -150,11 +150,11 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// fetching list of datastores available in different racks
-		rack1DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0])
+		rack1DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0], 0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[1])
+		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[1], 0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[2])
+		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[2], 0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// fetching list of datastores which is specific to each rack

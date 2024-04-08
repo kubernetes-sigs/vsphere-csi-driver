@@ -52,11 +52,16 @@ getTopologyLevel5ClusterGroupNames method is used to fetch list of cluster avail
 in level-5 testbed
 */
 func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.ClientConfig,
-	dataCenter []*object.Datacenter) ([]string, error) {
+	dataCenter []*object.Datacenter, clientIndex int) ([]string, error) {
 	var clusterList, clusList, clusFolderTemp, clusterGroupRes []string
 	var clusterFolderName string
+	var clusterFolder, clusterGroup, cluster string
 	for i := 0; i < len(dataCenter); i++ {
-		clusterFolder := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
+		if !multivc {
+			clusterFolder = govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
+		} else {
+			clusterFolder = govcLoginCmdForMultiVC(clientIndex) + "govc ls " + dataCenter[i].InventoryPath
+		}
 		framework.Logf("cmd: %s ", clusterFolder)
 		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder)
 		if err != nil && clusterFolderNameResult.Code != 0 {
@@ -73,7 +78,11 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 				break
 			}
 		}
-		clusterGroup := govcLoginCmd() + "govc ls " + clusterFolderName
+		if !multivc {
+			clusterGroup = govcLoginCmd() + "govc ls " + clusterFolderName
+		} else {
+			clusterGroup = govcLoginCmdForMultiVC(clientIndex) + "govc ls " + clusterFolderName
+		}
 		framework.Logf("cmd: %s ", clusterGroup)
 		clusterGroupResult, err := sshExec(sshClientConfig, masterIp, clusterGroup)
 		if err != nil && clusterGroupResult.Code != 0 {
@@ -84,22 +93,27 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 		if clusterGroupResult.Stdout != "" {
 			clusterGroupRes = strings.Split(clusterGroupResult.Stdout, "\n")
 		}
-		cluster := govcLoginCmd() + "govc ls " + clusterGroupRes[0] + " | sort"
-		framework.Logf("cmd: %s ", cluster)
-		clusterResult, err := sshExec(sshClientConfig, masterIp, cluster)
-		if err != nil && clusterResult.Code != 0 {
-			fssh.LogResult(clusterResult)
-			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-				cluster, masterIp, err)
+		if !multivc {
+			cluster = govcLoginCmd() + "govc ls " + clusterGroupRes[0] + " | sort"
+
+			framework.Logf("cmd: %s ", cluster)
+			clusterResult, err := sshExec(sshClientConfig, masterIp, cluster)
+			if err != nil && clusterResult.Code != 0 {
+				fssh.LogResult(clusterResult)
+				return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+					cluster, masterIp, err)
+			}
+			if clusterResult.Stdout != "" {
+				clusListTemp := strings.Split(clusterResult.Stdout, "\n")
+				clusList = append(clusList, clusListTemp...)
+			}
+			for i := 0; i < len(clusList)-1; i++ {
+				clusterList = append(clusterList, clusList[i])
+			}
+			clusList = nil
+		} else {
+			return clusterGroupRes, nil
 		}
-		if clusterResult.Stdout != "" {
-			clusListTemp := strings.Split(clusterResult.Stdout, "\n")
-			clusList = append(clusList, clusListTemp...)
-		}
-		for i := 0; i < len(clusList)-1; i++ {
-			clusterList = append(clusterList, clusList[i])
-		}
-		clusList = nil
 	}
 	return clusterList, nil
 }
@@ -210,11 +224,18 @@ getListOfDatastoresByClusterName method is used to fetch the list of datastores 
 specific cluster
 */
 func getListOfDatastoresByClusterName(masterIp string, sshClientConfig *ssh.ClientConfig,
-	cluster string) (map[string]string, error) {
+	cluster string, clientIndexForVC int) (map[string]string, error) {
 	ClusterdatastoreListMap := make(map[string]string)
-	datastoreListByCluster := govcLoginCmd() +
-		"govc object.collect -s -d ' ' " + cluster + " host | xargs govc datastore.info -H | " +
-		"grep 'Path\\|URL' | tr -s [:space:]"
+	var datastoreListByCluster string
+	if !multivc {
+		datastoreListByCluster = govcLoginCmd() +
+			"govc object.collect -s -d ' ' " + cluster + " host | xargs govc datastore.info -H | " +
+			"grep 'Path\\|URL' | tr -s [:space:]"
+	} else {
+		datastoreListByCluster = govcLoginCmdForMultiVC(clientIndexForVC) +
+			"govc object.collect -s -d ' ' " + cluster + " host | xargs govc datastore.info -H | " +
+			"grep 'Path\\|URL' | tr -s [:space:]"
+	}
 	framework.Logf("cmd : %s ", datastoreListByCluster)
 	result, err := sshExec(sshClientConfig, masterIp, datastoreListByCluster)
 	if err != nil && result.Code != 0 {

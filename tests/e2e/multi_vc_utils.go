@@ -67,6 +67,9 @@ func createCustomisedStatefulSets(client clientset.Interface, namespace string,
 	if accessMode == "" {
 		// If accessMode is not specified, set the default accessMode.
 		accessMode = v1.ReadWriteOnce
+	} else {
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
+			accessMode
 	}
 
 	if modifyStsSpec {
@@ -386,7 +389,7 @@ func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 	framework.Logf("Create StatefulSet")
 	statefulset := createCustomisedStatefulSets(client, namespace, parallelPodPolicy,
 		replicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet, modifyStsSpec,
-		"", "", nil)
+		"", accessMode, sc)
 
 	if verifyTopologyAffinity {
 		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")

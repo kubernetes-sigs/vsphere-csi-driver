@@ -311,6 +311,7 @@ var (
 	wcpVsanDirectCluster bool
 	vcptocsi             bool
 	windowsEnv           bool
+	multivc              bool
 )
 
 // For busybox pod image
@@ -459,4 +460,11 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	if strings.TrimSpace(string(workerNode)) == "WINDOWS" {
 		windowsEnv = true
 	}
+
+	//Check if its multivc env
+	topologyType := os.Getenv("TOPOLOGY_TYPE")
+	if strings.TrimSpace(string(topologyType)) == "multivc" {
+		multivc = true
+	}
+
 }
