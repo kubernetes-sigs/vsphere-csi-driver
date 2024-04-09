@@ -430,6 +430,7 @@ func fetchDatastoreListMap(ctx context.Context, client clientset.Interface, clie
 			return nil, nil, nil, nil, err
 		}
 	} else {
+		clientIndex := 1
 		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0], clientIndex)
 		if err != nil {
 			return nil, nil, nil, nil, err
@@ -442,6 +443,7 @@ func fetchDatastoreListMap(ctx context.Context, client clientset.Interface, clie
 			return nil, nil, nil, nil, err
 		}
 	} else {
+		clientIndex := 2
 		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0], clientIndex)
 		if err != nil {
 			return nil, nil, nil, nil, err
