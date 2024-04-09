@@ -29,7 +29,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
-	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -268,7 +268,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUUID, i+1, vmIp)
 			verifyDataIntegrityOnVmDisk(vmIp, volFolder)
 		}
 	})
@@ -368,7 +368,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Verify PVC is accessible to the VM2")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volFolder := formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUuid, 1, vmIp2)
+		volFolder := formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUUID, 1, vmIp2)
 
 		ginkgo.By("write some data to a file in pvc2 from vm2")
 		rand.New(rand.NewSource(time.Now().Unix()))
@@ -422,7 +422,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		ginkgo.By("verify data in pvc2 from vm1")
 		framework.Logf("Mounting the volume")
-		volFolder = mountFormattedVol2Vm(vm1.Status.Volumes[0].DiskUuid, 1, vmIp1)
+		volFolder = mountFormattedVol2Vm(vm1.Status.Volumes[0].DiskUUID, 1, vmIp1)
 		vmFileData := fmt.Sprintf("/tmp/vmdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
 		_ = execSshOnVmThroughGatewayVm(vmIp1, []string{"md5sum " + volFolder + "/f1"})
 		framework.Logf("Fetching file from the VM")
@@ -566,16 +566,19 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Verify PVCs are accessible to respective VMs")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 1, vmIp1)
+		_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUUID, 1, vmIp1)
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUuid, 1, vmIp2)
+		_ = formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUUID, 1, vmIp2)
 
 		ginkgo.By("edit vm1 spec and try to attach pvc2 to vm1, which should fail")
 		vm1.Spec.Volumes = append(vm1.Spec.Volumes, vmopv1.VirtualMachineVolume{Name: pvc2.Name,
-			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
-				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc2.Name},
+			VirtualMachineVolumeSource: vmopv1.VirtualMachineVolumeSource{
+				PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
+					PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc2.Name},
+				},
 			}})
+
 		err = vmopC.Update(ctx, vm1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = wait4PvcAttachmentFailure(ctx, vmopC, vm1, pvc2)
@@ -591,7 +594,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Power off vm2")
-		vm2 = setVmPowerState(ctx, vmopC, vm2, vmopv1.VirtualMachinePoweredOff)
+		vm2 = setVmPowerState(ctx, vmopC, vm2, vmopv1.VirtualMachinePowerStateOff)
 		vm2, err = wait4Vm2ReachPowerStateInSpec(ctx, vmopC, vm2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -599,8 +602,10 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vm1.Spec.Volumes = append(vm1.Spec.Volumes, vmopv1.VirtualMachineVolume{Name: pvc2.Name,
-			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
-				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc2.Name},
+			VirtualMachineVolumeSource: vmopv1.VirtualMachineVolumeSource{
+				PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
+					PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc2.Name},
+				},
 			}})
 		err = vmopC.Update(ctx, vm1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -621,8 +626,10 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vm2.Spec.Volumes = append(vm2.Spec.Volumes, vmopv1.VirtualMachineVolume{Name: pvc1.Name,
-			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
-				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc1.Name},
+			VirtualMachineVolumeSource: vmopv1.VirtualMachineVolumeSource{
+				PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
+					PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc1.Name},
+				},
 			}})
 		err = vmopC.Update(ctx, vm2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -640,7 +647,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Power on vm2")
-		vm2 = setVmPowerState(ctx, vmopC, vm2, vmopv1.VirtualMachinePoweredOn)
+		vm2 = setVmPowerState(ctx, vmopC, vm2, vmopv1.VirtualMachinePowerStateOn)
 		vm2, err = wait4Vm2ReachPowerStateInSpec(ctx, vmopC, vm2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		_, err = waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm2.Name)
@@ -755,7 +762,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm.Status.Volumes {
-			_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+			_ = formatNVerifyPvcIsAccessible(vol.DiskUUID, i+1, vmIp)
 		}
 
 	})
@@ -866,7 +873,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("verify that vm1 does not come up")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(vm.Status.PowerState).To(gomega.Equal(vmopv1.VirtualMachinePoweredOff))
+		gomega.Expect(vm.Status.PowerState).To(gomega.Equal(vmopv1.VirtualMachinePowerStateOff))
 
 		ginkgo.By("remove pvc1 from vm1 spec")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
@@ -884,8 +891,10 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vm.Spec.Volumes = []vmopv1.VirtualMachineVolume{{
 			Name: pvc.Name,
-			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
-				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
+			VirtualMachineVolumeSource: vmopv1.VirtualMachineVolumeSource{
+				PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
+					PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
+				},
 			}}}
 		err = vmopC.Update(ctx, vm)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -980,9 +989,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vm.Spec.Volumes = []vmopv1.VirtualMachineVolume{{Name: pvc.Name,
-			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
-				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
-			}}}
+			VirtualMachineVolumeSource: vmopv1.VirtualMachineVolumeSource{
+				PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
+					PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
+				},
+			},
+		}}
+
 		err = vmopC.Update(ctx, vm)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = wait4PvcAttachmentFailure(ctx, vmopC, vm, pvc)
@@ -998,7 +1011,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm.Status.Volumes[0].DiskUuid, 1, vmIp)
+		_ = formatNVerifyPvcIsAccessible(vm.Status.Volumes[0].DiskUUID, 1, vmIp)
 	})
 
 	/*
@@ -1134,7 +1147,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Verify pvc3 is accessible to VM3")
 		vm3, err = getVmsvcVM(ctx, vmopC, vm3.Namespace, vm3.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm3.Status.Volumes[0].DiskUuid, 1, vmIp3)
+		_ = formatNVerifyPvcIsAccessible(vm3.Status.Volumes[0].DiskUUID, 1, vmIp3)
 
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", vsanhealthServiceName))
 		isVsanHealthServiceStopped = true
@@ -1158,10 +1171,14 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Attach pvc2 to vm2")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		vm2.Spec.Volumes = append(vm2.Spec.Volumes, vmopv1.VirtualMachineVolume{Name: pvcs[1].Name,
-			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
-				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvcs[1].Name},
-			}})
+		vm2.Spec.Volumes = append(vm2.Spec.Volumes, vmopv1.VirtualMachineVolume{
+			Name: pvcs[1].Name,
+			VirtualMachineVolumeSource: vmopv1.VirtualMachineVolumeSource{
+				PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
+					PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvcs[1].Name},
+				},
+			},
+		})
 		err = vmopC.Update(ctx, vm2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1182,7 +1199,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		err = wait4PvcAttachmentFailure(ctx, vmopC, vm1, pvcs[0])
 		framework.Logf("Error found: %s", err.Error())
 		gomega.Expect(err).To(gomega.HaveOccurred())
-		gomega.Expect(vm1.Status.PowerState).To(gomega.Equal(vmopv1.VirtualMachinePoweredOff))
+		gomega.Expect(vm1.Status.PowerState).To(gomega.Equal(vmopv1.VirtualMachinePowerStateOff))
 
 		ginkgo.By("Verifying pvc2 attachment to vm2 failed")
 		err = wait4PvcAttachmentFailure(ctx, vmopC, vm2, pvcs[1])
@@ -1210,7 +1227,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Verify pvc1 is accessible to VM1")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 1, vmIp1)
+		_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUUID, 1, vmIp1)
 
 		ginkgo.By("Verify pvc2 is attached to VM2")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm2.Name) // refresh vm info
@@ -1220,7 +1237,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Verify pvc2 is accessible to VM2")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUuid, 1, vmIp2)
+		_ = formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUUID, 1, vmIp2)
 
 		ginkgo.By("Verify pvc3 is detached from VM3")
 		wait4Pvc2Detach(ctx, vmopC, vm3, pvcs[2])
@@ -1305,7 +1322,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		time.Sleep(time.Minute)
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(vm.Status.PowerState).NotTo(gomega.Equal(vmopv1.VirtualMachinePoweredOn))
+		gomega.Expect(vm.Status.PowerState).NotTo(gomega.Equal(vmopv1.VirtualMachinePowerStateOn))
 
 		ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", spsServiceName))
 		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSserviceStopped)
@@ -1332,7 +1349,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Verify pvc1 is accessible to VM1")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm.Status.Volumes[0].DiskUuid, 1, vmIp)
+		_ = formatNVerifyPvcIsAccessible(vm.Status.Volumes[0].DiskUUID, 1, vmIp)
 	})
 
 })

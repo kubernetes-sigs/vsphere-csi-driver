@@ -1296,8 +1296,8 @@ github.com/vishvananda/netlink v1.1.0/go.mod h1:cTgwzPIzzgDAYoQrMm0EdrjRUBkTqKYp
 github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df/go.mod h1:JP3t17pCcGlemwknint6hfoeCVQrEMVwxRLRjXpq+BU=
 github.com/vishvananda/netns v0.0.2 h1:Cn05BRLm+iRP/DZxyVSsfVyrzgjDbwHwkVt38qvXnNI=
 github.com/vishvananda/netns v0.0.2/go.mod h1:yitZXdAVI+yPFSb4QUe+VW3vOVl4PZPNcBgbPxAtJxw=
-github.com/vmware-tanzu/vm-operator/api v1.8.2 h1:7cZHVusqAmAMFWvsiU7X5xontxdjasknI/sVfe0p0Z4=
-github.com/vmware-tanzu/vm-operator/api v1.8.2/go.mod h1:vauVboD3sQxP+pb28TnI9wfrj+0nH2zSEc9Q7AzWJ54=
+github.com/vmware-tanzu/vm-operator/api v1.8.5 h1:E8rpRdV8+cNp/eNZ/QUHvlrbpPh8uk6bKqwEEmGWe64=
+github.com/vmware-tanzu/vm-operator/api v1.8.5/go.mod h1:SXaSFtnw2502Tzy0bfQVHrvbFDijR96r1ihUYQWPOK8=
 github.com/vmware/govmomi v0.36.1 h1:+E/nlfteQ8JvC0xhuKAfpnMsuIeGeGj7rJwqENUcWm8=
 github.com/vmware/govmomi v0.36.1/go.mod h1:mtGWtM+YhTADHlCgJBiskSRPOZRsN9MSjPzaZLte/oQ=
 github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f/go.mod h1:N2zxlSyiKSe5eX1tZViRH5QA0qijqEDrYZiPEAiq3wU=

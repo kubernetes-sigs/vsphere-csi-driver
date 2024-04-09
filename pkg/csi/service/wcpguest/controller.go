@@ -30,7 +30,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -630,11 +630,12 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 		// volume in the spec and patching virtualMachine instance.
 		vmvolumes := vmoperatortypes.VirtualMachineVolume{
 			Name: req.VolumeId,
-			PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-				PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: req.VolumeId,
-				},
-			},
+			VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+				PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+					PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
+						ClaimName: req.VolumeId,
+					},
+				}},
 		}
 		virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
 
@@ -653,11 +654,11 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 	}
 
 	for _, volume := range virtualMachine.Status.Volumes {
-		if volume.Name == req.VolumeId && volume.Attached && volume.DiskUuid != "" {
-			diskUUID = volume.DiskUuid
+		if volume.Name == req.VolumeId && volume.Attached && volume.DiskUUID != "" {
+			diskUUID = volume.DiskUUID
 			isVolumeAttached = true
 			log.Infof("Volume %q is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q",
-				volume.Name, volume.DiskUuid)
+				volume.Name, volume.DiskUUID)
 			break
 		}
 	}
@@ -695,10 +696,10 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 				virtualMachine.Name, req.VolumeId)
 			for _, volume := range vm.Status.Volumes {
 				if volume.Name == req.VolumeId {
-					if volume.Attached && volume.DiskUuid != "" && volume.Error == "" {
-						diskUUID = volume.DiskUuid
+					if volume.Attached && volume.DiskUUID != "" && volume.Error == "" {
+						diskUUID = volume.DiskUUID
 						log.Infof("observed disk UUID %q is set for the volume %q on virtualmachine %q",
-							volume.DiskUuid, volume.Name, vm.Name)
+							volume.DiskUUID, volume.Name, vm.Name)
 					} else {
 						if volume.Error != "" {
 							msg := fmt.Sprintf("observed Error: %q is set on the volume %q on virtualmachine %q",
