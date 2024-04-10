@@ -130,14 +130,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 			scParameters[scParamStoragePolicyID] = profileID
 		}
 
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
 		ginkgo.By("Creating service")
 		service := CreateService(namespace, client)
 		defer func() {
