@@ -140,8 +140,10 @@ func deleteVolumeSnapshotContentWithPandoraWait(ctx context.Context, snapc *snap
 	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
 	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
-	err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc, snapshotContentName, pandoraSyncWaitTime)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if !rwxAccessMode {
+		err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc, snapshotContentName, pandoraSyncWaitTime)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 }
 
 // waitForVolumeSnapshotContentToBeDeletedWithPandoraWait wait till the volume snapshot content is deleted
