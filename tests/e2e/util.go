@@ -5102,7 +5102,7 @@ and returns nil if no error found
 */
 func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 	statefulset *appsv1.StatefulSet, namespace string, replicas int32,
-	parallelStatefulSetCreation bool, isMultiVcSetup bool) error {
+	parallelStatefulSetCreation bool) error {
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleUp *v1.PodList
 	var err error
@@ -5167,7 +5167,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 					if !exists {
 						return fmt.Errorf("pod doesn't have %s annotation", vmUUIDLabel)
 					}
-					if !isMultiVcSetup {
+					if !multivc {
 						_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 						if err != nil {
 							return err
@@ -5179,13 +5179,15 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 						}
 					}
 				}
-				if !isMultiVcSetup {
-					isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
-					if err != nil {
-						return err
-					}
-					if !isDiskAttached {
-						return fmt.Errorf("disk is not attached to the node")
+				if !multivc {
+					if !rwxAccessMode {
+						isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+						if err != nil {
+							return err
+						}
+						if !isDiskAttached {
+							return fmt.Errorf("disk is not attached to the node")
+						}
 					}
 					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
@@ -5193,13 +5195,15 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 						return err
 					}
 				} else {
-					isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(client,
-						pv.Spec.CSI.VolumeHandle, vmUUID)
-					if err != nil {
-						return err
-					}
-					if !isDiskAttached {
-						return fmt.Errorf("disk is not attached to the node")
+					if !rwxAccessMode {
+						isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(client,
+							pv.Spec.CSI.VolumeHandle, vmUUID)
+						if err != nil {
+							return err
+						}
+						if !isDiskAttached {
+							return fmt.Errorf("disk is not attached to the node")
+						}
 					}
 					err = verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)

@@ -242,7 +242,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		statefulSetReplicaCount = 10
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
 		err = scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount,
-			true, false)
+			true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -451,7 +451,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		statefulSetReplicaCount = 10
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
 		err = scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount,
-			true, false)
+			true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -660,7 +660,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		statefulSetReplicaCount = 10
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
 		err = scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount,
-			true, false)
+			true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -845,7 +845,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		statefulSetReplicaCount = 10
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
 		err = scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount,
-			true, false)
+			true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -1044,7 +1044,7 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 		ginkgo.By("Scaleup any one StatefulSets replica")
 		statefulSetReplicaCount = 5
 		ginkgo.By("Scale down statefulset replica and verify the replica count")
-		err = scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true, false)
+		err = scaleUpStatefulSetPod(ctx, client, statefulSets[0], namespace, statefulSetReplicaCount, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[0])
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),

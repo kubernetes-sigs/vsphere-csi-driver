@@ -136,6 +136,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	*/
 
 	ginkgo.It("TC1", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -280,19 +281,16 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		clientIndex := 0
-		datastoreUrlsRack1, _, _, _, err := fetchDatastoreListMap(ctx, client, clientIndex)
-
 		//storage policy read of cluster-1(rack-1)
 		storagePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameVC1)
 		scParameters["storagepolicyname"] = storagePolicyName
 
-		// pod replica count
+		// sts pod replica count
 		stsReplicas := 3
 		scaleUpReplicaCount := 5
 		scaleDownReplicaCount := 1
 
-		// here considering all 3 VCs so start index is set to 0 and endIndex will be set to 3rd VC value
+		// here considering VC-1 so start index is set to 0 and endIndex will be set to 1
 		topValStartIndex = 0
 		topValEndIndex = 1
 
@@ -319,8 +317,10 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			deleteService(namespace, client, service)
 		}()
 
-		clientIndex = 0
-		datastoreUrlsRack1, _, _, _, err = fetchDatastoreListMap(ctx, client, clientIndex)
+		/*Storage poloicy of vc-1 is passed in storage class creation, so fetching the list of datastores
+		which is avilable in VC-1, volume provision should happen on VC-1 vSAN FS compatible datastore */
+		datastoreUrlsRack1, _, _, _, err := fetchDatastoreListMap(ctx, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume placement, should match with the allowed topology specified")
 		err = volumePlacementVerificationForSts(ctx, client, statefulset, namespace, datastoreUrlsRack1)
@@ -358,6 +358,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 	*/
 
 	ginkgo.It("TC3", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -369,7 +370,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		/*
 			We are considering storage policy of VC1 and VC2 and the allowed
-						topology is k8s-zone -> zone-1, zone-2 i.e VC1 and VC2 allowed topologies.
+			topology is k8s-zone -> zone-1, zone-2 i.e VC1 and VC2 allowed topologies.
 		*/
 		topValStartIndex = 0
 		topValEndIndex = 2
@@ -404,8 +405,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		// volume placement should happen either on VC-1 or VC-2
 		ginkgo.By("Verify volume placement, should match with the allowed topology specified")
-		clientIndex := 0
-		datastoreUrlsRack1, datastoreUrlsRack2, _, _, err := fetchDatastoreListMap(ctx, client, clientIndex)
+		datastoreUrlsRack1, datastoreUrlsRack2, _, _, err := fetchDatastoreListMap(ctx, client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		var datastoreUrlsVc1Vc2 []string
 		datastoreUrlsVc1Vc2 = append(datastoreUrlsVc1Vc2, datastoreUrlsRack1...)
@@ -424,7 +424,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Scale up deployment to 6 replica")
+		ginkgo.By("Scale up deployment to 5 replica")
 		replica = 5
 		deployment, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, true, labelsMap,
 			pvclaim, nil, true, deployment)
@@ -518,8 +518,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 
 		// volume placement should happen either should be on VC-2
 		ginkgo.By("Verify volume placement, should match with the allowed topology specified")
-		clientIndex := 1
-		_, datastoreUrlsRack2, _, _, err := fetchDatastoreListMap(ctx, client, clientIndex)
+		_, datastoreUrlsRack2, _, _, err := fetchDatastoreListMap(ctx, client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isCorrectPlacement := multiVCe2eVSphere.verifyPreferredDatastoreMatchInMultiVC(pv.Spec.CSI.VolumeHandle, datastoreUrlsRack2)
 		gomega.Expect(isCorrectPlacement).To(gomega.BeTrue(), fmt.Sprintf("Volume provisioning has happened on the wrong "+
@@ -550,14 +549,53 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		Storage Policy (VC-1) and datastore url (VC-2) both passed
 
 		Steps//
-	    1. Create SC1 with allowed Topology details set to VC-2 and  VC-3 availability Zone and specify storage policy tagged to vSAN ds of VC-3 whch is not vSAN FS enabled.
+	    1. Create SC1 with allowed Topology details set to VC-2 and VC-3 availability Zone and specify storage policy tagged
+		to vSAN ds of VC-3 whch is not vSAN FS enabled.
 	    2. Create PVC using the SC created in step #1
 	    3. PVC creation should fail with an appropriate error message as vSAN FS is disabled in VC-3
-	    4. Create SC2 with allowedTopology details set to all AZs i.e. Zone-1, Zone-2 and Zone-3. Also pass storage policy tagged to vSAN DS from VC-1 and Datastore url tagged to vSAN DS from VC-2 with Immediate Binding mode.
+	    4. Create SC2 with allowedTopology details set to all AZs i.e. Zone-1, Zone-2 and Zone-3.
+		Also pass storage policy tagged to vSAN DS from VC-1 and Datastore url tagged to vSAN DS from VC-2 with
+		Immediate Binding mode.
 	    5. Create PVC using the SC created in step #4
 	    6. PVC creation should fail with an appropriate error message i.e. no compatible datastore found
 	    7. Perform cleanup by deleting SC's, PVC's and SC
 	*/
+
+	// ginkgo.It("TC6", ginkgo.Label(p2, file, vanilla, level5, level2, stable, negative), func() {
+
+	// 	ctx, cancel := context.WithCancel(context.Background())
+	// 	defer cancel()
+
+	// 	expectedErrMsg := "failed to fetch vCenter associated with topology segments"
+
+	// 	// Get allowed topologies for Storage Class
+	// 	allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
+	// 		topologyLength)
+	// 	allowedTopologyForSC[4].Values = []string{"rack15"}
+
+	// 	ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with invalid allowed "+
+	// 		"topolgies specified", accessmode, nfs4FSType))
+	// 	storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, labelsMap, scParameters, "", allowedTopologyForSC, "", false, accessmode)
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	defer func() {
+	// 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	}()
+	// 	defer func() {
+	// 		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	}()
+
+	// 	ginkgo.By("Expect claim to fail provisioning volume since invalid allowed topology is specified in the storage class")
+	// 	err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
+	// 		pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
+	// 	gomega.Expect(err).To(gomega.HaveOccurred())
+
+	// 	ginkgo.By(fmt.Sprintf("Expected failure message: %+q", expectedErrMsg))
+	// 	isFailureFound := checkEventsforError(client, namespace,
+	// 		metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
+	// 	gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Unable to verify pvc create failure")
+	// })
 
 	/* TESTCASE-7
 		Create storage policy in VC-1 and VC-2 and create Storage class with the same and  delete Storage policy in VC1 . expected to go to VC2

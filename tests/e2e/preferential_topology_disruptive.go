@@ -379,7 +379,7 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 
 		ginkgo.By("Scale up statefulset replica and verify the replica count")
 		replicas = 10
-		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, true, false)
+		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -445,7 +445,7 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		// Scale up statefulSets replicas count
 		ginkgo.By("Scale up statefulset replica and verify the replica count")
 		replicas = 13
-		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, true, false)
+		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ssPodsAfterScaleDown = GetListOfPodsInSts(client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -642,7 +642,7 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		// perform statefulset scaleup
 		replicas = 15
 		ginkgo.By("Scale up statefulset replica count from 10 to 15")
-		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
+		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		//verifying volume provisioning
@@ -673,7 +673,7 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		// perform statefulset scaleup
 		replicas = 20
 		ginkgo.By("Scale up statefulset replica count from 15 to 20")
-		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
+		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		//verifying volume provisioning
@@ -875,7 +875,7 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		// perform statefulset scaleup
 		replicas = 15
 		ginkgo.By("Scale up statefulset replica count from 10 to 15")
-		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
+		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		//verifying volume provisioning
@@ -908,7 +908,7 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		// perform statefulset scaleup
 		replicas = 20
 		ginkgo.By("Scale up statefulset replica count from 15 to 20")
-		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
+		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		//verifying volume provisioning
@@ -1106,7 +1106,7 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		// perform statefulset scaleup
 		replicas = 15
 		ginkgo.By("Scale up statefulset replica count from 10 to 15")
-		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
+		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		//verifying volume provisioning
@@ -1137,7 +1137,7 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		// perform statefulset scaleup
 		replicas = 20
 		ginkgo.By("Scale up statefulset replica count from 15 to 20")
-		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
+		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		//verifying volume provisioning

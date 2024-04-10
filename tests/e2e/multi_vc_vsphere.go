@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"log"
 	"reflect"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/pbm"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
 
@@ -398,4 +400,39 @@ func (vs *multiVCvSphere) waitForCNSVolumeToBeCreatedInMultiVC(volumeID string) 
 		return false, nil
 	})
 	return err
+}
+
+// GetSpbmPolicyID returns profile ID for the specified storagePolicyName
+
+func (vs *multiVCvSphere) GetSpbmPolicyIDInMultiVc(storagePolicyName string) string {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var policyIDStrings []string
+
+	for _, govmomiClient := range vs.multiVcClient {
+		vimClient := govmomiClient.Client
+
+		pbmClient, err := pbm.NewClient(ctx, vimClient)
+		if err != nil {
+			// Handle the error
+			// For example, log it and continue to the next client
+			log.Printf("Error creating PBM client: %v", err)
+			continue
+		}
+
+		profileID, err := pbmClient.ProfileIDByName(ctx, storagePolicyName)
+		if err != nil {
+			// Handle the error
+			// For example, log it and continue to the next client
+			log.Printf("Error getting profile ID: %v", err)
+			continue
+		}
+
+		log.Printf("storage policy id: %s for storage policy name is: %s", profileID, storagePolicyName)
+		policyIDStrings = append(policyIDStrings, fmt.Sprintf("%s", profileID))
+	}
+
+	// Join policy ID strings with a comma separator
+	return strings.Join(policyIDStrings, ",")
 }

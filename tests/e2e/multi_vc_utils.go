@@ -354,7 +354,7 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	if stsScaleUp {
 		framework.Logf("Scale up statefulset replica")
 		err := scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
-			parallelStatefulSetCreation, true)
+			parallelStatefulSetCreation)
 		if err != nil {
 			return fmt.Errorf("error scaling up statefulset: %v", err)
 		}

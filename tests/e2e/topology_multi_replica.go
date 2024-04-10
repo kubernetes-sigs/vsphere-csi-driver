@@ -728,7 +728,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Scale up StaefulSets replicas in parallel")
 			statefulSetReplicaCount = 5
 			for i := 0; i < len(statefulSets); i++ {
-				err = scaleUpStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
+				err = scaleUpStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 

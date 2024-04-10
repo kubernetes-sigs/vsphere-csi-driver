@@ -89,6 +89,7 @@ func checkVolumeStateAndPerformCnsVerification(client clientset.Interface, pvcla
 
 	var queryResult *cnstypes.CnsQueryResult
 	var pvs []*v1.PersistentVolume
+	var storagePolicyID string
 
 	for i := 0; i < len(pvclaims); i++ {
 		pv, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaims[i]},
@@ -138,10 +139,18 @@ func checkVolumeStateAndPerformCnsVerification(client clientset.Interface, pvcla
 
 		framework.Logf("Verify the volume is provisioned using specified storage policy")
 		if storagePolicyName != "" {
-			storagePolicyID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-			if storagePolicyID != queryResult.Volumes[0].StoragePolicyId {
-				return pvs, fmt.Errorf("storage policy verification failed. Actual storage policy: %q does not match "+
-					"with the Expected storage policy: %q", queryResult.Volumes[0].StoragePolicyId, storagePolicyID)
+			if !multivc {
+				storagePolicyID = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+				if storagePolicyID != queryResult.Volumes[0].StoragePolicyId {
+					return pvs, fmt.Errorf("storage policy verification failed. Actual storage policy: %q does not match "+
+						"with the Expected storage policy: %q", queryResult.Volumes[0].StoragePolicyId, storagePolicyID)
+				}
+			} else {
+				storagePolicyID = multiVCe2eVSphere.GetSpbmPolicyIDInMultiVc(storagePolicyName)
+				if !strings.Contains(storagePolicyID, queryResult.Volumes[0].StoragePolicyId) {
+					return pvs, fmt.Errorf("storage policy verification failed. Actual storage policy: %q does not match "+
+						"with the Expected storage policy: %q", queryResult.Volumes[0].StoragePolicyId, storagePolicyID)
+				}
 			}
 		}
 
@@ -383,7 +392,7 @@ func createVerifyAndScaleDeploymentPods(ctx context.Context, client clientset.In
 	return deployment, pods, nil
 }
 
-func fetchDatastoreListMap(ctx context.Context, client clientset.Interface, clientIndex int) ([]string, []string, []string, []string, error) {
+func fetchDatastoreListMap(ctx context.Context, client clientset.Interface) ([]string, []string, []string, []string, error) {
 
 	var datastoreUrlsRack1, datastoreUrlsRack2, datastoreUrlsRack3, datastoreUrls []string
 	nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
@@ -403,7 +412,7 @@ func fetchDatastoreListMap(ctx context.Context, client clientset.Interface, clie
 	masterIp := allMasterIps[0]
 
 	// fetching datacenter details
-	if rwxAccessMode {
+	if !rwxAccessMode {
 		dataCenters, err = e2eVSphere.getAllDatacenters(ctx)
 	} else {
 		dataCenters, err = multiVCe2eVSphere.getAllDatacentersForMultiVC(ctx)
@@ -413,6 +422,8 @@ func fetchDatastoreListMap(ctx context.Context, client clientset.Interface, clie
 	}
 
 	// fetching cluster details
+	// // here clientIndex=1 means VC-1 list of datastores we are fetching
+	clientIndex := 0
 	clusters, err := getTopologyLevel5ClusterGroupNames(masterIp, sshClientConfig, dataCenters, clientIndex)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -430,6 +441,7 @@ func fetchDatastoreListMap(ctx context.Context, client clientset.Interface, clie
 			return nil, nil, nil, nil, err
 		}
 	} else {
+		// here clientIndex=1 means VC-2 list of datastores we are fetching
 		clientIndex := 1
 		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0], clientIndex)
 		if err != nil {
@@ -443,6 +455,7 @@ func fetchDatastoreListMap(ctx context.Context, client clientset.Interface, clie
 			return nil, nil, nil, nil, err
 		}
 	} else {
+		// here clientIndex=1 means VC-3 list of datastores we are fetching
 		clientIndex := 2
 		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0], clientIndex)
 		if err != nil {

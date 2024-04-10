@@ -280,7 +280,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale up statefulset replica count to 5
 		replicas += 5
 		ginkgo.By("Scale up statefulset replica count to 5")
-		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
+		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Scale down statefulset replica count to 1
@@ -379,7 +379,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale up statefulset replicas to 5
 		replicas += 5
 		ginkgo.By("Scale up statefulset replica count to 5")
-		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
+		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		/* Verify newly created PV node affinity and that the news PODS are running
@@ -474,7 +474,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale up statefulset replicas to 5
 		replicas += 5
 		ginkgo.By("Scale up statefulset replica count to 5")
-		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
+		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Scale down statefulset replicas to 1
@@ -583,7 +583,7 @@ var _ = ginkgo.Describe("[csi-topology-for-level5] Topology-Provisioning-For-Sta
 		// Scale up statefulset replicas to 5
 		replicas += 5
 		ginkgo.By("Scale up statefulset replica count to 5")
-		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false, false)
+		err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, replicas, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Scale down statefulset replicas to 1
