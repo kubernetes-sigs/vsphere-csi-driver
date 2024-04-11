@@ -196,7 +196,7 @@ spec:
         app: vsphere-csi-controller
         role: vsphere-csi
     spec:
-      priorityClassName: system-cluster-critical # Guarantees scheduling for critical system pods
+      priorityClassName: system-cluster-critical # Guarantees scheduling for system critical pods
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
