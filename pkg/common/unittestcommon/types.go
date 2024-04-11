@@ -26,6 +26,15 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
+const (
+	VCSimDefaultDatacenters     int = 1
+	VCSimDefaultClusters        int = 1
+	VCSimDefaultHostsPerCluster int = 3
+	VCSimDefaultStandalonHosts  int = 1
+	VCSimDefaultDatastores      int = 1
+	VCSimDefaultVMsPerCluster   int = 2
+)
+
 // FakeK8SOrchestrator is used to mock common K8S Orchestrator instance to store FSS values
 type FakeK8SOrchestrator struct {
 	// RWMutex to synchronize access to 'featureStates' field from multiple callers
@@ -69,4 +78,20 @@ type mockControllerVolumeTopology struct {
 
 // mockNodeVolumeTopology is a mock of the k8sorchestrator nodeVolumeTopology type.
 type mockNodeVolumeTopology struct {
+}
+
+type VcsimParams struct {
+	Datacenters     int
+	Clusters        int
+	HostsPerCluster int
+	StandaloneHosts int
+	VMsPerCluster   int
+	// Note that specified number of datastores are created for each datacenter and datastore is accessible from
+	// all hosts belonging to a datacenter. Internally each datastore will have temporary local file storage and
+	// it will be mounted on every HostSystem of the datacenter.
+	Datastores int
+	// Version is the dot-separated VC version like 7.0.3
+	Version string
+	// ApiVersion is the dot-separated API version like 7.0
+	ApiVersion string
 }

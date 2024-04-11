@@ -18,10 +18,10 @@ package vanilla
 
 import (
 	"context"
-	"crypto/tls"
+	"errors"
 	"fmt"
-	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -34,21 +34,13 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	cnssim "github.com/vmware/govmomi/cns/simulator"
-	"github.com/vmware/govmomi/find"
-	"github.com/vmware/govmomi/object"
-	pbmsim "github.com/vmware/govmomi/pbm/simulator"
-	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/simulator"
-	"github.com/vmware/govmomi/simulator/vpx"
-	"github.com/vmware/govmomi/vim25"
-	"github.com/vmware/govmomi/vim25/mo"
-	"github.com/vmware/govmomi/vim25/types"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -60,8 +52,9 @@ import (
 )
 
 const (
-	testVolumeName  = "test-pvc"
-	testClusterName = "test-cluster"
+	testVolumeName             = "test-pvc"
+	testClusterName            = "test-cluster"
+	simulateNoSharedDatastores = "no-shared-datastores"
 )
 
 var (
@@ -69,16 +62,6 @@ var (
 	controllerTestInstance *controllerTest
 	onceForControllerTest  sync.Once
 )
-
-type FakeNodeManager struct {
-	client             *vim25.Client
-	sharedDatastoreURL string
-	k8sClient          clientset.Interface
-}
-
-type FakeAuthManager struct {
-	vcenter *cnsvsphere.VirtualCenter
-}
 
 type controllerTest struct {
 	controller *controller
@@ -88,200 +71,88 @@ type controllerTest struct {
 	operationStore cnsvolumeoperationrequest.VolumeOperationRequest
 }
 
-// configFromSim starts a vcsim instance and returns config for use against the
-// vcsim instance. The vcsim instance is configured with an empty tls.Config.
-func configFromSim() (*config.Config, func()) {
-	return configFromSimWithTLS(new(tls.Config), true)
+type FakeNodeManager struct {
+	cnsNodeManager node.Manager
+	k8sClient      clientset.Interface
 }
 
-// configFromSimWithTLS starts a vcsim instance and returns config for use
-// against the vcsim instance. The vcsim instance is configured with a
-// tls.Config. The returned client config can be configured to allow/decline
-// insecure connections.
-func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*config.Config, func()) {
-	cfg := &config.Config{}
-	model := simulator.VPX()
-	// Currently the simulated vc has a version of 6.5.0, modifying service content to 7.0.3
-	// TODO: update in govmomi
-	serviceContent := vpx.ServiceContent
-	serviceContent.About.Version = "7.0.3"
-	serviceContent.About.ApiVersion = "7.0"
-	model.ServiceContent = serviceContent
-
-	defer model.Remove()
-
-	err := model.Create()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	model.Service.TLS = tlsConfig
-	s := model.Service.NewServer()
-
-	// CNS Service simulator.
-	model.Service.RegisterSDK(cnssim.New())
-
-	// PBM Service simulator.
-	model.Service.RegisterSDK(pbmsim.New())
-	cfg.Global.InsecureFlag = insecureAllowed
-
-	cfg.Global.VCenterIP = s.URL.Hostname()
-	cfg.Global.VCenterPort = s.URL.Port()
-	cfg.Global.User = s.URL.User.Username() + "@vsphere.local"
-	cfg.Global.Password, _ = s.URL.User.Password()
-	cfg.Global.Datacenters = "DC0"
-
-	// Write values to test_vsphere.conf.
-	os.Setenv("VSPHERE_CSI_CONFIG", "test_vsphere.conf")
-	conf := []byte(fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n"+
-		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"",
-		cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password,
-		cfg.Global.Datacenters, cfg.Global.VCenterPort))
-	err = os.WriteFile("test_vsphere.conf", conf, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	cfg.VirtualCenter = make(map[string]*config.VirtualCenterConfig)
-	cfg.VirtualCenter[s.URL.Hostname()] = &config.VirtualCenterConfig{
-		User:         cfg.Global.User,
-		Password:     cfg.Global.Password,
-		VCenterPort:  cfg.Global.VCenterPort,
-		InsecureFlag: cfg.Global.InsecureFlag,
-		Datacenters:  cfg.Global.Datacenters,
-	}
-
-	// set up the default global maximum of number of snapshots if unset
-	if cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume == 0 {
-		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume = config.DefaultGlobalMaxSnapshotsPerBlockVolume
-	}
-
-	return cfg, func() {
-		s.Close()
-		model.Remove()
-	}
-}
-
-func configFromEnvOrSim() (*config.Config, func()) {
-	cfg := &config.Config{}
-	if err := config.FromEnv(ctx, cfg); err != nil {
-		return configFromSim()
-	}
-	return cfg, func() {}
+type FakeAuthManager struct {
+	vcenter *cnsvsphere.VirtualCenter
 }
 
 func (f *FakeNodeManager) Initialize(ctx context.Context) error {
+	f.cnsNodeManager = node.GetManager(ctx)
+	f.cnsNodeManager.SetKubernetesClient(f.k8sClient)
+	var t *testing.T
+
+	objVMs := simulator.Map.All("VirtualMachine")
+	var i int
+	for _, vm := range objVMs {
+		i++
+		obj := vm.(*simulator.VirtualMachine)
+		nodeUUID := obj.Config.Uuid
+		nodeName := "k8s-node-" + strconv.Itoa(i)
+		err := f.cnsNodeManager.RegisterNode(ctx, nodeUUID, nodeName)
+		if err != nil {
+			t.Errorf("Error occurred while registering a node: %s, nodeUUID: %s, err: %v", nodeName, nodeUUID, err)
+			return err
+		}
+	}
 	return nil
 }
 
 func (f *FakeNodeManager) GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error) {
-	finder := find.NewFinder(f.client, false)
-
-	var datacenterName string
-	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
-		datacenterName = v
-	} else {
-		datacenterName = simulator.Map.Any("Datacenter").(*simulator.Datacenter).Name
+	// Return error that no shared datastores found for a negative test case
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v == simulateNoSharedDatastores {
+		return nil, errors.New("No shared datastores found in the cluster.")
 	}
 
-	dc, _ := finder.Datacenter(ctx, datacenterName)
-	finder.SetDatacenter(dc)
-
-	datastores, err := finder.DatastoreList(ctx, "*")
+	var t *testing.T
+	nodeVMs, err := f.cnsNodeManager.GetAllNodes(ctx)
 	if err != nil {
-		return nil, err
-	}
-	var dsList []types.ManagedObjectReference
-	for _, ds := range datastores {
-		dsList = append(dsList, ds.Reference())
-	}
-	var dsMoList []mo.Datastore
-	pc := property.DefaultCollector(dc.Client())
-	properties := []string{"info"}
-	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
-	if err != nil {
+		t.Errorf("failed to get Nodes from nodeManager with err %v", err)
 		return nil, err
 	}
 
-	var sharedDatastoreManagedObject *mo.Datastore
-	for _, dsMo := range dsMoList {
-		if dsMo.Info.GetDatastoreInfo().Url == f.sharedDatastoreURL {
-			sharedDatastoreManagedObject = &dsMo
-			break
-		}
+	if len(nodeVMs) == 0 {
+		errMsg := "empty List of Node VMs received from nodeManager"
+		t.Errorf(errMsg)
+		return nil, fmt.Errorf(errMsg)
 	}
-	if sharedDatastoreManagedObject == nil {
-		return nil, fmt.Errorf("failed to get shared datastores")
+
+	sharedDatastores, err := cnsvsphere.GetSharedDatastoresForVMs(ctx, nodeVMs)
+	if err != nil {
+		t.Errorf("failed to get shared datastores for node VMs. Err: %+v", err)
+		return nil, err
 	}
-	return []*cnsvsphere.DatastoreInfo{
-		{
-			Datastore: &cnsvsphere.Datastore{
-				Datastore:  object.NewDatastore(nil, sharedDatastoreManagedObject.Reference()),
-				Datacenter: nil},
-			Info:         sharedDatastoreManagedObject.Info.GetDatastoreInfo(),
-			CustomValues: []types.BaseCustomFieldValue{},
-		},
-	}, nil
+	fmt.Printf("GetSharedDatastoresInK8SCluster, sharedDatastores= %+v\n", sharedDatastores)
+	return sharedDatastores, nil
 }
 
 func (f *FakeNodeManager) GetNodeVMByNameAndUpdateCache(ctx context.Context,
 	nodeName string) (*cnsvsphere.VirtualMachine, error) {
-	var vm *cnsvsphere.VirtualMachine
-	var t *testing.T
-	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
-		nodeUUID, err := k8s.GetNodeUUID(ctx, f.k8sClient, nodeName)
-		if err != nil {
-			t.Errorf("failed to get providerId from node: %q. Err: %v", nodeName, err)
-			return nil, err
-		}
-		vm, err = cnsvsphere.GetVirtualMachineByUUID(ctx, nodeUUID, false)
-		if err != nil {
-			t.Errorf("Couldn't find VM instance with nodeUUID %s, failed to discover with err: %v", nodeUUID, err)
-			return nil, err
-		}
-	} else {
-		obj := simulator.Map.Any("VirtualMachine").(*simulator.VirtualMachine)
-		vm = &cnsvsphere.VirtualMachine{
-			VirtualMachine: object.NewVirtualMachine(f.client, obj.Reference()),
-		}
-	}
-	return vm, nil
+	return f.cnsNodeManager.GetNodeVMByNameAndUpdateCache(ctx, nodeName)
 }
 
 func (f *FakeNodeManager) GetNodeVMByNameOrUUID(
 	ctx context.Context, nodeNameOrUUID string) (*cnsvsphere.VirtualMachine, error) {
-	return f.GetNodeVMByNameAndUpdateCache(ctx, nodeNameOrUUID)
+	return f.cnsNodeManager.GetNodeVMByNameOrUUID(ctx, nodeNameOrUUID)
 }
 
 func (f *FakeNodeManager) GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error) {
-	return "", nil
+	return f.cnsNodeManager.GetNodeNameByUUID(ctx, nodeUUID)
 }
 
-func (f *FakeNodeManager) GetNodeVMByUuid(ctx context.Context, nodeUuid string) (*cnsvsphere.VirtualMachine, error) {
-	var vm *cnsvsphere.VirtualMachine
-	var t *testing.T
-	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
-		var err error
-		vm, err = cnsvsphere.GetVirtualMachineByUUID(ctx, nodeUuid, false)
-		if err != nil {
-			t.Errorf("Couldn't find VM instance with nodeUUID %s, failed to "+
-				"discover with err: %v", nodeUuid, err)
-			return nil, err
-		}
-	} else {
-		obj := simulator.Map.Any("VirtualMachine").(*simulator.VirtualMachine)
-		vm = &cnsvsphere.VirtualMachine{
-			VirtualMachine: object.NewVirtualMachine(f.client, obj.Reference()),
-		}
-	}
-	return vm, nil
+func (f *FakeNodeManager) GetNodeVMByUuid(ctx context.Context, nodeUUID string) (*cnsvsphere.VirtualMachine, error) {
+	return f.cnsNodeManager.GetNodeVMByUuid(ctx, nodeUUID)
 }
 
 func (f *FakeNodeManager) GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error) {
-	return nil, nil
+	return f.cnsNodeManager.GetAllNodes(ctx)
 }
 
 func (f *FakeNodeManager) GetAllNodesByVC(ctx context.Context, vcHost string) ([]*cnsvsphere.VirtualMachine, error) {
+	// This function is required only for multi VC env.
 	return nil, nil
 }
 
@@ -305,11 +176,22 @@ func (f *FakeAuthManager) ResetvCenterInstance(ctx context.Context, vCenter *cns
 	f.vcenter = vCenter
 }
 
+var vcsimParams = unittestcommon.VcsimParams{
+	Datacenters:     1,
+	Clusters:        1,
+	HostsPerCluster: 2,
+	VMsPerCluster:   2,
+	StandaloneHosts: 0,
+	Datastores:      1,
+	Version:         "7.0.3",
+	ApiVersion:      "7.0",
+}
+
 func getControllerTest(t *testing.T) *controllerTest {
 	onceForControllerTest.Do(func() {
 		// Create context.
 		ctx = context.Background()
-		config, _ := configFromEnvOrSim()
+		config, _ := unittestcommon.ConfigFromEnvOrVCSim(ctx, vcsimParams, false)
 
 		// CNS based CSI requires a valid cluster name.
 		config.Global.ClusterID = testClusterName
@@ -346,13 +228,6 @@ func getControllerTest(t *testing.T) *controllerTest {
 			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 		}
 
-		var sharedDatastoreURL string
-		if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
-			sharedDatastoreURL = v
-		} else {
-			sharedDatastoreURL = simulator.Map.Any("Datastore").(*simulator.Datastore).Info.GetDatastoreInfo().Url
-		}
-
 		var k8sClient clientset.Interface
 		if k8senv := os.Getenv("KUBECONFIG"); k8senv != "" {
 			k8sClient, err = k8s.CreateKubernetesClientFromConfig(k8senv)
@@ -363,17 +238,21 @@ func getControllerTest(t *testing.T) *controllerTest {
 			k8sClient = testclient.NewSimpleClientset()
 		}
 
+		nodeManager := &FakeNodeManager{
+			k8sClient: k8sClient}
+		err = nodeManager.Initialize(ctx)
+		if err != nil {
+			t.Fatalf("Failed to initialize node manager, err = %v", err)
+		}
+
 		c := &controller{
 			manager: manager,
-			nodeMgr: &FakeNodeManager{
-				client:             vcenter.Client.Client,
-				sharedDatastoreURL: sharedDatastoreURL,
-				k8sClient:          k8sClient,
-			},
+			nodeMgr: nodeManager,
 			authMgr: &FakeAuthManager{
 				vcenter: vcenter,
 			},
 		}
+
 		commonco.ContainerOrchestratorUtility, err =
 			unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
 		if err != nil {
@@ -562,6 +441,110 @@ func TestCreateVolumeWithMultipleDatastores(t *testing.T) {
 
 	if len(queryResult.Volumes) != 0 {
 		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
+	}
+}
+
+func TestCreateVolumeWithInvalidAccessibilityRequirements(t *testing.T) {
+	// Create context.
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Requisite: []*csi.Topology{
+				{
+					Segments: map[string]string{
+						"topology.csi.vmware.com/k8s-zone": "zone-A",
+					},
+				},
+			},
+			Preferred: []*csi.Topology{},
+		},
+	}
+
+	_, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		createErr, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("unable to convert the error: %+v into a grpc status error type", err)
+		}
+		if createErr.Code() == codes.InvalidArgument && strings.Contains(createErr.Message(),
+			"topology category names not specified in the vsphere config secret") {
+			t.Logf("Received expected error since topology category names are not specified in the vSphere config " +
+				"but AccessiblityRequirements were provided in the CreateVolume request")
+		} else {
+			t.Fatalf("unexpected error received, code: %s, message: %s",
+				createErr.Code().String(), createErr.Message())
+		}
+	} else {
+		t.Fatalf("We should get failure while creating a volume, as topology category names are not specified in " +
+			"the vSphere config but AccessiblityRequirements were provided in the CreateVolume request")
+	}
+}
+
+// This is a negative test case. Simulate the case that there are no shared datastores in the K8s cluster
+// and make sure that CreateVolume fails with the expected error.
+func TestCreateVolumeWithNoSharedDatastores(t *testing.T) {
+	// Set environment variable which indicates that there are no shared datastores
+	// in K8s cluster
+	os.Setenv("VSPHERE_DATASTORE_URL", simulateNoSharedDatastores)
+	defer os.Unsetenv("VSPHERE_DATASTORE_URL")
+	// Create context.
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	_, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		createErr, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("unable to convert the error: %+v into a grpc status error type", err)
+		}
+		if createErr.Code() == codes.Internal && strings.Contains(createErr.Message(),
+			"failed to get shared datastores in kubernetes cluster") {
+			t.Logf("Received expected error since we are simulating that there are no shared " +
+				"datastores in K8s cluster")
+		} else {
+			t.Fatalf("unexpected error received, code: %s, message: %s",
+				createErr.Code().String(), createErr.Message())
+		}
+	} else {
+		t.Fatalf("We should get failure while creating a volume, as we are simulating that there are no shared " +
+			"datastores in K8s cluster")
 	}
 }
 
@@ -777,7 +760,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	if v := os.Getenv("VSPHERE_K8S_NODE"); v != "" {
 		NodeID = v
 	} else {
-		NodeID = simulator.Map.Any("VirtualMachine").(*simulator.VirtualMachine).Name
+		NodeID = simulator.Map.Any("VirtualMachine").(*simulator.VirtualMachine).Config.Uuid
 	}
 
 	// Attach.

@@ -18,9 +18,7 @@ package syncer
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"log"
 	"os"
 	"sync"
 	"testing"
@@ -28,7 +26,6 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/google/uuid"
-	cnssim "github.com/vmware/govmomi/cns/simulator"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/simulator"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -84,75 +81,6 @@ var (
 	cancel               context.CancelFunc
 )
 
-// configFromSim starts a vcsim instance and returns config for use against the
-// vcsim instance. The vcsim instance is configured with an empty tls.Config.
-func configFromSim() (*cnsconfig.Config, func()) {
-	return configFromSimWithTLS(new(tls.Config), true)
-}
-
-// configFromSimWithTLS starts a vcsim instance and returns config for use
-// against the vcsim instance. The vcsim instance is configured with a
-// tls.Config. The returned client config can be configured to allow/decline
-// insecure connections.
-func configFromSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool) (*cnsconfig.Config, func()) {
-	cfg := &cnsconfig.Config{}
-	model := simulator.VPX()
-	defer model.Remove()
-
-	err := model.Create()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	model.Service.TLS = tlsConfig
-	s := model.Service.NewServer()
-
-	// CNS Service simulator.
-	model.Service.RegisterSDK(cnssim.New())
-
-	cfg.Global.InsecureFlag = insecureAllowed
-
-	cfg.Global.VCenterIP = s.URL.Hostname()
-	cfg.Global.VCenterPort = s.URL.Port()
-	cfg.Global.User = s.URL.User.Username() + "@vsphere.local"
-	cfg.Global.Password, _ = s.URL.User.Password()
-	cfg.Global.Datacenters = "DC0"
-
-	// Write values to test_vsphere.conf.
-	os.Setenv("VSPHERE_CSI_CONFIG", "test_vsphere.conf")
-	conf := []byte(fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n"+
-		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"",
-		cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password,
-		cfg.Global.Datacenters, cfg.Global.VCenterPort))
-	err = os.WriteFile("test_vsphere.conf", conf, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	cfg.VirtualCenter = make(map[string]*cnsconfig.VirtualCenterConfig)
-	cfg.VirtualCenter[s.URL.Hostname()] = &cnsconfig.VirtualCenterConfig{
-		User:         cfg.Global.User,
-		Password:     cfg.Global.Password,
-		VCenterPort:  cfg.Global.VCenterPort,
-		InsecureFlag: cfg.Global.InsecureFlag,
-		Datacenters:  cfg.Global.Datacenters,
-	}
-
-	return cfg, func() {
-		s.Close()
-		model.Remove()
-	}
-
-}
-
-func configFromEnvOrSim() (*cnsconfig.Config, func()) {
-	cfg := &cnsconfig.Config{}
-	if err := cnsconfig.FromEnv(ctx, cfg); err != nil {
-		return configFromSim()
-	}
-	return cfg, func() {}
-}
-
 func TestSyncerWorkflows(t *testing.T) {
 	// Create context.
 	ctx, cancel = context.WithCancel(context.Background())
@@ -160,7 +88,17 @@ func TestSyncerWorkflows(t *testing.T) {
 
 	t.Log("TestSyncerWorkflows: start")
 	var cleanup func()
-	csiConfig, cleanup = configFromEnvOrSim()
+	vcsimParams := unittestcommon.VcsimParams{
+		Datacenters:     1,
+		Clusters:        1,
+		HostsPerCluster: 2,
+		VMsPerCluster:   2,
+		StandaloneHosts: 0,
+		Datastores:      1,
+		Version:         "7.0.3",
+		ApiVersion:      "7.0",
+	}
+	csiConfig, cleanup = unittestcommon.ConfigFromEnvOrVCSim(ctx, vcsimParams, false)
 	defer cleanup()
 
 	// CNS based CSI requires a valid cluster name.

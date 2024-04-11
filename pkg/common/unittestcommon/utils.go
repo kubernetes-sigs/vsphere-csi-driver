@@ -18,18 +18,25 @@ package unittestcommon
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"log"
+	"os"
 	"strconv"
 	"sync"
 
+	"github.com/vmware/govmomi/simulator"
+	"github.com/vmware/govmomi/simulator/vpx"
 	"google.golang.org/grpc/codes"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
+	cnssim "github.com/vmware/govmomi/cns/simulator"
+	pbmsim "github.com/vmware/govmomi/pbm/simulator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
-	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
@@ -164,7 +171,7 @@ func (c *FakeK8SOrchestrator) InitTopologyServiceInNode(ctx context.Context) (
 func GetFakeVolumeMigrationService(
 	ctx context.Context,
 	volumeManager *cnsvolume.Manager,
-	cnsConfig *cnsconfig.Config,
+	cnsConfig *config.Config,
 ) (MockVolumeMigrationService, error) {
 	// fakeVolumeMigrationInstance is a mocked instance of volumeMigration
 	fakeVolumeMigrationInstance := &mockVolumeMigration{
@@ -319,4 +326,123 @@ func (c *FakeK8SOrchestrator) GetPVNameFromCSIVolumeID(volumeID string) (string,
 // InitializeCSINodes creates CSINode instances for each K8s node with the appropriate topology keys.
 func (c *FakeK8SOrchestrator) InitializeCSINodes(ctx context.Context) error {
 	return nil
+}
+
+// configFromVCSim starts a vcsim instance and returns config for use against the
+// vcsim instance. The vcsim instance is configured with an empty tls.Config.
+func configFromVCSim(vcsimParams VcsimParams, isTopologyEnv bool) (*config.Config, func()) {
+	return configFromVCSimWithTLS(new(tls.Config), vcsimParams, true, isTopologyEnv)
+}
+
+// configFromVCSimWithTLS starts a vcsim instance and returns config for use
+// against the vcsim instance. The vcsim instance is configured with a
+// tls.Config. The returned client config can be configured to allow/decline
+// insecure connections.
+func configFromVCSimWithTLS(tlsConfig *tls.Config, vcsimParams VcsimParams, insecureAllowed bool,
+	isTopologyEnv bool) (*config.Config, func()) {
+	cfg := &config.Config{}
+	model := simulator.VPX()
+	// Use user specified values for fields like datacenters, clusters, hosts, VMs, datastores etc.
+	if vcsimParams.Datacenters != VCSimDefaultDatacenters {
+		model.Datacenter = vcsimParams.Datacenters
+	}
+	if vcsimParams.Clusters != VCSimDefaultClusters {
+		model.Cluster = vcsimParams.Clusters
+	}
+	if vcsimParams.HostsPerCluster != VCSimDefaultHostsPerCluster {
+		model.ClusterHost = vcsimParams.HostsPerCluster
+	}
+	if vcsimParams.StandaloneHosts != VCSimDefaultStandalonHosts {
+		model.Host = vcsimParams.StandaloneHosts
+	}
+	if vcsimParams.Datastores != VCSimDefaultDatastores {
+		model.Datastore = vcsimParams.Datastores
+	}
+	if vcsimParams.VMsPerCluster != VCSimDefaultVMsPerCluster {
+		model.Machine = vcsimParams.VMsPerCluster
+	}
+
+	serviceContent := vpx.ServiceContent
+	serviceContent.About.Version = vcsimParams.Version
+	serviceContent.About.ApiVersion = vcsimParams.ApiVersion
+	model.ServiceContent = serviceContent
+
+	defer model.Remove()
+
+	err := model.Create()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	model.Service.TLS = tlsConfig
+	s := model.Service.NewServer()
+
+	// CNS Service simulator.
+	model.Service.RegisterSDK(cnssim.New())
+	// PBM Service simulator.
+	model.Service.RegisterSDK(pbmsim.New())
+
+	cfg.Global.InsecureFlag = insecureAllowed
+	cfg.Global.VCenterIP = s.URL.Hostname()
+	cfg.Global.VCenterPort = s.URL.Port()
+	cfg.Global.User = s.URL.User.Username() + "@vsphere.local"
+	cfg.Global.Password, _ = s.URL.User.Password()
+
+	datacenters := "DC0"
+	for i := 1; i < vcsimParams.Datacenters; i++ {
+		datacenters = datacenters + ", DC" + strconv.Itoa(i)
+	}
+	cfg.Global.Datacenters = datacenters
+
+	if isTopologyEnv {
+		cfg.Labels.TopologyCategories = "k8s-region, k8s-zone"
+	}
+
+	// Write values to test_vsphere.conf.
+	var conf []byte
+	os.Setenv("VSPHERE_CSI_CONFIG", "test_vsphere.conf")
+	if isTopologyEnv {
+		conf = []byte(fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n"+
+			"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n"+
+			"[Labels]\ntopology-categories = \"%s\"",
+			cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password,
+			cfg.Global.Datacenters, cfg.Global.VCenterPort, cfg.Labels.TopologyCategories))
+	} else {
+		conf = []byte(fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\n"+
+			"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"",
+			cfg.Global.InsecureFlag, cfg.Global.VCenterIP, cfg.Global.User, cfg.Global.Password,
+			cfg.Global.Datacenters, cfg.Global.VCenterPort))
+	}
+	err = os.WriteFile("test_vsphere.conf", conf, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	cfg.VirtualCenter = make(map[string]*config.VirtualCenterConfig)
+	cfg.VirtualCenter[s.URL.Hostname()] = &config.VirtualCenterConfig{
+		User:         cfg.Global.User,
+		Password:     cfg.Global.Password,
+		VCenterPort:  cfg.Global.VCenterPort,
+		InsecureFlag: cfg.Global.InsecureFlag,
+		Datacenters:  cfg.Global.Datacenters,
+	}
+
+	// set up the default global maximum of number of snapshots if unset
+	if cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume == 0 {
+		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume = config.DefaultGlobalMaxSnapshotsPerBlockVolume
+	}
+
+	return cfg, func() {
+		s.Close()
+		os.Unsetenv("VSPHERE_CSI_CONFIG")
+		os.Remove("test_vsphere.conf")
+	}
+}
+
+func ConfigFromEnvOrVCSim(ctx context.Context, vcsimParams VcsimParams, isTopologyEnv bool) (*config.Config, func()) {
+	cfg := &config.Config{}
+	if err := config.FromEnv(ctx, cfg); err != nil {
+		return configFromVCSim(vcsimParams, isTopologyEnv)
+	}
+	return cfg, func() {}
 }
