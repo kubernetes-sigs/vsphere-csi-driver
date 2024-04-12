@@ -104,8 +104,7 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		username := vsphereCfg.Global.User
 		currentPassword := vsphereCfg.Global.Password
 		newPassword := e2eTestPassword
-		err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, newPassword, vcAddress,
-			false, clientIndex)
+		err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, newPassword, vcAddress, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Modifying the password in the secret")
@@ -120,7 +119,7 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 
 		defer func() {
 			ginkgo.By("Reverting the password change")
-			err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, currentPassword, vcAddress, false,
+			err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, currentPassword, vcAddress,
 				clientIndex)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

@@ -2153,8 +2153,8 @@ func writeToFile(filePath, data string) error {
 // invokeVCenterChangePassword invokes `dir-cli password reset` command on the
 // given vCenter host over SSH, thereby resetting the currentPassword of the
 // `user` to the `newPassword`.
-func invokeVCenterChangePassword(ctx context.Context, user, adminPassword, newPassword, host string,
-	isMultiVcSetup bool, clientIndex int) error {
+func invokeVCenterChangePassword(ctx context.Context, user, adminPassword, newPassword,
+	host string, clientIndex int) error {
 	var copyCmd string
 	var removeCmd string
 	// Create an input file and write passwords into it.
@@ -2169,7 +2169,7 @@ func invokeVCenterChangePassword(ctx context.Context, user, adminPassword, newPa
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 	// Remote copy this input file to VC.
-	if !isMultiVcSetup {
+	if !multivc {
 		copyCmd = fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'",
 			path, e2eVSphere.Config.Global.VCenterHostname)
 	} else {
@@ -2182,7 +2182,7 @@ func invokeVCenterChangePassword(ctx context.Context, user, adminPassword, newPa
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		// Remove the input_copy.txt file from VC.
-		if !isMultiVcSetup {
+		if !multivc {
 			removeCmd = fmt.Sprintf("/usr/bin/ssh root@%s '/usr/bin/rm input_copy.txt'",
 				e2eVSphere.Config.Global.VCenterHostname)
 		} else {
@@ -4968,7 +4968,7 @@ which PV is provisioned.
 func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Context,
 	client clientset.Interface, statefulset *appsv1.StatefulSet, namespace string,
 	allowedTopologies []v1.TopologySelectorLabelRequirement,
-	parallelStatefulSetCreation bool, isMultiVcSetup bool) error {
+	parallelStatefulSetCreation bool) error {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	var ssPodsBeforeScaleDown *v1.PodList
 	var err error
@@ -5030,7 +5030,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 				}
 
 				// Verify the attached volume match the one in CNS cache
-				if !isMultiVcSetup {
+				if !multivc {
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					if err != nil {
@@ -5131,8 +5131,7 @@ and later verifies that after scale down operation volume gets detached from the
 and returns nil if no error found
 */
 func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
-	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool,
-	isMultiVcSetup bool) error {
+	statefulset *appsv1.StatefulSet, namespace string, replicas int32, parallelStatefulSetCreation bool) error {
 	ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleDown *v1.PodList
 	var err error
@@ -5162,7 +5161,7 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
 						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-						if !isMultiVcSetup {
+						if !multivc {
 							isDiskDetached, detachErr := e2eVSphere.waitForVolumeDetachedFromNode(
 								client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
 							if detachErr != nil {
@@ -5198,7 +5197,7 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 		}
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
-				if !isMultiVcSetup {
+				if !multivc {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
@@ -5226,7 +5225,7 @@ and returns nil if no error found
 */
 func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 	statefulset *appsv1.StatefulSet, namespace string, replicas int32,
-	parallelStatefulSetCreation bool, isMultiVcSetup bool) error {
+	parallelStatefulSetCreation bool) error {
 	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
 	var ssPodsAfterScaleUp *v1.PodList
 	var err error
@@ -5291,7 +5290,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 					if !exists {
 						return fmt.Errorf("pod doesn't have %s annotation", vmUUIDLabel)
 					}
-					if !isMultiVcSetup {
+					if !multivc {
 						_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 						if err != nil {
 							return err
@@ -5303,13 +5302,15 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 						}
 					}
 				}
-				if !isMultiVcSetup {
-					isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
-					if err != nil {
-						return err
-					}
-					if !isDiskAttached {
-						return fmt.Errorf("disk is not attached to the node")
+				if !multivc {
+					if !rwxAccessMode {
+						isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+						if err != nil {
+							return err
+						}
+						if !isDiskAttached {
+							return fmt.Errorf("disk is not attached to the node")
+						}
 					}
 					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
@@ -5317,13 +5318,14 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 						return err
 					}
 				} else {
-					isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(client,
-						pv.Spec.CSI.VolumeHandle, vmUUID)
-					if err != nil {
-						return err
-					}
-					if !isDiskAttached {
-						return fmt.Errorf("disk is not attached to the node")
+					if !rwxAccessMode {
+						isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(pv.Spec.CSI.VolumeHandle, vmUUID)
+						if err != nil {
+							return err
+						}
+						if !isDiskAttached {
+							return fmt.Errorf("disk is not attached to the node")
+						}
 					}
 					err = verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
@@ -5440,7 +5442,7 @@ PV is provisioned.
 func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Context,
 	client clientset.Interface, deployment *appsv1.Deployment, namespace string,
 	allowedTopologies []v1.TopologySelectorLabelRequirement,
-	parallelDeplCreation bool, isMultiVcSetup bool) error {
+	parallelDeplCreation bool) error {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	var pods *v1.PodList
 	var err error
@@ -5508,7 +5510,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Co
 				}
 
 				// Verify the attached volume match the one in CNS cache
-				if !isMultiVcSetup {
+				if !multivc {
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					if err != nil {
@@ -5538,7 +5540,7 @@ is provisioned.
 */
 func verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx context.Context,
 	client clientset.Interface, pod *v1.Pod, namespace string,
-	allowedTopologies []v1.TopologySelectorLabelRequirement, isMultiVcSetup bool) error {
+	allowedTopologies []v1.TopologySelectorLabelRequirement) error {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	for _, volumespec := range pod.Spec.Volumes {
 		if volumespec.PersistentVolumeClaim != nil {
@@ -5580,7 +5582,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx context.Con
 			}
 
 			// Verify the attached volume matches the one in CNS cache
-			if !isMultiVcSetup {
+			if !multivc {
 				err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 					volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
 				if err != nil {

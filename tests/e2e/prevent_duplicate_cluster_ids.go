@@ -187,7 +187,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
 		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode, false)
+			false, 0, "", accessMode)
 		replicas := *(statefulset.Spec.Replicas)
 
 		defer func() {
@@ -345,7 +345,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
 		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode, false)
+			false, 0, "", accessMode)
 		replicas := *(statefulset.Spec.Replicas)
 
 		defer func() {
@@ -503,7 +503,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
 		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode, false)
+			false, 0, "", accessMode)
 		replicas := *(statefulset.Spec.Replicas)
 
 		defer func() {
@@ -757,7 +757,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
 		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode, false)
+			false, 0, "", accessMode)
 		replicas := *(statefulset.Spec.Replicas)
 
 		defer func() {
@@ -864,7 +864,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
 		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode, false)
+			false, 0, "", accessMode)
 		replicas := *(statefulset.Spec.Replicas)
 
 		defer func() {

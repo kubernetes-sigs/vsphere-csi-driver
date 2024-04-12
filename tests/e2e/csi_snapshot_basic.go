@@ -251,7 +251,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -381,7 +381,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		snapshotId := strings.Split(snapshothandle, "+")[1]
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Creating volume snapshot content by snapshotHandle %s", snapshothandle))
@@ -517,7 +517,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		snapshotHandle := volHandle + "+" + snapshotId
@@ -687,7 +687,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		snapshotId := strings.Split(snapshothandle, "+")[1]
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ns, err := framework.CreateTestingNS(ctx, f.BaseName, client, labels_ns)
@@ -871,7 +871,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		snapshotId := strings.Split(snapshothandle, "+")[1]
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Deleting volume snapshot 1 " + snapshot1.Name)
@@ -887,7 +887,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify snapshot entry is deleted from CNS")
-		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId, false)
+		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify volume snapshot content is not deleted")
@@ -1018,7 +1018,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		snapshotId := strings.Split(snapshothandle, "+")[1]
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Creating volume snapshot content by snapshotHandle %s", snapshothandle))
@@ -1208,7 +1208,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		snapshotId3 := strings.Split(snapshothandle3, "+")[1]
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle2, snapshotId3, false)
+		err = verifySnapshotIsCreatedInCNS(volHandle2, snapshotId3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleted volume snapshot is created above")
@@ -1240,7 +1240,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		snapshotContentCreated = false
 
 		ginkgo.By("Verify snapshot entry is deleted from CNS")
-		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId, false)
+		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -1368,7 +1368,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -1520,7 +1520,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -1697,7 +1697,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		if guestCluster {
 			framework.Logf("Get volume snapshot handle from Supervisor Cluster")
-			staticSnapshotId, _, svcVolumeSnapshotName, err = getSnapshotHandleFromSupervisorCluster(ctx, volumeSnapshotClass,
+			staticSnapshotId, _, svcVolumeSnapshotName, err = getSnapshotHandleFromSupervisorCluster(ctx,
 				*snapshotContent.Status.SnapshotHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("svcVolumeSnapshotName: %s", svcVolumeSnapshotName)
@@ -1749,7 +1749,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else if guestCluster {
 			framework.Logf("Delete VolumeSnapshotContent from Guest Cluster explicitly")
-			err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, newNamespaceName, pandoraSyncWaitTime)
+			err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -1861,7 +1861,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			snapshotContentCreated = false
 
 			ginkgo.By("Verify snapshot entry is deleted from CNS")
-			err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId, false)
+			err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else if guestCluster {
 			framework.Logf("Deleting volume snapshot 2: %s", volumeSnapshot2.Name)
@@ -1934,7 +1934,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -2049,7 +2049,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -2130,7 +2130,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -2359,12 +2359,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			snapshotId1 = strings.Split(snapshothandle1, "+")[1]
 
 			ginkgo.By("Query CNS and check the volume snapshot entry")
-			err = verifySnapshotIsCreatedInCNS(volHandle1, snapshotId1, false)
+			err = verifySnapshotIsCreatedInCNS(volHandle1, snapshotId1)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		} else if guestCluster {
 			snapshothandle1 := *snapshotContent1.Status.SnapshotHandle
-			snapshotId1, _, _, err = getSnapshotHandleFromSupervisorCluster(ctx, volumeSnapshotClass,
+			snapshotId1, _, _, err = getSnapshotHandleFromSupervisorCluster(ctx,
 				snapshothandle1)
 		}
 
@@ -2411,12 +2411,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			snapshotId2 = strings.Split(snapshothandle2, "+")[1]
 
 			ginkgo.By("Query CNS and check the volume snapshot entry")
-			err = verifySnapshotIsCreatedInCNS(volHandle2, snapshotId2, false)
+			err = verifySnapshotIsCreatedInCNS(volHandle2, snapshotId2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		} else if guestCluster {
 			snapshothandle2 := *snapshotContent2.Status.SnapshotHandle
-			snapshotId2, _, _, err = getSnapshotHandleFromSupervisorCluster(ctx, volumeSnapshotClass,
+			snapshotId2, _, _, err = getSnapshotHandleFromSupervisorCluster(ctx,
 				snapshothandle2)
 		}
 
@@ -2528,7 +2528,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		if !guestCluster {
 			ginkgo.By("Verify snapshot 1 entry is deleted from CNS")
-			err = verifySnapshotIsDeletedInCNS(volHandle1, snapshotId1, false)
+			err = verifySnapshotIsDeletedInCNS(volHandle1, snapshotId1)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2536,7 +2536,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			}
 
 			ginkgo.By("Verify snapshot 2 entry is deleted from CNS")
-			err = verifySnapshotIsDeletedInCNS(volHandle2, snapshotId2, false)
+			err = verifySnapshotIsDeletedInCNS(volHandle2, snapshotId2)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2611,7 +2611,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -2717,7 +2717,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -2835,7 +2835,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		snapshotHandle := volHandle + "+" + snapshotId
@@ -2994,7 +2994,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		snapshotHandle := volHandle + "+" + snapshotId
@@ -3155,7 +3155,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -3326,7 +3326,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			pvclaim, volHandle, newDiskSize, true)
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -3520,7 +3520,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			pvclaim, volHandle, newDiskSize, true)
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -3710,7 +3710,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		snapshotId := strings.Split(snapshothandle, "+")[1]
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Identify the host on which the PV resides")
@@ -4090,7 +4090,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		snapshotId := strings.Split(snapshothandle, "+")[1]
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Fetching the username and password of the current vcenter session from secret")
@@ -4107,8 +4107,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		originalPassword := vsphereCfg.Global.Password
 		newPassword := e2eTestPassword
 		ginkgo.By(fmt.Sprintf("Original password %s, new password %s", originalPassword, newPassword))
-		err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, newPassword, vcAddress,
-			false, clientIndex)
+		err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, newPassword, vcAddress, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVCPasswordChanged := true
 
@@ -4116,7 +4115,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			if originalVCPasswordChanged {
 				ginkgo.By("Reverting the password change")
 				err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, originalPassword,
-					vcAddress, false, clientIndex)
+					vcAddress, clientIndex)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -4188,12 +4187,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		snapshotId3 := strings.Split(snapshothandle3, "+")[1]
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId3, false)
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Reverting the password change")
 		err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, originalPassword,
-			vcAddress, false, clientIndex)
+			vcAddress, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVCPasswordChanged = false
 
@@ -4405,13 +4404,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			volumeSnapshotContents = append(volumeSnapshotContents, snapshotContent)
 
 			framework.Logf("Get volume snapshot ID from snapshot handle")
-			snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, snapshotContent, volumeSnapshotClass,
-				volHandle)
+			snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, snapshotContent)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("snapshot Id: %s", snapshotId)
 
 			ginkgo.By("Query CNS and check the volume snapshot entry")
-			err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+			err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -4476,8 +4474,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		for i := 0; i < snapshotOpsScale; i++ {
 			framework.Logf("Get volume snapshot ID from snapshot handle")
-			snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, volumeSnapshotContents[i], volumeSnapshotClass,
-				volHandle)
+			snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, volumeSnapshotContents[i])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Get(ctx,
@@ -4589,7 +4586,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			snapshotId := strings.Split(snapshothandle, "+")[1]
 
 			ginkgo.By("Query CNS and check the volume snapshot entry")
-			err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+			err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -4684,7 +4681,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			snapshotId := strings.Split(snapshothandle, "+")[1]
 
 			ginkgo.By("Query CNS and check the volume snapshot entry")
-			err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+			err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -4816,7 +4813,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -5141,14 +5138,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			}
 
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
 		framework.Logf("Get volume snapshot handle from Supervisor Cluster")
 		snapshotId, _, svcVolumeSnapshotName, err := getSnapshotHandleFromSupervisorCluster(ctx,
-			volumeSnapshotClass, *snapshotContent.Status.SnapshotHandle)
+			*snapshotContent.Status.SnapshotHandle)
 
 		ginkgo.By("Create pre-provisioned snapshot")
 		_, staticSnapshot, staticSnapshotContentCreated,
@@ -5253,7 +5250,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -5290,7 +5287,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		framework.Logf("Get volume snapshot handle from Supervisor Cluster")
-		_, _, svcVolumeSnapshotName, err := getSnapshotHandleFromSupervisorCluster(ctx, volumeSnapshotClass,
+		_, _, svcVolumeSnapshotName, err := getSnapshotHandleFromSupervisorCluster(ctx,
 			*snapshotContent.Status.SnapshotHandle)
 
 		ginkgo.By("Create pre-provisioned snapshot in Guest Cluster")
@@ -5445,7 +5442,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -5462,7 +5459,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		framework.Logf("Get volume snapshot handle from Supervisor Cluster")
 		staticSnapshotId, _, svcVolumeSnapshotName, err := getSnapshotHandleFromSupervisorCluster(ctx,
-			volumeSnapshotClass, *snapshotContent.Status.SnapshotHandle)
+			*snapshotContent.Status.SnapshotHandle)
 
 		ginkgo.By("Create pre-provisioned snapshot")
 		_, staticSnapshot, staticSnapshotContentCreated,
@@ -5579,7 +5576,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -5595,7 +5592,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		framework.Logf("Get volume snapshot handle from Supervisor Cluster")
-		snapshotId, _, svcVolumeSnapshotName, err := getSnapshotHandleFromSupervisorCluster(ctx, volumeSnapshotClass,
+		snapshotId, _, svcVolumeSnapshotName, err := getSnapshotHandleFromSupervisorCluster(ctx,
 			*snapshotContent.Status.SnapshotHandle)
 
 		ginkgo.By("Create Pre-provisioned snapshot in Guest Cluster")
@@ -5608,7 +5605,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
 
 		framework.Logf("Delete VolumeSnapshotContent from Guest Cluster explicitly")
-		err = deleteVolumeSnapshotContent(ctx, updatedSnapshotContent, snapc, namespace, pandoraSyncWaitTime)
+		err = deleteVolumeSnapshotContent(ctx, updatedSnapshotContent, snapc, pandoraSyncWaitTime)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Creating static VolumeSnapshotContent in Guest Cluster using "+
@@ -5879,7 +5876,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 				framework.Logf("Deleting volume snapshot content")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = deleteVolumeSnapshotContent(ctx, snapshotContentFromRestoreVol,
-					snapc, namespace, pandoraSyncWaitTime)
+					snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -5980,7 +5977,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defer func() {
 			if snapshotContentCreated {
 				framework.Logf("Deleting volume snapshot content")
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -6226,7 +6223,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defer func() {
 			if snapshotContentCreated {
 				framework.Logf("Deleting volume snapshot content")
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -6420,7 +6417,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -6496,7 +6493,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated1 {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent1, snapc, namespace, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent1, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -6866,7 +6863,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		framework.Logf("Get volume snapshot handle from Supervisor Cluster")
-		_, _, svcVolumeSnapshotName, err := getSnapshotHandleFromSupervisorCluster(ctx, volumeSnapshotClass,
+		_, _, svcVolumeSnapshotName, err := getSnapshotHandleFromSupervisorCluster(ctx,
 			*snapshotContent.Status.SnapshotHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -7257,21 +7254,19 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			volumeSnapshotContents = append(volumeSnapshotContents, snapshotContent)
 
 			framework.Logf("Get volume snapshot ID from snapshot handle")
-			snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, snapshotContent, volumeSnapshotClass,
-				volHandle)
+			snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, snapshotContent)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("snapshot Id: %s", snapshotId)
 
 			ginkgo.By("Query CNS and check the volume snapshot entry")
-			err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
+			err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		}
 
 		for i := 0; i < 33; i++ {
 			framework.Logf("Get volume snapshot ID from snapshot handle")
-			snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, volumeSnapshotContents[i], volumeSnapshotClass,
-				volHandle)
+			snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, volumeSnapshotContents[i])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Deleted volume snapshot is created above")
 			framework.Logf("VolumeSnapshot Name to be deleted: %s", volumeSnapshots[i].Name)
@@ -7283,7 +7278,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verify snapshot entry is deleted from CNS")
-			err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId, false)
+			err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
@@ -7362,7 +7357,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			}
 
 			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace1.Name, pandoraSyncWaitTime)
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -7403,14 +7398,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Create pre-provisioned on GC2")
 		framework.Logf("Get volume snapshot handle from Supervisor Cluster")
 		snapshotId, _, svcVolumeSnapshotName, err := getSnapshotHandleFromSupervisorCluster(ctx,
-			volumeSnapshotClass, *snapshotContent.Status.SnapshotHandle)
+			*snapshotContent.Status.SnapshotHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Delete dynamic volume snapshot created in GC1")
 		deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
 
 		framework.Logf("Delete VolumeSnapshotContent from GC1 explicitly")
-		err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, namespace, pandoraSyncWaitTime)
+		err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf(fmt.Sprintf("Creating static VolumeSnapshotContent in GC2 using "+

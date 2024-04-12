@@ -214,7 +214,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-replica] Multi-VC-Replica", func() {
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-				statefulSets[i], namespace, allowedTopologies, parallelStatefulSetCreation, true)
+				statefulSets[i], namespace, allowedTopologies, parallelStatefulSetCreation)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 

@@ -905,12 +905,28 @@ func waitForCnsVSphereVolumeMigrationCrdToBeDeleted(ctx context.Context,
 // verifyCnsVolumeMetadata verify the pv, pvc, pod information on given cns volume
 func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 	pv *v1.PersistentVolume, pod *v1.Pod) bool {
+	var cnsQueryResult *cnstypes.CnsQueryResult
+	var err error
 	refferedEntityCheck := true
-	if e2eVSphere.Client.Version == cns.ReleaseVSAN67u3 {
-		refferedEntityCheck = false
+	if !multivc {
+		if e2eVSphere.Client.Version == cns.ReleaseVSAN67u3 {
+			refferedEntityCheck = false
+		}
+	} else {
+		for _, client := range multiVCe2eVSphere.multiVcClient {
+			if client.Version == cns.ReleaseVSAN67u3 {
+				refferedEntityCheck = false
+			}
+		}
+
 	}
-	cnsQueryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if !multivc {
+		cnsQueryResult, err = e2eVSphere.queryCNSVolumeWithResult(volumeID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		cnsQueryResult, err = multiVCe2eVSphere.queryCNSVolumeWithResultInMultiVC(volumeID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 	if cnsQueryResult.Volumes == nil || len(cnsQueryResult.Volumes) == 0 {
 		framework.Logf("CNS volume query yielded no results for volume id: " + volumeID)
 		return false

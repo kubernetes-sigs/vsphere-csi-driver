@@ -72,7 +72,6 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		topkeyStartIndex            int
 		scParameters                map[string]string
 		storagePolicyInVc1Vc2       string
-		allowedTopologyLen          int
 		parallelPodPolicy           bool
 		nodeAffinityToSet           bool
 		podAntiAffinityToSet        bool
@@ -137,7 +136,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		// fetching list of datastores available in different VCs
 		ClusterdatastoreListVc1, ClusterdatastoreListVc2,
 			ClusterdatastoreListVc3, err = getDatastoresListFromMultiVCs(masterIp, sshClientConfig,
-			clusterComputeResource[0], true)
+			clusterComputeResource[0])
 		ClusterdatastoreListVc = append(ClusterdatastoreListVc, ClusterdatastoreListVc1,
 			ClusterdatastoreListVc2, ClusterdatastoreListVc3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -164,7 +163,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		csiReplicas = *csiDeployment.Spec.Replicas
 
 		//set preferred datatsore time interval
-		setPreferredDatastoreTimeInterval(client, ctx, csiNamespace, csiReplicas, true)
+		setPreferredDatastoreTimeInterval(client, ctx, csiNamespace, csiReplicas)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -178,12 +177,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		framework.Logf("Perform preferred datastore tags cleanup after test completion")
-		err = deleteTagCreatedForPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks,
-			true)
+		err = deleteTagCreatedForPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Recreate preferred datastore tags post cleanup")
-		err = createTagForPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks, true)
+		err = createTagForPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -232,7 +230,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		ginkgo.By("Tag preferred datastore for volume provisioning in VC1 and VC2")
 		for i := 0; i < 2; i++ {
 			paths, err := tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologies[0].Values[i],
-				preferredDatastoreChosen, ClusterdatastoreListVc[i], nil, true, i)
+				preferredDatastoreChosen, ClusterdatastoreListVc[i], nil, i)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			preferredDatastorePaths = append(preferredDatastorePaths, paths...)
@@ -281,21 +279,21 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulSets[i],
-				namespace, allowedTopologies, parallelStatefulSetCreation, true)
+				namespace, allowedTopologies, parallelStatefulSetCreation)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		for i := 0; i < len(statefulSets); i++ {
 			err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulSets[i], namespace,
-				preferredDatastorePaths, nil, true, true, true, dsUrls)
+				preferredDatastorePaths, nil, true, true, dsUrls)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		ginkgo.By("Remove preferred datatsore tag which is chosen for volume provisioning")
 		for i := 0; i < len(preferredDatastorePaths); i++ {
 			err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[i],
-				allowedTopologies[0].Values[i], true, i)
+				allowedTopologies[0].Values[i], i)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -303,7 +301,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		ginkgo.By("Tag new preferred datastore for volume provisioning in VC1 and VC2")
 		for i := 0; i < 2; i++ {
 			paths, err := tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologies[0].Values[i],
-				preferredDatastoreChosen, ClusterdatastoreListVc[i], preferredDatastorePaths, true, i)
+				preferredDatastoreChosen, ClusterdatastoreListVc[i], preferredDatastorePaths, i)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			preferredDatastorePathsNew = append(preferredDatastorePathsNew, paths...)
@@ -320,7 +318,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 			ginkgo.By("Remove preferred datastore tag")
 			for i := 0; i < len(preferredDatastorePathsNew); i++ {
 				err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePathsNew[i],
-					allowedTopologies[0].Values[i], true, i)
+					allowedTopologies[0].Values[i], i)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -337,7 +335,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		for i := 0; i < len(statefulSets); i++ {
 			err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulSets[i], namespace,
-				preferredDatastorePaths, nil, true, true, true, dsUrls)
+				preferredDatastorePaths, nil, true, true, dsUrls)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
@@ -419,7 +417,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		ginkgo.By("Tag preferred datastore for volume provisioning in VC1")
 		preferredDatastorePaths, err := tagPreferredDatastore(masterIp, sshClientConfig,
 			allowedTopologies[0].Values[0],
-			preferredDatastoreChosen, ClusterdatastoreListVc[0], nil, true, multiVcClientIndex)
+			preferredDatastoreChosen, ClusterdatastoreListVc[0], nil, multiVcClientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pathsLen := len(preferredDatastorePaths)
 		for j := 0; j < pathsLen; j++ {
@@ -431,7 +429,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 			ginkgo.By("Remove preferred datastore tag")
 			for i := 0; i < len(preferredDatastorePaths); i++ {
 				err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[i],
-					allowedTopologies[0].Values[0], true, i)
+					allowedTopologies[0].Values[0], i)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -442,8 +440,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
-			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen,
-			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", "", sc, verifyTopologyAffinity)
+			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies,
+			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", sc, verifyTopologyAffinity)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
@@ -452,7 +450,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace,
-			preferredDatastorePaths, nil, false, false, true, dsUrls)
+			preferredDatastorePaths, nil, false, false, dsUrls)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Rebooting VC")
@@ -480,7 +478,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
 		err = verifyVolumeProvisioningForStatefulSet(ctx, client, statefulset, namespace,
-			preferredDatastorePaths, nil, false, false, true, dsUrls)
+			preferredDatastorePaths, nil, false, false, dsUrls)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -531,7 +529,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		ginkgo.By("Tag preferred datastore for volume provisioning in VC3")
 		preferredDatastorePaths, err = tagPreferredDatastore(masterIp, sshClientConfig,
 			allowedTopologies[0].Values[0],
-			preferredDatastoreChosen, ClusterdatastoreListVc[2], nil, true, multiVcClientIndex)
+			preferredDatastoreChosen, ClusterdatastoreListVc[2], nil, multiVcClientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pathsLen := len(preferredDatastorePaths)
 		for j := 0; j < pathsLen; j++ {
@@ -542,7 +540,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		defer func() {
 			ginkgo.By("Remove preferred datastore tag")
 			err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
-				allowedTopologies[0].Values[0], true, multiVcClientIndex)
+				allowedTopologies[0].Values[0], multiVcClientIndex)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -582,11 +580,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 
 		ginkgo.By("Create volume snapshot class, volume snapshot")
 		volumeSnapshot, volumeSnapshotClass, snapshotId := createSnapshotClassAndVolSnapshot(ctx, snapc, namespace,
-			pvclaim, volHandle, false, true)
+			pvclaim, volHandle, false)
 		defer func() {
 			ginkgo.By("Perform cleanup of snapshot created")
 			performCleanUpForSnapshotCreated(ctx, snapc, namespace, volHandle, volumeSnapshot, snapshotId,
-				volumeSnapshotClass, pandoraSyncWaitTime, true)
+				volumeSnapshotClass, pandoraSyncWaitTime)
 		}()
 
 		ginkgo.By("Create PVC from snapshot")
@@ -626,13 +624,13 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
-		verifyVolumeProvisioningForStandalonePods(ctx, client, pod, namespace, preferredDatastorePaths,
-			ClusterdatastoreListVc[2], true, dsUrls)
+		verifyVolumeProvisioningForStandalonePods(client, pod, preferredDatastorePaths,
+			ClusterdatastoreListVc[2], dsUrls)
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod,
-			namespace, allowedTopologies, true)
+			namespace, allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -678,7 +676,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		ginkgo.By("Tag preferred datastore for volume provisioning in VC3")
 		preferredDatastorePaths, err = tagPreferredDatastore(masterIp, sshClientConfig,
 			allowedTopologies[0].Values[0],
-			preferredDatastoreChosen, ClusterdatastoreListVc[2], nil, true, multiVcClientIndex)
+			preferredDatastoreChosen, ClusterdatastoreListVc[2], nil, multiVcClientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pathsLen := len(preferredDatastorePaths)
 		for j := 0; j < pathsLen; j++ {
@@ -689,7 +687,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		defer func() {
 			ginkgo.By("Remove preferred datastore tag")
 			err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
-				allowedTopologies[0].Values[0], true, multiVcClientIndex)
+				allowedTopologies[0].Values[0], multiVcClientIndex)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -746,19 +744,19 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 
 		// verifying volume provisioning
 		ginkgo.By("Verify volume is provisioned on the preferred datatsore")
-		verifyVolumeProvisioningForStandalonePods(ctx, client, pod, namespace, preferredDatastorePaths,
-			ClusterdatastoreListVc[2], true, dsUrls)
+		verifyVolumeProvisioningForStandalonePods(client, pod, preferredDatastorePaths,
+			ClusterdatastoreListVc[2], dsUrls)
 
 		ginkgo.By("Remove preferred datastore tag chosen for volume provisioning")
 		err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
-			allowedTopologyRacks[2], true, multiVcClientIndex)
+			allowedTopologyRacks[2], multiVcClientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// choose preferred datastore
 		ginkgo.By("Tag preferred datastore for volume provisioning in VC3")
 		preferredDatastorePaths, err = tagPreferredDatastore(masterIp, sshClientConfig,
 			allowedTopologies[0].Values[0], preferredDatastoreChosen, ClusterdatastoreListVc[2],
-			preferredDatastorePaths, true, multiVcClientIndex)
+			preferredDatastorePaths, multiVcClientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Waiting for %v for preferred datastore to get refreshed in the environment",
@@ -767,11 +765,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 
 		ginkgo.By("Create volume snapshot class, volume snapshot")
 		volumeSnapshot, volumeSnapshotClass, snapshotId := createSnapshotClassAndVolSnapshot(ctx, snapc, namespace,
-			pvclaim, volHandle, false, true)
+			pvclaim, volHandle, false)
 		defer func() {
 			ginkgo.By("Perform cleanup of snapshot created")
 			performCleanUpForSnapshotCreated(ctx, snapc, namespace, volHandle, volumeSnapshot, snapshotId,
-				volumeSnapshotClass, pandoraSyncWaitTime, true)
+				volumeSnapshotClass, pandoraSyncWaitTime)
 		}()
 
 		ginkgo.By("Create PVC from snapshot")

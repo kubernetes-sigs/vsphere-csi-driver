@@ -172,7 +172,7 @@ func waitForCNSSnapshotToBeDeleted(volumeId string, snapshotId string) error {
 	var err error
 	waitErr := wait.PollUntilContextTimeout(context.Background(), poll, pollTimeout, true,
 		func(ctx context.Context) (bool, error) {
-			err = verifySnapshotIsDeletedInCNS(volumeId, snapshotId, false)
+			err = verifySnapshotIsDeletedInCNS(volumeId, snapshotId)
 			if err != nil {
 				if strings.Contains(err.Error(), "snapshot entry is still present") {
 					return false, nil
@@ -249,7 +249,7 @@ func createSnapshotInParallel(ctx context.Context, namespace string,
 
 // getSnapshotHandleFromSupervisorCluster fetches the SnapshotHandle from Supervisor Cluster
 func getSnapshotHandleFromSupervisorCluster(ctx context.Context,
-	volumeSnapshotClass *snapV1.VolumeSnapshotClass, snapshothandle string) (string, string, string, error) {
+	snapshothandle string) (string, string, string, error) {
 	var snapc *snapclient.Clientset
 	var err error
 	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
@@ -322,7 +322,7 @@ func deleteVolumeSnapshot(ctx context.Context, snapc *snapclient.Clientset, name
 	}
 
 	framework.Logf("Verify snapshot entry is deleted from CNS")
-	err = verifySnapshotIsDeletedInCNS(volHandle, snapshotID, false)
+	err = verifySnapshotIsDeletedInCNS(volHandle, snapshotID)
 	if err != nil {
 		return snapshotCreated, snapshotContentCreated, err
 	}
@@ -334,8 +334,8 @@ func deleteVolumeSnapshot(ctx context.Context, snapc *snapclient.Clientset, name
 }
 
 // getVolumeSnapshotIdFromSnapshotHandle fetches VolumeSnapshotId From SnapshotHandle
-func getVolumeSnapshotIdFromSnapshotHandle(ctx context.Context, snapshotContent *snapV1.VolumeSnapshotContent,
-	volumeSnapshotClass *snapV1.VolumeSnapshotClass, volHandle string) (string, error) {
+func getVolumeSnapshotIdFromSnapshotHandle(ctx context.Context,
+	snapshotContent *snapV1.VolumeSnapshotContent) (string, error) {
 	var snapshotID string
 	var err error
 	if vanillaCluster {
@@ -343,7 +343,7 @@ func getVolumeSnapshotIdFromSnapshotHandle(ctx context.Context, snapshotContent 
 		snapshotID = strings.Split(snapshotHandle, "+")[1]
 	} else if guestCluster {
 		snapshotHandle := *snapshotContent.Status.SnapshotHandle
-		snapshotID, _, _, err = getSnapshotHandleFromSupervisorCluster(ctx, volumeSnapshotClass, snapshotHandle)
+		snapshotID, _, _, err = getSnapshotHandleFromSupervisorCluster(ctx, snapshotHandle)
 		if err != nil {
 			return "", err
 		}
@@ -432,8 +432,7 @@ func createDynamicVolumeSnapshot(ctx context.Context, namespace string,
 	}
 
 	framework.Logf("Get volume snapshot ID from snapshot handle")
-	snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, snapshotContent, volumeSnapshotClass,
-		volHandle)
+	snapshotId, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, snapshotContent)
 	if err != nil {
 		return nil, nil, false, false, "", err
 	}
@@ -522,7 +521,7 @@ func changeDeletionPolicyOfVolumeSnapshotContent(ctx context.Context,
 
 /* deleteVolumeSnapshotContent deletes volume snapshot content explicitly  on Guest cluster */
 func deleteVolumeSnapshotContent(ctx context.Context, updatedSnapshotContent *snapV1.VolumeSnapshotContent,
-	snapc *snapclient.Clientset, namespace string, pandoraSyncWaitTime int) error {
+	snapc *snapclient.Clientset, pandoraSyncWaitTime int) error {
 
 	framework.Logf("Delete volume snapshot content")
 	deleteVolumeSnapshotContentWithPandoraWait(ctx, snapc, updatedSnapshotContent.Name, pandoraSyncWaitTime)
@@ -555,7 +554,7 @@ func createPreProvisionedSnapshotInGuestCluster(ctx context.Context, volumeSnaps
 	deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
 
 	framework.Logf("Delete VolumeSnapshotContent from Guest Cluster explicitly")
-	err = deleteVolumeSnapshotContent(ctx, updatedSnapshotContent, snapc, namespace, pandoraSyncWaitTime)
+	err = deleteVolumeSnapshotContent(ctx, updatedSnapshotContent, snapc, pandoraSyncWaitTime)
 	if err != nil {
 		return nil, nil, false, false, fmt.Errorf("failed to delete VolumeSnapshotContent: %v", err)
 	}
@@ -724,7 +723,7 @@ func waitForCNSSnapshotToBeCreated(volumeId string, snapshotId string) error {
 	var err error
 	waitErr := wait.PollUntilContextTimeout(context.Background(), poll, pollTimeout*2, true,
 		func(ctx context.Context) (bool, error) {
-			err = verifySnapshotIsCreatedInCNS(volumeId, snapshotId, false)
+			err = verifySnapshotIsCreatedInCNS(volumeId, snapshotId)
 			if err != nil {
 				if strings.Contains(err.Error(), "snapshot entry is not present in CNS") {
 					return false, nil
