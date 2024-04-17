@@ -2438,4 +2438,98 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 	})
 
+	// Only for testing use.
+
+	ginkgo.It("[csi-supervisor] create-FCD", func() {
+
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		curtime := time.Now().Unix()
+		curtimeinstring := strconv.FormatInt(curtime, 10)
+		pvcName := "cns-pvc-" + curtimeinstring
+		framework.Logf("pvc name :%s", pvcName)
+		namespace = getNamespaceToRunTests(f)
+
+		_, _, profileID := staticProvisioningPreSetUpUtil(ctx)
+
+		ginkgo.By("Creating FCD Disk")
+		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
+			"staticfcd"+curtimeinstring, profileID, diskSizeInMb, defaultDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("FCD ID: %s", fcdID)
+		deleteFCDRequired = false
+	})
+
+	ginkgo.It("[csi-supervisor] static-provisioning-test", func() {
+
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		curtime := time.Now().Unix()
+		curtimeinstring := strconv.FormatInt(curtime, 10)
+		pvcName := "cns-pvc-" + curtimeinstring
+		framework.Logf("pvc name :%s", pvcName)
+		namespace = getNamespaceToRunTests(f)
+
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx)
+
+		ginkgo.By("Creating FCD Disk")
+		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
+			"staticfcd"+curtimeinstring, profileID, diskSizeInMb, defaultDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("FCD ID: %s", fcdID)
+		deleteFCDRequired = false
+
+		ginkgo.By("Create CNS register volume with above created FCD")
+		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteOnce)
+		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("waiting for some time for FCD to register in CNS and for cnsRegisterVolume to get create")
+		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
+			restConfig, namespace, cnsRegisterVolume, poll, pollTimeout))
+		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+		framework.Logf("CNS register volume name : %s", cnsRegisterVolumeName)
+
+		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
+		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pv := getPvFromClaim(client, namespace, pvcName)
+		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
+
+		ginkgo.By("Creating pod")
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		podName := pod.GetName
+		framework.Logf("podName: %s", podName)
+
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+		var vmUUID string
+		var exists bool
+		annotations := pod.Annotations
+		vmUUID, exists = annotations[vmUUIDLabel]
+		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+		_, err = e2eVSphere.getVMByUUID(ctx, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// ginkgo.By("Deleting the pod")
+		// err = fpod.DeletePodWithWait(client, pod)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s",
+		// 	pv.Spec.CSI.VolumeHandle, vmUUID))
+		// _, err = e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
+		// gomega.Expect(err).To(gomega.HaveOccurred(),
+		// 	fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
+		// 		vmUUID, pv.Spec.CSI.VolumeHandle))
+
+		// defer func() {
+		// 	testCleanUpUtil(ctx, restConfig, cnsRegisterVolume, namespace, pvc.Name, pv.Name)
+		// }()
+
+	})
+
 })
