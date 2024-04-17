@@ -352,7 +352,7 @@ func createVolumesByReducingProvisionerTime(namespace string, client clientset.I
 		if thickProvPolicy == "" {
 			ginkgo.Skip(envStoragePolicyNameWithThickProvision + " env variable not set")
 		}
-		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
+		//createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		scParameters[svStorageClassName] = thickProvPolicy
 		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, thickProvPolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
@@ -468,7 +468,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		if thickProvPolicy == "" {
 			ginkgo.Skip(envStoragePolicyNameWithThickProvision + " env variable not set")
 		}
-		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
+		//createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		scParameters[svStorageClassName] = thickProvPolicy
 		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, thickProvPolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
@@ -676,7 +676,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		if thickProvPolicy == "" {
 			ginkgo.Skip(envStoragePolicyNameWithThickProvision + " env variable not set")
 		}
-		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
+		//createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		scParameters[svStorageClassName] = thickProvPolicy
 		scParameters[scParamFsType] = ext4FSType
 		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, thickProvPolicy, metav1.GetOptions{})
