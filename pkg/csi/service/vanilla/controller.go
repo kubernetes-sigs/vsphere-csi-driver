@@ -3067,7 +3067,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// sign. That is, a string of "<UUID>+<UUID>". Because, all other CNS snapshot APIs still require both
 		// VolumeID and SnapshotID as the input, while corresponding snapshot APIs in upstream CSI require SnapshotID.
 		// So, we need to bridge the gap in vSphere CSI driver and return a combined SnapshotID to CSI Snapshotter.
-		snapshotID, snapshotCreateTimePtr, err := common.CreateSnapshotUtil(ctx, volumeManager, volumeID, req.Name)
+		snapshotID, snapshotCreateTimePtr, err := common.CreateSnapshotUtil(ctx, volumeManager, volumeID, req.Name, nil)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create snapshot on volume %q: %v", volumeID, err)

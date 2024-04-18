@@ -148,6 +148,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 	isPodVMOnStretchSupervisorFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.PodVMOnStretchedSupervisor)
+
 	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CSIVolumeManagerIdempotency)
 	if idempotencyHandlingEnabled {
@@ -1628,8 +1629,29 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// sign. That is, a string of "<UUID>+<UUID>". Because, all other CNS snapshot APIs still require both
 		// VolumeID and SnapshotID as the input, while corresponding snapshot APIs in upstream CSI require SnapshotID.
 		// So, we need to bridge the gap in vSphere CSI driver and return a combined SnapshotID to CSI Snapshotter.
-		snapshotID, snapshotCreateTimePtr, err := common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
-			volumeID, req.Name)
+		var snapshotID string
+		var snapshotCreateTimePtr *time.Time
+		var cnsVolumeInfo *cnsvolumeinfov1alpha1.CNSVolumeInfo
+		isStorageQuotaM2FSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.StorageQuotaM2)
+		if isStorageQuotaM2FSSEnabled {
+			cnsVolumeInfo, err = volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", volumeID, err)
+			}
+			snapshotID, snapshotCreateTimePtr, err = common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
+				volumeID, req.Name, &cnsvolume.CreateSnapshotExtraParams{
+					StorageClassName:           cnsVolumeInfo.Spec.StorageClassName,
+					StoragePolicyID:            cnsVolumeInfo.Spec.StoragePolicyID,
+					Namespace:                  cnsVolumeInfo.Spec.Namespace,
+					Capacity:                   cnsVolumeInfo.Spec.Capacity,
+					IsStorageQuotaM2FSSEnabled: isStorageQuotaM2FSSEnabled,
+				})
+		} else {
+			snapshotID, snapshotCreateTimePtr, err = common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
+				volumeID, req.Name, nil)
+		}
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create snapshot on volume %q: %v", volumeID, err)

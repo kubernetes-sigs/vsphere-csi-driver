@@ -1034,11 +1034,11 @@ func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int
 // The returned string is a combination of CNS VolumeID and CNS SnapshotID concatenated by the "+" sign.
 // The returned *time.Time denotes the creation time of snapshot from the storage system, i.e., CNS.
 func CreateSnapshotUtil(ctx context.Context, volumeManager cnsvolume.Manager, volumeID string,
-	snapshotName string) (string, *time.Time, error) {
+	snapshotName string, extraParams interface{}) (string, *time.Time, error) {
 	log := logger.GetLogger(ctx)
 
 	log.Debugf("vSphere CSI driver is creating snapshot with description, %q, on volume: %q", snapshotName, volumeID)
-	cnsSnapshotInfo, err := volumeManager.CreateSnapshot(ctx, volumeID, snapshotName)
+	cnsSnapshotInfo, err := volumeManager.CreateSnapshot(ctx, volumeID, snapshotName, extraParams)
 	if err != nil {
 		log.Errorf("failed to create snapshot on volume %q with description %q with error %+v",
 			volumeID, snapshotName, err)
