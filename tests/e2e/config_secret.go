@@ -106,12 +106,12 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 
 		ginkgo.By("Delete roles, permissions for testuser1 if already exist")
 		deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
-			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+			configSecretUser1Alias, propagateVal,
 			dataCenters, clusters, hosts, vms, datastores)
 
 		ginkgo.By("Delete roles, permissions for testuser2 if already exist")
 		deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
-			configSecretTestUser1Password, configSecretUser2Alias, propagateVal,
+			configSecretUser2Alias, propagateVal,
 			dataCenters, clusters, hosts, vms, datastores)
 
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
-				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				configSecretUser1Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -173,7 +173,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
-				configSecretTestUser1Password, configSecretUser2Alias, propagateVal,
+				configSecretUser2Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -263,7 +263,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
-				testUser1NewPassword, configSecretUser1Alias, propagateVal,
+				configSecretUser1Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -274,7 +274,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
-				configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+				configSecretUser2Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -418,7 +418,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
-				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				configSecretUser1Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -429,7 +429,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
-				configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+				configSecretUser2Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -515,7 +515,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
-				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				configSecretUser1Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -526,7 +526,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
-				configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+				configSecretUser2Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -632,7 +632,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
-				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				configSecretUser1Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -643,7 +643,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
-				configSecretTestUser1Password, configSecretUser2Alias, propagateVal,
+				configSecretUser2Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -760,18 +760,18 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
-				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				configSecretUser1Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
 		ginkgo.By("Create testuser2 and assign limited roles and privileges to testuser2")
 		createTestUserAndAssignLimitedRolesAndPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 			configSecretTestUser1Password, configSecretUser2Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores)
+			clusters, hosts)
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
-				configSecretTestUser1Password, configSecretUser2Alias, propagateVal,
+				configSecretUser2Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -877,22 +877,22 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Create testuser1 and assign limited roles and privileges to testuser1")
 		createTestUserAndAssignLimitedRolesAndPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores)
+			clusters, hosts)
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
-				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				configSecretUser1Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
 		ginkgo.By("Create testuser2 and assign limited roles and privileges to testuser2")
 		createTestUserAndAssignLimitedRolesAndPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores)
+			clusters, hosts)
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
-				configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+				configSecretUser2Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -995,7 +995,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
-				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				configSecretUser1Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -1006,7 +1006,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
-				configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+				configSecretUser2Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -1119,7 +1119,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
-				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				configSecretUser1Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -1130,7 +1130,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
-				configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+				configSecretUser2Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -1247,7 +1247,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
-				configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
+				configSecretUser1Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 
@@ -1258,7 +1258,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
-				configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
+				configSecretUser2Alias, propagateVal,
 				dataCenters, clusters, hosts, vms, datastores)
 		}()
 

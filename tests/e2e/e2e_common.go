@@ -313,6 +313,7 @@ var (
 	vcptocsi             bool
 	windowsEnv           bool
 	multipleSvc          bool
+	multivc              bool
 )
 
 // For busybox pod image
@@ -425,6 +426,14 @@ var (
 	roleCnsHostConfigStorageAndCnsVm    = "CNS-HOST-CONFIG-STORAGE-AND-CNS-VM"
 )
 
+// For rwx
+var (
+	envVsanDsStoragePolicyCluster1 = "VSAN_DATASTORE_CLUSTER1_STORAGE_POLICY"
+	envVsanDsStoragePolicyCluster3 = "VSAN_DATASTORE_CLUSTER3_STORAGE_POLICY"
+	envNonVsanDsUrl                = "NON_VSAN_DATASTOREURL"
+	envVsanDsUrlCluster3           = "VSAN_DATASTOREURL_CLUSTER3"
+)
+
 // GetAndExpectStringEnvVar parses a string from env variable.
 func GetAndExpectStringEnvVar(varName string) string {
 	varValue := os.Getenv(varName)
@@ -480,5 +489,11 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	svcType := os.Getenv("SUPERVISOR_TYPE")
 	if strings.TrimSpace(string(svcType)) == "MULTI_SVC" {
 		multipleSvc = true
+	}
+
+	//Check if it is multivc env
+	topologyType := os.Getenv("TOPOLOGY_TYPE")
+	if strings.TrimSpace(string(topologyType)) == "MULTI_VC" {
+		multivc = true
 	}
 }

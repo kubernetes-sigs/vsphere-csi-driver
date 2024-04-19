@@ -313,7 +313,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(statefulSets); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-					statefulSets[i], namespace, allowedTopologies, true, false)
+					statefulSets[i], namespace, allowedTopologies, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -334,7 +334,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			statefulSetReplicaCount = 2
 			ginkgo.By("Scale down statefulset replica and verify the replica count")
 			for i := 0; i < len(statefulSets); i++ {
-				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
+				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
 				gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -364,7 +364,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			statefulSetReplicaCount = 0
 			ginkgo.By("Scale down statefulset replica count to 0")
 			for i := 0; i < len(statefulSets); i++ {
-				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
+				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
 				gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -516,7 +516,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(statefulSets); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-					statefulSets[i], namespace, allowedTopologies, true, false)
+					statefulSets[i], namespace, allowedTopologies, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -524,7 +524,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			statefulSetReplicaCount = 2
 			ginkgo.By("Scale down statefulset replica count")
 			for i := 0; i < len(statefulSets); i++ {
-				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
+				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
 				gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -551,7 +551,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			statefulSetReplicaCount = 0
 			ginkgo.By("Scale down statefulset replica count to 0")
 			for i := 0; i < len(statefulSets); i++ {
-				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
+				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ssPodsAfterScaleDown := GetListOfPodsInSts(client, statefulSets[i])
 				gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -699,7 +699,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(statefulSets); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-					statefulSets[i], namespace, allowedTopologies, true, false)
+					statefulSets[i], namespace, allowedTopologies, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -728,7 +728,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Scale up StaefulSets replicas in parallel")
 			statefulSetReplicaCount = 5
 			for i := 0; i < len(statefulSets); i++ {
-				err = scaleUpStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
+				err = scaleUpStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -737,7 +737,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(statefulSets); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-					statefulSets[i], namespace, allowedTopologies, true, false)
+					statefulSets[i], namespace, allowedTopologies, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -745,7 +745,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			statefulSetReplicaCount = 0
 			ginkgo.By("Scale down statefulset replica count to 0")
 			for i := 0; i < len(statefulSets); i++ {
-				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
+				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		})
@@ -956,7 +956,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(podList); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, podList[i],
-					namespace, allowedTopologies, false)
+					namespace, allowedTopologies)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		})
@@ -1164,7 +1164,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(podList); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, podList[i],
-					namespace, allowedTopologies, false)
+					namespace, allowedTopologies)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		})
@@ -1251,7 +1251,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				/* Verify PV nde affinity and that the pods are running on appropriate nodes
 				for each StatefulSet pod */
 				err = verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx, client, deployment,
-					namespace, allowedTopologies, true, false)
+					namespace, allowedTopologies, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				deploymentList = append(deploymentList, deployment)
 				// Delete elected leader Csi-Controller-Pod where CSi-Attacher is running
@@ -1444,7 +1444,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(statefulSets); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-					statefulSets[i], namespace, allowedTopologies, true, false)
+					statefulSets[i], namespace, allowedTopologies, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -1463,7 +1463,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			statefulSetReplicaCount = 2
 			ginkgo.By("Scale down statefulset replica count")
 			for i := 0; i < len(statefulSets); i++ {
-				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
+				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				if i == 1 {
 					/* Delete newly elected leader CSi-Controller-Pod where CSI-Attacher is running */
@@ -1487,7 +1487,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			statefulSetReplicaCount = 0
 			ginkgo.By("Scale down statefulset replica count to 0")
 			for i := 0; i < len(statefulSets); i++ {
-				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true, false)
+				err = scaleDownStatefulSetPod(ctx, client, statefulSets[i], namespace, statefulSetReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -1673,7 +1673,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(podList); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, podList[i],
-					namespace, allowedTopologies, false)
+					namespace, allowedTopologies)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		})
@@ -1757,7 +1757,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			username := vsphereCfg.Global.User
 			newPassword := e2eTestPassword
 			err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, newPassword, vcAddress,
-				false, clientIndex)
+				clientIndex)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Modifying the password in the secret")
@@ -1798,7 +1798,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Reverting the password change")
-			err = invokeVCenterChangePassword(ctx, username, newPassword, nimbusGeneratedVcPwd, vcAddress, false,
+			err = invokeVCenterChangePassword(ctx, username, newPassword, nimbusGeneratedVcPwd, vcAddress,
 				clientIndex)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1915,7 +1915,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(podList); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, podList[i],
-					namespace, allowedTopologies, false)
+					namespace, allowedTopologies)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		})
@@ -2084,7 +2084,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				"appropriate node as specified in the allowed topologies of SC")
 			for i := 0; i < len(podList); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, podList[i], namespace,
-					allowedTopologies, false)
+					allowedTopologies)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 

@@ -135,7 +135,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm
 		// fetching list of datastores available in different VCs
 		ClusterdatastoreListVC1, ClusterdatastoreListVC2,
 			ClusterdatastoreListVC3, err = getDatastoresListFromMultiVCs(masterIp, sshClientConfig,
-			clusterComputeResource[0], true)
+			clusterComputeResource[0])
 		ClusterdatastoreListVC = append(ClusterdatastoreListVC, ClusterdatastoreListVC1,
 			ClusterdatastoreListVC2, ClusterdatastoreListVC3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -295,7 +295,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-				statefulSets[i], namespace, allowedTopologies, parallelStatefulSetCreation, true)
+				statefulSets[i], namespace, allowedTopologies, parallelStatefulSetCreation)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -368,21 +368,21 @@ var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm
 
 		framework.Logf("Fetch worker vms sitting on VC-3")
 		vMsToMigrate, err := fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[0],
-			true, 2)
+			2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Move all the vms to destination datastore")
-		isMigrateSuccess, err := migrateVmsFromDatastore(masterIp, sshClientConfig, destDsName, vMsToMigrate, true, 2)
+		isMigrateSuccess, err := migrateVmsFromDatastore(masterIp, sshClientConfig, destDsName, vMsToMigrate, 2)
 		gomega.Expect(isMigrateSuccess).To(gomega.BeTrue(), "Migration of vms failed")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Put datastore in maintenance mode on VC-3")
-		err = preferredDatastoreInMaintenanceMode(masterIp, sshClientConfig, dataCenters, soureDsName, true, 2)
+		err = preferredDatastoreInMaintenanceMode(masterIp, sshClientConfig, dataCenters, soureDsName, 2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isDatastoreInMaintenanceMode = true
 		defer func() {
 			if isDatastoreInMaintenanceMode {
-				err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig, dataCenters, soureDsName, true, 2)
+				err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig, soureDsName, 2)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isDatastoreInMaintenanceMode = false
 			}

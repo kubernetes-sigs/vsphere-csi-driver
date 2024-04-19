@@ -115,7 +115,7 @@ func deleteUserPermissions(masterIp string, sshClientConfig *ssh.ClientConfig,
 	}
 
 	for i := 0; i < len(dataCenter); i++ {
-		err = deleteDataStoreLevelPermission(masterIp, sshClientConfig, testUser, dataCenter[i].InventoryPath, datastores)
+		err = deleteDataStoreLevelPermission(masterIp, sshClientConfig, testUser, datastores)
 		if err != nil {
 			if strings.Contains(err.Error(), "The object or item referred to could not be found") {
 				framework.Logf("No datastore level permissions exist for a testuser")
@@ -205,7 +205,7 @@ func deleteClusterLevelPermission(masterIp string, sshClientConfig *ssh.ClientCo
 
 // deleteDataStoreLevelPermission method is used to delete datastore level permissions from a test user
 func deleteDataStoreLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig,
-	testUser string, dataCenter string, datastores []string) error {
+	testUser string, datastores []string) error {
 	for i := 0; i < len(datastores); i++ {
 		deleteDataStoreLevelPermissions := govcLoginCmd() + "govc permissions.remove -principal " +
 			testUser + " '" + datastores[i] + "'"
@@ -518,7 +518,7 @@ func setClusterLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfi
 
 // setDataStoreLevelPermission is used to set datastore level permissions for test user
 func setDataStoreLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig, testUserAlias string,
-	testUser string, dataCenter string, datastores []string, propagateVal string, datastoreRole string) error {
+	testUser string, datastores []string, propagateVal string, datastoreRole string) error {
 	for i := 0; i < len(datastores); i++ {
 		setPermissionForDataStore := govcLoginCmd() + "govc permissions.set -principal " +
 			testUserAlias + " " + "-propagate=" + propagateVal + " -role " + datastoreRole + "-" + testUser + " '" +
@@ -634,7 +634,7 @@ func createTestUserAndAssignRolesPrivileges(masterIp string, sshClientConfig *ss
 			framework.Logf("Assign datastores level permissions")
 			for i := 0; i < len(dataCenters); i++ {
 				err := setDataStoreLevelPermission(masterIp, sshClientConfig, configSecretTestUserAlias, configSecretTestUser,
-					dataCenters[i].InventoryPath, datastores, propagateVal, key)
+					datastores, propagateVal, key)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 					masterIp, err)
 			}
@@ -668,7 +668,7 @@ deleteTestUserAndRemoveRolesPrivileges method is used to delete test user and to
 roles and privileges to test user
 */
 func deleteTestUserAndRemoveRolesPrivileges(masterIp string, sshClientConfig *ssh.ClientConfig,
-	configSecretTestUser string, configSecretTestUserPassword string, configSecretTestUserAlias string,
+	configSecretTestUser string, configSecretTestUserAlias string,
 	propagateVal string, dataCenters []*object.Datacenter, clusters []string, hosts []string,
 	vms []string, datastores []string) {
 	framework.Logf("Delete users roles and permissions")
@@ -771,8 +771,8 @@ and privilege access to the test user.
 func createTestUserAndAssignLimitedRolesAndPrivileges(masterIp string, sshClientConfig *ssh.ClientConfig,
 	configSecretTestUser string,
 	configSecretTestUserPassword string, configSecretTestUserAlias string, propagateVal string,
-	dataCenters []*object.Datacenter, clusters []string, hosts []string,
-	vms []string, datastores []string) {
+	clusters []string, hosts []string,
+) {
 	roleMap := userRoleMap()
 
 	framework.Logf("Create TestUser")

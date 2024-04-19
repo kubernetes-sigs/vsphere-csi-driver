@@ -249,14 +249,9 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		defer func() {
 			deleteService(namespace, client, service)
 		}()
-
+		ginkgo.By("Creating statefulset and deployment with volumes from the stretched datastore")
 		statefulset, _, _ = createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode, false)
-		replicas = *(statefulset.Spec.Replicas)
-		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Read statefull pod's before scale down")
+			false, 0, "", "")
 		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 
 		csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
@@ -459,13 +454,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		ginkgo.By("Creating statefulset and deployment with volumes from the stretched datastore")
 		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode, false)
+			false, 0, "", accessMode)
 		replicas := *(statefulset.Spec.Replicas)
 		ginkgo.By("Creating statefulsets sts1 with replica count 1 and sts2 with 5 and wait for all" +
 			"the replicas to be running")
-		statefulset1, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 1, "web", accessMode, false)
+		statefulset1, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 1, "web", "")
 		replicas1 := *(statefulset1.Spec.Replicas)
-		statefulset2, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 5, "web-nginx", accessMode, false)
+		statefulset2, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 5, "web-nginx", "")
 		ss2PodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset2)
 		replicas2 := *(statefulset2.Spec.Replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
@@ -888,7 +883,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		}()
 		ginkgo.By("Creating statefulset and deployment with volumes from the stretched datastore")
 		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode, false)
+			false, 0, "", "")
 		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		replicas := *(statefulset.Spec.Replicas)
 
@@ -1911,7 +1906,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		ginkgo.By("Creating statefulset and deployment with volumes from the stretched datastore")
 		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode, false)
+			false, 0, "", "")
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
@@ -2026,10 +2021,10 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		ginkgo.By("Creating statefulsets sts1 with replica count 1 and sts2 with 5 and wait for all" +
 			"the replicas to be running")
-		statefulset1, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 1, "web", accessMode, false)
+		statefulset1, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 1, "web", accessMode)
 		replicas1 := *(statefulset1.Spec.Replicas)
 		statefulset2, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 5, "web-nginx",
-			accessMode, false)
+			accessMode)
 		ss2PodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset2)
 		replicas2 := *(statefulset2.Spec.Replicas)
 
@@ -2160,7 +2155,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		}()
 
 		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, true, false, 0, "",
-			accessMode, false)
+			"")
 		replicas := *(statefulset.Spec.Replicas)
 		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		// Scale down replicas of statefulset and verify CNS entries for volumes
@@ -2256,10 +2251,10 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("Creating statefulsets sts1 with replica count 1 and sts2 with 5 and wait for all" +
 			"the replicas to be running")
 		statefulset1, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 1, "web",
-			accessMode, false)
+			accessMode)
 		replicas1 := *(statefulset1.Spec.Replicas)
 		statefulset2, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 5, "web-nginx",
-			accessMode, false)
+			accessMode)
 		ss2PodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset2)
 		replicas2 := *(statefulset2.Spec.Replicas)
 
@@ -2611,10 +2606,10 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("Creating statefulsets sts1 with replica count 1 and sts2 with 5 and wait for all" +
 			"the replicas to be running")
 		statefulset1, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 1, "web",
-			accessMode, false)
+			accessMode)
 		replicas1 := *(statefulset1.Spec.Replicas)
 		statefulset2, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 5, "web-nginx",
-			accessMode, false)
+			accessMode)
 		ss2PodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset2)
 		replicas2 := *(statefulset2.Spec.Replicas)
 
@@ -2773,10 +2768,10 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("Creating statefulsets sts1 with replica count 1 and sts2 with 5 and wait for all" +
 			"the replicas to be running")
 		statefulset1, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 1, "web",
-			accessMode, false)
+			accessMode)
 		replicas1 := *(statefulset1.Spec.Replicas)
 		statefulset2, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 5, "web-nginx",
-			accessMode, false)
+			accessMode)
 		ss2PodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset2)
 		replicas2 := *(statefulset2.Spec.Replicas)
 
@@ -2937,7 +2932,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			statefulsetName := prefix1 + strconv.Itoa(i)
 			framework.Logf("Creating statefulset: %s", statefulsetName)
 			statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 1, statefulsetName,
-				accessMode, false)
+				accessMode)
 			replicas1 = *(statefulset.Spec.Replicas)
 			stsList = append(stsList, statefulset)
 		}
@@ -2947,7 +2942,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			statefulsetName := prefix2 + strconv.Itoa(i)
 			framework.Logf("Creating statefulset: %s", statefulsetName)
 			statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 2, statefulsetName,
-				accessMode, false)
+				accessMode)
 			replicas2 = *(statefulset.Spec.Replicas)
 			stsList = append(stsList, statefulset)
 		}
@@ -3157,7 +3152,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		ginkgo.By("Creating statefulset and deployment with volumes from the stretched datastore")
 		statefulset, _, _ = createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode, false)
+			false, 0, "", accessMode)
 		replicas = *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)

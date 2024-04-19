@@ -52,11 +52,16 @@ getTopologyLevel5ClusterGroupNames method is used to fetch list of cluster avail
 in level-5 testbed
 */
 func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.ClientConfig,
-	dataCenter []*object.Datacenter) ([]string, error) {
+	dataCenter []*object.Datacenter, clientIndex int) ([]string, error) {
 	var clusterList, clusList, clusFolderTemp, clusterGroupRes []string
 	var clusterFolderName string
+	var clusterFolder, clusterGroup, cluster string
 	for i := 0; i < len(dataCenter); i++ {
-		clusterFolder := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
+		if !multivc {
+			clusterFolder = govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
+		} else {
+			clusterFolder = govcLoginCmdForMultiVC(clientIndex) + "govc ls " + dataCenter[i].InventoryPath
+		}
 		framework.Logf("cmd: %s ", clusterFolder)
 		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder)
 		if err != nil && clusterFolderNameResult.Code != 0 {
@@ -73,7 +78,11 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 				break
 			}
 		}
-		clusterGroup := govcLoginCmd() + "govc ls " + clusterFolderName
+		if !multivc {
+			clusterGroup = govcLoginCmd() + "govc ls " + clusterFolderName
+		} else {
+			clusterGroup = govcLoginCmdForMultiVC(clientIndex) + "govc ls " + clusterFolderName
+		}
 		framework.Logf("cmd: %s ", clusterGroup)
 		clusterGroupResult, err := sshExec(sshClientConfig, masterIp, clusterGroup)
 		if err != nil && clusterGroupResult.Code != 0 {
@@ -84,22 +93,27 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 		if clusterGroupResult.Stdout != "" {
 			clusterGroupRes = strings.Split(clusterGroupResult.Stdout, "\n")
 		}
-		cluster := govcLoginCmd() + "govc ls " + clusterGroupRes[0] + " | sort"
-		framework.Logf("cmd: %s ", cluster)
-		clusterResult, err := sshExec(sshClientConfig, masterIp, cluster)
-		if err != nil && clusterResult.Code != 0 {
-			fssh.LogResult(clusterResult)
-			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-				cluster, masterIp, err)
+		if !multivc {
+			cluster = govcLoginCmd() + "govc ls " + clusterGroupRes[0] + " | sort"
+
+			framework.Logf("cmd: %s ", cluster)
+			clusterResult, err := sshExec(sshClientConfig, masterIp, cluster)
+			if err != nil && clusterResult.Code != 0 {
+				fssh.LogResult(clusterResult)
+				return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+					cluster, masterIp, err)
+			}
+			if clusterResult.Stdout != "" {
+				clusListTemp := strings.Split(clusterResult.Stdout, "\n")
+				clusList = append(clusList, clusListTemp...)
+			}
+			for i := 0; i < len(clusList)-1; i++ {
+				clusterList = append(clusterList, clusList[i])
+			}
+			clusList = nil
+		} else {
+			return clusterGroupRes, nil
 		}
-		if clusterResult.Stdout != "" {
-			clusListTemp := strings.Split(clusterResult.Stdout, "\n")
-			clusList = append(clusList, clusListTemp...)
-		}
-		for i := 0; i < len(clusList)-1; i++ {
-			clusterList = append(clusterList, clusList[i])
-		}
-		clusList = nil
 	}
 	return clusterList, nil
 }
@@ -109,9 +123,9 @@ attachTagToPreferredDatastore method is used to attach the  preferred tag to the
 datastore chosen for volume provisioning
 */
 func attachTagToPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	datastore string, tagName string, isMultiVC bool, clientIndexForMultiVC int) error {
+	datastore string, tagName string, clientIndexForMultiVC int) error {
 	var attachTagCat string
-	if !isMultiVC {
+	if !multivc {
 		attachTagCat = govcLoginCmd() +
 			"govc tags.attach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
 		framework.Logf("cmd to attach tag to preferred datastore: %s ", attachTagCat)
@@ -138,9 +152,9 @@ func attachTagToPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientC
 
 /* detachTagCreatedOnPreferredDatastore is used to detach the tag created on preferred datastore */
 func detachTagCreatedOnPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	datastore string, tagName string, isMultiVcSetup bool, clientIndex int) error {
+	datastore string, tagName string, clientIndex int) error {
 	var detachTagCat string
-	if !isMultiVcSetup {
+	if !multivc {
 		detachTagCat = govcLoginCmd() +
 			"govc tags.detach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
 
@@ -210,11 +224,18 @@ getListOfDatastoresByClusterName method is used to fetch the list of datastores 
 specific cluster
 */
 func getListOfDatastoresByClusterName(masterIp string, sshClientConfig *ssh.ClientConfig,
-	cluster string) (map[string]string, error) {
+	cluster string, clientIndexForVC int) (map[string]string, error) {
 	ClusterdatastoreListMap := make(map[string]string)
-	datastoreListByCluster := govcLoginCmd() +
-		"govc object.collect -s -d ' ' " + cluster + " host | xargs govc datastore.info -H | " +
-		"grep 'Path\\|URL' | tr -s [:space:]"
+	var datastoreListByCluster string
+	if !multivc {
+		datastoreListByCluster = govcLoginCmd() +
+			"govc object.collect -s -d ' ' " + cluster + " host | xargs govc datastore.info -H | " +
+			"grep 'Path\\|URL' | tr -s [:space:]"
+	} else {
+		datastoreListByCluster = govcLoginCmdForMultiVC(clientIndexForVC) +
+			"govc object.collect -s -d ' ' " + cluster + " host | xargs govc datastore.info -H | " +
+			"grep 'Path\\|URL' | tr -s [:space:]"
+	}
 	framework.Logf("cmd : %s ", datastoreListByCluster)
 	result, err := sshExec(sshClientConfig, masterIp, datastoreListByCluster)
 	if err != nil && result.Code != 0 {
@@ -239,8 +260,7 @@ chosen preferred datastore or not for statefulsets
 func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 	client clientset.Interface, statefulset *appsv1.StatefulSet,
 	namespace string, datastoreNames []string, datastoreListMap map[string]string,
-	multipleAllowedTopology bool, parallelStatefulSetCreation bool,
-	isMultiVcSetup bool, multiVCDsUrls []string) error {
+	multipleAllowedTopology bool, parallelStatefulSetCreation bool, multiVCDsUrls []string) error {
 	counter := 0
 	stsPodCount := 0
 	var dsUrls []string
@@ -251,7 +271,7 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 		ssPodsBeforeScaleDown = fss.GetPodList(ctx, client, statefulset)
 	}
 	stsPodCount = len(ssPodsBeforeScaleDown.Items)
-	if !isMultiVcSetup {
+	if !multivc {
 		for i := 0; i < len(datastoreNames); i++ {
 			if val, ok := datastoreListMap[datastoreNames[i]]; ok {
 				dsUrls = append(dsUrls, val)
@@ -265,7 +285,7 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 			var isPreferred bool
 			if volumespec.PersistentVolumeClaim != nil {
 				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-				if !isMultiVcSetup {
+				if !multivc {
 					isPreferred = e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, dsUrls)
 					if isPreferred {
 						framework.Logf("volume %s is created on preferred datastore %v", pv.Spec.CSI.VolumeHandle, dsUrls)
@@ -303,10 +323,8 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 verifyVolumeProvisioningForStandalonePods is used to check whether the volume is provisioned on the
 chosen preferred datastore or not for standalone pods
 */
-func verifyVolumeProvisioningForStandalonePods(ctx context.Context,
-	client clientset.Interface, pod *v1.Pod,
-	namespace string, datastoreNames []string, datastoreListMap map[string]string,
-	isMultiVcSetup bool, multiVCDsUrls []string) {
+func verifyVolumeProvisioningForStandalonePods(client clientset.Interface, pod *v1.Pod,
+	datastoreNames []string, datastoreListMap map[string]string, multiVCDsUrls []string) {
 	var flag bool = false
 	var dsUrls []string
 	for i := 0; i < len(datastoreNames); i++ {
@@ -317,7 +335,7 @@ func verifyVolumeProvisioningForStandalonePods(ctx context.Context,
 	for _, volumespec := range pod.Spec.Volumes {
 		if volumespec.PersistentVolumeClaim != nil {
 			pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-			if !isMultiVcSetup {
+			if !multivc {
 				isPreferred := e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, dsUrls)
 				if isPreferred {
 					framework.Logf("volume %s is created on preferred datastore %v", pv.Spec.CSI.VolumeHandle, dsUrls)
@@ -346,7 +364,7 @@ func tagSameDatastoreAsPreferenceToDifferentRacks(masterIp string, sshClientConf
 	i := 0
 	for j := 0; j < len(datastoreNames); j++ {
 		i = i + 1
-		err := attachTagToPreferredDatastore(masterIp, sshClientConfig, datastoreNames[j], zoneValue, false, 0)
+		err := attachTagToPreferredDatastore(masterIp, sshClientConfig, datastoreNames[j], zoneValue, 0)
 		if err != nil {
 			return err
 		}
@@ -361,8 +379,7 @@ func tagSameDatastoreAsPreferenceToDifferentRacks(masterIp string, sshClientConf
 tagPreferredDatastore method is used to tag the datastore which is chosen for volume provisioning
 */
 func tagPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, zoneValue string, itr int,
-	datastoreListMap map[string]string, datastoreNames []string,
-	isMultiVcSetup bool, clientIndex int) ([]string, error) {
+	datastoreListMap map[string]string, datastoreNames []string, clientIndex int) ([]string, error) {
 	var preferredDatastorePaths []string
 	var err error
 	i := 0
@@ -370,13 +387,7 @@ func tagPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, z
 		for dsName := range datastoreListMap {
 			i = i + 1
 			preferredDatastorePaths = append(preferredDatastorePaths, dsName)
-			if !isMultiVcSetup {
-				err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue,
-					false, clientIndex)
-			} else {
-				err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue,
-					true, clientIndex)
-			}
+			err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue, clientIndex)
 			if err != nil {
 				return preferredDatastorePaths, err
 			}
@@ -389,13 +400,7 @@ func tagPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, z
 		for dsName := range datastoreListMap {
 			if !slices.Contains(datastoreNames, dsName) {
 				preferredDatastorePaths = append(preferredDatastorePaths, dsName)
-				if !isMultiVcSetup {
-					err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue,
-						false, clientIndex)
-				} else {
-					err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue,
-						true, clientIndex)
-				}
+				err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue, clientIndex)
 				if err != nil {
 					return preferredDatastorePaths, err
 				}
@@ -428,7 +433,7 @@ setPreferredDatastoreTimeInterval method is used to set the time interval at whi
 datastores are refreshed in the environment
 */
 func setPreferredDatastoreTimeInterval(client clientset.Interface, ctx context.Context,
-	csiNamespace string, csiReplicas int32, isMultiVcSetup bool) {
+	csiNamespace string, csiReplicas int32) {
 
 	var modifiedConf string
 	var vsphereCfg e2eTestConfig
@@ -440,7 +445,7 @@ func setPreferredDatastoreTimeInterval(client clientset.Interface, ctx context.C
 	// read original conf
 	originalConf := string(currentSecret.Data[vSphereCSIConf])
 
-	if !isMultiVcSetup {
+	if !multivc {
 		vsphereCfg, err = readConfigFromSecretString(originalConf)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	} else {
@@ -450,7 +455,7 @@ func setPreferredDatastoreTimeInterval(client clientset.Interface, ctx context.C
 
 	if vsphereCfg.Global.CSIFetchPreferredDatastoresIntervalInMin == 0 {
 		vsphereCfg.Global.CSIFetchPreferredDatastoresIntervalInMin = preferredDatastoreRefreshTimeInterval
-		if !isMultiVcSetup {
+		if !multivc {
 			modifiedConf, err = writeConfigToSecretString(vsphereCfg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Updating the secret to reflect new changes")
@@ -487,10 +492,10 @@ func getNonSharedDatastoresInCluster(ClusterdatastoreListMap map[string]string,
 
 // deleteTagCreatedForPreferredDatastore method is used to delete the tag created on preferred datastore
 func deleteTagCreatedForPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	tagName []string, isMultiVcSetup bool) error {
+	tagName []string) error {
 	var deleteTagCat string
 	for i := 0; i < len(tagName); i++ {
-		if !isMultiVcSetup {
+		if !multivc {
 			deleteTagCat = govcLoginCmd() + "govc tags.rm -f -c " + preferredDSCat + " " + tagName[i]
 		} else {
 			deleteTagCat = govcLoginCmdForMultiVC(i) + "govc tags.rm -f -c " + preferredDSCat + " " + tagName[i]
@@ -508,10 +513,10 @@ func deleteTagCreatedForPreferredDatastore(masterIp string, sshClientConfig *ssh
 
 // createTagForPreferredDatastore method is used to create tag required for choosing preferred datastore
 func createTagForPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	tagName []string, isMultiVcSetup bool) error {
+	tagName []string) error {
 	var createTagCat string
 	for i := 0; i < len(tagName); i++ {
-		if !isMultiVcSetup {
+		if !multivc {
 			createTagCat = govcLoginCmd() +
 				"govc tags.create -d '" + preferredTagDesc + "' -c " + preferredDSCat + " " + tagName[i]
 		} else {
@@ -536,7 +541,7 @@ volume snapshot and to verify if volume snapshot has created or not
 */
 func createSnapshotClassAndVolSnapshot(ctx context.Context, snapc *snapclient.Clientset,
 	namespace string, pvclaim *v1.PersistentVolumeClaim,
-	volHandle string, stsPvc bool, isMultiVcSetup bool) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotClass, string) {
+	volHandle string, stsPvc bool) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotClass, string) {
 
 	framework.Logf("Create volume snapshot class")
 	volumeSnapshotClass, err := snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
@@ -569,13 +574,8 @@ func createSnapshotClassAndVolSnapshot(ctx context.Context, snapc *snapclient.Cl
 	snapshotId := strings.Split(snapshothandle, "+")[1]
 
 	framework.Logf("Query CNS and check the volume snapshot entry")
-	if !isMultiVcSetup {
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	} else {
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, true)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
+	err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return volumeSnapshot, volumeSnapshotClass, snapshotId
 }
@@ -586,7 +586,7 @@ snapshot class, volume snapshot created for pvc post testcase completion
 */
 func performCleanUpForSnapshotCreated(ctx context.Context, snapc *snapclient.Clientset,
 	namespace string, volHandle string, volumeSnapshot *snapV1.VolumeSnapshot, snapshotId string,
-	volumeSnapshotClass *snapV1.VolumeSnapshotClass, pandoraSyncWaitTime int, isMultiVcSetup bool) {
+	volumeSnapshotClass *snapV1.VolumeSnapshotClass, pandoraSyncWaitTime int) {
 
 	framework.Logf("Delete volume snapshot and verify the snapshot content is deleted")
 	deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
@@ -595,15 +595,9 @@ func performCleanUpForSnapshotCreated(ctx context.Context, snapc *snapclient.Cli
 	err := waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	if !isMultiVcSetup {
-		framework.Logf("Verify snapshot entry is deleted from CNS")
-		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId, false)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	} else {
-		framework.Logf("Verify snapshot entry is deleted from CNS")
-		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId, true)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
+	framework.Logf("Verify snapshot entry is deleted from CNS")
+	err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	framework.Logf("Deleting volume snapshot Again to check Not found error")
 	deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
@@ -617,7 +611,7 @@ func performCleanUpForSnapshotCreated(ctx context.Context, snapc *snapclient.Cli
 powerOffPreferredDatastore method is used to put preferred datastore in power off or
 inaccessible state
 */
-func powerOffPreferredDatastore(ctx context.Context, vs *vSphere, opName string, dsNameToPowerOff string) string {
+func powerOffPreferredDatastore(ctx context.Context, opName string, dsNameToPowerOff string) string {
 	dsName := ""
 	for _, dsInfo := range tbinfo.datastores {
 		if strings.Contains(dsInfo["vmName"], dsNameToPowerOff) {
@@ -650,7 +644,7 @@ func powerOnPreferredDatastore(datastoreToPowerOn string, opName string) {
 
 /* fetchWorkerNodeVms fetches the list of vms */
 func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, dataCenter []*object.Datacenter,
-	workerNodeAlias string, isMultiVcSetup bool, itr int) ([]string, error) {
+	workerNodeAlias string, itr int) ([]string, error) {
 	var clusFolderTemp []string
 	var clusterFolderName string
 	var clusterFolder string
@@ -659,7 +653,7 @@ func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, data
 	var listvCLSVms string
 
 	for i := 0; i < len(dataCenter); i++ {
-		if !isMultiVcSetup {
+		if !multivc {
 			clusterFolder = govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
 		} else {
 			clusterFolder = govcLoginCmdForMultiVC(itr) + "govc ls " + dataCenter[i].InventoryPath
@@ -679,7 +673,7 @@ func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, data
 				break
 			}
 		}
-		if !isMultiVcSetup {
+		if !multivc {
 			listWokerVms = govcLoginCmd() + "govc ls " + clusterFolderName + " | grep " +
 				workerNodeAlias + "-.*worker"
 		} else {
@@ -697,7 +691,7 @@ func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, data
 		for i := 0; i < len(vMList)-1; i++ {
 			k8svMList = append(k8svMList, vMList[i])
 		}
-		if !isMultiVcSetup {
+		if !multivc {
 			listvCLSVms = govcLoginCmd() + "govc ls " + clusterFolderName + "/vCLS"
 		} else {
 			listvCLSVms = govcLoginCmdForMultiVC(itr) + "govc ls " + clusterFolderName + "/vCLS"
@@ -721,10 +715,10 @@ func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, data
 migrateVmsFromDatastore method is use to migrate the vms to destination preferred datastore
 */
 func migrateVmsFromDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	destDatastore string, vMsToMigrate []string, isMultiVcSetup bool, itr int) (bool, error) {
+	destDatastore string, vMsToMigrate []string, itr int) (bool, error) {
 	var migrateVm string
 	for i := 0; i < len(vMsToMigrate); i++ {
-		if !isMultiVcSetup {
+		if !multivc {
 			migrateVm = govcLoginCmd() + "govc vm.migrate -ds " + destDatastore + " " +
 				vMsToMigrate[i]
 		} else {
@@ -747,11 +741,11 @@ preferredDatastoreInMaintenanceMode method is use to put preferred datastore in
 maintenance mode
 */
 func preferredDatastoreInMaintenanceMode(masterIp string, sshClientConfig *ssh.ClientConfig,
-	dataCenter []*object.Datacenter, datastoreName string, isMultiVC bool, itr int) error {
+	dataCenter []*object.Datacenter, datastoreName string, itr int) error {
 	var enableDrsModeCmd string
 	var putDatastoreInMMmodeCmd string
 	for i := 0; i < len(dataCenter); i++ {
-		if !isMultiVC {
+		if !multivc {
 			enableDrsModeCmd = govcLoginCmd() + "govc datastore.cluster.change -drs-mode automated"
 		} else {
 			enableDrsModeCmd = govcLoginCmdForMultiVC(itr) + "govc datastore.cluster.change -drs-mode automated"
@@ -763,7 +757,7 @@ func preferredDatastoreInMaintenanceMode(masterIp string, sshClientConfig *ssh.C
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 				enableDrsModeCmd, masterIp, err)
 		}
-		if !isMultiVC {
+		if !multivc {
 			putDatastoreInMMmodeCmd = govcLoginCmd() +
 				"govc datastore.maintenance.enter -ds " + datastoreName
 		} else {
@@ -786,9 +780,9 @@ exitDatastoreFromMaintenanceMode method is use to exit preferred datastore from
 maintenance mode
 */
 func exitDatastoreFromMaintenanceMode(masterIp string, sshClientConfig *ssh.ClientConfig,
-	dataCenter []*object.Datacenter, datastoreName string, isMultiVcSetup bool, itr int) error {
+	datastoreName string, itr int) error {
 	var exitMmMode string
-	if !isMultiVcSetup {
+	if !multivc {
 		exitMmMode = govcLoginCmd() +
 			" govc datastore.maintenance.exit -ds " + datastoreName
 	} else {

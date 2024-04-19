@@ -14,6 +14,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/pbm"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
 
@@ -184,7 +185,7 @@ func (vs *multiVCvSphere) getVMByUUIDWithWaitForMultiVC(ctx context.Context,
 verifyVolumeIsAttachedToVMInMultiVC checks volume is attached to the VM by vmUUID.
 This function returns true if volume is attached to the VM, else returns false
 */
-func (vs *multiVCvSphere) verifyVolumeIsAttachedToVMInMultiVC(client clientset.Interface, volumeID string,
+func (vs *multiVCvSphere) verifyVolumeIsAttachedToVMInMultiVC(volumeID string,
 	vmUUID string) (bool, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -270,7 +271,7 @@ func (vs *multiVCvSphere) waitForVolumeDetachedFromNodeInMultiVC(client clientse
 			} else {
 				vmUUID, _ = getVMUUIDFromNodeName(nodeName)
 			}
-			diskAttached, err := vs.verifyVolumeIsAttachedToVMInMultiVC(client, volumeID, vmUUID)
+			diskAttached, err := vs.verifyVolumeIsAttachedToVMInMultiVC(volumeID, vmUUID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if !diskAttached {
 				framework.Logf("Disk: %s successfully detached", volumeID)
@@ -402,4 +403,34 @@ func (vs *multiVCvSphere) waitForCNSVolumeToBeCreatedInMultiVC(volumeID string) 
 			return false, nil
 		})
 	return err
+}
+
+// GetSpbmPolicyID returns profile ID for the specified storagePolicyName
+func (vs *multiVCvSphere) GetSpbmPolicyIDInMultiVc(storagePolicyName string) string {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var policyIDStrings []string
+
+	for _, govmomiClient := range vs.multiVcClient {
+		vimClient := govmomiClient.Client
+
+		pbmClient, err := pbm.NewClient(ctx, vimClient)
+		if err != nil {
+			framework.Logf("Error creating PBM client: %v", err)
+			continue
+		}
+
+		profileID, err := pbmClient.ProfileIDByName(ctx, storagePolicyName)
+		if err != nil {
+			framework.Logf("Error getting profile ID: %v", err)
+			continue
+		}
+
+		framework.Logf("storage policy id: %s for storage policy name is: %s", profileID, storagePolicyName)
+		policyIDStrings = append(policyIDStrings, profileID)
+	}
+
+	// Join policy ID strings with a comma separator
+	return strings.Join(policyIDStrings, ",")
 }

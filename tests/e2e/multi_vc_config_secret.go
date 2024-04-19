@@ -53,7 +53,6 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		allowedTopologies           []v1.TopologySelectorLabelRequirement
 		scaleUpReplicaCount         int32
 		scaleDownReplicaCount       int32
-		allowedTopologyLen          int
 		nodeAffinityToSet           bool
 		parallelStatefulSetCreation bool
 		stsReplicas                 int32
@@ -163,7 +162,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 			originalPassword := strings.Split(vCenterPassword, ",")[0]
 			newPassword := e2eTestPassword
 			ginkgo.By("Reverting the password change")
-			err = invokeVCenterChangePassword(ctx, username, newPassword, originalPassword, vcAddress, true,
+			err = invokeVCenterChangePassword(ctx, username, newPassword, originalPassword, vcAddress,
 				clientIndex)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -175,7 +174,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 			originalPassword3 := strings.Split(vCenterPassword, ",")[2]
 			newPassword3 := "Admin!23"
 			ginkgo.By("Reverting the password change")
-			err = invokeVCenterChangePassword(ctx, username3, newPassword3, originalPassword3, vcAddress3, true,
+			err = invokeVCenterChangePassword(ctx, username3, newPassword3, originalPassword3, vcAddress3,
 				clientIndex2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			originalVC3PasswordChanged = false
@@ -252,7 +251,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		ginkgo.By(fmt.Sprintf("Original password %s, new password %s", originalPassword, newPassword))
 
 		ginkgo.By("Changing password on the vCenter VC1 host")
-		err = invokeVCenterChangePassword(ctx, username, originalPassword, newPassword, vcAddress, true, clientIndex)
+		err = invokeVCenterChangePassword(ctx, username, originalPassword, newPassword, vcAddress, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVC1PasswordChanged = true
 
@@ -269,7 +268,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		defer func() {
 			if originalVC1PasswordChanged {
 				ginkgo.By("Reverting the password change")
-				err = invokeVCenterChangePassword(ctx, username, newPassword, originalPassword, vcAddress, true,
+				err = invokeVCenterChangePassword(ctx, username, newPassword, originalPassword, vcAddress,
 					clientIndex)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				originalVC1PasswordChanged = false
@@ -302,8 +301,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
-			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen,
-			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", "", nil, verifyTopologyAffinity)
+			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies,
+			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -505,8 +504,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
-			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen,
-			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", "", nil, verifyTopologyAffinity)
+			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies,
+			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			deleteService(namespace, client, service)
@@ -650,7 +649,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(statefulSets); i++ {
 			err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client,
-				statefulSets[i], namespace, allowedTopologies, parallelStatefulSetCreation, true)
+				statefulSets[i], namespace, allowedTopologies, parallelStatefulSetCreation)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -758,7 +757,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 
 		ginkgo.By("Changing password on the vCenter VC1 host")
 		clientIndex0 := 0
-		err = invokeVCenterChangePassword(ctx, username1, originalPassword1, newPassword1, vcAddress1, true, clientIndex0)
+		err = invokeVCenterChangePassword(ctx, username1, originalPassword1, newPassword1, vcAddress1, clientIndex0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVC1PasswordChanged = true
 
@@ -771,7 +770,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 
 			ginkgo.By("Changing password on the vCenter VC3 host")
 			clientIndex2 = 2
-			err = invokeVCenterChangePassword(ctx, username3, originalPassword3, newPassword3, vcAddress3, true, clientIndex2)
+			err = invokeVCenterChangePassword(ctx, username3, originalPassword3, newPassword3, vcAddress3, clientIndex2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			originalVC3PasswordChanged = true
 
@@ -794,7 +793,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		defer func() {
 			if originalVC1PasswordChanged {
 				ginkgo.By("Reverting the password change")
-				err = invokeVCenterChangePassword(ctx, username1, newPassword1, originalPassword1, vcAddress1, true,
+				err = invokeVCenterChangePassword(ctx, username1, newPassword1, originalPassword1, vcAddress1,
 					clientIndex0)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				originalVC1PasswordChanged = false
@@ -803,7 +802,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 			if multiVCSetupType == "multi-3vc-setup" {
 				if originalVC3PasswordChanged {
 					ginkgo.By("Reverting the password change")
-					err = invokeVCenterChangePassword(ctx, username3, newPassword3, originalPassword3, vcAddress3, true,
+					err = invokeVCenterChangePassword(ctx, username3, newPassword3, originalPassword3, vcAddress3,
 						clientIndex2)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					originalVC3PasswordChanged = false
@@ -837,8 +836,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
-			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen,
-			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", "", nil, verifyTopologyAffinity)
+			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies,
+			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -859,14 +858,14 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
 
 		ginkgo.By("Reverting the password change on VC1")
-		err = invokeVCenterChangePassword(ctx, username1, newPassword1, originalPassword1, vcAddress1, true,
+		err = invokeVCenterChangePassword(ctx, username1, newPassword1, originalPassword1, vcAddress1,
 			clientIndex0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVC1PasswordChanged = false
 
 		if multiVCSetupType == "multi-3vc-setup" {
 			ginkgo.By("Reverting the password change on VC3")
-			err = invokeVCenterChangePassword(ctx, username3, newPassword3, originalPassword3, vcAddress3, true,
+			err = invokeVCenterChangePassword(ctx, username3, newPassword3, originalPassword3, vcAddress3,
 				clientIndex2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			originalVC3PasswordChanged = false
@@ -924,13 +923,13 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		originalPassword := strings.Split(vsphereCfg.Global.Password, ",")[0]
 		newPassword := e2eTestPassword
 		ginkgo.By(fmt.Sprintf("Original password %s, new password %s", originalPassword, newPassword))
-		err = invokeVCenterChangePassword(ctx, username, originalPassword, newPassword, vcAddress, true, clientIndex)
+		err = invokeVCenterChangePassword(ctx, username, originalPassword, newPassword, vcAddress, clientIndex)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVC1PasswordChanged = true
 		defer func() {
 			if originalVC1PasswordChanged {
 				ginkgo.By("Reverting the password change")
-				err = invokeVCenterChangePassword(ctx, username, newPassword, originalPassword, vcAddress, true,
+				err = invokeVCenterChangePassword(ctx, username, newPassword, originalPassword, vcAddress,
 					clientIndex)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				originalVC1PasswordChanged = false

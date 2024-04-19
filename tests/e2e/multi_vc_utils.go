@@ -58,7 +58,7 @@ specific requirement and returns the customised statefulset
 */
 func createCustomisedStatefulSets(ctx context.Context, client clientset.Interface, namespace string,
 	isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
-	allowedTopologies []v1.TopologySelectorLabelRequirement, allowedTopologyLen int,
+	allowedTopologies []v1.TopologySelectorLabelRequirement,
 	podAntiAffinityToSet bool, modifyStsSpec bool, stsName string,
 	accessMode v1.PersistentVolumeAccessMode, sc *storagev1.StorageClass) *appsv1.StatefulSet {
 	framework.Logf("Preparing StatefulSet Spec")
@@ -66,14 +66,17 @@ func createCustomisedStatefulSets(ctx context.Context, client clientset.Interfac
 
 	if accessMode == "" {
 		// If accessMode is not specified, set the default accessMode.
-		accessMode = v1.ReadWriteOnce
+		defaultAccessMode := v1.ReadWriteOnce
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Spec.AccessModes[0] = defaultAccessMode
+	} else {
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
+			accessMode
 	}
 
 	if modifyStsSpec {
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Annotations["volume.beta.kubernetes.io/storage-class"] = sc.Name
-		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
-			accessMode
 		statefulset.Name = stsName
 		statefulset.Spec.Template.Labels["app"] = statefulset.Name
 		statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
@@ -290,10 +293,26 @@ func verifyVolumeMetadataInCNSForMultiVC(vs *multiVCvSphere, volumeID string,
 
 // govc login cmd for multivc setups
 func govcLoginCmdForMultiVC(i int) string {
-	configUser := strings.Split(multiVCe2eVSphere.multivcConfig.Global.User, ",")
-	configPwd := strings.Split(multiVCe2eVSphere.multivcConfig.Global.Password, ",")
-	configvCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-	configvCenterPort := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterPort, ",")
+	configUser := []string{multiVCe2eVSphere.multivcConfig.Global.User}
+	configPwd := []string{multiVCe2eVSphere.multivcConfig.Global.Password}
+	configvCenterHostname := []string{multiVCe2eVSphere.multivcConfig.Global.VCenterHostname}
+	configvCenterPort := []string{multiVCe2eVSphere.multivcConfig.Global.VCenterPort}
+
+	if strings.Contains(multiVCe2eVSphere.multivcConfig.Global.User, ",") {
+		configUser = strings.Split(multiVCe2eVSphere.multivcConfig.Global.User, ",")
+	}
+
+	if strings.Contains(multiVCe2eVSphere.multivcConfig.Global.Password, ",") {
+		configPwd = strings.Split(multiVCe2eVSphere.multivcConfig.Global.Password, ",")
+	}
+
+	if strings.Contains(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",") {
+		configvCenterHostname = strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
+	}
+
+	if strings.Contains(multiVCe2eVSphere.multivcConfig.Global.VCenterPort, ",") {
+		configvCenterPort = strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterPort, ",")
+	}
 
 	loginCmd := "export GOVC_INSECURE=1;"
 	loginCmd += fmt.Sprintf("export GOVC_URL='https://%s:%s@%s:%s';",
@@ -344,7 +363,7 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	if stsScaleDown {
 		framework.Logf("Scale down statefulset replica")
 		err := scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
-			parallelStatefulSetCreation, true)
+			parallelStatefulSetCreation)
 		if err != nil {
 			return fmt.Errorf("error scaling down statefulset: %v", err)
 		}
@@ -353,7 +372,7 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	if stsScaleUp {
 		framework.Logf("Scale up statefulset replica")
 		err := scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
-			parallelStatefulSetCreation, true)
+			parallelStatefulSetCreation)
 		if err != nil {
 			return fmt.Errorf("error scaling up statefulset: %v", err)
 		}
@@ -362,7 +381,7 @@ func performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx context.Context, cli
 	if verifyTopologyAffinity {
 		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
 		err := verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+			namespace, allowedTopologies, parallelStatefulSetCreation)
 		if err != nil {
 			return fmt.Errorf("error verifying PV node affinity and POD node details: %v", err)
 		}
@@ -377,9 +396,9 @@ further checks the node and volumes affinities
 */
 func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client clientset.Interface,
 	namespace string, parallelPodPolicy bool, replicas int32, nodeAffinityToSet bool,
-	allowedTopologies []v1.TopologySelectorLabelRequirement, allowedTopologyLen int,
+	allowedTopologies []v1.TopologySelectorLabelRequirement,
 	podAntiAffinityToSet bool, parallelStatefulSetCreation bool, modifyStsSpec bool,
-	stsName string, accessMode v1.PersistentVolumeAccessMode,
+	accessMode v1.PersistentVolumeAccessMode,
 	sc *storagev1.StorageClass, verifyTopologyAffinity bool) (*v1.Service, *appsv1.StatefulSet, error) {
 
 	ginkgo.By("Create service")
@@ -387,13 +406,13 @@ func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 
 	framework.Logf("Create StatefulSet")
 	statefulset := createCustomisedStatefulSets(ctx, client, namespace, parallelPodPolicy,
-		replicas, nodeAffinityToSet, allowedTopologies, allowedTopologyLen, podAntiAffinityToSet, modifyStsSpec,
-		"", "", nil)
+		replicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet, modifyStsSpec,
+		"", accessMode, sc)
 
 	if verifyTopologyAffinity {
 		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
 		err := verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, parallelStatefulSetCreation, true)
+			namespace, allowedTopologies, parallelStatefulSetCreation)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error verifying PV node affinity and POD node details: %v", err)
 		}
@@ -460,8 +479,8 @@ func performOfflineVolumeExpansin(client clientset.Interface,
 /*
 performOnlineVolumeExpansin performs online volume expansion on the Pod passed as an input
 */
-func performOnlineVolumeExpansin(f *framework.Framework, client clientset.Interface,
-	pvclaim *v1.PersistentVolumeClaim, namespace string, pod *v1.Pod) error {
+func performOnlineVolumeExpansion(f *framework.Framework, client clientset.Interface,
+	pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod) error {
 
 	ginkgo.By("Waiting for file system resize to finish")
 	expandedPVC, err := waitForFSResize(pvclaim, client)
@@ -605,7 +624,7 @@ This util will return key-value combination of datastore-name:datastore-url of a
 in a multi-vc setup
 */
 func getDatastoresListFromMultiVCs(masterIp string, sshClientConfig *ssh.ClientConfig,
-	cluster *object.ClusterComputeResource, isMultiVcSetup bool) (map[string]string, map[string]string,
+	cluster *object.ClusterComputeResource) (map[string]string, map[string]string,
 	map[string]string, error) {
 	ClusterdatastoreListMapVc1 := make(map[string]string)
 	ClusterdatastoreListMapVc2 := make(map[string]string)

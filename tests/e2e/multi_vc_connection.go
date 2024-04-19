@@ -63,10 +63,26 @@ newClientForMultiVC creates a new client for vSphere connection on a multivc env
 */
 func newClientForMultiVC(ctx context.Context, vs *multiVCvSphere) []*govmomi.Client {
 	var clients []*govmomi.Client
-	configUser := strings.Split(vs.multivcConfig.Global.User, ",")
-	configPwd := strings.Split(vs.multivcConfig.Global.Password, ",")
-	configvCenterHostname := strings.Split(vs.multivcConfig.Global.VCenterHostname, ",")
-	configvCenterPort := strings.Split(vs.multivcConfig.Global.VCenterPort, ",")
+	configUser := []string{multiVCe2eVSphere.multivcConfig.Global.User}
+	configPwd := []string{multiVCe2eVSphere.multivcConfig.Global.Password}
+	configvCenterHostname := []string{multiVCe2eVSphere.multivcConfig.Global.VCenterHostname}
+	configvCenterPort := []string{multiVCe2eVSphere.multivcConfig.Global.VCenterPort}
+
+	if strings.Contains(multiVCe2eVSphere.multivcConfig.Global.User, ",") {
+		configUser = strings.Split(multiVCe2eVSphere.multivcConfig.Global.User, ",")
+	}
+
+	if strings.Contains(multiVCe2eVSphere.multivcConfig.Global.Password, ",") {
+		configPwd = strings.Split(multiVCe2eVSphere.multivcConfig.Global.Password, ",")
+	}
+
+	if strings.Contains(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",") {
+		configvCenterHostname = strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
+	}
+
+	if strings.Contains(multiVCe2eVSphere.multivcConfig.Global.VCenterPort, ",") {
+		configvCenterPort = strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterPort, ",")
+	}
 	for i := 0; i < len(configvCenterHostname); i++ {
 		framework.Logf("https://%s:%s/sdk", configvCenterHostname[i], configvCenterPort[i])
 		url, err := neturl.Parse(fmt.Sprintf("https://%s:%s/sdk",

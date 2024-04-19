@@ -269,8 +269,8 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 
 				ginkgo.By("Create StatefulSet with 3 replicas with parallel pod management")
 				service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
-					true, 3, false, nil, 0,
-					false, false, false, "", "", nil, false)
+					true, 3, false, nil,
+					false, false, false, "", nil, false)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
 					fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -280,13 +280,13 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 				framework.Logf("Scale up sts replica count to 5")
 				scaleUpReplicaCount = 5
 				err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
-					true, false)
+					true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				framework.Logf("Scale down sts replica count to 1")
 				scaleDownReplicaCount = 1
 				err = scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
-					true, false)
+					true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			}
@@ -335,7 +335,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 
 				ginkgo.By("Create StatefulSet with 3 replicas with parallel pod management")
 				service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
-					true, 3, false, nil, 0, false, false, false, "", "", nil, false)
+					true, 3, false, nil, false, false, false, "", nil, false)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
 					fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -351,13 +351,13 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 				framework.Logf("Scale up sts replica count to 5")
 				scaleUpReplicaCount = 5
 				err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
-					true, false)
+					true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				framework.Logf("Scale down sts replica count to 1")
 				scaleDownReplicaCount = 1
 				err = scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
-					true, false)
+					true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// Create a Pvc and attach a pod to it
@@ -745,8 +745,8 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 
 			ginkgo.By("Create StatefulSet with 3 replica with parallel pod management")
 			service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
-				true, 3, false, nil, 0,
-				false, false, false, "", "", nil, false)
+				true, 3, false, nil,
+				false, false, false, "", nil, false)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -756,13 +756,13 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 			framework.Logf("Scale up sts replica count to 5")
 			scaleUpReplicaCount = 5
 			err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
-				true, false)
+				true)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			framework.Logf("Scale down sts replica count to 1")
 			scaleDownReplicaCount = 1
 			err = scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
-				true, false)
+				true)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
