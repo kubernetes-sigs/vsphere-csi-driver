@@ -80,8 +80,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		namespace = getNamespaceToRunTests(f)
 		bootstrap()
 		if guestCluster {
-			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, rqLimitScaleTest)
+			//svcClient, svNamespace := getSvcClientAndNamespace()
+			//setResourceQuota(svcClient, svNamespace, rqLimitScaleTest)
 		}
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
@@ -273,6 +273,9 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, policyNames, resourceQuotaLimit)
 		}
 
+		framework.Logf("sleep for 5 mins")
+		time.Sleep(5 * time.Minute)
+
 		for i, policyName := range policyNames {
 			if vanillaCluster {
 				ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
@@ -302,7 +305,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				}
 			} else {
 				ginkgo.By("CNS_TEST: Running for GC setup")
-				createResourceQuota(client, namespace, rqLimit, policyName)
+				//createResourceQuota(client, namespace, rqLimit, policyName)
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -543,7 +546,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				}
 			} else {
 				ginkgo.By("CNS_TEST: Running for GC setup")
-				createResourceQuota(client, namespace, rqLimit, policyName)
+				//createResourceQuota(client, namespace, rqLimit, policyName)
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				pvclaim, err = createPVC(ctx, client, namespace, nil, largeSize, storageclass, "")
@@ -766,7 +769,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
-			createResourceQuota(client, namespace, rqLimit, policyName)
+			//createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaim, err = createPVC(ctx, client, namespace, nil, largeSize, storageclass, "")
@@ -970,7 +973,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
-			createResourceQuota(client, namespace, rqLimit, policyName)
+			//createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -1256,7 +1259,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				}
 			} else {
 				ginkgo.By("CNS_TEST: Running for GC setup")
-				createResourceQuota(client, namespace, rqLimit, policyName)
+				//createResourceQuota(client, namespace, rqLimit, policyName)
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -1559,7 +1562,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
-			createResourceQuota(client, namespace, rqLimit, policyName)
+			//createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -1853,7 +1856,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
-			createResourceQuota(client, namespace, rqLimit, policyName)
+			//createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -2414,7 +2417,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(svcClient, ctx, svNamespace, policyNames, resourceQuotaLimit)
 			for _, policyName := range policyNames {
-				createResourceQuota(svcClient, svNamespace, rqLimit, policyName)
+				//createResourceQuota(svcClient, svNamespace, rqLimit, policyName)
 				storageclass, err := svcClient.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				scs = append(scs, storageclass)
@@ -2622,7 +2625,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		policyNames = append(policyNames, policyName)
 
 		assignPolicyToWcpNamespace(client, ctx, namespace, policyNames, resourceQuotaLimit)
-		createResourceQuota(client, namespace, rqLimit, policyName)
+		//createResourceQuota(client, namespace, rqLimit, policyName)
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = createVsanDPvcAndPod(sshWcpConfig, svcMasterIp, svcNamespace,
