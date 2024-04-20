@@ -45,7 +45,6 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		errors                []error
 		storagePolicyNames    [2]string
 		scParametersList      [2]map[string]string
-		storageClassNames     [2]string
 		csiNamespace          string
 		dataCenter            string
 		scaleUpReplicaCount   int32
@@ -91,7 +90,6 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		envStoragePolicyNameForSharedDatastoresList := []string{envStoragePolicyNameForSharedDsSvc1,
 			envStoragePolicyNameForSharedDsSvc2}
 		for i := 0; i < numberOfSvc; i++ {
-			storageClassNames[i] = defaultNginxStorageClassName
 			storagePolicyNames[i] = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastoresList[i])
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyNames[i])
 			scParameters := make(map[string]string)
@@ -99,8 +97,6 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 			// adding profileID to storageClass param - StoragePolicyID
 			scParametersList[i][scParamStoragePolicyID] = profileID
 			scParametersList[i][scParamFsType] = ext4FSType
-			// create resource quota
-			createResourceQuota(clients[i], namespaces[i], rqLimit, defaultNginxStorageClassName)
 		}
 
 		// Checking for any ready and schedulable node
@@ -259,18 +255,10 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 						fmt.Sprintf("Error creating k8s client with %v: %v", kubeconfig1, err))
 				}
 
-				scSpec := getVSphereStorageClassSpec(storageClassNames[n], scParametersList[n], nil, "", "", false)
-				sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				defer func() {
-					err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				}()
-
 				ginkgo.By("Create StatefulSet with 3 replicas with parallel pod management")
 				service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
 					true, 3, false, nil,
-					false, false, false, "", nil, false)
+					false, false, true, "", nil, false, storagePolicyNames[n])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
 					fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -325,17 +313,9 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 						fmt.Sprintf("Error creating k8s client with %v: %v", kubeconfig1, err))
 				}
 
-				scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParametersList[i], nil, "", "", false)
-				sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				defer func() {
-					err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				}()
-
 				ginkgo.By("Create StatefulSet with 3 replicas with parallel pod management")
 				service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
-					true, 3, false, nil, false, false, false, "", nil, false)
+					true, 3, false, nil, false, false, true, "", nil, false, storagePolicyNames[i])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
 					fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -361,12 +341,11 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// Create a Pvc and attach a pod to it
-				ginkgo.By("Create a PVC")
-				pvclaim, err = createPVC(ctx, client, namespace, nil, "", sc, "")
-				pvclaimName := pvclaim.Name
+				_, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil, scParametersList[i], "", nil, "", false, "",
+					storagePolicyNames[i])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
-					err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimName, namespace)
+					err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}()
 
@@ -735,18 +714,10 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 					fmt.Sprintf("Error creating k8s client with %v: %v", kubeconfig1, err))
 			}
 
-			scSpec := getVSphereStorageClassSpec(storageClassNames[n], scParametersList[n], nil, "", "", false)
-			sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			defer func() {
-				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}()
-
 			ginkgo.By("Create StatefulSet with 3 replica with parallel pod management")
 			service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
 				true, 3, false, nil,
-				false, false, false, "", nil, false)
+				false, false, true, "", nil, false, storagePolicyNames[n])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				fss.DeleteAllStatefulSets(ctx, client, namespace)

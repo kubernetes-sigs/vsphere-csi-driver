@@ -243,7 +243,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
 			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies,
-			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
+			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -308,7 +308,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, parallelPodPolicy,
 			stsReplicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet,
-			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
+			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -374,7 +374,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, parallelPodPolicy,
 			stsReplicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet,
-			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
+			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -525,7 +525,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, parallelPodPolicy,
 			stsReplicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet,
-			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
+			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -590,7 +590,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, parallelPodPolicy,
 			stsReplicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet,
-			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
+			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -655,7 +655,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, parallelPodPolicy,
 			stsReplicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet,
-			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
+			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -725,7 +725,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, parallelPodPolicy,
 			stsReplicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet,
-			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
+			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -796,7 +796,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, parallelPodPolicy,
 			stsReplicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet,
-			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
+			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -863,7 +863,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
 			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies,
-			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
+			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
@@ -999,7 +999,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, parallelPodPolicy,
 			stsReplicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet,
-			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
+			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -1151,7 +1151,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, _, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, parallelPodPolicy,
 			stsReplicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet,
-			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
+			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -1803,7 +1803,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, parallelPodPolicy,
 			stsReplicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet,
-			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity)
+			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)

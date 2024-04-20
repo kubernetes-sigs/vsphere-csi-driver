@@ -419,7 +419,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 
 		ginkgo.By("Create StatefulSet with replica count 3 with RWX PVC access mode")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, false,
-			int32(stsReplicas), false, allowedTopologyForSC, false, false, false, accessmode, sc, false)
+			int32(stsReplicas), false, allowedTopologyForSC, false, false, false, accessmode, sc, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -702,7 +702,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 
 		ginkgo.By("Create StatefulSet with replica count 3 with RWX PVC access mode")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, true,
-			int32(stsReplicas), false, allowedTopologyForSC, false, false, false, accessmode, sc, false)
+			int32(stsReplicas), false, allowedTopologyForSC, false, false, false, accessmode, sc, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -1428,7 +1428,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 
 		ginkgo.By("Create StatefulSet with replica count 3 with RWX PVC access mode")
 		service, _, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, true,
-			int32(stsReplicas), true, allowedTopologiesForSts, false, false, false, accessmode, storageclass, false)
+			int32(stsReplicas), true, allowedTopologiesForSts, false, false, false, accessmode, storageclass, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
