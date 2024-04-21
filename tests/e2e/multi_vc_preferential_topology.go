@@ -441,7 +441,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		ginkgo.By("Create StatefulSet and verify pv affinity and pod affinity details")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
 			parallelPodPolicy, stsReplicas, nodeAffinityToSet, allowedTopologies,
-			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", sc, verifyTopologyAffinity)
+			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", sc, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)

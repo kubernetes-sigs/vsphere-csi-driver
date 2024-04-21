@@ -60,7 +60,7 @@ func createCustomisedStatefulSets(ctx context.Context, client clientset.Interfac
 	isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
 	allowedTopologies []v1.TopologySelectorLabelRequirement,
 	podAntiAffinityToSet bool, modifyStsSpec bool, stsName string,
-	accessMode v1.PersistentVolumeAccessMode, sc *storagev1.StorageClass) *appsv1.StatefulSet {
+	accessMode v1.PersistentVolumeAccessMode, sc *storagev1.StorageClass, storagePolicy string) *appsv1.StatefulSet {
 	framework.Logf("Preparing StatefulSet Spec")
 	statefulset := GetStatefulSetFromManifest(namespace)
 
@@ -75,11 +75,20 @@ func createCustomisedStatefulSets(ctx context.Context, client clientset.Interfac
 	}
 
 	if modifyStsSpec {
-		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = sc.Name
-		statefulset.Name = stsName
-		statefulset.Spec.Template.Labels["app"] = statefulset.Name
-		statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
+		if multipleSvc {
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+				Spec.StorageClassName = &storagePolicy
+		} else {
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+				Annotations["volume.beta.kubernetes.io/storage-class"] = sc.Name
+		}
+
+		if stsName != "" {
+			statefulset.Name = stsName
+			statefulset.Spec.Template.Labels["app"] = statefulset.Name
+			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
+		}
+
 	}
 	if nodeAffinityToSet {
 		nodeSelectorTerms := getNodeSelectorTerms(allowedTopologies)
@@ -399,7 +408,8 @@ func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 	allowedTopologies []v1.TopologySelectorLabelRequirement,
 	podAntiAffinityToSet bool, parallelStatefulSetCreation bool, modifyStsSpec bool,
 	accessMode v1.PersistentVolumeAccessMode,
-	sc *storagev1.StorageClass, verifyTopologyAffinity bool) (*v1.Service, *appsv1.StatefulSet, error) {
+	sc *storagev1.StorageClass, verifyTopologyAffinity bool, storagePolicy string) (*v1.Service,
+	*appsv1.StatefulSet, error) {
 
 	ginkgo.By("Create service")
 	service := CreateService(namespace, client)
@@ -407,7 +417,7 @@ func createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 	framework.Logf("Create StatefulSet")
 	statefulset := createCustomisedStatefulSets(ctx, client, namespace, parallelPodPolicy,
 		replicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet, modifyStsSpec,
-		"", accessMode, sc)
+		"", accessMode, sc, storagePolicy)
 
 	if verifyTopologyAffinity {
 		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
