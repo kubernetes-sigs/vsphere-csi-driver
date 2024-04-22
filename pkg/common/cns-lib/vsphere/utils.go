@@ -265,15 +265,11 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 			cfg.Global.VCClientTimeout = defaultVCClientTimeoutInMinutes
 		}
 		vcClientTimeout = cfg.Global.VCClientTimeout
-
-		vcCAFile := cfg.Global.CAFile
-		vcThumbprint := cfg.Global.Thumbprint
-
 		vcConfig := &VirtualCenterConfig{
 			Host:                        vCenterIP,
 			Port:                        port,
-			CAFile:                      vcCAFile,
-			Thumbprint:                  vcThumbprint,
+			CAFile:                      cfg.VirtualCenter[vCenterIP].CAFile,
+			Thumbprint:                  cfg.VirtualCenter[vCenterIP].Thumbprint,
 			Username:                    cfg.VirtualCenter[vCenterIP].User,
 			Password:                    cfg.VirtualCenter[vCenterIP].Password,
 			Insecure:                    cfg.VirtualCenter[vCenterIP].InsecureFlag,
@@ -282,7 +278,12 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 			QueryLimit:                  cfg.Global.QueryLimit,
 			ListVolumeThreshold:         cfg.Global.ListVolumeThreshold,
 		}
-
+		if vcConfig.CAFile == "" {
+			vcConfig.CAFile = cfg.Global.CAFile
+		}
+		if vcConfig.Thumbprint == "" {
+			vcConfig.Thumbprint = cfg.Global.Thumbprint
+		}
 		log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
 		if strings.TrimSpace(cfg.VirtualCenter[vCenterIP].Datacenters) != "" {
 			vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[vCenterIP].Datacenters, ",")
