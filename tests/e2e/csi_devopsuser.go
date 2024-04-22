@@ -106,7 +106,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 
 		ginkgo.By("Create Pod using the above PVC")
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(ctx, svcClient, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		//defer func() {
