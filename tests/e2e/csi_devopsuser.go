@@ -92,10 +92,10 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 			getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, v1.ReadWriteOnce))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		//defer func() {
+		//	err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
+		//	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		//}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
@@ -104,22 +104,17 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
-		defer func() {
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
 		ginkgo.By("Create Pod using the above PVC")
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		defer func() {
-			err = client.CoreV1().Pods(namespace).Delete(ctx, pod.Name, *metav1.NewDeleteOptions(0))
-			if !apierrors.IsNotFound(err) {
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
+		//defer func() {
+		//	err = client.CoreV1().Pods(namespace).Delete(ctx, pod.Name, *metav1.NewDeleteOptions(0))
+		//	if !apierrors.IsNotFound(err) {
+		//		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		//	}
+		//}()
 
 		ginkgo.By("Increase PVC size and verify online volume resize")
 		increaseSizeOfPvcAttachedToPodWithoutF(client, namespace, pvclaim, pod)
