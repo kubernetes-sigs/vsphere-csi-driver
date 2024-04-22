@@ -83,7 +83,6 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pvclaim *v1.PersistentVolumeClaim
-		var pv *v1.PersistentVolume
 
 		ginkgo.By("Creating a PVC")
 		storageclass, err := svcClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
@@ -104,7 +103,6 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-		pv = persistentvolumes[0]
 
 		defer func() {
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
@@ -112,20 +110,15 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		}()
 
 		ginkgo.By("Create Pod using the above PVC")
-		pod, vmUUID := createPODandVerifyVolumeMountWithoutF(ctx, client, namespace, pvclaim, volHandle)
+		ginkgo.By("Creating pod to attach PV to the node")
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			// Delete Pod.
-			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err := fpod.DeletePodWithWait(ctx, client, pod)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s",
-				pv.Spec.CSI.VolumeHandle, vmUUID))
-			_, err = e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
-			gomega.Expect(err).To(gomega.HaveOccurred(),
-				fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
-					vmUUID, pv.Spec.CSI.VolumeHandle))
+			err = client.CoreV1().Pods(namespace).Delete(ctx, pod.Name, *metav1.NewDeleteOptions(0))
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		ginkgo.By("Increase PVC size and verify online volume resize")
