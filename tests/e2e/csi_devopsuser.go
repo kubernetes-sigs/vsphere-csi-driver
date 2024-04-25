@@ -34,11 +34,14 @@ import (
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 )
 
 var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal permission user", func() {
+	f := framework.NewDefaultFramework("devopsuser")
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	var (
 		client            clientset.Interface
