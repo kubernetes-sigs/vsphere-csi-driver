@@ -447,12 +447,13 @@ func (osUtils *OsUtils) PublishMountVol(
 	}
 
 	// Do the bind mount to publish the volume.
+	mntFlags = append(mntFlags, "bind")
 	if params.Ro {
 		mntFlags = append(mntFlags, "ro")
 	}
 	log.Debugf("PublishMountVolume: Attempting to bind mount %q to %q with mount flags %v",
 		params.StagingTarget, params.Target, mntFlags)
-	if err := gofsutil.BindMount(ctx, params.StagingTarget, params.Target, mntFlags...); err != nil {
+	if err := osUtils.Mounter.Mount(params.StagingTarget, params.Target, "", mntFlags); err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"error mounting volume. Parameters: %v err: %v", params, err)
 	}
