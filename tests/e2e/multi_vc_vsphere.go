@@ -434,3 +434,4 @@ func (vs *multiVCvSphere) GetSpbmPolicyIDInMultiVc(storagePolicyName string) str
 	// Join policy ID strings with a comma separator
 	return strings.Join(policyIDStrings, ",")
 }
+

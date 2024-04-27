@@ -23,6 +23,7 @@ import (
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -97,6 +98,9 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-singlevc] No-Hci-Mesh-Topology-Si
 		//setting map values
 		labelsMap["app"] = "test"
 		scParameters[scParamFsType] = nfs4FSType
+
+		setNetPermissionsInVsphereConfSecret(client, ctx, csiSystemNamespace, 3, "*",
+			vsanfstypes.VsanFileShareAccessTypeREAD_WRITE, false)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -177,7 +181,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-singlevc] No-Hci-Mesh-Topology-Si
 		7. Perform cleanup by deleting Pods, PVCs, and the SC.
 	*/
 
-	ginkgo.It("Deployment pods with multiple replicas attached to a "+
+	ginkgo.It("SVCDeployment pods with multiple replicas attached to a "+
 		"single rwx pvc", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1251,5 +1255,87 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-singlevc] No-Hci-Mesh-Topology-Si
 		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
 			true, labelsMap, pvclaim, nil, execRWXCommandPod, nginxImage, true, depl[1], 0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/*
+		TESTCASE-16
+		Net Permissions -> ips = "*" and permissions = "READ_WRITE"
+		SC → specific allowed topology i.e. k8s-rack:rack-1 with WFC Binding mode
+
+		Steps:
+		1. Create vSphere Configuration Secret - Set NetPermissions to "*" and Set permissions to "READ_WRITE"
+		2. Install vSphere CSI Driver.
+		3. Create Storage Class -  set allowed topology to rack-1 and set WFC Binding mode
+		4. Create PVC using Storage Class - Set access mode to "RWX"
+		5. Verify PVC state, ensure the PVC reaches the Bound state.
+		6. Create 3 Pods using the PVC from step 4. Set Pod3 to "read-only" mode.
+		7. Verify Pod States, confirm all three Pods are in an up and running state.
+		8. Exec to Pod1 - Create a text file and write data into the mounted directory.
+		9. Exec to Pod2 - Try to access the text file created by Pod1, cat the file and later write some data into it.
+		Verify that Pod2 can read and write into the text file.
+		10. Exec to Pod3 - Try to access the text file created by Pod1, cat the file and attempt to write some data into it.
+		Verify that Pod3 can read but cannot write due to "READ_ONLY" permission.
+		11. Perform cleanup by deleting Pods, PVC, and SC.
+	*/
+
+	ginkgo.It("Multiple standalone pods attached to a single rwx "+
+		"pvc with netpermissions set to read/write", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// standalone pod and pvc count
+		noPodsToDeploy := 3
+		createPvcItr = 1
+
+		// Create allowed topologies for Storage Class: region1 > zone1 > building1 > level1 > rack > rack3
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
+			topologyLength, leafNode, leafNodeTag2)
+
+		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with allowed "+
+			"topology set to cluster-3", accessmode, nfs4FSType))
+		storageclass, pvclaims, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap, scParameters,
+			diskSize, allowedTopologyForSC, bindingModeWffc, false, accessmode, "", nil, createPvcItr, false, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// taking pvclaims 0th index because we are creating only single RWX PVC in this case
+		pvclaim = pvclaims[0]
+
+		ginkgo.By("Create 3 standalone Pods using the same PVC with different read/write permissions")
+		podList, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaim, false, execRWXCommandPod,
+			noPodsToDeploy)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		defer func() {
+			for i := 0; i < len(podList); i++ {
+				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podList[i].Name, namespace))
+				err := fpod.DeletePodWithWait(ctx, client, podList[i])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Verify PVC Bound state and CNS side verification")
+		pvs, err = checkVolumeStateAndPerformCnsVerification(ctx, client, pvclaims, "", "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// taking pvs 0th index because we are creating only single RWX PVC in this case
+		pv = pvs[0]
+
+		ginkgo.By("Verify volume placement, should match with the allowed topology specified")
+		_, _, datastoreUrlsRack3, _, err := fetchDatastoreListMap(ctx, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isCorrectPlacement := e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, datastoreUrlsRack3)
+		gomega.Expect(isCorrectPlacement).To(gomega.BeTrue(), fmt.Sprintf("Volume provisioning has happened on the wrong "+
+			"datastore. Expected 'true', got '%v'", isCorrectPlacement))
 	})
 })

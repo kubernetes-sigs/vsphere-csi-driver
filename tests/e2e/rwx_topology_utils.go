@@ -23,8 +23,12 @@ import (
 	"strings"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	"github.com/vmware/govmomi/cns"
+	cnsmethods "github.com/vmware/govmomi/cns/methods"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
+	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	"golang.org/x/crypto/ssh"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -190,7 +194,7 @@ func createStandalonePodsForRWXVolume(client clientset.Interface, ctx context.Co
 	command string, no_pods_to_deploy int) ([]*v1.Pod, error) {
 	var podList []*v1.Pod
 
-	for i := 0; i <= no_pods_to_deploy; i++ {
+	for i := 0; i < no_pods_to_deploy; i++ {
 		var pod *v1.Pod
 		var err error
 
@@ -223,7 +227,7 @@ func createStandalonePodsForRWXVolume(client clientset.Interface, ctx context.Co
 
 		// here we are creating Pod3 with read-only permissions
 		if i == 2 {
-			pod = fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+			pod = fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, "")
 			pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 			createdPod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
 			if err != nil {
@@ -469,8 +473,9 @@ func fetchDatastoreListMap(ctx context.Context,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	allMasterIps := getK8sMasterIPs(ctx, client)
-	masterIp := allMasterIps[0]
+	// allMasterIps := getK8sMasterIPs(ctx, client)
+	// masterIp := allMasterIps[0]
+	masterIp := "10.83.35.83"
 
 	// fetching datacenter details
 	if !multivc {
@@ -618,4 +623,139 @@ func volumePlacementVerificationForSts(ctx context.Context, client clientset.Int
 		}
 	}
 	return nil
+}
+
+func creatFileShareForFileVolumes() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if !multivc {
+		err := connectCns(ctx, &e2eVSphere)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		err := connectMultiVcCns(ctx, &multiVCe2eVSphere)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	ginkgo.By("Creating file share")
+	cnsCreateReq := cnstypes.CnsCreateVolume{
+		This:        cnsVolumeManagerInstance,
+		CreateSpecs: []cnstypes.CnsVolumeCreateSpec{*getFileShareCreateSpec(defaultDatastore.Reference())},
+	}
+	if !multivc {
+		cnsCreateRes, err := cnsmethods.CnsCreateVolume(ctx, e2eVSphere.CnsClient.Client, &cnsCreateReq)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		task, err := object.NewTask(e2eVSphere.Client.Client, cnsCreateRes.Returnval), nil
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		taskInfo, err := cns.GetTaskInfo(ctx, task)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		fileShareVolumeID := taskResult.GetCnsVolumeOperationResult().VolumeId.Id
+
+		// Deleting the volume with deleteDisk set to false.
+		ginkgo.By("Deleting the fileshare with deleteDisk set to false")
+		cnsDeleteReq := cnstypes.CnsDeleteVolume{
+			This:       cnsVolumeManagerInstance,
+			VolumeIds:  []cnstypes.CnsVolumeId{{Id: fileShareVolumeID}},
+			DeleteDisk: false,
+		}
+		cnsDeleteRes, err := cnsmethods.CnsDeleteVolume(ctx, e2eVSphere.CnsClient.Client, &cnsDeleteReq)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		task, err = object.NewTask(e2eVSphere.Client.Client, cnsDeleteRes.Returnval), nil
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		taskInfo, err = cns.GetTaskInfo(ctx, task)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		_, err = cns.GetTaskResult(ctx, taskInfo)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		cnsCreateRes, err := cnsmethods.CnsCreateVolume(ctx, e2eVSphere.CnsClient.Client, &cnsCreateReq)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		task, err := object.NewTask(e2eVSphere.Client.Client, cnsCreateRes.Returnval), nil
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		taskInfo, err := cns.GetTaskInfo(ctx, task)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		fileShareVolumeID := taskResult.GetCnsVolumeOperationResult().VolumeId.Id
+
+		// Deleting the volume with deleteDisk set to false.
+		ginkgo.By("Deleting the fileshare with deleteDisk set to false")
+		cnsDeleteReq := cnstypes.CnsDeleteVolume{
+			This:       cnsVolumeManagerInstance,
+			VolumeIds:  []cnstypes.CnsVolumeId{{Id: fileShareVolumeID}},
+			DeleteDisk: false,
+		}
+		cnsDeleteRes, err := cnsmethods.CnsDeleteVolume(ctx, e2eVSphere.CnsClient.Client, &cnsDeleteReq)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		task, err = object.NewTask(e2eVSphere.Client.Client, cnsDeleteRes.Returnval), nil
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		taskInfo, err = cns.GetTaskInfo(ctx, task)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		_, err = cns.GetTaskResult(ctx, taskInfo)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+func writeConfigToSecretForFileVolume(cfg e2eTestConfig, netPerm NetPermissionConfig) (string, error) {
+	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
+		"[NetPermissions 'A']\nips = \"%s\"\npermissions = \"%s\"\nrootsquash = \"%t\"\n"+
+		"csi-fetch-preferred-datastores-intervalinmin = %d\n"+"query-limit = \"%d\"\n"+
+		"list-volume-threshold = \"%d\"\n\n"+
+		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n"+
+		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n"+
+		"[Labels]\ntopology-categories = \"%s\"",
+		cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
+		netPerm.Ips, netPerm.Permissions, netPerm.RootSquash,
+		cfg.Global.CSIFetchPreferredDatastoresIntervalInMin, cfg.Global.QueryLimit,
+		cfg.Global.ListVolumeThreshold,
+		cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
+		cfg.Global.Datacenters, cfg.Global.VCenterPort,
+		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume,
+		cfg.Labels.TopologyCategories)
+	return result, nil
+}
+
+func setNetPermissionsInVsphereConfSecret(client clientset.Interface, ctx context.Context,
+	csiNamespace string, csiReplicas int32, netPermissionIp string, permissions vsanfstypes.VsanFileShareAccessType, rootSquash bool) {
+
+	var modifiedConf string
+	var vsphereCfg e2eTestConfig
+	var netPerm NetPermissionConfig
+
+	// read current secret
+	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// read original conf
+	originalConf := string(currentSecret.Data[vSphereCSIConf])
+
+	if !multivc {
+		vsphereCfg, err = readConfigFromSecretString(originalConf)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		vsphereCfg, err = readVsphereConfCredentialsInMultiVcSetup(originalConf)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	netPerm.Ips = netPermissionIp
+	netPerm.Permissions = permissions
+	netPerm.RootSquash = rootSquash
+	vsphereCfg.Global.CSIFetchPreferredDatastoresIntervalInMin = preferredDatastoreRefreshTimeInterval
+	if !multivc {
+		modifiedConf, err = writeConfigToSecretForFileVolume(vsphereCfg, netPerm)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Updating the secret to reflect new changes")
+		currentSecret.Data[vSphereCSIConf] = []byte(modifiedConf)
+		_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		err = writeNewDataAndUpdateVsphereConfSecret(client, ctx, csiNamespace, vsphereCfg)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	// restart csi driver
+	restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
+	gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

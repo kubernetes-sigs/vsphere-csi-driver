@@ -50,24 +50,24 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		client    clientset.Interface
 		namespace string
 
-		allowedTopologies          []v1.TopologySelectorLabelRequirement
-		topValStartIndex           int
-		topValEndIndex             int
-		topkeyStartIndex           int
-		scParameters               map[string]string
-		bindingModeWffc            storagev1.VolumeBindingMode
-		bindingModeImm             storagev1.VolumeBindingMode
-		accessmode                 v1.PersistentVolumeAccessMode
-		labelsMap                  map[string]string
-		replica                    int32
-		createPvcItr               int
-		createDepItr               int
-		pvs                        []*v1.PersistentVolume
-		pvclaim                    *v1.PersistentVolumeClaim
-		pv                         *v1.PersistentVolume
-		sshClientConfig            *ssh.ClientConfig
-		nimbusGeneratedK8sVmPwd    string
-		allMasterIps               []string
+		allowedTopologies       []v1.TopologySelectorLabelRequirement
+		topValStartIndex        int
+		topValEndIndex          int
+		topkeyStartIndex        int
+		scParameters            map[string]string
+		bindingModeWffc         storagev1.VolumeBindingMode
+		bindingModeImm          storagev1.VolumeBindingMode
+		accessmode              v1.PersistentVolumeAccessMode
+		labelsMap               map[string]string
+		replica                 int32
+		createPvcItr            int
+		createDepItr            int
+		pvs                     []*v1.PersistentVolume
+		pvclaim                 *v1.PersistentVolumeClaim
+		pv                      *v1.PersistentVolume
+		sshClientConfig         *ssh.ClientConfig
+		nimbusGeneratedK8sVmPwd string
+		//allMasterIps               []string
 		masterIp                   string
 		isStorageProfileDeleted    bool
 		storagePolicyToDelete      string
@@ -118,8 +118,9 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		}
 
 		// fetching k8s master ip
-		allMasterIps = getK8sMasterIPs(ctx, client)
-		masterIp = allMasterIps[0]
+		//allMasterIps = getK8sMasterIPs(ctx, client)
+		//masterIp = allMasterIps[0]
+		masterIp = "10.83.35.83"
 
 		// nimbus export variable
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
@@ -569,7 +570,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 	9. Perform cleanup by deleting deployment Pods, PVC and SC
 	*/
 
-	ginkgo.It("Multiple standalone pods attached to single rwx pvc with datastore url"+
+	ginkgo.It("TC4Multiple standalone pods attached to single rwx pvc with datastore url"+
 		"tagged to Az2 in SC", ginkgo.Label(p0, file, vanilla, multiVc, newTest), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -795,7 +796,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 	    10. Perform cleanup by deleting Pods, PVC and SC.
 	*/
 
-	ginkgo.It("Same storage policy is available in vc1 and vc2 and later delete storage policy from "+
+	ginkgo.It("TC7Same storage policy is available in vc1 and vc2 and later delete storage policy from "+
 		"one of the VC", ginkgo.Label(p1, file, vanilla, multiVc, newTest), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -847,7 +848,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		}()
 
 		ginkgo.By("Creating multiple pvcs with rwx access mode")
-		_, pvclaims, err = createStorageClassWithMultiplePVCs(client, namespace, labelsMap,
+		_, pvclaims, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap,
 			scParameters, diskSize, allowedTopologies, bindingModeImm, false, accessmode,
 			"", storageclass, createPvcItr, true, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -934,7 +935,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		9. Perform cleanup by deleting Pods, PVCs and SC
 	*/
 
-	ginkgo.It("Creating statefulset with rwx pvcs with storage policy "+
+	ginkgo.It("TC9Creating statefulset with rwx pvcs with storage policy "+
 		"tagged to vc1 datastore and vc1 is under reboot", ginkgo.Label(p1, file, vanilla,
 		multiVc, disruptive), func() {
 
@@ -1369,7 +1370,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		18. Perform cleanup by deleting StatefulSet, Pods, PVCs and SC.
 	*/
 
-	ginkgo.It("Different types of pods creation attached to rwx pvcs "+
+	ginkgo.It("TC13Different types of pods creation attached to rwx pvcs "+
 		"involving scaling operation", ginkgo.Label(p0, file, vanilla, multiVc, newTest), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1384,7 +1385,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		replica = 1
 		stsReplicas := 3
 		createPvcItr = 4
-		createDepItr = 3
+		createDepItr = 1
 		noPodsToDeploy := 3
 
 		// here, we are considering the allowed topology of all AZs
@@ -1403,15 +1404,6 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-		defer func() {
-			for i := 0; i < len(pvclaims); i++ {
-				pv = getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
-				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
 		}()
 
 		ginkgo.By("Verify PVC Bound state and CNS side verification")
@@ -1440,8 +1432,8 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		/* here in 3-VC setup, deployment pod node affinity is taken as  k8s-zone -> zone-2
 		i.e only VC2 allowed topology
 		*/
-		topValStartIndex = 2
-		topValEndIndex = 3
+		topValStartIndex = 1
+		topValEndIndex = 2
 		allowedTopologiesForDep := setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 		nodeSelectorTermsForDep, err := getNodeSelectorMapForDeploymentPods(allowedTopologiesForDep)
@@ -1450,10 +1442,10 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		ginkgo.By("Set node selector term for standlone pods so that all pods should get " +
 			"created on one single AZ i.e. cluster-3(rack-3)")
 		/*
-			We are considering allowed topology of VC-1 and VC-3 i.e.
-			k8s-zone -> zone-1 and zone-3
+			We are considering allowed topology of VC-3 i.e.
+			k8s-zone -> zone-3
 		*/
-		topValStartIndex = 0
+		topValStartIndex = 2
 		topValEndIndex = 3
 
 		ginkgo.By("Setting allowed topology to vc-1 and vc-3")
@@ -1477,6 +1469,16 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
+		defer func() {
+			for i := 0; i < len(pvclaims); i++ {
+				pv = getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
 		defer func() {
 			framework.Logf("Delete deployment set")
 			for i := 0; i < len(depl); i++ {

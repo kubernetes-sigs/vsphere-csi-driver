@@ -82,6 +82,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
@@ -3087,7 +3088,10 @@ func trimQuotes(str string) string {
 // Returns a de-serialized structured config data
 func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 	var config e2eTestConfig
+	var netPerm NetPermissionConfig
 	key, value := "", ""
+	var permissions vsanfstypes.VsanFileShareAccessType
+	var rootSquash bool
 	lines := strings.Split(cfg, "\n")
 	for index, line := range lines {
 		if index == 0 {
@@ -3164,6 +3168,16 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 		case "targetvSANFileShareClusters":
 			config.Global.TargetVsanFileShareClusters = value
 
+			if rwxAccessMode {
+				switch key {
+				case "ips":
+					netPerm.Ips = value
+				case "permissions":
+					netPerm.Permissions = permissions
+				case "rootsquash":
+					netPerm.RootSquash = rootSquash
+				}
+			}
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
 		}

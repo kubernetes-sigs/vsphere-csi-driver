@@ -432,6 +432,7 @@ var (
 	envVsanDsStoragePolicyCluster3 = "VSAN_DATASTORE_CLUSTER3_STORAGE_POLICY"
 	envNonVsanDsUrl                = "NON_VSAN_DATASTOREURL"
 	envVsanDsUrlCluster3           = "VSAN_DATASTOREURL_CLUSTER3"
+	envRemoteDatastoreUrl          = "REMOTE_DATASTORE_URL"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.
