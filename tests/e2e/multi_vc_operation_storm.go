@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm
 				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 		}
 
-		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		nodeList, err = fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -146,7 +146,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(ctx, client, namespace)
+		fss.DeleteAllStatefulSets(client, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 		if !apierrors.IsNotFound(err) {

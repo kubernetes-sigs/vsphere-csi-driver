@@ -26,7 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	admissionapi "k8s.io/pod-security-admission/api"
 
-	"github.com/onsi/ginkgo/v2"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/object"
 	vim25types "github.com/vmware/govmomi/vim25/types"
@@ -55,9 +55,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -114,19 +112,19 @@ var _ bool = ginkgo.Describe("hci", func() {
 		pvclaims2d := [][]*v1.PersistentVolumeClaim{}
 		ginkgo.By("create 5 pvcs each on remote vsan ds")
 		for i := 0; i < 5; i++ {
-			pvc, err := createPVC(ctx, client, namespace, nil, "", remoteSc, "")
+			pvc, err := createPVC(client, namespace, nil, "", remoteSc, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvcs = append(pvcs, pvc)
 			pvclaims2d = append(pvclaims2d, []*v1.PersistentVolumeClaim{pvc})
 		}
 
 		ginkgo.By("wait for pvcs to be bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			for i, pvc := range pvcs {
-				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+				err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[i].Spec.CSI.VolumeHandle)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -202,13 +200,13 @@ var _ bool = ginkgo.Describe("hci", func() {
 		CreateStatefulSet(namespace, statefulset, client)
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
-		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("disable vsan network on one the host's vmknic in cluster4")
 		workervms := getWorkerVmMos(ctx, client)
@@ -227,14 +225,14 @@ var _ bool = ginkgo.Describe("hci", func() {
 		}()
 
 		ginkgo.By("verify PVs are accessible")
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("perform sts scale up and down and verify they are successful")
 		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, replicas+1, true, true)
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPods := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPods := fss.GetPodList(client, statefulset)
 		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, ssPods, replicas-2, true, true)
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 	})
 
 })

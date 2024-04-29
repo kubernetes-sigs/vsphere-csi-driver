@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/onsi/ginkgo/v2"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
 	v1 "k8s.io/api/core/v1"
@@ -48,9 +48,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
 		bootstrap()
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -102,7 +100,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for Vanilla setup")
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(client,
 				namespace, nil, nil, "", nil, "", false, "")
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
@@ -111,13 +109,13 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(client,
 				namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(client,
 				namespace, nil, scParameters, "", nil, "", false, "")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -130,7 +128,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		}()
 
 		ginkgo.By("Waiting for claim to be in bound phase")
-		pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvc, err := fpv.WaitForPVClaimBoundPhase(client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
@@ -138,7 +136,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		volumeID := pv.Spec.CSI.VolumeHandle
 
 		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -152,7 +150,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		}
 
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var vmUUID string
@@ -180,7 +178,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 
 		ginkgo.By("Rebooting VC")
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		err = invokeVCenterReboot(ctx, vcAddress)
+		err = invokeVCenterReboot(vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -197,7 +195,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		bootstrap()
 
 		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-		err = fpod.DeletePodWithWait(ctx, client, pod)
+		err = fpod.DeletePodWithWait(client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if supervisorCluster {
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s", volumeID, nodeName))

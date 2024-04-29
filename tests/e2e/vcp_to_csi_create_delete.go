@@ -25,9 +25,9 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/hashicorp/go-version"
-	"github.com/onsi/ginkgo/v2"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	"github.com/vmware/govmomi/cns"
+	cns "github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
@@ -36,13 +36,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
+	clientcmd "k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
-
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -71,13 +70,13 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		nodeList, err = fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
 		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -112,7 +111,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-			err = invokeVCenterServiceControl(ctx, "start", vsanhealthServiceName, vcAddress)
+			err = invokeVCenterServiceControl("start", vsanhealthServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again",
 				vsanHealthServiceWaitTime))
@@ -121,7 +120,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 
 		if isSPSserviceStopped {
 			ginkgo.By(fmt.Sprintln("Starting sps on the vCenter host"))
-			err = invokeVCenterServiceControl(ctx, "start", "sps", vcAddress)
+			err = invokeVCenterServiceControl("start", "sps", vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to come up again", vsanHealthServiceWaitTime))
 			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
@@ -225,13 +224,13 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 
 		ginkgo.By("Creating VCP PVCs before migration")
 		for _, sc := range vcpScs {
-			pvc, err := createPVC(ctx, client, namespace, nil, "", sc, "")
+			pvc, err := createPVC(client, namespace, nil, "", sc, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			vcpPvcsPreMig = append(vcpPvcsPreMig, pvc)
 		}
 
 		ginkgo.By("Waiting for all claims created before migration to be in bound state")
-		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(ctx, client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
@@ -244,12 +243,12 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 
 		ginkgo.By("Creating VCP PVCs after migration")
 		for _, sc := range vcpScs {
-			pvc, err := createPVC(ctx, client, namespace, nil, "", sc, "")
+			pvc, err := createPVC(client, namespace, nil, "", sc, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			vcpPvcsPostMig = append(vcpPvcsPostMig, pvc)
 		}
 		ginkgo.By("Waiting for all claims created after migration to be in bound state")
-		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(ctx, client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
+		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify annotations on PV/PVCs created after migration")
@@ -263,7 +262,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 			framework.Logf("Processing PVC: " + pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc, pv, nil)
+			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
@@ -308,13 +307,13 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		if !migrationEnabledByDefault {
 			ginkgo.By("Creating VCP PVCs before migration")
 			for _, sc := range vcpScs {
-				pvc, err := createPVC(ctx, client, namespace, nil, "", sc, "")
+				pvc, err := createPVC(client, namespace, nil, "", sc, "")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				vcpPvcsPreMig = append(vcpPvcsPreMig, pvc)
 			}
 
 			ginkgo.By("Waiting for all claims created before migration to be in bound state")
-			vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(ctx, client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+			vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -329,7 +328,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		}
 
 		ginkgo.By("Creating VCP PVCs after migration")
-		pvc, err := createPVC(ctx, client, namespace, nil, "", vcpSc, "")
+		pvc, err := createPVC(client, namespace, nil, "", vcpSc, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(30 * time.Second)
 		ginkgo.By("Checking for error in events related to pvc " + pvc.Name)
@@ -351,7 +350,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 			framework.Logf("Processing PVC: " + pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc, pv, nil)
+			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
@@ -426,12 +425,12 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		kcmMigEnabled = true
 
 		ginkgo.By("Creating PVC2...")
-		pvc2, err := createPVC(ctx, client, namespace, nil, "", vcpSc, "")
+		pvc2, err := createPVC(client, namespace, nil, "", vcpSc, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vcpPvcsPostMig = append(vcpPvcsPostMig, pvc2)
 
 		ginkgo.By("Waiting for all claims to be in bound state")
-		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(ctx, client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
+		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pv2 := vcpPvsPostMig[0]
 
@@ -444,20 +443,20 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		var found bool
 		found, crd = getCnsVSphereVolumeMigrationCrd(ctx, vpath)
 		gomega.Expect(found).To(gomega.BeTrue())
-		err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc2, pv2, nil)
+		err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc2, pv2, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		ginkgo.By(fmt.Sprintln("Stopping sps on the vCenter host"))
 		isSPSserviceStopped = true
-		err = invokeVCenterServiceControl(ctx, "stop", "sps", vcAddress)
+		err = invokeVCenterServiceControl("stop", "sps", vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to completely shutdown", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 
 		ginkgo.By("Creating PVC1...")
-		pvc1, err := createPVC(ctx, client, namespace, nil, "", vcpSc, "")
+		pvc1, err := createPVC(client, namespace, nil, "", vcpSc, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vcpPvcsPostMig = append(vcpPvcsPostMig, pvc1)
 
@@ -469,26 +468,26 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		gomega.Expect(pvc1.Status.Phase == v1.ClaimPending).To(gomega.BeTrue())
 
 		ginkgo.By(fmt.Sprintln("Starting sps on the vCenter host"))
-		err = invokeVCenterServiceControl(ctx, "start", "sps", vcAddress)
+		err = invokeVCenterServiceControl("start", "sps", vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to come up again", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 		isSPSserviceStopped = false
 
 		ginkgo.By("Waiting for all claims to be in bound state")
-		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(ctx, client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
+		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		isVsanHealthServiceStopped = true
-		err = invokeVCenterServiceControl(ctx, "stop", vsanhealthServiceName, vcAddress)
+		err = invokeVCenterServiceControl("stop", vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
 			vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 
 		ginkgo.By("Creating PVC3...")
-		pvc3, err := createPVC(ctx, client, namespace, nil, "", vcpSc, "")
+		pvc3, err := createPVC(client, namespace, nil, "", vcpSc, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vcpPvcsPostMig = append(vcpPvcsPostMig, pvc3)
 
@@ -504,7 +503,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		gomega.Expect(pvc3.Status.Phase == v1.ClaimPending).To(gomega.BeTrue())
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		err = invokeVCenterServiceControl(ctx, "start", vsanhealthServiceName, vcAddress)
+		err = invokeVCenterServiceControl("start", vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
@@ -512,7 +511,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 
 		vcpPvcsPostMig = append([]*v1.PersistentVolumeClaim{}, pvc1, pvc3)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(ctx, client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
+		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(crd.Spec.VolumeID)
@@ -536,7 +535,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 			var found bool
 			found, crd = getCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(found).To(gomega.BeTrue())
-			err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc, pv, nil)
+			err = waitAndVerifyCnsVolumeMetadata(crd.Spec.VolumeID, pvc, pv, nil)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
@@ -577,12 +576,12 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		vcpScs = append(vcpScs, vcpScRetain)
 
 		ginkgo.By("Creating VCP PVC pvc1 before migration")
-		pvc1, err := createPVC(ctx, client, namespace, nil, "", vcpScRetain, "")
+		pvc1, err := createPVC(client, namespace, nil, "", vcpScRetain, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vcpPvcsPreMig = append(vcpPvcsPreMig, pvc1)
 
 		ginkgo.By("Waiting for all claims created before migration to be in bound state")
-		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(ctx, client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
@@ -654,7 +653,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		pvc2.Spec.VolumeName = pv.Name
 		pvc2, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc2, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc2}, framework.ClaimProvisionTimeout)
+		_, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc2.Name, *metav1.NewDeleteOptions(0))
@@ -665,7 +664,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		}()
 
 		ginkgo.By("Verify CNS entries for PVC2 and PV2")
-		err = waitAndVerifyCnsVolumeMetadata(ctx, fcdID, pvc2, pv, nil)
+		err = waitAndVerifyCnsVolumeMetadata(fcdID, pvc2, pv, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create POD on PVC2")
@@ -674,7 +673,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		defer func() {
 			// Delete Pod.
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err := fpod.DeletePodWithWait(ctx, client, pod)
+			err := fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 		//Online volume resize of migrated volume is supported on k8s1.26 onwards.
@@ -712,11 +711,10 @@ func waitForPvcMigAnnotations(ctx context.Context, c clientset.Interface, pvcNam
 	namespace string, isMigratedVol bool) (*v1.PersistentVolumeClaim, error) {
 	var pvc *v1.PersistentVolumeClaim
 	var hasMigAnnotations bool
-	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
-		func(ctx context.Context) (bool, error) {
-			hasMigAnnotations, pvc = pvcHasMigAnnotations(ctx, c, pvcName, namespace, isMigratedVol)
-			return hasMigAnnotations, nil
-		})
+	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
+		hasMigAnnotations, pvc = pvcHasMigAnnotations(ctx, c, pvcName, namespace, isMigratedVol)
+		return hasMigAnnotations, nil
+	})
 	return pvc, waitErr
 }
 
@@ -725,11 +723,10 @@ func waitForPvMigAnnotations(ctx context.Context, c clientset.Interface, pvName 
 	isMigratedVol bool) (*v1.PersistentVolume, error) {
 	var pv *v1.PersistentVolume
 	var hasMigAnnotations bool
-	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
-		func(ctx context.Context) (bool, error) {
-			hasMigAnnotations, pv = pvHasMigAnnotations(ctx, c, pvName, isMigratedVol)
-			return hasMigAnnotations, nil
-		})
+	waitErr := wait.PollImmediate(poll, pollTimeout, func() (bool, error) {
+		hasMigAnnotations, pv = pvHasMigAnnotations(ctx, c, pvName, isMigratedVol)
+		return hasMigAnnotations, nil
+	})
 	return pv, waitErr
 }
 
@@ -883,22 +880,20 @@ func fileExistsOnSharedDatastore(ctx context.Context, volPath string) (bool, err
 
 // waitForVmdkDeletion wait for specified vmdk to get deleted from the datastore
 func waitForVmdkDeletion(ctx context.Context, volPath string) error {
-	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeoutShort, true,
-		func(ctx context.Context) (bool, error) {
-			exists, err := fileExistsOnSharedDatastore(ctx, volPath)
-			return !exists, err
-		})
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		exists, err := fileExistsOnSharedDatastore(ctx, volPath)
+		return !exists, err
+	})
 	return waitErr
 }
 
 // waitForCnsVSphereVolumeMigrationCrdToBeDeleted waits for the given CnsVSphereVolumeMigration crd to get deleted
 func waitForCnsVSphereVolumeMigrationCrdToBeDeleted(ctx context.Context,
 	crd *migrationv1alpha1.CnsVSphereVolumeMigration) error {
-	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeoutShort, true,
-		func(ctx context.Context) (bool, error) {
-			exists, _ := getCnsVSphereVolumeMigrationCrd(ctx, crd.Spec.VolumePath)
-			return !exists, nil
-		})
+	waitErr := wait.PollImmediate(poll, pollTimeoutShort, func() (bool, error) {
+		exists, _ := getCnsVSphereVolumeMigrationCrd(ctx, crd.Spec.VolumePath)
+		return !exists, nil
+	})
 	return waitErr
 }
 
@@ -1081,13 +1076,12 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 }
 
 // waitAndVerifyCnsVolumeMetadata verify the pv, pvc, pod information on given cns volume
-func waitAndVerifyCnsVolumeMetadata(ctx context.Context, volumeID string, pvc *v1.PersistentVolumeClaim,
+func waitAndVerifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 	pv *v1.PersistentVolume, pod *v1.Pod) error {
-	waitErr := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
-		func(ctx context.Context) (bool, error) {
-			matches := verifyCnsVolumeMetadata(volumeID, pvc, pv, pod)
-			return matches, nil
-		})
+	waitErr := wait.PollImmediate(poll*5, pollTimeout, func() (bool, error) {
+		matches := verifyCnsVolumeMetadata(volumeID, pvc, pv, pod)
+		return matches, nil
+	})
 	return waitErr
 }
 

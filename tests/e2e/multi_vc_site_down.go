@@ -22,7 +22,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/onsi/ginkgo/v2"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/object"
 	"golang.org/x/crypto/ssh"
@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 		}
 
-		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		nodeList, err = fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -749,7 +749,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 		framework.Logf("Perform suspend operation on the source NFS datastore")
 		soureDsName := "nfs"
 		suspendDatastoreOp := "off"
-		datastoreName := suspendDatastore(ctx, suspendDatastoreOp, soureDsName, envTestbedInfoJsonPathVC2)
+		datastoreName := suspendDatastore(suspendDatastoreOp, soureDsName, envTestbedInfoJsonPathVC2)
 		suspendDatastoreOp = "on"
 		defer func() {
 			if suspendDatastoreOp == "on" {

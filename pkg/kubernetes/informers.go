@@ -77,7 +77,7 @@ func NewInformer(ctx context.Context, client clientset.Interface, inClusterClnt 
 	if informerInstance == nil {
 		informerInstance = &InformerManager{
 			client:          client,
-			stopCh:          signals.SetupSignalHandler().Done(),
+			stopCh:          signals.SetupSignalHandler(),
 			informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
 		}
 

@@ -22,6 +22,7 @@ const (
 	ValidationWebhookPath            = "/validate"
 	DefaultWebhookPort               = 9883
 	DefaultWebhookMetricsBindAddress = "0"
+	WebhookTlsMinVersion             = "1.2"
 )
 
 func getWebhookPort() int {
@@ -63,28 +64,21 @@ func startCNSCSIWebhookManager(ctx context.Context) {
 	}
 
 	log.Infof("registering validating webhook with the endpoint %v", ValidationWebhookPath)
-
+	// we should not allow TLS < 1.2
+	mgr.GetWebhookServer().TLSMinVersion = WebhookTlsMinVersion
 	// CipherSuites allows us to specify TLS 1.2 cipher suites that have been recommended by the Security team
-	webhookServer := webhook.NewServer(webhook.Options{
-		TLSOpts: []func(*tls.Config){
-			func(t *tls.Config) {
-				t.CipherSuites = []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384}
-				t.MinVersion = tls.VersionTLS12
-			},
-		}})
-
-	err = mgr.Add(webhookServer)
-	if err != nil {
-		log.Fatal(err, "unable to add webhook server to manager")
+	mgr.GetWebhookServer().TLSOpts = []func(*tls.Config){
+		func(t *tls.Config) {
+			t.CipherSuites = []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384}
+		},
 	}
-
 	mgr.GetWebhookServer().Register(ValidationWebhookPath, &webhook.Admission{Handler: &CSISupervisorWebhook{
 		Client:       mgr.GetClient(),
 		clientConfig: mgr.GetConfig(),
 	}})
 
-	if err = mgr.Start(signals.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
 		log.Fatal(err, "unable to run the webhook manager")
 	}
 }

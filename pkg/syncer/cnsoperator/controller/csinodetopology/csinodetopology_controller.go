@@ -182,7 +182,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	}
 
 	// Watch for changes to primary resource CSINodeTopology.
-	err = c.Watch(source.Kind(mgr.GetCache(), &csinodetopologyv1alpha1.CSINodeTopology{}),
+	err = c.Watch(&source.Kind{Type: &csinodetopologyv1alpha1.CSINodeTopology{}},
 		&handler.EnqueueRequestForObject{}, pred)
 	if err != nil {
 		log.Errorf("Failed to watch for changes to CSINodeTopology resource with error: %+v", err)

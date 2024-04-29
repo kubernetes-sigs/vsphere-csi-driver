@@ -49,7 +49,6 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -121,7 +120,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 	backOffDuration = make(map[string]time.Duration)
-	src := source.Kind(mgr.GetCache(), &cnsv1alpha1.CnsVolumeMetadata{})
+	src := &source.Kind{Type: &cnsv1alpha1.CnsVolumeMetadata{}}
 	h := &handler.EnqueueRequestForObject{}
 	// Predicates are used to determine under which conditions
 	// the reconcile callback will be made for an instance.

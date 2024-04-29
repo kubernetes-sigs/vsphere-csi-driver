@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/onsi/ginkgo/v2"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -51,9 +51,8 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		bootstrap()
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -75,7 +74,7 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 	ginkgo.It("[csi-block-vanilla-preupgradedata] Verify creation of statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// var pvcSizeBeforeExpansion int64
+		//var pvcSizeBeforeExpansion int64
 		scParameters := make(map[string]string)
 		scParameters[scParamFsType] = ext4FSType
 		storageClassName = "preupgrade-sc-sts"
@@ -83,7 +82,7 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		scParameters[scParamDatastoreURL] = sharedVSANDatastoreURL
 
-		namespace1, err := framework.CreateTestingNS(ctx, f.BaseName, client, labels_ns)
+		namespace1, err := framework.CreateTestingNS(f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		namespace = namespace1.Name
@@ -100,9 +99,9 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
-		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -129,7 +128,7 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 		var err error
 		storageClassName = "preupgrade-sc-pods"
-		namespace, err := framework.CreateTestingNS(ctx, f.BaseName, client, labels_ns)
+		namespace, err := framework.CreateTestingNS(f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", true)
@@ -140,21 +139,20 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		count := 0
 		for count < 3 {
 			ginkgo.By("Creating PVCs using the Storage Class")
-			pvclaims[count], err = fpv.CreatePVC(ctx, client, namespace.Name,
+			pvclaims[count], err = fpv.CreatePVC(client, namespace.Name,
 				getPersistentVolumeClaimSpecWithStorageClass(namespace.Name, diskSize, sc, nil, ""))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			count++
 		}
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		podCount := 0
 		for podCount < 3 {
 			ginkgo.By("Creating pod to attach PVs to the node")
 			pvclaim = pvclaims[podCount]
-			podArray[podCount], err = createPod(ctx, client, namespace.Name, nil,
-				[]*v1.PersistentVolumeClaim{pvclaim}, false, "")
+			podArray[podCount], err = createPod(client, namespace.Name, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			podCount++
 		}
@@ -211,7 +209,7 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		var err error
 		var pvclaimsarray = make([]*v1.PersistentVolumeClaim, 5)
 		storageClassName = "preupgrade-sc-pvcs"
-		namespace, err := framework.CreateTestingNS(ctx, f.BaseName, client, labels_ns)
+		namespace, err := framework.CreateTestingNS(f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", true)
@@ -221,13 +219,13 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 
 		for count := 0; count < 5; count++ {
 			ginkgo.By("Creating PVCs using the Storage Class")
-			pvclaimsarray[count], err = fpv.CreatePVC(ctx, client, namespace.Name,
+			pvclaimsarray[count], err = fpv.CreatePVC(client, namespace.Name,
 				getPersistentVolumeClaimSpecWithStorageClass(namespace.Name, diskSize, sc, nil, ""))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		}
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsarray, framework.ClaimProvisionTimeout)
+		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(client, pvclaimsarray, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 

@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onsi/ginkgo/v2"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -92,13 +92,13 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		}
 
 		if pvc != nil {
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		}
 
 		for _, pv := range pvs {
-			err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll, framework.PodDeleteTimeout)
+			err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, framework.Poll, framework.PodDeleteTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		}
 
 		ginkgo.By("Waiting for old vsphere-csi-controller pod to be removed")
-		err = waitForControllerDeletion(ctx, client, controllerNamespace)
+		err = waitForControllerDeletion(client, controllerNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if supervisorCluster {
@@ -148,22 +148,21 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		ginkgo.By("Create a pvc and wait for PVC to bound")
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil,
 				scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
-			framework.ClaimProvisionTimeout)
+		pvs, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
@@ -250,22 +249,21 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		ginkgo.By("Create a pvc and wait for PVC to bound")
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil, nil, "", nil, "", false, "")
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
+			sc, pvc, err = createPVCAndStorageClass(client, namespace, nil,
 				scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
-			framework.ClaimProvisionTimeout)
+		pvs, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 		pv := pvs[0]
@@ -294,7 +292,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		sshCmd := "systemctl stop kubelet.service"
 		host := nodeNameIPMap[nodeNameOfvSphereCSIControllerPod] + ":22"
 		ginkgo.By(fmt.Sprintf("Invoking command %+v on host %+v", sshCmd, host))
-		result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
+		result, err := fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 		ginkgo.By(fmt.Sprintf("%s returned result %s", sshCmd, result.Stdout))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(result.Code == 0).To(gomega.BeTrue())
@@ -310,7 +308,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		// start the kubelet
 		sshCmd = "systemctl start kubelet"
 		ginkgo.By(fmt.Sprintf("Invoking command %+v on host %+v", sshCmd, host))
-		result, err = fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
+		result, err = fssh.SSH(sshCmd, host, framework.TestContext.Provider)
 		ginkgo.By(fmt.Sprintf("%s returned result %s", sshCmd, result.Stdout))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(result.Code == 0).To(gomega.BeTrue())
@@ -345,17 +343,16 @@ func getControllerRuntimeDetails(client clientset.Interface, nameSpace string) (
 }
 
 // waitForControllerDeletion wait for the controller pod to be deleted
-func waitForControllerDeletion(ctx context.Context, client clientset.Interface, namespace string) error {
-	err := wait.PollUntilContextTimeout(ctx, poll, k8sPodTerminationTimeOutLong, true,
-		func(ctx context.Context) (bool, error) {
-			_, podNameList := getControllerRuntimeDetails(client, namespace)
-			if len(podNameList) == 1 {
-				framework.Logf("old vsphere-csi-controller pod  has been successfully deleted")
-				return true, nil
-			}
-			framework.Logf("waiting for old vsphere-csi-controller pod to be deleted.")
-			return false, nil
-		})
+func waitForControllerDeletion(client clientset.Interface, namespace string) error {
+	err := wait.Poll(poll, k8sPodTerminationTimeOutLong, func() (bool, error) {
+		_, podNameList := getControllerRuntimeDetails(client, namespace)
+		if len(podNameList) == 1 {
+			framework.Logf("old vsphere-csi-controller pod  has been successfully deleted")
+			return true, nil
+		}
+		framework.Logf("waiting for old vsphere-csi-controller pod to be deleted.")
+		return false, nil
+	})
 
 	return err
 

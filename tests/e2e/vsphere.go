@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/onsi/ginkgo/v2"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/cns"
@@ -311,23 +311,22 @@ func (vs *vSphere) waitForVolumeDetachedFromNode(client clientset.Interface,
 		}
 		return false, err
 	}
-	err := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
-		func(ctx context.Context) (bool, error) {
-			var vmUUID string
-			if vanillaCluster {
-				vmUUID = getNodeUUID(ctx, client, nodeName)
-			} else {
-				vmUUID, _ = getVMUUIDFromNodeName(nodeName)
-			}
-			diskAttached, err := vs.isVolumeAttachedToVM(client, volumeID, vmUUID)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			if !diskAttached {
-				framework.Logf("Disk: %s successfully detached", volumeID)
-				return true, nil
-			}
-			framework.Logf("Waiting for disk: %q to be detached from the node :%q", volumeID, nodeName)
-			return false, nil
-		})
+	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+		var vmUUID string
+		if vanillaCluster {
+			vmUUID = getNodeUUID(ctx, client, nodeName)
+		} else {
+			vmUUID, _ = getVMUUIDFromNodeName(nodeName)
+		}
+		diskAttached, err := vs.isVolumeAttachedToVM(client, volumeID, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if !diskAttached {
+			framework.Logf("Disk: %s successfully detached", volumeID)
+			return true, nil
+		}
+		framework.Logf("Waiting for disk: %q to be detached from the node :%q", volumeID, nodeName)
+		return false, nil
+	})
 	if err != nil {
 		return false, nil
 	}
@@ -405,17 +404,16 @@ func (vs *vSphere) getLabelsForCNSVolume(volumeID string, entityType string,
 // volume labels are updated by metadata-syncer
 func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[string]string,
 	entityType string, entityName string, entityNamespace string) error {
-	err := wait.PollUntilContextTimeout(context.Background(), poll, pollTimeout, true,
-		func(ctx context.Context) (bool, error) {
-			err := vs.verifyLabelsAreUpdated(volumeID, matchLabels, entityType, entityName, entityNamespace)
-			if err == nil {
-				return true, nil
-			} else {
-				return false, nil
-			}
-		})
+	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+		err := vs.verifyLabelsAreUpdated(volumeID, matchLabels, entityType, entityName, entityNamespace)
+		if err == nil {
+			return true, nil
+		} else {
+			return false, nil
+		}
+	})
 	if err != nil {
-		if wait.Interrupted(err) {
+		if err == wait.ErrWaitTimeout {
 			return fmt.Errorf("labels are not updated to %+v for %s %q for volume %s",
 				matchLabels, entityType, entityName, volumeID)
 		}
@@ -429,31 +427,30 @@ func (vs *vSphere) waitForLabelsToBeUpdated(volumeID string, matchLabels map[str
 // volume metadata for given volume has been deleted
 func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string,
 	entityName string, entityNamespace string) error {
-	err := wait.PollUntilContextTimeout(context.Background(), poll, pollTimeout, true,
-		func(ctx context.Context) (bool, error) {
-			queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
-			framework.Logf("queryResult: %s", spew.Sdump(queryResult))
-			if err != nil {
-				return true, err
+	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+		framework.Logf("queryResult: %s", spew.Sdump(queryResult))
+		if err != nil {
+			return true, err
+		}
+		if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
+			return true, fmt.Errorf("failed to query cns volume %s", volumeID)
+		}
+		gomega.Expect(queryResult.Volumes[0].Metadata).NotTo(gomega.BeNil())
+		for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
+			if metadata == nil {
+				continue
 			}
-			if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volumeID {
-				return true, fmt.Errorf("failed to query cns volume %s", volumeID)
+			kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
+			if kubernetesMetadata.EntityType == entityType && kubernetesMetadata.EntityName == entityName &&
+				kubernetesMetadata.Namespace == entityNamespace {
+				return false, nil
 			}
-			gomega.Expect(queryResult.Volumes[0].Metadata).NotTo(gomega.BeNil())
-			for _, metadata := range queryResult.Volumes[0].Metadata.EntityMetadata {
-				if metadata == nil {
-					continue
-				}
-				kubernetesMetadata := metadata.(*cnstypes.CnsKubernetesEntityMetadata)
-				if kubernetesMetadata.EntityType == entityType && kubernetesMetadata.EntityName == entityName &&
-					kubernetesMetadata.Namespace == entityNamespace {
-					return false, nil
-				}
-			}
-			return true, nil
-		})
+		}
+		return true, nil
+	})
 	if err != nil {
-		if wait.Interrupted(err) {
+		if err == wait.ErrWaitTimeout {
 			return fmt.Errorf("entityName %s of entityType %s is not deleted for volume %s",
 				entityName, entityType, volumeID)
 		}
@@ -466,20 +463,19 @@ func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string
 // waitForCNSVolumeToBeDeleted executes QueryVolume API on vCenter and verifies
 // volume entries are deleted from vCenter Database
 func (vs *vSphere) waitForCNSVolumeToBeDeleted(volumeID string) error {
-	err := wait.PollUntilContextTimeout(context.Background(), poll, 2*pollTimeout, true,
-		func(ctx context.Context) (bool, error) {
-			queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
-			if err != nil {
-				return true, err
-			}
+	err := wait.Poll(poll, 2*pollTimeout, func() (bool, error) {
+		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+		if err != nil {
+			return true, err
+		}
 
-			if len(queryResult.Volumes) == 0 {
-				framework.Logf("volume %q has successfully deleted", volumeID)
-				return true, nil
-			}
-			framework.Logf("waiting for Volume %q to be deleted.", volumeID)
-			return false, nil
-		})
+		if len(queryResult.Volumes) == 0 {
+			framework.Logf("volume %q has successfully deleted", volumeID)
+			return true, nil
+		}
+		framework.Logf("waiting for Volume %q to be deleted.", volumeID)
+		return false, nil
+	})
 	if err != nil {
 		return err
 	}
@@ -489,20 +485,19 @@ func (vs *vSphere) waitForCNSVolumeToBeDeleted(volumeID string) error {
 // waitForCNSVolumeToBeCreate executes QueryVolume API on vCenter and verifies
 // volume entries are created in vCenter Database
 func (vs *vSphere) waitForCNSVolumeToBeCreated(volumeID string) error {
-	err := wait.PollUntilContextTimeout(context.Background(), poll, pollTimeout, true,
-		func(ctx context.Context) (bool, error) {
-			queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
-			if err != nil {
-				return true, err
-			}
+	err := wait.Poll(poll, pollTimeout, func() (bool, error) {
+		queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
+		if err != nil {
+			return true, err
+		}
 
-			if len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == volumeID {
-				framework.Logf("volume %q has successfully created", volumeID)
-				return true, nil
-			}
-			framework.Logf("waiting for Volume %q to be created.", volumeID)
-			return false, nil
-		})
+		if len(queryResult.Volumes) == 1 && queryResult.Volumes[0].VolumeId.Id == volumeID {
+			framework.Logf("volume %q has successfully created", volumeID)
+			return true, nil
+		}
+		framework.Logf("waiting for Volume %q to be created.", volumeID)
+		return false, nil
+	})
 	return err
 }
 
@@ -639,12 +634,12 @@ func verifyVolPropertiesFromCnsQueryResults(e2eVSphere vSphere, volHandle string
 		queryResult.Volumes[0].VolumeType, queryResult.Volumes[0].HealthStatus,
 		queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).AccessPoints))
 
-	// Verifying disk size specified in PVC is honored
+	//Verifying disk size specified in PVC is honored
 	ginkgo.By("Verifying disk size specified in PVC is honored")
 	gomega.Expect(queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails).
 		CapacityInMb == diskSizeInMb).To(gomega.BeTrue(), "wrong disk size provisioned")
 
-	// Verifying volume type specified in PVC is honored
+	//Verifying volume type specified in PVC is honored
 	ginkgo.By("Verifying volume type specified in PVC is honored")
 	gomega.Expect(queryResult.Volumes[0].VolumeType == testVolumeType).To(gomega.BeTrue(), "volume type is not FILE")
 
@@ -700,7 +695,7 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 	lsomObject := result["lsom_objects"]
 	lsomObjectInterface, _ := lsomObject.(map[string]interface{})
 
-	// This loop get the the esx host uuid from the queryVsanObj result
+	//This loop get the the esx host uuid from the queryVsanObj result
 	for _, lsomValue := range lsomObjectInterface {
 		key, _ := lsomValue.(map[string]interface{})
 		for key1, value1 := range key {
@@ -715,7 +710,7 @@ func (vs *vSphere) getHostUUID(ctx context.Context, hostInfo string) string {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				cluster := clusterComputeResource[0]
-				// TKG setup with NSX has edge-cluster enabled, this check is to skip that cluster
+				//TKG setup with NSX has edge-cluster enabled, this check is to skip that cluster
 				if !strings.Contains(cluster.Name(), computeCluster) {
 					cluster = clusterComputeResource[1]
 				}
@@ -895,46 +890,44 @@ func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *v
 
 // queryCNSVolumeWithWait gets the cns volume health status
 func queryCNSVolumeWithWait(ctx context.Context, client clientset.Interface, volHandle string) error {
-	waitErr := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pollTimeout, true,
-		func(ctx context.Context) (bool, error) {
-			framework.Logf("wait for next poll %v", pollTimeoutShort)
+	waitErr := wait.Poll(pollTimeoutShort, pollTimeout, func() (bool, error) {
+		framework.Logf("wait for next poll %v", pollTimeoutShort)
 
-			ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
-			queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
-			gomega.Expect(len(queryResult.Volumes)).NotTo(gomega.BeZero())
-			if err != nil {
-				return false, nil
-			}
-			ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
-			for _, vol := range queryResult.Volumes {
-				if vol.HealthStatus == healthRed {
-					framework.Logf("Volume health status: %v", vol.HealthStatus)
-					return true, nil
-				}
-			}
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+		gomega.Expect(len(queryResult.Volumes)).NotTo(gomega.BeZero())
+		if err != nil {
 			return false, nil
-		})
+		}
+		ginkgo.By("Verifying the volume health status returned by CNS(green/yellow/red")
+		for _, vol := range queryResult.Volumes {
+			if vol.HealthStatus == healthRed {
+				framework.Logf("Volume health status: %v", vol.HealthStatus)
+				return true, nil
+			}
+		}
+		return false, nil
+	})
 	return waitErr
 }
 
 // waitForHostConnectionState gets the connection state of the host and waits till the desired state is obtained
 func waitForHostConnectionState(ctx context.Context, addr string, state string) error {
 	var output string
-	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
-		func(ctx context.Context) (bool, error) {
+	waitErr := wait.Poll(poll, pollTimeout, func() (bool, error) {
 
-			output, err := getHostConnectionState(ctx, addr)
-			if err != nil {
-				framework.Logf("The host's %s last seen state before returning error is : %s", addr, output)
-				return false, nil
-			}
-
-			if state == output {
-				framework.Logf("The host's %s current state is as expected state : %s", addr, output)
-				return true, nil
-			}
+		output, err := getHostConnectionState(ctx, addr)
+		if err != nil {
+			framework.Logf("The host's %s last seen state before returning error is : %s", addr, output)
 			return false, nil
-		})
+		}
+
+		if state == output {
+			framework.Logf("The host's %s current state is as expected state : %s", addr, output)
+			return true, nil
+		}
+		return false, nil
+	})
 	framework.Logf("The host's %s last seen state before returning is : %s", addr, output)
 	return waitErr
 }

@@ -268,7 +268,7 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 	if parallelStatefulSetCreation {
 		ssPodsBeforeScaleDown = GetListOfPodsInSts(client, statefulset)
 	} else {
-		ssPodsBeforeScaleDown = fss.GetPodList(ctx, client, statefulset)
+		ssPodsBeforeScaleDown = fss.GetPodList(client, statefulset)
 	}
 	stsPodCount = len(ssPodsBeforeScaleDown.Items)
 	if !multivc {
@@ -618,7 +618,7 @@ func powerOffPreferredDatastore(ctx context.Context, opName string, dsNameToPowe
 			dsName = dsInfo["vmName"]
 			err := datatoreOperations(tbinfo.user, tbinfo.location, tbinfo.podname, dsName, opName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitForHostToBeDown(ctx, dsInfo["ip"])
+			err = waitForHostToBeDown(dsInfo["ip"])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			break
 		}

@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/onsi/ginkgo/v2"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -50,9 +50,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -70,7 +68,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if pvc != nil {
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if fileshareID != "" {
@@ -97,12 +95,12 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 		scParameters[scParamFsType] = nfs4FSType
 		// Create Storage class and PVC
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with %q", nfs4FSType))
-		storageclass, pvc, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvc, err = createPVCAndStorageClass(client,
 			namespace, nil, scParameters, "", nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())

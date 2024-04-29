@@ -19,7 +19,6 @@ package storagepool
 import (
 	"context"
 	"encoding/json"
-	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -40,7 +39,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -405,20 +403,12 @@ func ExponentialBackoff(task func() (bool, error), baseDuration, maxBackoffDurat
 	multiplier float64, retries int) (done bool, err error) {
 	jitter := 0.3
 	backoffResetDuration := maxBackoffDuration * 3
-	c := &clock.RealClock{}
-	backoff := wait.Backoff{
-		Duration: baseDuration,
-		Cap:      maxBackoffDuration,
-		Steps:    int(math.Ceil(float64(maxBackoffDuration) / float64(baseDuration))), // now a required argument
-		Factor:   multiplier,
-		Jitter:   jitter,
-	}
-	delayFn := backoff.DelayWithReset(c, backoffResetDuration)
-	timer := delayFn.Timer(c)
-	defer timer.Stop()
+	expBackoffManager := wait.NewExponentialBackoffManager(baseDuration, maxBackoffDuration,
+		backoffResetDuration, multiplier, jitter, &clock.RealClock{})
 
+	var timer clock.Timer
 	for i := 0; i < retries; i++ {
-		timer.Next()
+		timer = expBackoffManager.Backoff()
 		done, err = func() (bool, error) {
 			defer runtime.HandleCrash()
 			done, err := task()

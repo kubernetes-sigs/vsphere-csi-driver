@@ -72,7 +72,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		namespace = getNamespaceToRunTests(f)
 		scParameters = make(map[string]string)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -154,7 +154,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		scParameters["storagepolicyname"] = storagePolicyName
 
 		ginkgo.By("Create StorageClass and PVC")
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil,
+		storageclass, pvclaim, err = createPVCAndStorageClass(client, namespace, nil,
 			scParameters, diskSize, allowedTopologyForSC, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -164,14 +164,14 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		}()
 
 		// Wait for PVC to be in Bound phase
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim},
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -247,24 +247,24 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 			v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
 
-		pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
+		pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
 			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim2.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Creating pod")
-		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, "")
+		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podName := pod.GetName
 		framework.Logf("podName: %s", podName)
@@ -279,7 +279,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(ctx, client, pod)
+			err = fpod.DeletePodWithWait(client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verify volume is detached from the node")
@@ -362,9 +362,9 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		replicas := *(statefulset.Spec.Replicas)
 
 		// Wait for StatefulSet pods to be in up and running state
-		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
+		gomega.Expect(fss.CheckMount(client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -454,11 +454,11 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, "1Gi", storageclass, nil,
 			v1.ReadWriteOnce, volumeSnapshot3.Name, snapshotapigroup)
 		pvcSpec.Name = "www-web-3"
-		pvclaimNew, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
+		pvclaimNew, err := fpv.CreatePVC(client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expecting the volume to bound")
-		newPV, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaimNew},
+		newPV, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaimNew},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -467,11 +467,11 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 
 		replicas += 1
 		ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
-		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
+		_, scaleupErr := fss.Scale(client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		time.Sleep(5 * time.Minute)
-		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
-		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		fss.WaitForStatusReplicas(client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(client, statefulset, replicas)
 
 		/* Verify newly created PV node affinity and that the new PODS are running on
 		appropriate node as specified in the allowed topologies of SC */

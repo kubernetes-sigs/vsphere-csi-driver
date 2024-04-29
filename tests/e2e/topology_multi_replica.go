@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/onsi/ginkgo/v2"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
@@ -96,7 +96,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name,
 					*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 			}
-			nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+			nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 			if !(len(nodeList.Items) > 0) {
 				framework.Failf("Unable to find ready and schedulable Node")
@@ -174,7 +174,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			fss.DeleteAllStatefulSets(client, namespace)
 			ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 			err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 			if !apierrors.IsNotFound(err) {
@@ -297,7 +297,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
 			for i := 0; i < len(statefulSets); i++ {
 				// verify that the StatefulSets pods are in ready state
-				fss.WaitForStatusReadyReplicas(ctx, client, statefulSets[i], statefulSetReplicaCount)
+				fss.WaitForStatusReadyReplicas(client, statefulSets[i], statefulSetReplicaCount)
 				gomega.Expect(CheckMountForStsPods(client, statefulSets[i], mountPath)).NotTo(gomega.HaveOccurred())
 
 				// Get list of Pods in each StatefulSet and verify the replica count
@@ -500,7 +500,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
 			for i := 0; i < len(statefulSets); i++ {
 				// verify that the StatefulSets pods are in ready state
-				fss.WaitForStatusReadyReplicas(ctx, client, statefulSets[i], statefulSetReplicaCount)
+				fss.WaitForStatusReadyReplicas(client, statefulSets[i], statefulSetReplicaCount)
 				gomega.Expect(CheckMountForStsPods(client, statefulSets[i], mountPath)).NotTo(gomega.HaveOccurred())
 
 				// Get list of Pods in each StatefulSet and verify the replica count
@@ -683,7 +683,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
 			for i := 0; i < len(statefulSets); i++ {
 				// verify that the StatefulSets pods are in ready state
-				fss.WaitForStatusReadyReplicas(ctx, client, statefulSets[i], statefulSetReplicaCount)
+				fss.WaitForStatusReadyReplicas(client, statefulSets[i], statefulSetReplicaCount)
 				gomega.Expect(CheckMountForStsPods(client, statefulSets[i], mountPath)).NotTo(gomega.HaveOccurred())
 
 				// Get list of Pods in each StatefulSet and verify the replica count
@@ -704,7 +704,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			}
 
 			// Fetch the number of CSI pods running before restart
-			list_of_pods, err := fpod.GetPodsInNamespace(ctx, client, csiSystemNamespace, ignoreLabels)
+			list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			num_csi_pods := len(list_of_pods)
 
@@ -721,7 +721,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			e2ekubectl.RunKubectlOrDie(csiSystemNamespace, statusCheck...)
 
 			// wait for csi Pods to be in running ready state
-			err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout)
+			err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// Scale up statefulSets replicas count
@@ -818,7 +818,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			for i := 0; i < len(pvclaimsList); i++ {
 				var pvclaims []*v1.PersistentVolumeClaim
 				// Waiting for PVC claim to be in bound phase
-				pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+				pvc, err := fpv.WaitForPVClaimBoundPhase(client,
 					[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(pvc).NotTo(gomega.BeEmpty())
@@ -829,7 +829,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				// create Pod for each PVC
 				ginkgo.By("Creating Pod")
 				pvclaims = append(pvclaims, pvclaimsList[i])
-				pod, err := createPod(ctx, client, namespace, nil, pvclaims, false, "")
+				pod, err := createPod(client, namespace, nil, pvclaims, false, "")
 				podList = append(podList, pod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -846,9 +846,9 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				ginkgo.By("Deleting PVC's and PV's")
 				for i := 0; i < len(pvclaimsList); i++ {
 					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
-					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
+					err = fpv.DeletePersistentVolumeClaim(client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort))
+					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
 					err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -857,7 +857,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				// cleanup code for deleting POD
 				for i := 0; i < len(podList); i++ {
 					ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podList[i].Name, namespace))
-					err = fpod.DeletePodWithWait(ctx, client, podList[i])
+					err = fpod.DeletePodWithWait(client, podList[i])
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 				// Verify volume is detached from the node
@@ -875,9 +875,9 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			// Stopping vsan-health service on vcenter host
 			ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", vsanhealthServiceName))
 			isVsanHealthServiceStopped = true
-			err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
+			err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitVCenterServiceToBeInState(ctx, vsanhealthServiceName, vcAddress, svcStoppedMessage)
+			err = waitVCenterServiceToBeInState(vsanhealthServiceName, vcAddress, svcStoppedMessage)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				if isVsanHealthServiceStopped {
@@ -1020,7 +1020,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
 			for i := 0; i < len(pvclaimsList); i++ {
 				// Waiting for PVC claim to be in bound phase
-				pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+				pvc, err := fpv.WaitForPVClaimBoundPhase(client,
 					[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(pvc).NotTo(gomega.BeEmpty())
@@ -1086,7 +1086,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				// create Pod for each PVC
 				ginkgo.By("Creating Pod")
 				pvclaims = append(pvclaims, pvclaimsList[i])
-				pod, err := createPod(ctx, client, namespace, nil, pvclaims, false, "")
+				pod, err := createPod(client, namespace, nil, pvclaims, false, "")
 				podList = append(podList, pod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1103,9 +1103,9 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				ginkgo.By("Deleting PVC's and PV's")
 				for i := 0; i < len(pvclaimsList); i++ {
 					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
-					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
+					err = fpv.DeletePersistentVolumeClaim(client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort))
+					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
 					err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -1114,7 +1114,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				// cleanup code for deleting POD
 				for i := 0; i < len(podList); i++ {
 					ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podList[i].Name, namespace))
-					err = fpod.DeletePodWithWait(ctx, client, podList[i])
+					err = fpod.DeletePodWithWait(client, podList[i])
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 				// Verify volume is detached from the node
@@ -1240,7 +1240,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				// checking if each PVC is in Bound phase
 				var pvclaims []*v1.PersistentVolumeClaim
 				pvclaims = append(pvclaims, pvclaimsList[i])
-				_, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims,
+				_, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims,
 					framework.ClaimProvisionTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1266,10 +1266,9 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				ginkgo.By("Deleting PVC")
 				for i := 0; i < len(pvclaimsList); i++ {
 					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
-					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
+					err = fpv.DeletePersistentVolumeClaim(client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
-						framework.ClaimProvisionTimeout))
+					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, framework.ClaimProvisionTimeout))
 					err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -1295,12 +1294,12 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Verify deployment Pods to be in up and running state
 			ginkgo.By("Verify deployment Pods to be in up and running state")
-			list_of_pods, err := fpod.GetPodsInNamespace(ctx, client, namespace, ignoreLabels)
+			list_of_pods, err := fpod.GetPodsInNamespace(client, namespace, ignoreLabels)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			num_csi_pods := len(list_of_pods)
 			time.Sleep(1 * time.Minute)
-			err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int32(num_csi_pods), 0,
-				pollTimeout)
+			err = fpod.WaitForPodsRunningReady(client, namespace, int32(num_csi_pods), 0,
+				pollTimeout, ignoreLabels)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
@@ -1368,7 +1367,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			// Bring down SPS service
 			ginkgo.By("Bring down SPS service")
 			isSPSServiceStopped = true
-			err = invokeVCenterServiceControl(ctx, stopOperation, spsServiceName, vcAddress)
+			err = invokeVCenterServiceControl(stopOperation, spsServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
@@ -1428,7 +1427,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Verify that all parallel triggered StatefulSets Pods creation should be in up and running state")
 			for i := 0; i < len(statefulSets); i++ {
 				// verify that the StatefulSets pods are in ready state
-				fss.WaitForStatusReadyReplicas(ctx, client, statefulSets[i], statefulSetReplicaCount)
+				fss.WaitForStatusReadyReplicas(client, statefulSets[i], statefulSetReplicaCount)
 				gomega.Expect(CheckMountForStsPods(client, statefulSets[i], mountPath)).NotTo(gomega.HaveOccurred())
 
 				// Get list of Pods in each StatefulSet and verify the replica count
@@ -1563,7 +1562,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			// Creating multiple PVCs
 			ginkgo.By("Trigger multiple PVCs")
 			for i := 0; i < pvcCount; i++ {
-				pvclaim, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
+				pvclaim, err := createPVC(client, namespace, nil, "", storageclass, "")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				pvclaimsList = append(pvclaimsList, pvclaim)
 				if i == 4 {
@@ -1599,7 +1598,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			for i := 0; i < len(pvclaimsList); i++ {
 				var pvclaims []*v1.PersistentVolumeClaim
 				// Waiting for PVC claim to be in bound phase
-				pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+				pvc, err := fpv.WaitForPVClaimBoundPhase(client,
 					[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(pvc).NotTo(gomega.BeEmpty())
@@ -1610,7 +1609,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				// create Pod for each PVC
 				ginkgo.By("Creating Pod")
 				pvclaims = append(pvclaims, pvclaimsList[i])
-				pod, err := createPod(ctx, client, namespace, nil, pvclaims, false, "")
+				pod, err := createPod(client, namespace, nil, pvclaims, false, "")
 				podList = append(podList, pod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1632,9 +1631,9 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				ginkgo.By("Deleting PVC's and PV's")
 				for i := 0; i < len(pvclaimsList); i++ {
 					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
-					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
+					err = fpv.DeletePersistentVolumeClaim(client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort))
+					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
 					err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -1643,7 +1642,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				// cleanup code for deleting POD
 				for i := 0; i < len(podList); i++ {
 					ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podList[i].Name, namespace))
-					err = fpod.DeletePodWithWait(ctx, client, podList[i])
+					err = fpod.DeletePodWithWait(client, podList[i])
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 				// Verify volume is detached from the node
@@ -1720,13 +1719,13 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// create SC and PVC
 			ginkgo.By("Create StorageClass and PVC")
-			sc, pvc, err := createPVCAndStorageClass(ctx, client, namespace, nil,
+			sc, pvc, err := createPVCAndStorageClass(client, namespace, nil,
 				scParameters, diskSize, allowedTopologyForSC, "", false, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// Wait for PVC to be in Bound phase
 			pvclaims = append(pvclaims, pvc)
-			persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims,
+			persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims,
 				framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
@@ -1737,7 +1736,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}()
 			defer func() {
-				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1756,8 +1755,13 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			username := vsphereCfg.Global.User
 			newPassword := e2eTestPassword
+<<<<<<< HEAD
 			err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, newPassword, vcAddress,
 				clientIndex)
+=======
+			err = invokeVCenterChangePassword(username, nimbusGeneratedVcPwd, newPassword, vcAddress,
+				false, clientIndex)
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Modifying the password in the secret")
@@ -1794,11 +1798,15 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// As we are in the same vCenter session, deletion of PVC should go through
 			ginkgo.By("Deleting PVC")
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Reverting the password change")
+<<<<<<< HEAD
 			err = invokeVCenterChangePassword(ctx, username, newPassword, nimbusGeneratedVcPwd, vcAddress,
+=======
+			err = invokeVCenterChangePassword(username, newPassword, nimbusGeneratedVcPwd, vcAddress, false,
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 				clientIndex)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1831,7 +1839,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			// Creating multiple PVCs
 			ginkgo.By("Trigger multiple PVCs")
 			for i := 0; i < pvcCount; i++ {
-				pvclaim, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
+				pvclaim, err := createPVC(client, namespace, nil, "", storageclass, "")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				pvclaimsList = append(pvclaimsList, pvclaim)
 				if i == 4 {
@@ -1856,7 +1864,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			for i := 0; i < len(pvclaimsList); i++ {
 				var pvclaims []*v1.PersistentVolumeClaim
 				// Waiting for PVC claim to be in bound phase
-				pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+				pvc, err := fpv.WaitForPVClaimBoundPhase(client,
 					[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(pvc).NotTo(gomega.BeEmpty())
@@ -1867,7 +1875,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				// create Pod for each PVC
 				ginkgo.By("Creating Pod")
 				pvclaims = append(pvclaims, pvclaimsList[i])
-				pod, err := createPod(ctx, client, namespace, nil, pvclaims, false, "")
+				pod, err := createPod(client, namespace, nil, pvclaims, false, "")
 				podList = append(podList, pod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1884,9 +1892,9 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				ginkgo.By("Deleting PVC's and PV's")
 				for i := 0; i < len(pvclaimsList); i++ {
 					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
-					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
+					err = fpv.DeletePersistentVolumeClaim(client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort))
+					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
 					err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -1895,7 +1903,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				// cleanup code for deleting POD
 				for i := 0; i < len(podList); i++ {
 					ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podList[i].Name, namespace))
-					err = fpod.DeletePodWithWait(ctx, client, podList[i])
+					err = fpod.DeletePodWithWait(client, podList[i])
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 				// Verify volume is detached from the node
@@ -2023,7 +2031,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			pvclaimsList = append(pvclaimsList, staticPvc)
 			// Wait for PV and PVC to Bind.
 			ginkgo.By("Wait for PV and PVC to Bind")
-			framework.ExpectNoError(fpv.WaitOnPVandPVC(ctx, client, f.Timeouts,
+			framework.ExpectNoError(fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(),
 				namespace, staticPv, staticPvc))
 			ginkgo.By("Verifying CNS entry is present in cache")
 			_, err = e2eVSphere.queryCNSVolumeWithResult(staticPv.Spec.CSI.VolumeHandle)
@@ -2033,7 +2041,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Creating Pod using static PVC")
 			var staticPvcClaims []*v1.PersistentVolumeClaim
 			staticPvcClaims = append(staticPvcClaims, staticPvc)
-			StaticPod, err := createPod(ctx, client, namespace, nil, staticPvcClaims, false, "")
+			StaticPod, err := createPod(client, namespace, nil, staticPvcClaims, false, "")
 			podList = append(podList, StaticPod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", staticPv.Spec.CSI.VolumeHandle,
@@ -2056,18 +2064,18 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// create dynamic PVC
 			ginkgo.By("Creating dynamic PVC")
-			dynamicPvc, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
+			dynamicPvc, err := createPVC(client, namespace, nil, "", storageclass, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			var pvclaims []*v1.PersistentVolumeClaim
 			pvclaims = append(pvclaims, dynamicPvc)
 			ginkgo.By("Waiting for all claims to be in bound state")
-			_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+			_, err = fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			dynamicPv := getPvFromClaim(client, dynamicPvc.Namespace, dynamicPvc.Name)
 			pvclaimsList = append(pvclaimsList, dynamicPvc)
 
 			ginkgo.By("Creating Pod from dynamic PVC")
-			dynamicPod, err := createPod(ctx, client, namespace, nil, pvclaims, false, "")
+			dynamicPod, err := createPod(client, namespace, nil, pvclaims, false, "")
 			podList = append(podList, dynamicPod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			// verify volume is attached to the node
@@ -2091,7 +2099,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			// Deleting Pod's
 			for i := 0; i < len(podList); i++ {
 				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podList[i].Name, namespace))
-				err = fpod.DeletePodWithWait(ctx, client, podList[i])
+				err = fpod.DeletePodWithWait(client, podList[i])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			// Verify volume is detached from the node
@@ -2133,12 +2141,12 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			// Wait for newly created PVC to bind to the existing PV
 			ginkgo.By("Wait for the PVC to bind the lingering pv")
-			err = fpv.WaitOnPVandPVC(ctx, client, f.Timeouts, namespace, staticPv,
+			err = fpv.WaitOnPVandPVC(client, framework.NewTimeoutContextWithDefaults(), namespace, staticPv,
 				newStaticPvclaim)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				ginkgo.By("Deleting the PV Claim")
-				framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(ctx, client, newStaticPvclaim.Name, namespace),
+				framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(client, newStaticPvclaim.Name, namespace),
 					"Failed to delete PVC", newStaticPvclaim.Name)
 				newStaticPvclaim = nil
 
@@ -2151,7 +2159,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			ginkgo.By("Creating new Pod using static pvc")
 			var newStaticPvcClaims []*v1.PersistentVolumeClaim
 			newStaticPvcClaims = append(newStaticPvcClaims, newStaticPvclaim)
-			newstaticPod, err := createPod(ctx, client, namespace, nil, newStaticPvcClaims, false, "")
+			newstaticPod, err := createPod(client, namespace, nil, newStaticPvcClaims, false, "")
 			// verify volume is attached to the node
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 				staticPv.Spec.CSI.VolumeHandle, newstaticPod.Spec.NodeName))
@@ -2161,7 +2169,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
 			defer func() {
 				ginkgo.By("Deleting the Pod")
-				framework.ExpectNoError(fpod.DeletePodWithWait(ctx, client, newstaticPod), "Failed to delete pod",
+				framework.ExpectNoError(fpod.DeletePodWithWait(client, newstaticPod), "Failed to delete pod",
 					newstaticPod.Name)
 				ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", newstaticPod.Spec.NodeName))
 				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
@@ -2171,7 +2179,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			}()
 
 			ginkgo.By("Creating new Pod using dynamic pvc")
-			newDynamicPod, err := createPod(ctx, client, namespace, nil, pvclaims, false, "")
+			newDynamicPod, err := createPod(client, namespace, nil, pvclaims, false, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			// verify volume is attached to the node
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
@@ -2182,7 +2190,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
 			defer func() {
 				ginkgo.By("Deleting the Pod")
-				framework.ExpectNoError(fpod.DeletePodWithWait(ctx, client, newDynamicPod), "Failed to delete pod",
+				framework.ExpectNoError(fpod.DeletePodWithWait(client, newDynamicPod), "Failed to delete pod",
 					newDynamicPod.Name)
 				ginkgo.By(fmt.Sprintf("Verify volume is detached from the node: %s", newDynamicPod.Spec.NodeName))
 				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
@@ -2196,12 +2204,12 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 
 			// Verify volume metadata for static POD, PVC and PV
 			ginkgo.By("Verify volume metadata for static POD, PVC and PV")
-			err = waitAndVerifyCnsVolumeMetadata(ctx, staticPv.Spec.CSI.VolumeHandle, newStaticPvclaim, staticPv, newstaticPod)
+			err = waitAndVerifyCnsVolumeMetadata(staticPv.Spec.CSI.VolumeHandle, newStaticPvclaim, staticPv, newstaticPod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// Verify volume metadata for dynamic POD, PVC and PV
 			ginkgo.By("Verify volume metadata for dynamic POD, PVC and PV")
-			err = waitAndVerifyCnsVolumeMetadata(ctx, dynamicPv.Spec.CSI.VolumeHandle, dynamicPvc, dynamicPv, newDynamicPod)
+			err = waitAndVerifyCnsVolumeMetadata(dynamicPv.Spec.CSI.VolumeHandle, dynamicPvc, dynamicPv, newDynamicPod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
@@ -2268,9 +2276,9 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				ginkgo.By("Deleting PVC's and PV's")
 				for i := 0; i < len(pvclaimsList); i++ {
 					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
-					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
+					err = fpv.DeletePersistentVolumeClaim(client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort))
+					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll, pollTimeoutShort))
 					err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -2282,7 +2290,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 				var pvc *v1.PersistentVolumeClaim
 				pvc = pvclaimsList[i]
 				// Waiting for PVC claim to be in bound phase
-				pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+				pvs, err := fpv.WaitForPVClaimBoundPhase(client,
 					[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -2334,7 +2342,7 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			for i := 0; i < len(pvclaimsList); i++ {
 				var pvc *v1.PersistentVolumeClaim
 				pvc = pvclaimsList[i]
-				pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+				pvs, err := fpv.WaitForPVClaimBoundPhase(client,
 					[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(pvs).NotTo(gomega.BeEmpty())

@@ -42,11 +42,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsnode "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
@@ -144,7 +142,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	backOffDuration = make(map[string]time.Duration)
 
 	// Watch for changes to primary resource CnsNodeVmAttachment.
-	err = c.Watch(source.Kind(mgr.GetCache(), &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}),
+	err = c.Watch(&source.Kind{Type: &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}},
 		&handler.EnqueueRequestForObject{})
 	if err != nil {
 		log.Errorf("failed to watch for changes to CnsNodeVmAttachment resource with error: %+v", err)

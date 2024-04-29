@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/onsi/ginkgo/v2"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/core/v1"
@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 		}
 
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -162,7 +162,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 			originalPassword := strings.Split(vCenterPassword, ",")[0]
 			newPassword := e2eTestPassword
 			ginkgo.By("Reverting the password change")
+<<<<<<< HEAD
 			err = invokeVCenterChangePassword(ctx, username, newPassword, originalPassword, vcAddress,
+=======
+			err = invokeVCenterChangePassword(username, newPassword, originalPassword, vcAddress, true,
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 				clientIndex)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -174,7 +178,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 			originalPassword3 := strings.Split(vCenterPassword, ",")[2]
 			newPassword3 := "Admin!23"
 			ginkgo.By("Reverting the password change")
+<<<<<<< HEAD
 			err = invokeVCenterChangePassword(ctx, username3, newPassword3, originalPassword3, vcAddress3,
+=======
+			err = invokeVCenterChangePassword(username3, newPassword3, originalPassword3, vcAddress3, true,
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 				clientIndex2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			originalVC3PasswordChanged = false
@@ -196,7 +204,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 			err = createVsphereConfigSecret(csiNamespace, vsphereCfg, sshClientConfig, allMasterIps)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Revert vsphere CSI driver on a default csi system namespace")
-			err = setNewNameSpaceInCsiYaml(ctx, client, sshClientConfig, newNamespace.Name, csiNamespace, allMasterIps)
+			err = setNewNameSpaceInCsiYaml(client, sshClientConfig, newNamespace.Name, csiNamespace, allMasterIps)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
@@ -251,7 +259,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		ginkgo.By(fmt.Sprintf("Original password %s, new password %s", originalPassword, newPassword))
 
 		ginkgo.By("Changing password on the vCenter VC1 host")
+<<<<<<< HEAD
 		err = invokeVCenterChangePassword(ctx, username, originalPassword, newPassword, vcAddress, clientIndex)
+=======
+		err = invokeVCenterChangePassword(username, originalPassword, newPassword, vcAddress, true, clientIndex)
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVC1PasswordChanged = true
 
@@ -268,7 +280,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		defer func() {
 			if originalVC1PasswordChanged {
 				ginkgo.By("Reverting the password change")
+<<<<<<< HEAD
 				err = invokeVCenterChangePassword(ctx, username, newPassword, originalPassword, vcAddress,
+=======
+				err = invokeVCenterChangePassword(username, newPassword, originalPassword, vcAddress, true,
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 					clientIndex)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				originalVC1PasswordChanged = false
@@ -305,7 +321,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			fss.DeleteAllStatefulSets(client, namespace)
 			deleteService(namespace, client, service)
 		}()
 
@@ -403,21 +419,19 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		}
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil, nil, "",
+		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, nil, "",
 			allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Expect claim to fail as invalid storage policy is specified in Storage Class")
-		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound,
-			client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).To(gomega.HaveOccurred())
-
+		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
+			client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout))
 		expectedErrMsg := "Waiting for a volume to be created"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
@@ -509,7 +523,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			deleteService(namespace, client, service)
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			fss.DeleteAllStatefulSets(client, namespace)
 		}()
 
 		ginkgo.By("Use VC-IP for VC2 and VC-hostname for VC1 in a multi VC setup")
@@ -586,7 +600,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Install vsphere CSI driver on different test namespace")
-		err = setNewNameSpaceInCsiYaml(ctx, client, sshClientConfig, csiNamespace, newNamespace.Name, allMasterIps)
+		err = setNewNameSpaceInCsiYaml(client, sshClientConfig, csiNamespace, newNamespace.Name, allMasterIps)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		revertToOriginalCsiYaml = true
 		defer func() {
@@ -599,7 +613,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				ginkgo.By("Revert vsphere CSI driver on a system csi namespace")
-				err = setNewNameSpaceInCsiYaml(ctx, client, sshClientConfig, newNamespace.Name, csiNamespace, allMasterIps)
+				err = setNewNameSpaceInCsiYaml(client, sshClientConfig, newNamespace.Name, csiNamespace, allMasterIps)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				revertToOriginalCsiYaml = false
@@ -681,7 +695,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 				scaleDownReplicaCount = 2
 
 				// Fetch the number of CSI pods running before restart
-				list_of_pods, err := fpod.GetPodsInNamespace(ctx, client, newNamespace.Name, ignoreLabels)
+				list_of_pods, err := fpod.GetPodsInNamespace(client, newNamespace.Name, ignoreLabels)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				num_csi_pods := len(list_of_pods)
 
@@ -698,7 +712,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 				e2ekubectl.RunKubectlOrDie(newNamespace.Name, statusCheck...)
 
 				// wait for csi Pods to be in running ready state
-				err = fpod.WaitForPodsRunningReady(ctx, client, newNamespace.Name, int32(num_csi_pods), 0, pollTimeout)
+				err = fpod.WaitForPodsRunningReady(client, newNamespace.Name, int32(num_csi_pods), 0, pollTimeout, ignoreLabels)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
@@ -757,7 +771,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 
 		ginkgo.By("Changing password on the vCenter VC1 host")
 		clientIndex0 := 0
+<<<<<<< HEAD
 		err = invokeVCenterChangePassword(ctx, username1, originalPassword1, newPassword1, vcAddress1, clientIndex0)
+=======
+		err = invokeVCenterChangePassword(username1, originalPassword1, newPassword1, vcAddress1, true, clientIndex0)
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVC1PasswordChanged = true
 
@@ -770,7 +788,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 
 			ginkgo.By("Changing password on the vCenter VC3 host")
 			clientIndex2 = 2
+<<<<<<< HEAD
 			err = invokeVCenterChangePassword(ctx, username3, originalPassword3, newPassword3, vcAddress3, clientIndex2)
+=======
+			err = invokeVCenterChangePassword(username3, originalPassword3, newPassword3, vcAddress3, true, clientIndex2)
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			originalVC3PasswordChanged = true
 
@@ -793,7 +815,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		defer func() {
 			if originalVC1PasswordChanged {
 				ginkgo.By("Reverting the password change")
+<<<<<<< HEAD
 				err = invokeVCenterChangePassword(ctx, username1, newPassword1, originalPassword1, vcAddress1,
+=======
+				err = invokeVCenterChangePassword(username1, newPassword1, originalPassword1, vcAddress1, true,
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 					clientIndex0)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				originalVC1PasswordChanged = false
@@ -802,7 +828,11 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 			if multiVCSetupType == "multi-3vc-setup" {
 				if originalVC3PasswordChanged {
 					ginkgo.By("Reverting the password change")
+<<<<<<< HEAD
 					err = invokeVCenterChangePassword(ctx, username3, newPassword3, originalPassword3, vcAddress3,
+=======
+					err = invokeVCenterChangePassword(username3, newPassword3, originalPassword3, vcAddress3, true,
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 						clientIndex2)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					originalVC3PasswordChanged = false
@@ -840,7 +870,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			fss.DeleteAllStatefulSets(client, namespace)
 			deleteService(namespace, client, service)
 		}()
 
@@ -848,7 +878,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
 		vcAddress := vCenterHostname[1] + ":" + sshdPort
 		framework.Logf("vcAddress - %s ", vcAddress)
-		err = invokeVCenterReboot(ctx, vcAddress)
+		err = invokeVCenterReboot(vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(vCenterHostname[1])
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -858,14 +888,22 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
 
 		ginkgo.By("Reverting the password change on VC1")
+<<<<<<< HEAD
 		err = invokeVCenterChangePassword(ctx, username1, newPassword1, originalPassword1, vcAddress1,
+=======
+		err = invokeVCenterChangePassword(username1, newPassword1, originalPassword1, vcAddress1, true,
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 			clientIndex0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVC1PasswordChanged = false
 
 		if multiVCSetupType == "multi-3vc-setup" {
 			ginkgo.By("Reverting the password change on VC3")
+<<<<<<< HEAD
 			err = invokeVCenterChangePassword(ctx, username3, newPassword3, originalPassword3, vcAddress3,
+=======
+			err = invokeVCenterChangePassword(username3, newPassword3, originalPassword3, vcAddress3, true,
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 				clientIndex2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			originalVC3PasswordChanged = false
@@ -923,13 +961,21 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		originalPassword := strings.Split(vsphereCfg.Global.Password, ",")[0]
 		newPassword := e2eTestPassword
 		ginkgo.By(fmt.Sprintf("Original password %s, new password %s", originalPassword, newPassword))
+<<<<<<< HEAD
 		err = invokeVCenterChangePassword(ctx, username, originalPassword, newPassword, vcAddress, clientIndex)
+=======
+		err = invokeVCenterChangePassword(username, originalPassword, newPassword, vcAddress, true, clientIndex)
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVC1PasswordChanged = true
 		defer func() {
 			if originalVC1PasswordChanged {
 				ginkgo.By("Reverting the password change")
+<<<<<<< HEAD
 				err = invokeVCenterChangePassword(ctx, username, newPassword, originalPassword, vcAddress,
+=======
+				err = invokeVCenterChangePassword(username, newPassword, originalPassword, vcAddress, true,
+>>>>>>> parent of d47f3206 (update k8s deps to 1.27.10 (#2839))
 					clientIndex)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				originalVC1PasswordChanged = false
@@ -948,20 +994,19 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		}
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil, nil, "",
+		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, nil, "",
 			allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Expect claim to fail as invalid storage policy is specified in Storage Class")
-		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound,
-			client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).To(gomega.HaveOccurred())
+		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
+			client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout))
 		expectedErrMsg := "Waiting for a volume to be created"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))
@@ -1049,20 +1094,19 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		}
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil, nil, "",
+		storageclass, pvclaim, err := createPVCAndStorageClass(client, namespace, nil, nil, "",
 			allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+			err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Expect claim to fail as invalid storage policy is specified in Storage Class")
-		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound,
-			client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).To(gomega.HaveOccurred())
+		framework.ExpectError(fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound,
+			client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout))
 		expectedErrMsg := "Waiting for a volume to be created"
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Expected error : %q", expectedErrMsg))

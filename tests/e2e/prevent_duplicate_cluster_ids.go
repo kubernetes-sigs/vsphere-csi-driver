@@ -22,7 +22,7 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/onsi/ginkgo/v2"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/core/v1"
@@ -65,7 +65,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -196,10 +196,10 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
@@ -354,10 +354,10 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
@@ -419,7 +419,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 		csipods, err = client.CoreV1().Pods(csiNamespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = fpod.WaitForPodsRunningReady(ctx, client, csiNamespace, int32(csipods.Size()), 0, pollTimeout)
+		err = fpod.WaitForPodsRunningReady(client, csiNamespace, int32(csipods.Size()), 0, pollTimeout, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Scale up replicas of statefulset and verify CNS entries for volumes")
@@ -512,10 +512,10 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
@@ -601,7 +601,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			scParameters[scParamFsType] = nfs4FSType
 			accessMode = v1.ReadWriteMany
 		}
-		sc, pvclaim, err := createPVCAndStorageClass(ctx, client,
+		sc, pvclaim, err := createPVCAndStorageClass(client,
 			namespace, nil, scParameters, diskSize, nil, "", false, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -611,7 +611,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim},
+		pvs, err := fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -629,10 +629,10 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pvs[0].Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(client, pvs[0].Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
@@ -643,10 +643,10 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			}
 		}()
 
-		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+		err = fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-		err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pvs[0].Name, poll,
+		err = fpv.WaitForPersistentVolumeDeleted(client, pvs[0].Name, poll,
 			pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volumeHandle := pvs[0].Spec.CSI.VolumeHandle
@@ -670,13 +670,11 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		ginkgo.By("Verify cluster id configmap is not auto generated by csi driver")
 		verifyClusterIdConfigMapGeneration(client, ctx, csiNamespace, false)
 
-		sc, pvclaim, err = createPVCAndStorageClass(ctx, client,
-			namespace, nil, scParameters, diskSize, nil, "",
-			false, accessMode)
+		sc, pvclaim, err = createPVCAndStorageClass(client,
+			namespace, nil, scParameters, diskSize, nil, "", false, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim},
-			framework.ClaimProvisionTimeout)
+		pvs, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		queryResult2, err := e2eVSphere.queryCNSVolumeWithResult(pvs[0].Spec.CSI.VolumeHandle)
@@ -766,10 +764,10 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
@@ -873,10 +871,10 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
-				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+				err := fpv.DeletePersistentVolumeClaim(client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
+				err = fpv.WaitForPersistentVolumeDeleted(client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
@@ -888,7 +886,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}()
 
 		var ignoreLabels map[string]string
-		list_of_pods, err := fpod.GetPodsInNamespace(ctx, client, csiSystemNamespace, ignoreLabels)
+		list_of_pods, err := fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		allMasterIps := getK8sMasterIPs(ctx, client)
@@ -909,7 +907,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 
 		for _, pod := range list_of_pods {
-			err = fpod.WaitForPodNotFoundInNamespace(ctx, client, pod.Name, csiNamespace, pollTimeout)
+			err = fpod.WaitForPodNotFoundInNamespace(client, pod.Name, csiNamespace, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("pod %q was not deleted: %v", pod.Name, err))
 		}
 
@@ -925,11 +923,11 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 
 		// Wait for the CSI Pods to be up and Running
-		list_of_pods, err = fpod.GetPodsInNamespace(ctx, client, csiSystemNamespace, ignoreLabels)
+		list_of_pods, err = fpod.GetPodsInNamespace(client, csiSystemNamespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		num_csi_pods := len(list_of_pods)
-		err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int32(num_csi_pods), 0,
-			pollTimeout)
+		err = fpod.WaitForPodsRunningReady(client, csiSystemNamespace, int32(num_csi_pods), 0,
+			pollTimeout, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		newclusterID := fetchClusterIdFromConfigmap(client, ctx, csiNamespace)

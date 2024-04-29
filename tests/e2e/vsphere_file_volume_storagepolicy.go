@@ -26,7 +26,7 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
-	"github.com/onsi/ginkgo/v2"
+	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -46,9 +46,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With S
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		nodeList, err := fnodes.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -154,7 +152,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With S
 		// Create Storage class and PVC
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q, storage policy %q and fstype %q",
 			accessMode, storagePolicyNameForNonSharedDatastores, nfs4FSType))
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(client,
 			namespace, nil, scParameters, "", nil, "", false, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -162,13 +160,13 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With S
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Expect claim to fail as the storage policy mentioned in Storage class " +
 			"has non-vSAN compliant datastores")
-		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,
+		err = fpv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client,
 			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		expectedErrMsg := "Failed to create volume."
@@ -196,7 +194,7 @@ func testHelperForCreateFileVolumeWithNoDatastoreURLInSCWithStoragePolicy(f *fra
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
 
-	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+	storageclass, pvclaim, err = createPVCAndStorageClass(client,
 		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
@@ -208,12 +206,12 @@ func testHelperForCreateFileVolumeWithNoDatastoreURLInSCWithStoragePolicy(f *fra
 	var pvclaims []*v1.PersistentVolumeClaim
 	pvclaims = append(pvclaims, pvclaim)
 	ginkgo.By("Waiting for all claims to be in bound state")
-	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 	defer func() {
-		err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+		err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

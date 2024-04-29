@@ -71,7 +71,7 @@ var _ = ginkgo.Describe("[vmc-gc] Deploy, Update and Scale Deployments", func() 
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 
 		if pvclaim != nil {
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("[vmc-gc] Deploy, Update and Scale Deployments", func() 
 		scParameters[svStorageClassName] = storagePolicyName
 
 		ginkgo.By("Creating StorageClass for Deployment")
-		sc, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, diskSize, nil, "", false, "")
+		sc, pvclaim, err = createPVCAndStorageClass(client, namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -122,13 +122,13 @@ var _ = ginkgo.Describe("[vmc-gc] Deploy, Update and Scale Deployments", func() 
 		ginkgo.By("Creating PVC")
 		pvclaims = append(pvclaims, pvclaim)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle = persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+			err := fpv.DeletePersistentVolumeClaim(client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -150,10 +150,10 @@ var _ = ginkgo.Describe("[vmc-gc] Deploy, Update and Scale Deployments", func() 
 		err = fdep.WaitForDeploymentComplete(client, deployment)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pods, err := fdep.GetPodsForDeployment(ctx, client, deployment)
+		pods, err := fdep.GetPodsForDeployment(client, deployment)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pod := pods.Items[0]
-		err = fpod.WaitForPodNameRunningInNamespace(ctx, client, pod.Name, namespace)
+		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Update deployment image")
@@ -174,7 +174,7 @@ var _ = ginkgo.Describe("[vmc-gc] Deploy, Update and Scale Deployments", func() 
 		framework.Logf("replica count after scale down of deployments %v", deployment.Status.Replicas)
 		gomega.Expect((deployment.Status.Replicas) == replica-1).To(gomega.BeTrue(),
 			"Number of containers in the deployment should match with number of replicas")
-		err = fpod.WaitForPodNotFoundInNamespace(ctx, client, pod.Name, namespace, pollTimeout)
+		err = fpod.WaitForPodNotFoundInNamespace(client, pod.Name, namespace, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Scale up replicas")
@@ -184,10 +184,10 @@ var _ = ginkgo.Describe("[vmc-gc] Deploy, Update and Scale Deployments", func() 
 		framework.Logf("replica count after scale up of deployments %v", deployment.Status.Replicas)
 		gomega.Expect((deployment.Status.Replicas) == replica).To(gomega.BeTrue(),
 			"Number of containers in the deployment should match with number of replicas")
-		pods, err = fdep.GetPodsForDeployment(ctx, client, deployment)
+		pods, err = fdep.GetPodsForDeployment(client, deployment)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pod = pods.Items[0]
-		err = fpod.WaitForPodNameRunningInNamespace(ctx, client, pod.Name, namespace)
+		err = fpod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete Deployment")
