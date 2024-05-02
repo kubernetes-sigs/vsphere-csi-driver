@@ -883,7 +883,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("disable vsan network on one the host's vmknic in cluster4")
-		workervms := getWorkerVmMos(ctx, client)
+		workervms := getWorkerVmMoRefs(ctx, client)
 		targetHost := e2eVSphere.getHostFromVMReference(ctx, workervms[0].Reference())
 		targetHostSystem := object.NewHostSystem(e2eVSphere.Client.Client, targetHost.Reference())
 		nicMgr, err = targetHostSystem.ConfigManager().VirtualNicManager(ctx)

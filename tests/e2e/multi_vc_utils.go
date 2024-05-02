@@ -81,7 +81,7 @@ func createCustomisedStatefulSets(ctx context.Context, client clientset.Interfac
 				Spec.StorageClassName = &storagePolicy
 		} else {
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Annotations["volume.beta.kubernetes.io/storage-class"] = sc.Name
+				Spec.StorageClassName = &sc.Name
 		}
 
 		if stsName != "" {

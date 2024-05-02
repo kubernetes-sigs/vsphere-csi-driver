@@ -107,6 +107,7 @@ var (
 	pvclaimsToDelete       []*v1.PersistentVolumeClaim
 	pvZone                 string
 	pvRegion               string
+	vmIp2MoMap             map[string]vim25types.ManagedObjectReference
 )
 
 type TKGCluster struct {
@@ -6913,4 +6914,53 @@ func checkVcServicesHealthPostReboot(ctx context.Context, host string, timeout .
 			return false, nil
 		})
 	return waitErr
+
+}
+
+// Fetches managed object reference for worker node VMs in the cluster
+func getWorkerVmMoRefs(ctx context.Context, client clientset.Interface) []vim25types.ManagedObjectReference {
+	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	workervms := []vim25types.ManagedObjectReference{}
+	for _, node := range nodes.Items {
+		cpvm := false
+		for label := range node.Labels {
+			if label == controlPlaneLabel {
+				cpvm = true
+			}
+		}
+		if !cpvm {
+			workervms = append(workervms, getHostMoref4K8sNode(ctx, client, &node))
+		}
+	}
+	return workervms
+}
+
+// Returns a map of VM ips for kubernetes nodes and its moid
+func vmIpToMoRefMap(ctx context.Context) map[string]vim25types.ManagedObjectReference {
+	if vmIp2MoMap != nil {
+		return vmIp2MoMap
+	}
+	vmIp2MoMap = make(map[string]vim25types.ManagedObjectReference)
+	vmObjs := e2eVSphere.getAllVms(ctx)
+	for _, mo := range vmObjs {
+		if !strings.Contains(mo.Name(), "k8s") {
+			continue
+		}
+		ip, err := mo.WaitForIP(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(ip).NotTo(gomega.BeEmpty())
+		vmIp2MoMap[ip] = mo.Reference()
+		framework.Logf("VM with IP %s is named %s and its moid is %s", ip, mo.Name(), mo.Reference().Value)
+	}
+	return vmIp2MoMap
+
+}
+
+// Returns host MOID for a given k8s node VM by referencing node VM ip
+func getHostMoref4K8sNode(
+	ctx context.Context, client clientset.Interface, node *v1.Node) vim25types.ManagedObjectReference {
+	vmIp2MoRefMap := vmIpToMoRefMap(ctx)
+	return vmIp2MoRefMap[getK8sNodeIP(node)]
 }

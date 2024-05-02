@@ -36,6 +36,7 @@ const (
 	retainClaimPolicy                          = "Retain"
 	configSecret                               = "vsphere-config-secret"
 	contollerClusterKubeConfig                 = "CONTROLLER_CLUSTER_KUBECONFIG"
+	controlPlaneLabel                          = "node-role.kubernetes.io/control-plane"
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
 	crdCNSVolumeMetadatas                      = "cnsvolumemetadatas"
 	crdCNSFileAccessConfig                     = "cnsfileaccessconfigs"
@@ -150,6 +151,7 @@ const (
 	kubeSystemNamespace                       = "kube-system"
 	kubeletConfigYaml                         = "/var/lib/kubelet/config.yaml"
 	nfs4FSType                                = "nfs4"
+	mmStateChangeTimeout                      = 300 // int
 	objOrItemNotFoundErr                      = "The object or item referred to could not be found"
 	passorwdFilePath                          = "/etc/vmware/wcp/.storageUser"
 	podContainerCreatingState                 = "ContainerCreating"
@@ -209,6 +211,7 @@ const (
 	vpxdReducedTaskTimeoutSecsInt             = 90
 	vSphereCSIControllerPodNamePrefix         = "vsphere-csi-controller"
 	vmUUIDLabel                               = "vmware-system-vm-uuid"
+	vsanLabel                                 = "vsan"
 	vsanDefaultStorageClassInSVC              = "vsan-default-storage-policy"
 	vsanDefaultStoragePolicyName              = "vSAN Default Storage Policy"
 	vsanHealthServiceWaitTime                 = 15
