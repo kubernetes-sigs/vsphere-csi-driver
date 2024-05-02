@@ -5910,6 +5910,10 @@ func createParallelStatefulSetSpec(namespace string, no_of_sts int, replicas int
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &scName
 		statefulset.Spec.Replicas = &replicas
+		if rwxAccessMode {
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
+				v1.ReadWriteMany
+		}
 		stss = append(stss, statefulset)
 	}
 	return stss

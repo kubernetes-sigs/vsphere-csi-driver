@@ -551,4 +551,41 @@ var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", fu
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
+	/*
+				TESTCASE-5
+				Static PVC creation
+
+				Steps:
+		    	1. Create 2 file shares using the CNS Create Volume API with the following configurations:
+		        Read-write mode.
+		        ReadOnly Netpermissions.
+		    	2. Create Persistent Volumes (PVs) using the volume IDs of the previously created file shares created in step 1.
+		    	3. Create Persistent Volume Claims (PVCs) using the PVs created in step 3.
+		    	4. Wait for the PVs and PVCs to be in the Bound state.
+		    	5. Create a POD using the PVC created in step 4.
+		    	6. Verify volume accessibility and multiple pods can perform operations on volume according to Netpermissions.
+		    	7. Perform cleanup with the following steps:
+		        Delete the POD.
+		        Delete the Persistent Volume Claims (PVCs).
+	*/
+
+	// vSan Faults UseCases
+
+	/*
+				TESTCASE-1
+				Static PVC creation
+
+				Steps:
+		    	1. Create 2 file shares using the CNS Create Volume API with the following configurations:
+		        Read-write mode.
+		        ReadOnly Netpermissions.
+		    	2. Create Persistent Volumes (PVs) using the volume IDs of the previously created file shares created in step 1.
+		    	3. Create Persistent Volume Claims (PVCs) using the PVs created in step 3.
+		    	4. Wait for the PVs and PVCs to be in the Bound state.
+		    	5. Create a POD using the PVC created in step 4.
+		    	6. Verify volume accessibility and multiple pods can perform operations on volume according to Netpermissions.
+		    	7. Perform cleanup with the following steps:
+		        Delete the POD.
+		        Delete the Persistent Volume Claims (PVCs).
+	*/
 })

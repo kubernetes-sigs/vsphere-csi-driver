@@ -1338,4 +1338,205 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-singlevc] No-Hci-Mesh-Topology-Si
 		gomega.Expect(isCorrectPlacement).To(gomega.BeTrue(), fmt.Sprintf("Volume provisioning has happened on the wrong "+
 			"datastore. Expected 'true', got '%v'", isCorrectPlacement))
 	})
+
+	/*
+		TESTCASE-17
+		Static PVC and PV with reclaim policy Retain
+		SC → Immediate Binding Mode i.e. all allowed topology specified
+		region-1 > zone-1 > building-1 > level-1 > rack-3, Storage Policy tagged with vSAN Datastore of rack-3
+
+		Steps:
+		1. Create 1 file share using the CNS Create Volume API with RWX access mode on vsan cluster of rack-3.
+		2. Create a Storage Class (SC) with the following allowed topologies specified as
+		"region-1 > zone-1 > building-1 > level-1 > rack-1, rack-2, rack-3 and
+		specify Storage Policy tagged to vSAN DS of rack-3.
+		3. Create a Persistent Volume (PV) using the File Share created in step 1 and the Storage Class from step 2,
+			with a reclaim policy set to "Retain."
+		4. Create a Persistent Volume Claim (PVC) using the Storage Class created in step 2 and the PV created in step 3,
+			configured with ReadWriteMany (RWX) access mode.
+		5. Wait for both the PV and PVC to reach the Bound state. The PVC can be created on the Availability Zone (AZ)
+			as specified in the SC Storage Policy.
+		6. Create a Pod using the PVC from step 4. The Pod should be created in the worker node of AZ rack-3.
+		7. Delete the Pod and the PVC.
+		8. Wait for PV to change status to the Available state.
+		9. Recreate the PVC with the same name used in step 4. The PVC should be created and reach the Bound state,
+			and it can be created on the Availability Zone (AZ) as specified in the SC Storage Policy.
+		10. Create a Pod and ensure it reaches the running state. Similar to the previous step, the Pod should be
+		created in the worker node of AZ rack-3.
+		11. Verify the CNS metadata for the PVC.
+		12. Perform cleanup by executing the following actions:
+		Delete the Pods.
+		Delete the PVCs.
+		Delete the Storage Class (SC).
+	*/
+
+	/*
+		TESTCASE-18
+		Static PVC creation
+		SC → specific allowed topology i.e. region-1 > zone-1 > building-1 > level-1 with Immediate Binding mode
+
+		Steps:
+		1. Create 2 file shares using the CNS Create Volume API with the following configurations:
+			Read-write mode.
+			ReadOnly Netpermissions.
+		2. Create Persistent Volumes (PVs) using the volume IDs of the previously created file shares
+		3. Create Persistent Volume Claims (PVCs) using the PVs created in step 3.
+		4. Wait for the PVs and PVCs to be in the Bound state.
+		5. Volume provisioning will happen on exactly the datastore where the backing fileshare exists
+		6. Create a POD using the PVC created in step 4. Make sure the POD is scheduled to come up on a
+			node present in the same zone as mentioned in the Storage Class from step 1.
+		7. Delete the POD, PVC, PV, and the Storage Class (SC).
+	*/
+
+	/*
+		TESTCASE-21
+		NetPermissions  -> [NetPermissions "B"], ips = "10.20.20.0/24", permissions = "READ_ONLY"
+
+		SC → all allowed topologies specified with Immediate Binding mode with rack-1,rack-2 and rack-3
+
+		Steps:
+		1. Create vSphere Configuration Secret - Set NetPermissions to "10.20.20.0/24"
+			specifying workerIP of rack-1 Set NetPermissions to "READ_ONLY"
+		2. Install vSphere CSI Driver.
+		3. Create Storage Class - Set allowed topology to all racks and Set Immediate Binding mode
+		4. Create multiple dyanmic PVCs using Storage Class - Use the Storage Class created in step 3, Set access mode to "RWX"
+		5. Verify PVC creation status.
+		6. If it reaches to Bound state, create multiple Pods and attach it to the volume.
+		7. Try reading/writing data into the volume from different Pods.
+		8. Perform cleanup by deleting Pod, PVC and SC
+	*/
+
+	/*
+				TESTCASE-22
+				PVC "ROX" access mode  and config secret Net Permissions  is set to "READ_WRITE"
+				SC → specific allowed topology i.e. rack-1 with Immediate Binding mode
+
+				Steps:
+				1. Config secret is set with net permissions "READ_WRITE"
+		    	2. Create Storage Class with allowed topology set to rack-1 and with Immediate Binding mode.
+		    	3. Create PVC with access mode set to "ROM"
+		    	4. PVC should reach to Bound state.
+		    	5. Volume provision should happen on the AZ as specified in the SC.
+		    	6. Create 3 Pods using above created PVC. Pod1 and Pod2 should have read-write permissions,
+				but Pod-3 has "readonly" flag set to true.
+		    	7. Verify all 3 Pods should reach Running state.
+		    	8. Try reading/writing data on to the volume from Pod1 and Pod2 container.
+		    	9. Since the access mode is set to "ROX", it should only allow reading of data from a volume
+				    but not writing. Verify reading/writing data from Pod-3.
+		    	10. Verify Pod placement can happen on any AZ.
+		    	11. Perform cleanup by deleting Pod, PVC and SC.
+	*/
+
+	/*
+		TESTCASE-23
+		PVC "ROX" access mode and config secret Net Permissions set to "READ_ONLY"
+		SC → specific allowed topology i.e. rack-2 with Immediate Binding mode
+
+		Steps:
+		1. Config secret is set with net permissions "READ_ONLY"
+		2. Create Storage Class with allowed topology set to rack-2 and with Immediate Binding mode.
+		3. Create PVC with access mode set to "ROM"
+		4. PVC should reach to Bound state.
+		5. Volume provision should happen on the AZ as specified in the SC.
+		6. Create 3 Pods using above created PVC. Pod1 and Pod2 should have read-write permissions,
+		but Pod-3 has "readonly" flag set to true.
+		7. Verify all 3 Pods should reach Running state.
+		8. Try reading/writing data on to the volume from Pod1 and Pod2 container.
+		9. Since the access mode is set to "ROX", it should only allow reading of data from a
+		volume but not writing. Verify reading/writing data from Pod-3.
+		10. Verify Pod placement can happen on any AZ.
+		11. Perform cleanup by deleting Pod, PVC and SC.
+	*/
+
+	// ********* Single vc rwx topology site down usecases
+
+	/*
+		TESTCASE-24
+		Bring down full site cluster-2
+		SC → WFC Binding Mode with default values
+
+		Steps:
+		1. Create SC with WFC Binding mode and set SC with default values.
+		2. Create multiple PVCs with RWX access mode.
+		3. Wait for all PVCs to reach Bound state.
+		4. Create deployment Pods for each PVC with replica count 7 - specify
+		nodeSelectorTerms details with RWX access mode.
+		5. Wait for Pods to reach running state
+		6. Verify that all the Pods are spread across all AZs
+		7. Bring down full site i.e. cluster2 (rack-2)
+		8. Verify k8s node status and CSI Pods status.
+		9. Verify the workload Pods status.
+		10. Scale up deployment Pod count to 10 replicas.
+		11. Wait for some time and make sure all 10 replicas Pods are in running state and new PVCs to be in Bound state.
+		12. Scale down another deployment Pod to 5 replicas
+		13. Wait for some time and verify that scale down operation went successful.
+		14. Note - verify if we are able to read or write on to the volumes when site is down.
+		15. Bring up the site which was down.
+		16. Wait for testbed to be back to normal state.
+		17. Verify the k8s nodes status and CSI Pods status.
+		18. Verify that all the workload Pods are in up and running state.
+		19. Verify there were no issue with replica scale-up ans scale-down and verify pod entry in CNS
+		volume-metadata for the volumes associated with the PVC used by statefulsets are updated
+		20. Note - verify if we are able to read or write on to the volumes when site is restored.
+		21. Try mounting and unmounting of volumes (Steps needs to be added)
+		22. Make sure K8s cluster  is healthy
+		23. Perform cleanup by deleting Pods, PVCs and SC.
+	*/
+
+	/*
+		TESTCASE-25
+		Bring down full site cluster-2
+		SC → WFC Binding Mode with default values
+
+		Steps:
+		1. Create SC with WFC Binding mode and set SC with default values.
+		2. Create multiple PVCs with RWX access mode.
+		3. Wait for all PVCs to reach Bound state.
+		4. Create deployment Pods for each PVC with replica count 7 - specify
+		nodeSelectorTerms details with RWX access mode.
+		5. Wait for Pods to reach running state
+		6. Verify that all the Pods are spread across all AZs
+		7. Bring down full site i.e. cluster2 (rack-2)
+		8. Verify k8s node status and CSI Pods status.
+		9. Verify the workload Pods status.
+		10. Scale up deployment Pod count to 10 replicas.
+		11. Wait for some time and make sure all 10 replicas Pods are in running state and new PVCs to be in Bound state.
+		12. Scale down another deployment Pod to 5 replicas
+		13. Wait for some time and verify that scale down operation went successful.
+		14. Note - verify if we are able to read or write on to the volumes when site is down.
+		15. Bring up the site which was down.
+		16. Wait for testbed to be back to normal state.
+		17. Verify the k8s nodes status and CSI Pods status.
+		18. Verify that all the workload Pods are in up and running state.
+		19. Verify there were no issue with replica scale-up ans scale-down and verify pod entry in CNS
+		volume-metadata for the volumes associated with the PVC used by statefulsets are updated
+		20. Note - verify if we are able to read or write on to the volumes when site is restored.
+		21. Try mounting and unmounting of volumes (Steps needs to be added)
+		22. Make sure K8s cluster  is healthy
+		23. Perform cleanup by deleting Pods, PVCs and SC.
+	*/
+
+	/*
+		TESTCASE-26
+		PSOD all ESXI hosts which is on cluster-2 and cluster-3
+		SC → Immediate Binding mode with all allowed topology set
+
+		Steps:
+		1. Create SC with Immediate binding mode and allowed topology set to all racks
+		2. Create a Statefulset-1 with replica count 3 and Statefulset-2 with replica count 5 using RWX access mode.
+		3. Wait for all the Pods and PVCs to reach Bound and running state.
+		4. Make sure Pods are running across all Az rack-2 and rack-3
+		5. PSOD all esxi hosts which is on cluster-2 and cluster-3
+		6. Verify that all the Pods which were running on those VMs where we performed
+		ESXI PSOD miight throw Error/Failure or may go to terminating state
+		7. Change replica count of both Statefulset-1 and Statefulset-2 to 7.
+		8. Scale-up/Scale-down should work fine, new workload Pods should come up on the nodes which are available and healthy
+		9. Verify the ESXI hosts for which we performed PSOD should come back to responsing state.
+		10. Verify that the k8s cluster is healthy and statefulset scale-up/scale-down went fine
+		and volume and application lifecycle actions works fine
+		11. Once the testbed is normal verify that the all workload Pods are in up and running state.
+		12. Perform scale-up/scale-down on the sts-1 and sts-2 once NIC is restores on all ESXI hosts.
+		13. Perform cleanup by deleting Pods, PVCs and SC.
+	*/
+
 })
