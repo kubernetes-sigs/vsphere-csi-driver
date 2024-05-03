@@ -173,7 +173,6 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 			},
 		},
 	}
-	params["checkCompatibleDatastores"] = "false"
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
@@ -285,7 +284,6 @@ func TestWCPCreateVolumeWithZonalLabelPresentButNoStorageTopoType(t *testing.T) 
 			},
 		},
 	}
-	params["checkCompatibleDatastores"] = "false"
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
@@ -381,7 +379,6 @@ func TestWCPCreateDeleteSnapshot(t *testing.T) {
 			},
 		},
 	}
-	params["checkCompatibleDatastores"] = "false"
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
@@ -497,7 +494,6 @@ func TestListSnapshots(t *testing.T) {
 			},
 		},
 	}
-	params["checkCompatibleDatastores"] = "false"
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
@@ -617,7 +613,6 @@ func TestListSnapshotsOnSpecificVolume(t *testing.T) {
 			},
 		},
 	}
-	params["checkCompatibleDatastores"] = "false"
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
@@ -738,7 +733,6 @@ func TestListSnapshotsWithToken(t *testing.T) {
 			},
 		},
 	}
-	params["checkCompatibleDatastores"] = "false"
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
@@ -869,7 +863,6 @@ func TestListSnapshotsOnSpecificVolumeAndSnapshot(t *testing.T) {
 			},
 		},
 	}
-	params["checkCompatibleDatastores"] = "false"
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
@@ -988,7 +981,6 @@ func TestCreateVolumeFromSnapshot(t *testing.T) {
 			},
 		},
 	}
-	params["checkCompatibleDatastores"] = "false"
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
@@ -1194,7 +1186,6 @@ func TestWCPDeleteVolumeWithSnapshots(t *testing.T) {
 			},
 		},
 	}
-	params["checkCompatibleDatastores"] = "false"
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
@@ -1300,7 +1291,6 @@ func TestWCPExpandVolumeWithSnapshots(t *testing.T) {
 			},
 		},
 	}
-	params["checkCompatibleDatastores"] = "false"
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{

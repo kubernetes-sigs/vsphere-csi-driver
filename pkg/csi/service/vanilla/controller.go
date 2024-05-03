@@ -95,9 +95,8 @@ var (
 	isTopologyAwareFileVolumeEnabled bool
 
 	// variables for list volumes
-	volIDsInK8s               = make([]string, 0)
-	CNSVolumesforListVolume   = make([]cnstypes.CnsVolume, 0)
-	checkCompatibleDataStores = true
+	volIDsInK8s             = make([]string, 0)
+	CNSVolumesforListVolume = make([]cnstypes.CnsVolume, 0)
 
 	// errAllDSFilteredOut is an error thrown by auth service when it
 	// filters out all the potential shared datastores in a volume provisioning call.
@@ -782,8 +781,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
-			c.manager, &createVolumeSpec, sharedDatastores, filterSuspendedDatastores, false,
-			checkCompatibleDataStores, nil)
+			c.manager, &createVolumeSpec, sharedDatastores, filterSuspendedDatastores, false, nil)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create volume. Error: %+v", err)
@@ -1950,10 +1948,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	start := time.Now()
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	if chkDataStoreCompatibility := req.Parameters["checkCompatibleDatastores"]; chkDataStoreCompatibility == "false" {
-		checkCompatibleDataStores = false
-		delete(req.Parameters, "checkCompatibleDatastores")
-	}
+
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	createVolumeInternal := func() (
 		*csi.CreateVolumeResponse, string, error) {
