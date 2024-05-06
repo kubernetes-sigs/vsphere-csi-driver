@@ -74,6 +74,8 @@ type Manager interface {
 	GetAllNodesByVC(ctx context.Context, vcHost string) ([]*vsphere.VirtualMachine, error)
 	// UnregisterNode unregisters a registered node given its name.
 	UnregisterNode(ctx context.Context, nodeName string) error
+	// UnregisterAllNodes unregisters all registered nodes with the node manager.
+	UnregisterAllNodes(ctx context.Context) error
 }
 
 // Metadata represents node metadata.
@@ -421,5 +423,30 @@ func (m *defaultManager) UnregisterNode(ctx context.Context, nodeName string) er
 	m.nodeNameToUUID.Delete(nodeName)
 	m.nodeVMs.Delete(nodeUUID)
 	log.Infof("Successfully unregistered node with nodeName %s", nodeName)
+	return nil
+}
+
+// UnregisterAllNodes unregisters all registered nodes with the node manager.
+func (m *defaultManager) UnregisterAllNodes(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+	var err error
+	m.nodeNameToUUID.Range(func(nodeName, nodeUUID interface{}) bool {
+		if nodeName != nil && nodeName.(string) != "" {
+			node := nodeName.(string)
+			log.Infof("Unregistering node with nodeName %s", node)
+			err = m.UnregisterNode(ctx, node)
+			if err != nil {
+				log.Errorf("Error occurred while unregistering a node with nodeName %s, err: %v.",
+					node, err)
+				return false
+			}
+		}
+		return true
+	})
+
+	if err != nil {
+		return err
+	}
+	log.Infof("Successfully unregistered all nodes.")
 	return nil
 }

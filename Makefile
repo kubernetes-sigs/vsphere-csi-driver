@@ -279,6 +279,8 @@ TEST_FLAGS ?= -v -count=1
 .PHONY: unit build-unit-tests
 unit unit-test:
 	env -u VSPHERE_SERVER -u VSPHERE_DATACENTER -u VSPHERE_PASSWORD -u VSPHERE_USER -u VSPHERE_STORAGE_POLICY_NAME -u KUBECONFIG -u WCP_ENDPOINT -u WCP_PORT -u WCP_NAMESPACE -u TOKEN -u CERTIFICATE go test $(TEST_FLAGS) $(PKGS_WITH_TESTS)
+unit-cover:
+	env -u VSPHERE_SERVER -u VSPHERE_DATACENTER -u VSPHERE_PASSWORD -u VSPHERE_USER -u VSPHERE_STORAGE_POLICY_NAME -u KUBECONFIG -u WCP_ENDPOINT -u WCP_PORT -u WCP_NAMESPACE -u TOKEN -u CERTIFICATE go test $(TEST_FLAGS) $(PKGS_WITH_TESTS) && go tool cover -html=cover.out
 build-unit-tests:
 	$(foreach pkg,$(PKGS_WITH_TESTS),go test $(TEST_FLAGS) -c $(pkg); )
 
@@ -342,22 +344,18 @@ endif
 	go test $(TEST_FLAGS) -tags=integration-unit $(INTEGRATION_TEST_PKGS)
 
 # The default test target.
-.PHONY: test build-tests
+.PHONY: test test-cover build-tests
 test: unit
+test-cover: unit-cover
 build-tests: build-unit-tests
 
 .PHONY: cover
 cover: TEST_FLAGS += -cover
 cover: test
 
-# The default test target.
-.PHONY: test build-tests
-test: unit
-build-tests: build-unit-tests
-
-.PHONY: cover
-cover: TEST_FLAGS += -cover
-cover: test
+.PHONY: coverprofile
+coverprofile: TEST_FLAGS += -coverprofile cover.out
+coverprofile: test-cover
 
 .PHONY: test-e2e
 test-e2e:
