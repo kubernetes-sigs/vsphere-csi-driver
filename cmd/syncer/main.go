@@ -294,6 +294,8 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 					"openshift": "Openshift",
 					"wcp":       "Supervisor",
 					"vmware":    "TanzuKubernetesCluster",
+					"eks":       "EKS",
+					"aks":       "AKS",
 					"nativek8s": "VanillaK8S",
 				}
 				distributionUnknown := true
