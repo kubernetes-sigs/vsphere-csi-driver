@@ -218,28 +218,24 @@ func (mounter *csiProxyMounter) GetDiskNumber(ctx context.Context, diskID string
 	return "", errors.New("no matching disks found")
 }
 
-// IsLikelyMountPoint - If the directory does not exists, the function will return os.ErrNotExist error.
-// If the path exists, call to CSI proxy will check if its a link, if its a link then existence of target
-// path is checked.
+// IsLikelyMountPoint - If the directory does not exists, the function will return error.
+// If the path exists, will check if it is a symlink.
 func (mounter *csiProxyMounter) IsLikelyNotMountPoint(path string) (bool, error) {
-	isExists, err := mounter.ExistsPath(mounter.Ctx, path)
+	// Check if directory path given exists already
+	stat, err := os.Lstat(path)
 	if err != nil {
+		return true, err
+	}
+	// Check if directory path is a symlink by checking file mode.
+	// Note: Not using CSI proxy IsSymlink() function to check for symlink for Windows,
+	//		 as it tries to read the link. In case of corrupted mount point, reading link
+	//		 might fail, thereby failing the volume attach operation indefinitely.
+	//       Refer https://bugzilla.eng.vmware.com/show_bug.cgi?id=3364853 for details
+	if stat.Mode()&os.ModeSymlink != 0 {
 		return false, err
 	}
-
-	if !isExists {
-		return true, os.ErrNotExist
-	}
-
-	response, err := mounter.FsClient.IsSymlink(mounter.Ctx,
-		&fs.IsSymlinkRequest{
-			Path: normalizeWindowsPath(path),
-		})
-	if err != nil {
-		return false, err
-	}
-	return !response.IsSymlink, nil
-	// TODO check if formatted else error out
+	return true, nil
+	//TODO check if formatted else error out
 }
 
 // CanSafelySkipMountPointCheck always returns false on Windows
