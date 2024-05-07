@@ -50,7 +50,7 @@ if ! command -v kubectl > /dev/null; then
   exit 1
 fi
 
-qualified_version="v7.0.1"
+qualified_version="v7.0.2"
 volumesnapshotclasses_crd="volumesnapshotclasses.snapshot.storage.k8s.io"
 volumesnapshotcontents_crd="volumesnapshotcontents.snapshot.storage.k8s.io"
 volumesnapshots_crd="volumesnapshots.snapshot.storage.k8s.io"
