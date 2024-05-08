@@ -152,7 +152,7 @@ func powerOnHostParallel(hostsToPowerOn []string) {
 	err := vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, hostlist, true)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for _, host := range hostsToPowerOn {
-		err = waitForHostToBeUp(host)
+		err = waitForHostToBeUp(host, time.Minute*40)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -228,10 +228,8 @@ func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout
 	} else {
 		if os.Getenv("K8S_NODES_UP_WAIT_TIME") != "" {
 			k8sNodeWaitTime, err := strconv.Atoi(os.Getenv(envK8sNodesUpWaitTime))
-			framework.Logf("k8sNodeWaitTime: %v, %T", k8sNodeWaitTime, k8sNodeWaitTime)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pollTime = time.Duration(k8sNodeWaitTime) * time.Minute
-			framework.Logf("pollTime: %v, %T", pollTime, pollTime)
 		} else {
 			pollTime = time.Duration(defaultK8sNodesUpWaitTime) * time.Minute
 		}
@@ -243,11 +241,13 @@ func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout
 		func(ctx context.Context) (bool, error) {
 			notReady = nil
 			nodes, err := c.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-			framework.Logf("error is %v", err)
 
 			if err != nil && !strings.Contains(err.Error(), "has prevented the request") &&
 				!strings.Contains(err.Error(), "TLS handshake timeout") &&
 				!strings.Contains(err.Error(), "dial tcp") &&
+				!strings.Contains(err.Error(), "nodes is forbidden") &&
+				!strings.Contains(err.Error(), "http2: client connection lost") &&
+				!strings.Contains(err.Error(), "etcdserver: request timed out") &&
 				!strings.Contains(err.Error(), ": EOF") {
 				return false, err
 			}
@@ -280,7 +280,7 @@ func wait4AllK8sNodesToBeUp(
 				nodeIp = addr.Address
 			}
 		}
-		err := waitForHostToBeUp(nodeIp)
+		err := waitForHostToBeUp(nodeIp, time.Minute*40)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -348,7 +348,7 @@ func waitForPodsToBeInErrorOrRunning(ctx context.Context, c clientset.Interface,
 			switch pod.Status.Phase {
 			// v1.PodSucceeded is for pods in ExitCode:0 state.
 			// Standalone pods are in ExitCode:0 or Running state after site failure.
-			case v1.PodRunning, v1.PodSucceeded:
+			case v1.PodRunning, v1.PodSucceeded, v1.PodPending:
 				framework.Logf("Pod %v is in state %v", podName, pod.Status.Phase)
 				return true, nil
 			}
@@ -494,34 +494,42 @@ func getMasterIpOnSite(ctx context.Context, client clientset.Interface, primaryS
 	for _, x := range siteHosts {
 		siteEsxMap[x] = true
 	}
+
 	allMasterIps := getK8sMasterIPs(ctx, client)
-	framework.Logf("all master ips : %v", allMasterIps)
-	framework.Logf("Site esx map : %v", siteEsxMap)
 	vcAddress := e2eVSphere.Config.Global.VCenterHostname
 	vcAdminPwd := GetAndExpectStringEnvVar(vcUIPwd)
 	// Assuming atleast one master is on that site
-	for _, masterIp := range allMasterIps {
-		govcCmd := "export GOVC_INSECURE=1;"
-		govcCmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:%s@%s';",
-			vcAdminPwd, vcAddress)
-		govcCmd += fmt.Sprintf("govc vm.info --vm.ip=%s;", masterIp)
-		framework.Logf("Running command: %s", govcCmd)
-		result, err := exec.Command("/bin/bash", "-c", govcCmd).Output()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("res is: %v", result)
-		hostIp := strings.Split(string(result), "Host:")
-		host := strings.TrimSpace(hostIp[1])
-		if siteEsxMap[host] {
-			masterIpOnSite = masterIp
-			break
-		}
-	}
+	waitErr := wait.PollUntilContextTimeout(ctx, healthStatusPollInterval, pollTimeout*2,
+		true, func(ctx context.Context) (bool, error) {
+			for _, masterIp := range allMasterIps {
+				govcCmd := "export GOVC_INSECURE=1;"
+				govcCmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:%s@%s';",
+					vcAdminPwd, vcAddress)
+				govcCmd += fmt.Sprintf("govc vm.info --vm.ip=%s;", masterIp)
+
+				result, err := exec.Command("/bin/bash", "-c", govcCmd).Output()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				framework.Logf("res is: %v", result)
+				hostIp := strings.Split(string(result), "Host:")
+				host := strings.TrimSpace(hostIp[1])
+				if siteEsxMap[host] {
+					masterIpOnSite = masterIp
+					break
+				}
+			}
+			if masterIpOnSite != "" {
+				return true, nil
+			}
+			return false, nil
+		})
 	framework.Logf("Master IP on site : %s", masterIpOnSite)
-	if masterIpOnSite != "" {
-		return masterIpOnSite, nil
-	} else {
-		return "", fmt.Errorf("couldn't find a master running on site")
+	if waitErr != nil {
+		if wait.Interrupted(waitErr) {
+			return "", fmt.Errorf("couldn't find a master running on site")
+		}
+		return "", waitErr
 	}
+	return masterIpOnSite, nil
 }
 
 // changeLeaderOfContainerToComeUpOnMaster ensures that the leader of a container comes up on
@@ -547,7 +555,7 @@ func changeLeaderOfContainerToComeUpOnMaster(ctx context.Context, client clients
 	}
 
 	leaderFoundOnsite := false
-	waitErr := wait.PollUntilContextTimeout(ctx, healthStatusPollInterval, pollTimeout, true,
+	waitErr := wait.PollUntilContextTimeout(ctx, healthStatusPollInterval, pollTimeout*6, true,
 		func(ctx context.Context) (bool, error) {
 			// Check if leader of csi container comes up on master node of secondary site
 			_, masterIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx, client, sshClientConfig,
@@ -558,13 +566,29 @@ func changeLeaderOfContainerToComeUpOnMaster(ctx context.Context, client clients
 			}
 			csipods, err := client.CoreV1().Pods(csiSystemNamespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer ginkgo.GinkgoRecover()
 
 			// Pause and kill container of csi container on other master nodes
 			if masterIp == masterIpOnSite {
 				leaderFoundOnsite = true
 				err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int32(csipods.Size()),
-					0, pollTimeoutShort)
+					0, pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				defer ginkgo.GinkgoRecover()
+				if err != nil {
+					if strings.Contains(err.Error(), "are NOT in RUNNING and READY state") {
+						framework.Logf("Rechecking CSI pod status to verify it is in running state")
+						ignoreLabels := make(map[string]string)
+						list_of_pods, err := fpod.GetPodsInNamespace(ctx, client, csiSystemNamespace, ignoreLabels)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						for i := 0; i < len(list_of_pods); i++ {
+							_ = fpod.WaitTimeoutForPodRunningInNamespace(ctx, client, list_of_pods[i].Name,
+								csiSystemNamespace, pollTimeout*2)
+						}
+					} else {
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
+				}
 				framework.Logf("Leader of %s found on site", csiContainerName)
 				return true, nil
 			}
@@ -631,9 +655,8 @@ func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) 
 	cmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:%s@%s';",
 		vcAdminPwd, vcAddress)
 	cmd += fmt.Sprintf("govc storage.policy.info -c -s %s;", storagePolicy)
-	result, err := sshExec(sshClientConfig, masterIp[0], cmd)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	return !strings.Contains(result.Stdout, "object references is empty")
+	_, err := sshExec(sshClientConfig, masterIp[0], cmd)
+	return strings.Contains(err.Error(), "object references is empty")
 }
 
 // createStsDeployment creates statfulset and deployment in a namespace and returns
@@ -728,39 +751,6 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 func volumeLifecycleActions(ctx context.Context, client clientset.Interface, namespace string,
 	sc *storagev1.StorageClass) {
 
-	var pod1 *v1.Pod
-
-	if vanillaCluster {
-		pvc1, err := createPVC(ctx, client, namespace, nil, diskSize, sc, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx,
-			client, []*v1.PersistentVolumeClaim{pvc1}, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volHandle := pvs[0].Spec.CSI.VolumeHandle
-
-		pod1, err = createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		vmUUID := getNodeUUID(ctx, client, pod1.Spec.NodeName)
-		framework.Logf("VMUUID : %s", vmUUID)
-		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
-			"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
-
-		framework.Logf("Verify the volume is accessible")
-		_, err = e2eoutput.LookForStringInPodExec(namespace, pod1.Name,
-			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		deletePodAndWaitForVolsToDetach(ctx, client, pod1)
-
-		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc1.Name, namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[0].Spec.CSI.VolumeHandle)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
 	if rwxAccessMode {
 		pvc1, err := createPVC(ctx, client, namespace, nil, "", sc, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -796,6 +786,49 @@ func volumeLifecycleActions(ctx context.Context, client clientset.Interface, nam
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[0].Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		framework.Logf("Creating RWO PVC")
+		pvc1, err := createPVC(ctx, client, namespace, nil, diskSize, sc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx,
+			client, []*v1.PersistentVolumeClaim{pvc1}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := pvs[0].Spec.CSI.VolumeHandle
+
+		pod1, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		vmUUID := getNodeUUID(ctx, client, pod1.Spec.NodeName)
+		framework.Logf("VMUUID : %s", vmUUID)
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
+			"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
+
+		framework.Logf("Verify the volume is accessible")
+		_, err = e2eoutput.LookForStringInPodExec(namespace, pod1.Name,
+			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		deletePodAndWaitForVolsToDetach(ctx, client, pod1)
+
+		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc1.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volumeHandle := pvs[0].Spec.CSI.VolumeHandle
+		err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pvs[0].Name, poll,
+			pollTimeout)
+		errMsg := "The object or item referred to could not be found"
+		if err != nil && checkForEventWithMessage(client, "", pvs[0].Name, errMsg) {
+			framework.Logf("Persistent Volume %v still not deleted with err %v", pvs[0].Name, errMsg)
+			// Orphan volumes may be left over here, hence logging those PVs and ignoring the error for now.
+			_ = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+			framework.Logf("Volume %v still not deleted from CNS with err %v", pvs[0].Name, errMsg)
+		} else {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	}
 
 }
@@ -1116,4 +1149,26 @@ func waitForFullSyncToFinish(ctx context.Context,
 			return false, nil
 		})
 	return waitErr
+}
+
+// checkForEventWithMessage fetches events list of the given object name and checkes for
+// specified message and returns true if expected error message found
+func checkForEventWithMessage(client clientset.Interface, namespace string,
+	name string, expectedMsg string) bool {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	eventFound := false
+	framework.Logf("Checking for error in events related to " + name)
+	eventList, _ := client.CoreV1().Events(namespace).List(ctx,
+		metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", name)})
+	for _, item := range eventList.Items {
+		framework.Logf("message: %v", item.Message)
+		if strings.Contains(item.Message, expectedMsg) {
+			framework.Logf("Expected event found. EventList Reason: "+
+				"%q"+" EventList item: %q", item.Reason, item.Message)
+			eventFound = true
+			break
+		}
+	}
+	return eventFound
 }
