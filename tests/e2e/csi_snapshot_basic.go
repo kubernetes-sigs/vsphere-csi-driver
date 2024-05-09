@@ -72,6 +72,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defaultDatacenter          *object.Datacenter
 		isVsanHealthServiceStopped bool
 		labels_ns                  map[string]string
+		isVcRebooted               bool
+		vcAddress                  string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -88,6 +90,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
+		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		// Get snapshot client using the rest config
 		if !guestCluster {
 			restConfig = getRestConfigClient()
@@ -160,7 +163,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -173,6 +175,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			for _, item := range eventList.Items {
 				framework.Logf(fmt.Sprintf(item.Message))
 			}
+		}
+
+		// restarting pending and stopped services after vc reboot if any
+		if isVcRebooted {
+			err := checkVcServicesHealthPostReboot(ctx, vcAddress, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+				"Setup is not in healthy state, Got timed-out waiting for required VC services to be up and running")
 		}
 
 		if isVsanHealthServiceStopped {
@@ -3869,8 +3878,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		defer func() {
 			ginkgo.By("Rebooting VC")
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			err = invokeVCenterReboot(ctx, vcAddress)
+			isVcRebooted = true
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3888,8 +3897,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Rebooting VC")
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterReboot(ctx, vcAddress)
+		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3958,6 +3967,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Rebooting VC")
 		err = invokeVCenterReboot(ctx, vcAddress)
+		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4102,7 +4112,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Changing password on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		username := vsphereCfg.Global.User
 		originalPassword := vsphereCfg.Global.Password
 		newPassword := e2eTestPassword
@@ -7026,7 +7035,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -7075,6 +7083,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Rebooting VC")
 		err = invokeVCenterReboot(ctx, vcAddress)
+		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

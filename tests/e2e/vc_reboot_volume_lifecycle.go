@@ -43,6 +43,8 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		namespace         string
 		storagePolicyName string
 		scParameters      map[string]string
+		isVcRebooted      bool
+		vcAddress         string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -56,6 +58,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
+		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 
@@ -65,6 +68,8 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		}
 	})
 	ginkgo.AfterEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		if supervisorCluster || guestCluster {
 			deleteResourceQuota(client, namespace)
 			dumpSvcNsEventsOnTestFailure(client, namespace)
@@ -73,6 +78,12 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+		}
+		// restarting pending and stopped services after vc reboot if any
+		if isVcRebooted {
+			err := checkVcServicesHealthPostReboot(ctx, vcAddress, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+				"Setup is not in healthy state, Got timed-out waiting for required VC services to be up and running")
 		}
 	})
 
@@ -110,7 +121,6 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 				namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
 		} else {
@@ -179,8 +189,8 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Rebooting VC")
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterReboot(ctx, vcAddress)
+		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
