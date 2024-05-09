@@ -343,8 +343,6 @@ spec:
               value: "200"
             - name: INCLUSTER_CLIENT_BURST
               value: "200"
-            - name: GODEBUG
-              value: x509sha1=1
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsNonRoot: true
@@ -395,8 +393,6 @@ spec:
               value: "200"
             - name: INCLUSTER_CLIENT_BURST
               value: "200"
-            - name: GODEBUG
-              value: x509sha1=1
           imagePullPolicy: "IfNotPresent"
           ports:
             - containerPort: 2113
