@@ -2805,14 +2805,33 @@ func createStoragePolicyUsageCR(ctx context.Context, quotaClient client.Client, 
 			ResourceExtensionName: extensionName,
 		},
 	}
-	err := quotaClient.Create(ctx, &newUsageInstance, &client.CreateOptions{})
-	if err != nil {
-		log.Errorf("Failed to create StoragePolicyUsage for policyID %v storageclass %v resourceKind %v. Err: %+v",
-			storagePolicyId, storageClassName, resourceKind, err)
-		return nil, err
+	retryBackoff := wait.Backoff{
+		Duration: 1 * time.Second,
+		Factor:   2,
+		Steps:    50,
+		Jitter:   0.2,
 	}
-	log.Infof("Successfully created StoragePolicyUsage %q/%q for policyID %v storageclass %v resourceKind %v.",
-		name, namespace, storagePolicyId, storageClassName, resourceKind)
+	ctxWithTimeout, cancelFunc := context.WithTimeout(context.Background(), time.Duration(time.Minute*5))
+	defer cancelFunc()
+	err := wait.ExponentialBackoffWithContext(ctxWithTimeout, retryBackoff, func(_ context.Context) (bool, error) {
+		policyUsageCRCreateErr := quotaClient.Create(ctx, &newUsageInstance, &client.CreateOptions{})
+		if policyUsageCRCreateErr != nil {
+			log.Errorf("Failed to create StoragePolicyUsage for policyID %q storageclass %q resourceKind %q. Err: %+v",
+				storagePolicyId, storageClassName, resourceKind, policyUsageCRCreateErr)
+			return false, policyUsageCRCreateErr
+		}
+		log.Infof("Successfully created StoragePolicyUsage %q/%q for policyID %q storageclass %q resourceKind %v.",
+			name, namespace, storagePolicyId, storageClassName, resourceKind)
+		return true, nil
+	})
+	if err != nil {
+		log.Errorf("Retry timeouts to create StoragePolicyUsage for policyID %q storageclass %q resourceKind %q. Err: %+v",
+			storagePolicyId, storageClassName, resourceKind, err)
+		// crashing the container if storage policy usage CR is not created within 5 minutes
+		// on a new container stroagepolicyquota add event will be replayed and will attempt to
+		// re-create storagepolicyusage CR.
+		os.Exit(1)
+	}
 	return &newUsageInstance, nil
 }
 
