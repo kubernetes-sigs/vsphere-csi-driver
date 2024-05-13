@@ -827,7 +827,14 @@ func (osUtils *OsUtils) GetDevMounts(ctx context.Context,
 		return devMnts, err
 	}
 	for _, m := range mnts {
-		if m.Device == sysDevice.RealDev || (m.Device == "devtmpfs" && m.Source == sysDevice.RealDev) {
+		// the device in the mount table may be a symlink
+		realDev, err := filepath.EvalSymlinks(m.Device)
+		if err != nil {
+			realDev = m.Device
+		}
+
+		if m.Device == sysDevice.RealDev || realDev == sysDevice.RealDev ||
+			(m.Device == "devtmpfs" && m.Source == sysDevice.RealDev) {
 			devMnts = append(devMnts, m)
 		}
 	}
