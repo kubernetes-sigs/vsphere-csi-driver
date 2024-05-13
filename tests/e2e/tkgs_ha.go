@@ -69,6 +69,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		clientNewGc                clientset.Interface
 		pandoraSyncWaitTime        int
 		labels_ns                  map[string]string
+		isVcRebooted               bool
+		vcAddress                  string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -84,6 +86,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		labels_ns = map[string]string{}
 		labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
 		labels_ns["e2e-framework"] = f.BaseName
+		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		if zonalPolicy == "" {
 			ginkgo.Fail(envZonalStoragePolicyName + " env variable not set")
@@ -141,12 +144,20 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 	})
 
 	ginkgo.AfterEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		if supervisorCluster {
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+		}
+		// restarting pending and stopped services after vc reboot if any
+		if isVcRebooted {
+			err := checkVcServicesHealthPostReboot(ctx, vcAddress, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+				"Setup is not in healthy state, Got timed-out waiting for required VC services to be up and running")
 		}
 	})
 
@@ -1964,7 +1975,6 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		// Stopping vsan-health service on vcenter host
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", vsanhealthServiceName))
 		isVsanHealthServiceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2534,7 +2544,6 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		// Bring down SPS service
 		ginkgo.By("Bring down SPS service")
 		isSPSServiceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -3039,8 +3048,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}
 
 		ginkgo.By("Rebooting VC")
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterReboot(ctx, vcAddress)
+		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
