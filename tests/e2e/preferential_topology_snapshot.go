@@ -41,8 +41,8 @@ import (
 	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 )
 
-var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology Volume Snapshot tests", func() {
-	f := framework.NewDefaultFramework("preferential-topology-volume-snapshot")
+var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot", func() {
+	f := framework.NewDefaultFramework("preferential-snapshot")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                         clientset.Interface
@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		}
 
 		topologyLength, leafNode, leafNodeTag0, leafNodeTag1, leafNodeTag2 = 5, 4, 0, 1, 2
-		topologyMap := GetAndExpectStringEnvVar(topologyMap)
+		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 
 		sshClientConfig = &ssh.ClientConfig{
@@ -125,9 +125,8 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
 
-		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap,
-			topologyLength)
-		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap)
+		allowedTopologies = createAllowedTopolgies(topologyMap)
 
 		// fetching k8s master ip
 		allMasterIps = getK8sMasterIPs(ctx, client)
@@ -141,9 +140,8 @@ var _ = ginkgo.Describe("[Preferential-Topology-Snapshot] Preferential Topology 
 		clusters, err = getTopologyLevel5ClusterGroupNames(masterIp, sshClientConfig, dataCenters, 0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap,
-			topologyLength)
-		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap)
+		allowedTopologies = createAllowedTopolgies(topologyMap)
 
 		// fetching list of datatstores shared between vm's
 		shareddatastoreListMap, err = getListOfSharedDatastoresBetweenVMs(masterIp, sshClientConfig, dataCenters)

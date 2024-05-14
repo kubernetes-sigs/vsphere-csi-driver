@@ -35,8 +35,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", func() {
-	f := framework.NewDefaultFramework("multi-vc-sitedown")
+var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
+	f := framework.NewDefaultFramework("multivc-sitedown")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                      clientset.Interface
@@ -95,8 +95,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
-		topologyMap := GetAndExpectStringEnvVar(topologyMap)
-		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
+		allowedTopologies = createAllowedTopolgies(topologyMap)
 		scParameters = make(map[string]string)
 		storagePolicyInVc1Vc2 = GetAndExpectStringEnvVar(envStoragePolicyNameInVC1VC2)
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
@@ -118,7 +118,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology-sitedown] Multi-VC-SiteDown", fu
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		clusterWorkerMap := GetAndExpectStringEnvVar(workerClusterMap)
-		_, workerInitialAlias = createTopologyMapLevel5(clusterWorkerMap, topologyLength)
+		_, workerInitialAlias = createTopologyMapLevel5(clusterWorkerMap)
 
 		// fetching cluster details
 		clientIndex := 0

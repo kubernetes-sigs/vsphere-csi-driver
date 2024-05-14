@@ -41,8 +41,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provisioning-With-SiteDown-Cases", func() {
-	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
+var _ = ginkgo.Describe("[topologyL5-sitedown] TopologyL5-SiteDown", func() {
+	f := framework.NewDefaultFramework("topologyL5-sitedown")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                  clientset.Interface
@@ -77,9 +77,9 @@ var _ = ginkgo.Describe("[csi-topology-sitedown-level5] Topology-Aware-Provision
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
-		topologyMap := GetAndExpectStringEnvVar(topologyMap)
-		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap, topologyLength)
-		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
+		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap)
+		allowedTopologies = createAllowedTopolgies(topologyMap)
 		topologyClusterNames := GetAndExpectStringEnvVar(topologyCluster)
 		topologyClusterList = ListTopologyClusterNames(topologyClusterNames)
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))

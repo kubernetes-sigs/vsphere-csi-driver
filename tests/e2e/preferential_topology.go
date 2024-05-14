@@ -39,8 +39,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provisioning", func() {
-	f := framework.NewDefaultFramework("preferential-topology-aware-provisioning")
+var _ = ginkgo.Describe("[preferential-positive] Preferential-Topology-Positive", func() {
+	f := framework.NewDefaultFramework("preferential-poisitive")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                         clientset.Interface
@@ -126,10 +126,9 @@ var _ = ginkgo.Describe("[Preferential-Topology] Preferential-Topology-Provision
 
 		// creating level-5 allowed topology map
 		topologyLength, leafNode, leafNodeTag0, leafNodeTag1, leafNodeTag2 = 5, 4, 0, 1, 2
-		topologyMap := GetAndExpectStringEnvVar(topologyMap)
-		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap,
-			topologyLength)
-		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
+		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap)
+		allowedTopologies = createAllowedTopolgies(topologyMap)
 
 		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
 			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})

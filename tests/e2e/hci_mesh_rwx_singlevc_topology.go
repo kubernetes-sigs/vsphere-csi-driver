@@ -19,6 +19,8 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -31,12 +33,13 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", func() {
-	f := framework.NewDefaultFramework("rwx-topology")
+var _ = ginkgo.Describe("[rwx-hci-singlevc-positive] RWX-Topology-HciMesh-SingleVc-Positive", func() {
+	f := framework.NewDefaultFramework("rwx-hci-singlevc-positive")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                  clientset.Interface
@@ -46,6 +49,7 @@ var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", fu
 		topologyAffinityDetails map[string][]string
 		topologyCategories      []string
 		leafNode                int
+		leafNodeTag1            int
 		leafNodeTag2            int
 		topologyLength          int
 		scParameters            map[string]string
@@ -55,7 +59,11 @@ var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", fu
 		createPvcItr            int
 		createDepItr            int
 		pvclaim                 *v1.PersistentVolumeClaim
-		pv                      *v1.PersistentVolume
+		depl                    []*appsv1.Deployment
+		podList                 []*v1.Pod
+		pvs                     []*v1.PersistentVolume
+		noPodsToDeploy          int
+		remoteDsUrl             string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -80,17 +88,27 @@ var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", fu
 		labelsMap = make(map[string]string)
 		accessmode = v1.ReadWriteMany
 		bindingModeWffc = storagev1.VolumeBindingWaitForFirstConsumer
-		//bindingModeImm = storagev1.VolumeBindingImmediate
+		bindingModeImm = storagev1.VolumeBindingImmediate
 
 		//read topology map
-		topologyLength, leafNode, _, _, leafNodeTag2 = 5, 4, 0, 1, 2
-		topologyMap := GetAndExpectStringEnvVar(topologyMap)
-		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap,
-			topologyLength)
+		/*
+			here 5 is the actual 5-level topology length (ex - region, zone, building, level, rack)
+			4 represents the 4th level topology length (ex - region, zone, building, level)
+			here rack further has 3 rack levels -> rack1, rack2 and rack3
+			0 represents rack1
+			1 represents rack2
+			2 represents rack3
+		*/
+		topologyLength, leafNode, _, leafNodeTag1, leafNodeTag2 = 5, 4, 0, 1, 2
+		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
+		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap)
 
 		//setting map values
 		labelsMap["app"] = "test"
 		scParameters[scParamFsType] = nfs4FSType
+
+		// remote datastore url
+		remoteDsUrl = GetAndExpectStringEnvVar(envRemoteDatastoreUrl)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -119,6 +137,17 @@ var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", fu
 			}
 		}
 
+		// perfrom cleanup of old stale entries of standalone pods if left in the setup
+		pods, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if len(pods.Items) != 0 {
+			for _, pod := range pods.Items {
+				gomega.Expect(client.CoreV1().Pods(namespace).Delete(ctx, pod.Name,
+					*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+			}
+			podList = nil
+		}
+
 		// perfrom cleanup of old stale entries of nginx service if left in the setup
 		err = client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 		if !apierrors.IsNotFound(err) {
@@ -143,6 +172,7 @@ var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", fu
 				err := client.AppsV1().Deployments(namespace).Delete(ctx, dep.Name, metav1.DeleteOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
+			depl = nil
 		}
 
 		// perfrom cleanup of old stale entries of pv if left in the setup
@@ -153,6 +183,7 @@ var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", fu
 				gomega.Expect(client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name,
 					*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 			}
+			pvs = nil
 		}
 	})
 
@@ -173,18 +204,15 @@ var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", fu
 	*/
 
 	ginkgo.It("Multiple deployment pods with scaling operation "+
-		"attached to rwx pvcs", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+		"attached to different rwx pvcs", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		// variable declaration
-		var depl []*appsv1.Deployment
-
 		// pvc and deployment pod count
 		replica = 3
 		createPvcItr = 4
-		createDepItr = 4
+		createDepItr = 1
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", accessmode, nfs4FSType))
 		storageclass, pvclaims, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap,
@@ -198,7 +226,7 @@ var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", fu
 
 		defer func() {
 			for i := 0; i < len(pvclaims); i++ {
-				pv = getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
@@ -254,26 +282,22 @@ var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", fu
 		6. Perform cleanup by deleting Pods, PVCs and SC
 	*/
 
-	ginkgo.It("Multiple standalone pods attached to a multiple rwx "+
+	ginkgo.It("Multiple standalone pods attached to a rwx "+
 		"pvcs", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		// standalone pod and pvc count
-		noPodsToDeploy := 3
+		noPodsToDeploy = 3
 		createPvcItr = 3
-
-		//variable declaration
-		var podList []*v1.Pod
-		var err error
 
 		// Create allowed topologies for Storage Class: region1 > zone1 > building1 > level1 > rack > rack3
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
 			topologyLength, leafNode, leafNodeTag2)
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with allowed "+
-			"topology set to AZ3", accessmode, nfs4FSType))
+			"topology set to Az3", accessmode, nfs4FSType))
 		storageclass, pvclaims, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap, scParameters,
 			diskSize, allowedTopologyForSC, bindingModeImm, false, accessmode, "", nil, createPvcItr, false, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -284,22 +308,24 @@ var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", fu
 
 		defer func() {
 			for i := 0; i < len(pvclaims); i++ {
-				pv = getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
 		ginkgo.By("Verify PVC Bound state and CNS side verification")
-		_, err = checkVolumeStateAndPerformCnsVerification(ctx, client, pvclaims, "", "")
+		pvs, err = checkVolumeStateAndPerformCnsVerification(ctx, client, pvclaims, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Create 3 standalone Pods using the same PVC with different read/write permissions")
+		ginkgo.By("Create 3 standalone Pods and attached it to each rwx pvcs having " +
+			"different read/write permissions set")
 		for i := 0; i < len(pvclaims); i++ {
-			podList, err = createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaims[i], false, execRWXCommandPod,
+			pods, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaims[i], false, execRWXCommandPod,
 				noPodsToDeploy)
+			podList = append(podList, pods...)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		defer func() {
@@ -313,7 +339,368 @@ var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", fu
 		ginkgo.By("Verify volume placement, should match with the allowed topology specified")
 		_, _, datastoreUrlsRack3, _, err := fetchDatastoreListMap(ctx, client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		isCorrectPlacement := e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, datastoreUrlsRack3)
+		for i := 0; i < len(pvs); i++ {
+			isCorrectPlacement := e2eVSphere.verifyPreferredDatastoreMatch(pvs[i].Spec.CSI.VolumeHandle, datastoreUrlsRack3)
+			gomega.Expect(isCorrectPlacement).To(gomega.BeTrue(), fmt.Sprintf("Volume provisioning has happened on the wrong "+
+				"datastore. Expected 'true', got '%v'", isCorrectPlacement))
+		}
+	})
+
+	/*
+		TESTCASE-3
+		Workload creation with higher level topology
+		Immediate, region-1 > zone-1 > building-1, storage policy specific to local datastore in rack-1
+
+		Steps:
+		1. Create Storage class with bindingmode set to Immediate and allowed topologies set
+		to region-1 > zone-1 > building-1. Implement a Storage policy specific to local datastore in rack-1
+		2. Create 5 PVCs with RWX access mode.
+		3. Create 5 deployments with 1 replicas using PVC created in step #2.
+		4. Wait for the PVCs to be created and reach the Bound state, and for the Pods to be
+		created and reach a running state.
+		5. Verify CSI honors storage policy mentioned in storageclass and provisions volume in rack1.
+		6. Volume provisioning happens only on local datastore i.e. vSAN Datastore of
+		Cluster-1 (rack-1) where vSAN FS is enabled on cluster1
+		7. Validate CNS metadata for each PVC and Pod.
+		8. Scale up all deployment pods to different replica set.
+		9. Perform cleanup by deleting pod,pvc and sc
+	*/
+
+	ginkgo.It("Deployment Pods attached to single RWX PVC with vSAN storage policy of rack-1 "+
+		"defined in SC along with top level allowed topology "+
+		"specified", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// deployment pod and pvc count
+		replica = 1
+		createPvcItr = 5
+		createDepItr = 1
+
+		//storage policy read of cluster-1(rack-1)
+		storagePolicyName := GetAndExpectStringEnvVar(envVsanDsStoragePolicyCluster1)
+		scParameters["storagepolicyname"] = storagePolicyName
+
+		// Get allowed topologies for Storage Class (region1 > zone1 > building1)
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories, 3)
+
+		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", accessmode, nfs4FSType))
+		storageclass, pvclaims, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap,
+			scParameters, diskSize, allowedTopologyForSC, bindingModeImm, false, accessmode,
+			"", nil, createPvcItr, false, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		defer func() {
+			for i := 0; i < len(pvclaims); i++ {
+				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Verify PVC Bound state and CNS side verification")
+		pvs, err = checkVolumeStateAndPerformCnsVerification(ctx, client, pvclaims, storagePolicyName, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create Deployments with replica count 1 and attach it to each rwx pvc")
+		for i := 0; i < len(pvclaims); i++ {
+			deploymentList, pods, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
+				pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			depl = append(depl, deploymentList...)
+
+			ginkgo.By("Verify volume metadata for any one deployment pod, pvc and pv")
+			pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+			err = waitAndVerifyCnsVolumeMetadata(ctx, pv.Spec.CSI.VolumeHandle, pvclaim, pv, &pods.Items[0])
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		defer func() {
+			framework.Logf("Delete deployment set")
+			for i := 0; i < len(depl); i++ {
+				err := client.AppsV1().Deployments(namespace).Delete(ctx, depl[i].Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Verify volume placement, should match with the allowed topology specified")
+		datastoreUrlsRack1, _, _, _, err := fetchDatastoreListMap(ctx, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for i := 0; i < len(pvs); i++ {
+			isCorrectPlacement := e2eVSphere.verifyPreferredDatastoreMatch(pvs[i].Spec.CSI.VolumeHandle, datastoreUrlsRack1)
+			gomega.Expect(isCorrectPlacement).To(gomega.BeTrue(), fmt.Sprintf("Volume provisioning has happened on the "+
+				"wrong datastore. Expected 'true', got '%v'", isCorrectPlacement))
+		}
+
+		ginkgo.By("Scale up deployment pods to different replica sets")
+		for i := 0; i < len(depl); i++ {
+			if i == 0 {
+				replica = 5
+			} else if i == 1 {
+				replica = 3
+			} else if i == 2 {
+				replica = 7
+			} else {
+				replica = 4
+			}
+			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+				true, labelsMap, pvclaim, nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	})
+
+	/*
+		TESTCASE-4
+		Deployment creation with specific datastore URL in storageclass
+		Immediate, region-1 > zone-1 > building-1 > level-1 > rack-2 and rack-3,
+		Set specific datastore URL pointing to remote datastore url
+
+		Steps:
+		1. Create storage class with bindingmode set to Immediate and allowed topologies
+		set to region-1 > zone-1 > building-1 > level-1 > rack-2 and rack-3. Set specific datastore URL pointing
+		to remote datastore url
+		2. Create 5 PVCs with RWX access mode.
+		3. Create 4 deployment pods with replica count 1 and attach it to 4 rwx pvcs.
+		4. Wait for the PVCs to be created and reach the Bound state, and for the Pods
+		to be created and reach a running state.
+		5, Create 2 standalone pods for 5th rwx pvc and verify all standalone pods should reach to running state.
+		5. Volume provisioning should happen on the specified availability zone,
+		while pods can come up on any accessibility zone.
+		6. Verify CSI honors datastoreUrl mentioned in storageclass and provisions volume in that particular datastore.
+		7. Perform scaleup/scaledown operation on deployment pods.
+		8. Perform cleanup by deleting pods, pvc and sc.
+	*/
+
+	ginkgo.It("Deployment pods attached to rwx pvcs using remote "+
+		"datastore url", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		scParameters["datastoreurl"] = remoteDsUrl
+
+		// deployment pod and pvc count
+		replica = 1
+		createPvcItr = 5
+		createDepItr = 1
+		noPodsToDeploy = 2
+
+		//Get allowed topologies for Storage Class (region1 > zone1 > building1)
+		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
+			topologyLength, leafNode, leafNodeTag1, leafNodeTag2)
+
+		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", accessmode, nfs4FSType))
+		storageclass, pvclaims, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap,
+			scParameters, diskSize, allowedTopologyForSC, bindingModeImm, false, accessmode,
+			"", nil, createPvcItr, false, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		defer func() {
+			for i := 0; i < len(pvclaims); i++ {
+				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Verify PVC Bound state and CNS side verification")
+		pvs, err = checkVolumeStateAndPerformCnsVerification(ctx, client, pvclaims, "", remoteDsUrl)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create Deployments with ")
+		for i := 0; i < len(pvclaims); i++ {
+			if i != 4 {
+				deploymentList, depPod, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
+					pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				depl = append(depl, deploymentList...)
+
+				ginkgo.By("Verify volume metadata for any one deployment pod, pvc and pv")
+				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				err = waitAndVerifyCnsVolumeMetadata(ctx, pv.Spec.CSI.VolumeHandle, pvclaim, pv, &depPod.Items[0])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				// create standalone pod for 5th rwx pvc
+				pods, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaims[i], false, execRWXCommandPod,
+					noPodsToDeploy)
+				podList = append(podList, pods...)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+		defer func() {
+			framework.Logf("Delete deployment set")
+			for i := 0; i < len(depl); i++ {
+				err := client.AppsV1().Deployments(namespace).Delete(ctx, depl[i].Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+		defer func() {
+			for i := 0; i < len(podList); i++ {
+				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podList[i].Name, namespace))
+				err := fpod.DeletePodWithWait(ctx, client, podList[i])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Verify volume placement, should match with the allowed topology specified")
+		datastoreUrlsRack1, _, _, _, err := fetchDatastoreListMap(ctx, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for i := 0; i < len(pvs); i++ {
+			isCorrectPlacement := e2eVSphere.verifyPreferredDatastoreMatch(pvs[i].Spec.CSI.VolumeHandle, datastoreUrlsRack1)
+			gomega.Expect(isCorrectPlacement).To(gomega.BeTrue(), fmt.Sprintf("Volume provisioning has happened on the "+
+				"wrong datastore. Expected 'true', got '%v'", isCorrectPlacement))
+		}
+
+		ginkgo.By("Scale up all deployment pods to replica count 5")
+		for i := 0; i < len(depl); i++ {
+			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Scale down deployment2 pods to replica ")
+		replica = 2
+		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+			true, labelsMap, pvclaims[1], nil, execRWXCommandPod, nginxImage, true, depl[1], 0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/*
+		TESTCASE-5
+		Static PVC creation
+
+		Steps:
+		1. Create 2 file shares using the CNS Create Volume API with the following
+		configuration - Read-write mode and ReadOnly Netpermissions.
+		2. Create PVs using the volume IDs of the previously created file shares created in step 1.
+		3. Create PVCs using the PVs created in step 3.
+		4. Wait for the PVs and PVCs to be in the Bound state.
+		5. Create a POD using the PVC created in step 4.
+		6. Verify volume accessibility and multiple pods can perform operations on volume according to Netpermissions.
+		7. Perform cleanup by deleting Pods, PVCs and SC.
+	*/
+
+	ginkgo.It("Create static volumes with different read/write permissions "+
+		"with policy ste to delete", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// fetch file share volume id
+		fileShareVolumeId1, err := creatFileShareForSingleVc(remoteDsUrl)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		fileShareVolumeId2, err := creatFileShareForSingleVc(remoteDsUrl)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating the PV with policy set to delete with ReadOnlyPermissions")
+		pvSpec1 := getPersistentVolumeSpecForFileShare(fileShareVolumeId1,
+			v1.PersistentVolumeReclaimDelete, labelsMap, v1.ReadOnlyMany)
+		pv1, err := client.CoreV1().PersistentVolumes().Create(ctx, pvSpec1, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv1.Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating the PV with policy set to delete with ReadWritePermissions")
+		pvSpec2 := getPersistentVolumeSpecForFileShare(fileShareVolumeId2,
+			v1.PersistentVolumeReclaimDelete, labelsMap, accessmode)
+		pv2, err := client.CoreV1().PersistentVolumes().Create(ctx, pvSpec2, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv2.Spec.CSI.VolumeHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating the PVC where static PV is created with ReadOnly permissions")
+		pvc1 := getPersistentVolumeClaimSpecForFileShare(namespace, labelsMap, pv1.Name, v1.ReadOnlyMany)
+		pvc1, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc1, metav1.CreateOptions{})
+		var pvclaims1 []*v1.PersistentVolumeClaim
+		pvclaims1 = append(pvclaims1, pvc1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// Wait for PV and PVC to Bind.
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(ctx, client, f.Timeouts, namespace, pv1, pvc1))
+		defer func() {
+			ginkgo.By("Deleting the PV Claim")
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc1.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Verify PVC Bound state and CNS side verification")
+		pvs, err = checkVolumeStateAndPerformCnsVerification(ctx, client, pvclaims1, "", "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating the PVC where static PV is created with ReadWrite permissions")
+		pvc2 := getPersistentVolumeClaimSpecForFileShare(namespace, labelsMap, pv2.Name, accessmode)
+		pvc2, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc2, metav1.CreateOptions{})
+		var pvclaims2 []*v1.PersistentVolumeClaim
+		pvclaims2 = append(pvclaims2, pvc2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// Wait for PV and PVC to Bind.
+		framework.ExpectNoError(fpv.WaitOnPVandPVC(ctx, client, f.Timeouts, namespace, pv2, pvc2))
+		defer func() {
+			ginkgo.By("Deleting the PV Claim")
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc2.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Verify PVC Bound state and CNS side verification")
+		pvs, err = checkVolumeStateAndPerformCnsVerification(ctx, client, pvclaims2, "", "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Set node selector term for standlone pods so that all pods should get " +
+			"created on one single AZ i.e. cluster-3(rack-3)")
+		allowedTopologies := getTopologySelector(topologyAffinityDetails, topologyCategories,
+			topologyLength, leafNode, leafNodeTag2)
+		nodeSelectorTerms, err := getNodeSelectorMapForDeploymentPods(allowedTopologies)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating the Pod attached to ReadOnly permission PVC")
+		pod1, err := createPod(ctx, client, namespace, nodeSelectorTerms, pvclaims1, false, execRWXCommandPod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By("Deleting the Pod")
+			framework.ExpectNoError(fpod.DeletePodWithWait(ctx, client, pod1), "Failed to delete pod", pod1.Name)
+		}()
+
+		ginkgo.By("Verify the volume is accessible and available to the pod by creating an empty file")
+		filepath := filepath.Join("/mnt/volume1", "/emptyFile.txt")
+		_, err = e2eoutput.LookForStringInPodExec(namespace, pod1.Name, []string{"/bin/touch", filepath}, "", time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
+		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv1.Spec.CSI.VolumeHandle, pvc1.Name, pv1.Name, pod1.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating the Pod attached to ReadWrite permissions pvc")
+		pod2, err := createPod(ctx, client, namespace, nil, pvclaims2, false, execRWXCommandPod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By("Deleting the Pod")
+			framework.ExpectNoError(fpod.DeletePodWithWait(ctx, client, pod2), "Failed to delete pod", pod2.Name)
+		}()
+
+		ginkgo.By("Verify container volume metadata is matching the one in CNS cache")
+		err = verifyVolumeMetadataInCNS(&e2eVSphere, pv2.Spec.CSI.VolumeHandle, pvc2.Name, pv2.Name, pod2.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify volume placement, should match with the allowed topology specified")
+		datastoreUrlsRack1, _, _, _, err := fetchDatastoreListMap(ctx, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isCorrectPlacement := e2eVSphere.verifyPreferredDatastoreMatch(pv1.Spec.CSI.VolumeHandle, datastoreUrlsRack1)
+		gomega.Expect(isCorrectPlacement).To(gomega.BeTrue(), fmt.Sprintf("Volume provisioning has happened on the wrong "+
+			"datastore. Expected 'true', got '%v'", isCorrectPlacement))
+
+		isCorrectPlacement = e2eVSphere.verifyPreferredDatastoreMatch(pv2.Spec.CSI.VolumeHandle, datastoreUrlsRack1)
 		gomega.Expect(isCorrectPlacement).To(gomega.BeTrue(), fmt.Sprintf("Volume provisioning has happened on the wrong "+
 			"datastore. Expected 'true', got '%v'", isCorrectPlacement))
 	})

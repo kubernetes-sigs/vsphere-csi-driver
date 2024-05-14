@@ -44,8 +44,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
-	f := framework.NewDefaultFramework("multi-vc")
+var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
+	f := framework.NewDefaultFramework("multivc-positive")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                      clientset.Interface
@@ -106,8 +106,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-topology] Multi-VC", func() {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
-		topologyMap := GetAndExpectStringEnvVar(topologyMap)
-		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
+		allowedTopologies = createAllowedTopolgies(topologyMap)
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
 		scParameters = make(map[string]string)
 		storagePolicyInVc1 = GetAndExpectStringEnvVar(envStoragePolicyNameVC1)

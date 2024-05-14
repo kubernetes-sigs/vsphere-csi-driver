@@ -38,8 +38,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topology-Disruptive-Provisioning", func() {
-	f := framework.NewDefaultFramework("preferential-topology-aware-provisioning")
+var _ = ginkgo.Describe("[preferential-disruptive] Preferential-Topology-Disruptive", func() {
+	f := framework.NewDefaultFramework("preferential-disruptive")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                         clientset.Interface
@@ -119,10 +119,9 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 
 		// creating level-5 allowed topology map
 		topologyLength, leafNode, leafNodeTag0, leafNodeTag1, _ = 5, 4, 0, 1, 2
-		topologyMap := GetAndExpectStringEnvVar(topologyMap)
-		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap,
-			topologyLength)
-		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
+		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap)
+		allowedTopologies = createAllowedTopolgies(topologyMap)
 
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
@@ -131,9 +130,9 @@ var _ = ginkgo.Describe("[Disruptive-Preferential-Topology] Preferential-Topolog
 		csiReplicas = *csiDeployment.Spec.Replicas
 
 		clusterWorkerMap := GetAndExpectStringEnvVar(workerClusterMap)
-		_, workerInitialAlias = createTopologyMapLevel5(clusterWorkerMap, topologyLength)
+		_, workerInitialAlias = createTopologyMapLevel5(clusterWorkerMap)
 		datastoreClusterMap := GetAndExpectStringEnvVar(datastoreClusterMap)
-		_, dsNameToPerformNimbusOps = createTopologyMapLevel5(datastoreClusterMap, topologyLength)
+		_, dsNameToPerformNimbusOps = createTopologyMapLevel5(datastoreClusterMap)
 
 		// fetching list of datatstores shared between vm's
 		shareddatastoreListMap, err = getListOfSharedDatastoresBetweenVMs(masterIp, sshClientConfig, dataCenters)

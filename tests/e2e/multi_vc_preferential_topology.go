@@ -42,8 +42,8 @@ import (
 	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 )
 
-var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferential-Topology", func() {
-	f := framework.NewDefaultFramework("multi-vc-preferential-topology")
+var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
+	f := framework.NewDefaultFramework("multivc-preferential")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                      clientset.Interface
@@ -116,8 +116,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-preferential-topology] Multi-VC-Preferent
 		verifyTopologyAffinity = true
 		scParameters = make(map[string]string)
 		storagePolicyInVc1Vc2 = GetAndExpectStringEnvVar(envStoragePolicyNameInVC1VC2)
-		topologyMap := GetAndExpectStringEnvVar(topologyMap)
-		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
+		allowedTopologies = createAllowedTopolgies(topologyMap)
 
 		//Get snapshot client using the rest config
 		restConfig = getRestConfigClient()

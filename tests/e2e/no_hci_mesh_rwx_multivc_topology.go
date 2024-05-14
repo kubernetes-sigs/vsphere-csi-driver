@@ -43,8 +43,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-MultiVc", func() {
-	f := framework.NewDefaultFramework("rwx-topology")
+var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-MultiVc-Positive", func() {
+	f := framework.NewDefaultFramework("rwx-nohci-multivc-positive")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client    clientset.Interface
@@ -74,6 +74,10 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		isVsanHealthServiceStopped bool
 		isSPSServiceStopped        bool
 		err                        error
+		isVcRebooted               bool
+		depl                       []*appsv1.Deployment
+		pods                       *v1.PodList
+		podList                    []*v1.Pod
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -101,12 +105,16 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		bindingModeImm = storagev1.VolumeBindingImmediate
 
 		// read topology map
-		topologyMap := GetAndExpectStringEnvVar(topologyMap)
-		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
+		allowedTopologies = createAllowedTopolgies(topologyMap)
 
 		//setting map values
 		labelsMap["app"] = "test"
 		scParameters[scParamFsType] = nfs4FSType
+
+		// nimbus export variable
+		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+		storagePolicyToDelete = GetAndExpectStringEnvVar(envStoragePolicyNameToDeleteLater)
 
 		// ssh connection to master vm
 		sshClientConfig = &ssh.ClientConfig{
@@ -120,10 +128,6 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		// fetching k8s master ip
 		allMasterIps = getK8sMasterIPs(ctx, client)
 		masterIp = allMasterIps[0]
-
-		// nimbus export variable
-		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
-		storagePolicyToDelete = GetAndExpectStringEnvVar(envStoragePolicyNameToDeleteLater)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -208,6 +212,15 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 			err = createStorageProfile(masterIp, sshClientConfig, storagePolicyToDelete, clientIndex)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+
+		// restarting pending and stopped services after vc reboot if any
+		if isVcRebooted {
+			vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
+			vcAddress := vCenterHostname[0] + ":" + sshdPort
+			err := checkVcServicesHealthPostReboot(ctx, vcAddress, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+				"Setup is not in healthy state, Got timed-out waiting for required VC services to be up and running")
+		}
 	})
 
 	/* TESTCASE-1
@@ -228,7 +241,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 	    10. Create 3 Pods with different access mode and attach it to PVC created in step #9.
 	    11. Verify Pods should reach to Running state.
 	    12. Try reading/writing onto the volume from different Pods.
-	    13. Perform scale up of deployment Pods to replica count 5. Verify Scaling operation should go smooth.
+	    13. Perform scale up of deployment Pods to replica count 6. Verify Scaling operation should go smooth.
 		14. Perform scale-down operation on deployment pods. Decrease the replica count to 1.
 		15. Verify scale down operation went smooth.
 	    16. Perform cleanup by deleting deployment Pods, PVCs and the StorageClass (SC)
@@ -282,7 +295,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		pvclaim1 = pvclaims1[0]
 
 		ginkgo.By("Create Deployment with replica count 3")
-		deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
+		deploymentList, pods, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
 			pvclaim1, nodeSelectorTerms, execRWXCommandPod, nginxImage, false, nil, createDepItr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -290,6 +303,10 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 			err := client.AppsV1().Deployments(namespace).Delete(ctx, deploymentList[0].Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
+
+		ginkgo.By("Verify deployment pods are scheduled on a specified node selector terms")
+		err = verifyDeploymentPodNodeAffinity(ctx, client, namespace, allowedTopologies, pods)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVC Bound state and CNS side verification")
 		pvs1, err = checkVolumeStateAndPerformCnsVerification(ctx, client, pvclaims1, "", "")
@@ -313,7 +330,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with allowed "+
 			"topology set to all topology levels", accessmode, nfs4FSType))
 		storageclass2, pvclaims2, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap,
-			scParameters, diskSize, allowedTopologyForSC, bindingModeImm, false, accessmode, "", nil, 1, false, false)
+			scParameters, diskSize, allowedTopologyForSC, bindingModeImm, false, accessmode, "", nil, createPvcItr, false, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass2.Name, *metav1.NewDeleteOptions(0))
@@ -350,7 +367,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		replica = 6
 		/* here createDepItr value is set to 0, because we are performing scaleup operation
 		and not creating any new deployment */
-		_, pods, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, true,
+		_, pods, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, true,
 			labelsMap, pvclaim1, nodeSelectorTerms, execRWXCommandPod, nginxImage, true, deploymentList[0], 0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -781,7 +798,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		Create storage policy in vc1 and vc2 and create storage class with the same policy
 		and  delete Storage policy in vc1 .Expected pvc to go to vc2
 
-		Steps//
+		Steps:
 	    1. Create Storage policy with same name which is present in both vc1 and vc2
 	    2. Create Storage Class with allowed topology specify to vc1 and vc2 and specify storage policy created in step #1.
 		3. Delete storage policy from VC1
@@ -812,11 +829,6 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		createDepItr = 1
 		replica = 2
 
-		// variable declaration
-		var depl []*appsv1.Deployment
-		var podList []*v1.Pod
-		var err error
-
 		// storage policy which is common in both vc1 and vc2
 		scParameters[scParamStoragePolicyName] = storagePolicyToDelete
 
@@ -839,11 +851,9 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isStorageProfileDeleted = true
 		defer func() {
-			if isStorageProfileDeleted {
-				err = createStorageProfile(masterIp, sshClientConfig, storagePolicyToDelete, clientIndex)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				isStorageProfileDeleted = false
-			}
+			err = createStorageProfile(masterIp, sshClientConfig, storagePolicyToDelete, clientIndex)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			isStorageProfileDeleted = false
 		}()
 
 		ginkgo.By("Creating multiple pvcs with rwx access mode")
@@ -867,13 +877,13 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 
 		ginkgo.By("Create Deployments and standalone pods")
 		for i := 0; i < len(pvclaims); i++ {
-			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
-				pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			depl = append(depl, deploymentList...)
-
-			// Create 3 standalone pods and attach it to 3rd rwx pvc
-			if i == 2 {
+			if i != 2 {
+				deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
+					pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				depl = append(depl, deploymentList...)
+			} else {
+				// Create 3 standalone pods and attach it to 3rd rwx pvc
 				ginkgo.By("Create 3 standalone Pods using the same PVC with different read/write permissions")
 				podList, err = createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaims[i], false, execRWXCommandPod,
 					noPodsToDeploy)
@@ -931,7 +941,8 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		6. Ensure that, upon VC-1 recovery, all volumes come up on the worker nodes within VC-1.
 		7. Confirm that volume provisioning occurs exclusively on VC-1.
 		8. Pod placement can happen on any AZ.
-		9. Perform cleanup by deleting Pods, PVCs and SC
+		9. Perform scaleup/scaledown operation on deployment pods.
+		10. Perform cleanup by deleting Pods, PVCs and SC
 	*/
 
 	ginkgo.It("Creating statefulset with rwx pvcs with storage policy "+
@@ -946,8 +957,9 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		scParameters[scParamStoragePolicyName] = storagePolicyInVc1
 
 		// count of pvc and deployment pod
-		replica := 3
-		createPvcItr := 1
+		replica = 3
+		createPvcItr = 1
+
 		// here, we are considering the allowed topology of VC1 i.e. k8s-zone -> zone-1
 		topValStartIndex = 0
 		topValEndIndex = 1
@@ -991,6 +1003,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		vcAddress := vCenterHostname[0] + ":" + sshdPort
 		framework.Logf("vcAddress - %s ", vcAddress)
 		err = invokeVCenterReboot(ctx, vcAddress)
+		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForHostToBeUp(vCenterHostname[0])
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1066,8 +1079,6 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		// variable declaration
-		var depl []*appsv1.Deployment
 		var fullSyncWaitTime int
 
 		// pvc and deployment pod count
@@ -1189,6 +1200,10 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 			}
 		}()
 
+		ginkgo.By("Verify PVC Bound state and CNS side verification for newly created pvc")
+		pvs, err = checkVolumeStateAndPerformCnsVerification(ctx, client, pvclaimsNew, "", "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By("Waiting for labels to be updated for PVC and PV")
 		for i := 0; i < len(pvclaims); i++ {
 			pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
@@ -1244,13 +1259,14 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		// variable declaration
-		var depl []*appsv1.Deployment
+		// storage policy of vc1
+		storagePolicyInVc1 := GetAndExpectStringEnvVar(envStoragePolicyNameVC1)
+		scParameters[scParamStoragePolicyName] = storagePolicyInVc1
 
 		// pvc and deployment pod count
 		replica = 1
 		createPvcItr = 4
-		createDepItr = 4
+		createDepItr = 1
 
 		// here, we are considering the allowed topology of all AZs
 		topValStartIndex = 0
@@ -1359,7 +1375,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		8. Create 3 deployment pods each connected to rwx pvc with replica count 1.
 		9. Specify node selector term to vc2 AZ so that all deployment pods should get created only on vc2 AZ.
 		10. Create standalone pod and attached it to the 4th rwx pvc.
-		11. Specify node selector term for standalone pod to be vc2 and vc3 AZ.
+		11. Specify node selector term for standalone pod to  vc3 AZ.
 		12. Verify pod should reach to ready running sttae.
 		13. Verify pod should get created on the specified node selector term AZ.
 		14. Perform scaleup operation on statefulset pods. Increase the replica count to 5.
@@ -1375,16 +1391,11 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		// variable declaration
-		var depl []*appsv1.Deployment
-		var pods *v1.PodList
-		var podList []*v1.Pod
-
 		// pvc and deployment pod count
 		replica = 1
 		stsReplicas := 3
 		createPvcItr = 4
-		createDepItr = 3
+		createDepItr = 1
 		noPodsToDeploy := 3
 
 		// here, we are considering the allowed topology of all AZs
@@ -1404,15 +1415,6 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
-		defer func() {
-			for i := 0; i < len(pvclaims); i++ {
-				pv = getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
-				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
 
 		ginkgo.By("Verify PVC Bound state and CNS side verification")
 		pvs, err = checkVolumeStateAndPerformCnsVerification(ctx, client, pvclaims, "", "")
@@ -1427,7 +1429,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 			topValEndIndex)
 
 		ginkgo.By("Create StatefulSet with replica count 3 with RWX PVC access mode")
-		service, _, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, true,
+		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, true,
 			int32(stsReplicas), true, allowedTopologiesForSts, false, false, false, accessmode, storageclass, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -1435,13 +1437,23 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 			deleteService(namespace, client, service)
 		}()
 
+		defer func() {
+			for i := 0; i < len(pvclaims); i++ {
+				pv = getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
 		ginkgo.By("Set node selector term for deployment pods so that all pods " +
 			"should get created on one single AZ i.e. vc2(zone-2)")
 		/* here in 3-VC setup, deployment pod node affinity is taken as  k8s-zone -> zone-2
 		i.e only VC2 allowed topology
 		*/
-		topValStartIndex = 2
-		topValEndIndex = 3
+		topValStartIndex = 1
+		topValEndIndex = 2
 		allowedTopologiesForDep := setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 		nodeSelectorTermsForDep, err := getNodeSelectorMapForDeploymentPods(allowedTopologiesForDep)
@@ -1451,12 +1463,12 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 			"created on one single AZ i.e. cluster-3(rack-3)")
 		/*
 			We are considering allowed topology of VC-1 and VC-3 i.e.
-			k8s-zone -> zone-1 and zone-3
+			k8s-zone ->  zone-3
 		*/
-		topValStartIndex = 0
+		topValStartIndex = 2
 		topValEndIndex = 3
 
-		ginkgo.By("Setting allowed topology to vc-1 and vc-3")
+		ginkgo.By("Setting allowed topology to vc-3")
 		allowedTopologiesForStandalonePod := setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 		nodeSelectorTermsForPods, err := getNodeSelectorMapForDeploymentPods(allowedTopologiesForStandalonePod)
@@ -1512,6 +1524,13 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		replica = 2
 		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
 			true, labelsMap, pvclaim, nil, execRWXCommandPod, nginxImage, true, depl[1], 0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Perform scaleup/scaledown operation on statefulsets")
+		scaleUpReplicaCount := 6
+		scaleDownReplicaCount := 1
+		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, int32(scaleUpReplicaCount),
+			int32(scaleDownReplicaCount), statefulset, false, namespace, nil, true, true, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })

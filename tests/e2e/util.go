@@ -48,6 +48,7 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v2"
 
@@ -3094,7 +3095,10 @@ func trimQuotes(str string) string {
 // Returns a de-serialized structured config data
 func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 	var config e2eTestConfig
+	var netPerm NetPermissionConfig
 	key, value := "", ""
+	var permissions vsanfstypes.VsanFileShareAccessType
+	var rootSquash bool
 	lines := strings.Split(cfg, "\n")
 	for index, line := range lines {
 		if index == 0 {
@@ -3170,7 +3174,12 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			config.Global.SupervisorID = value
 		case "targetvSANFileShareClusters":
 			config.Global.TargetVsanFileShareClusters = value
-
+		case "ips":
+			netPerm.Ips = value
+		case "permissions":
+			netPerm.Permissions = permissions
+		case "rootsquash":
+			netPerm.RootSquash = rootSquash
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
 		}
@@ -4310,12 +4319,12 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	}
 	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("deployment %q Create API error: %v", deploymentSpec.Name, err)
+		return deployment, fmt.Errorf("deployment %q Create API error: %v", deploymentSpec.Name, err)
 	}
 	framework.Logf("Waiting deployment %q to complete", deploymentSpec.Name)
 	err = fdep.WaitForDeploymentComplete(client, deployment)
 	if err != nil {
-		return nil, fmt.Errorf("deployment %q failed to complete: %v", deploymentSpec.Name, err)
+		return deployment, fmt.Errorf("deployment %q failed to complete: %v", deploymentSpec.Name, err)
 	}
 	return deployment, nil
 }
@@ -4843,14 +4852,9 @@ func isCsiFssEnabled(ctx context.Context, client clientset.Interface, namespace 
 This wrapper method is used to create the topology map of allowed topologies specified on VC.
 TOPOLOGY_MAP = "region:region1;zone:zone1;building:building1;level:level1;rack:rack1,rack2,rack3"
 */
-func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]string, []string) {
+func createTopologyMapLevel5(topologyMapStr string) (map[string][]string, []string) {
 	topologyMap := make(map[string][]string)
 	var categories []string
-	topologyFeature := os.Getenv(topologyFeature)
-
-	if level != 5 && topologyFeature != topologyTkgHaName {
-		return nil, categories
-	}
 	topologyCategories := strings.Split(topologyMapStr, ";")
 	for _, category := range topologyCategories {
 		categoryVal := strings.Split(category, ":")
@@ -4865,9 +4869,9 @@ func createTopologyMapLevel5(topologyMapStr string, level int) (map[string][]str
 /*
 This wrapper method is used to create allowed topologies set required for creating Storage Class.
 */
-func createAllowedTopolgies(topologyMapStr string, level int) []v1.TopologySelectorLabelRequirement {
+func createAllowedTopolgies(topologyMapStr string) []v1.TopologySelectorLabelRequirement {
 	topologyFeature := os.Getenv(topologyFeature)
-	topologyMap, _ := createTopologyMapLevel5(topologyMapStr, level)
+	topologyMap, _ := createTopologyMapLevel5(topologyMapStr)
 	allowedTopologies := []v1.TopologySelectorLabelRequirement{}
 	topoKey := ""
 	if topologyFeature == topologyTkgHaName {
