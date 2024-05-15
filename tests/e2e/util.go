@@ -3168,6 +3168,8 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			config.Global.SupervisorID = value
 		case "targetvSANFileShareClusters":
 			config.Global.TargetVsanFileShareClusters = value
+		case "thumbprint":
+			config.Global.Thumbprint = value
 
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
@@ -3179,19 +3181,37 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 // writeConfigToSecretString takes in a structured config data and serializes
 // that into a string.
 func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
-	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
-		"csi-fetch-preferred-datastores-intervalinmin = %d\n"+"query-limit = \"%d\"\n"+
-		"list-volume-threshold = \"%d\"\n\n"+
-		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n"+
-		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n"+
-		"[Labels]\ntopology-categories = \"%s\"",
-		cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
-		cfg.Global.CSIFetchPreferredDatastoresIntervalInMin, cfg.Global.QueryLimit,
-		cfg.Global.ListVolumeThreshold,
-		cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
-		cfg.Global.Datacenters, cfg.Global.VCenterPort,
-		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume,
-		cfg.Labels.TopologyCategories)
+	var result string
+	if thumbprintBasedAuth {
+		result = fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
+			"csi-fetch-preferred-datastores-intervalinmin = %d\n"+"query-limit = \"%d\"\nthumbprint = \"%s\"\n"+
+			"list-volume-threshold = \"%d\"\n\n"+
+			"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n"+
+			"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n"+
+			"[Labels]\ntopology-categories = \"%s\"",
+			cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
+			cfg.Global.CSIFetchPreferredDatastoresIntervalInMin, cfg.Global.QueryLimit,
+			cfg.Global.Thumbprint, cfg.Global.ListVolumeThreshold,
+			cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
+			cfg.Global.Datacenters, cfg.Global.VCenterPort,
+			cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume,
+			cfg.Labels.TopologyCategories)
+
+	} else {
+		result = fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
+			"csi-fetch-preferred-datastores-intervalinmin = %d\n"+"query-limit = \"%d\"\n"+
+			"list-volume-threshold = \"%d\"\n\n"+
+			"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n"+
+			"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n"+
+			"[Labels]\ntopology-categories = \"%s\"",
+			cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
+			cfg.Global.CSIFetchPreferredDatastoresIntervalInMin, cfg.Global.QueryLimit,
+			cfg.Global.ListVolumeThreshold,
+			cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
+			cfg.Global.Datacenters, cfg.Global.VCenterPort,
+			cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume,
+			cfg.Labels.TopologyCategories)
+	}
 	return result, nil
 }
 
