@@ -57,7 +57,15 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			migrationFeatureStateForFullSync = true
 		}
 	}
-	// Attempt to patch StoragePolicyUsage CRs
+	// Sync VolumeInfo CRs for the below conditions:
+	// Either it is a Vanilla k8s deployment with Multi-VC configuration or, it's a StretchSupervisor cluster
+	if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 ||
+		(metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsPodVMOnStretchSupervisorFSSEnabled) {
+		volumeInfoCRFullSync(ctx, metadataSyncer, vc)
+		cleanUpVolumeInfoCrDeletionMap(ctx, metadataSyncer, vc)
+	}
+	// Attempt to create & patch StoragePolicyUsage CRs. For storagePolicyUsageCRSync to work,
+	// we need CNSVolumeInfo CRs to be present for all existing volumes.
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		if IsPodVMOnStretchSupervisorFSSEnabled {
 			storagePolicyUsageCRSync(ctx, metadataSyncer)
@@ -286,14 +294,6 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	go fullSyncUpdateVolumes(ctx, updateSpecArray, metadataSyncer, &wg, volManager, vc)
 	go fullSyncDeleteVolumes(ctx, volToBeDeleted, metadataSyncer, &wg, migrationFeatureStateForFullSync, volManager, vc)
 	wg.Wait()
-
-	// Sync VolumeInfo CRs for the below conditions:
-	// Either it is a Vanilla k8s deployment with Multi-VC configuration or, it's a StretchSupervisor cluster
-	if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 ||
-		(metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsPodVMOnStretchSupervisorFSSEnabled) {
-		volumeInfoCRFullSync(ctx, metadataSyncer, vc)
-		cleanUpVolumeInfoCrDeletionMap(ctx, metadataSyncer, vc)
-	}
 
 	cleanupCnsMaps(k8sPVMap, vc)
 	log.Debugf("FullSync for VC %s: cnsDeletionMap at end of cycle: %v", vc, cnsDeletionMap)
