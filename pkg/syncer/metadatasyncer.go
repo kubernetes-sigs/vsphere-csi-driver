@@ -46,7 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
-	storagepolicyusagev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
+	storagepolicyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -734,10 +734,6 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				}
 			}
 		}()
-		if IsPodVMOnStretchSupervisorFSSEnabled {
-			log.Info("Syncing StoragePolicyUsage CRs with the kubernetes PVs that are in Bound state")
-			storagePolicyUsageCRSync(ctx, metadataSyncer)
-		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		volumeHealthEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
@@ -919,15 +915,15 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 		}
 		// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
 		storagePolicyUsageInstanceName := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
-			storagepolicyusagev1alpha1.NameSuffixForPVC
-		storagePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
+			storagepolicyv1alpha1.NameSuffixForPVC
+		storagePolicyUsageCR := &storagepolicyv1alpha1.StoragePolicyUsage{}
 		err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
 			Namespace: cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace,
 			Name:      storagePolicyUsageInstanceName},
 			storagePolicyUsageCR)
 		if err != nil {
 			log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
-				storagepolicyusagev1alpha1.CRDSingular, storagePolicyUsageInstanceName,
+				storagepolicyv1alpha1.CRDSingular, storagePolicyUsageInstanceName,
 				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace, err)
 			return
 		}
@@ -956,8 +952,8 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 				reservedQty resource.Quantity
 			)
 			reservedQty = *cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved
-			patchedStoragePolicyUsageCR.Status = storagepolicyusagev1alpha1.StoragePolicyUsageStatus{
-				ResourceTypeLevelQuotaUsage: &storagepolicyusagev1alpha1.QuotaUsageDetails{
+			patchedStoragePolicyUsageCR.Status = storagepolicyv1alpha1.StoragePolicyUsageStatus{
+				ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha1.QuotaUsageDetails{
 					Reserved: &reservedQty,
 					Used:     &usedQty,
 				},
@@ -1003,15 +999,15 @@ func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
 		}
 		// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
 		storagePolicyUsageInstanceName := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
-			storagepolicyusagev1alpha1.NameSuffixForPVC
-		storagePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
+			storagepolicyv1alpha1.NameSuffixForPVC
+		storagePolicyUsageCR := &storagepolicyv1alpha1.StoragePolicyUsage{}
 		err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
 			Namespace: cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace,
 			Name:      storagePolicyUsageInstanceName},
 			storagePolicyUsageCR)
 		if err != nil {
 			log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
-				storagepolicyusagev1alpha1.CRDSingular, storagePolicyUsageInstanceName,
+				storagepolicyv1alpha1.CRDSingular, storagePolicyUsageInstanceName,
 				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace, err)
 			return
 		}
@@ -1080,15 +1076,15 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 		}
 		// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
 		storagePolicyUsageInstanceName := newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
-			storagepolicyusagev1alpha1.NameSuffixForPVC
-		storagePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
+			storagepolicyv1alpha1.NameSuffixForPVC
+		storagePolicyUsageCR := &storagepolicyv1alpha1.StoragePolicyUsage{}
 		err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
 			Namespace: newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace,
 			Name:      storagePolicyUsageInstanceName},
 			storagePolicyUsageCR)
 		if err != nil {
 			log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
-				storagepolicyusagev1alpha1.CRDSingular, storagePolicyUsageInstanceName,
+				storagepolicyv1alpha1.CRDSingular, storagePolicyUsageInstanceName,
 				newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace, err)
 			return
 		}
@@ -2390,15 +2386,15 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 
 		// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
 		storagePolicyUsageInstanceName := volumeInfo.Spec.StorageClassName + "-" +
-			storagepolicyusagev1alpha1.NameSuffixForPVC
-		storagePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
+			storagepolicyv1alpha1.NameSuffixForPVC
+		storagePolicyUsageCR := &storagepolicyv1alpha1.StoragePolicyUsage{}
 		err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
 			Namespace: volumeInfo.Spec.Namespace,
 			Name:      storagePolicyUsageInstanceName},
 			storagePolicyUsageCR)
 		if err != nil {
 			log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
-				storagepolicyusagev1alpha1.CRDSingular, storagePolicyUsageInstanceName,
+				storagepolicyv1alpha1.CRDSingular, storagePolicyUsageInstanceName,
 				volumeInfo.Spec.Namespace, err)
 			return
 		}
@@ -2784,9 +2780,9 @@ func initResizeReconciler(ctx context.Context, tkgClient clientset.Interface,
 // createStoragePolicyUsageCR creates StoragePolicyUsage CR with given parameters
 func createStoragePolicyUsageCR(ctx context.Context, quotaClient client.Client, name, namespace,
 	storagePolicyId, storageClassName, resourceKind, resourceApiGroup,
-	extensionName string) (*storagepolicyusagev1alpha1.StoragePolicyUsage, error) {
+	extensionName string) (*storagepolicyv1alpha1.StoragePolicyUsage, error) {
 	log := logger.GetLogger(ctx)
-	newUsageInstance := storagepolicyusagev1alpha1.StoragePolicyUsage{
+	newUsageInstance := storagepolicyv1alpha1.StoragePolicyUsage{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       cnsoperatorv1alpha1.GroupName,
 			APIVersion: cnsoperatorv1alpha1.Version,
@@ -2797,7 +2793,7 @@ func createStoragePolicyUsageCR(ctx context.Context, quotaClient client.Client, 
 			Generation:        0,
 			CreationTimestamp: metav1.Time{},
 		},
-		Spec: storagepolicyusagev1alpha1.StoragePolicyUsageSpec{
+		Spec: storagepolicyv1alpha1.StoragePolicyUsageSpec{
 			StoragePolicyId:       storagePolicyId,
 			StorageClassName:      storageClassName,
 			ResourceKind:          resourceKind,
@@ -2821,7 +2817,7 @@ func createStoragePolicyUsageCR(ctx context.Context, quotaClient client.Client, 
 func policyQuotaCRAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	ctx, log := logger.GetNewContextWithLogger()
 	// Verify object received.
-	var policyQuotaObj storagepolicyusagev1alpha1.StoragePolicyQuota
+	var policyQuotaObj storagepolicyv1alpha1.StoragePolicyQuota
 	var foundPvcUsageInstance, foundSnapUsageInstance bool
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object,
 		&policyQuotaObj)
@@ -2859,7 +2855,7 @@ func policyQuotaCRAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	// If not, create one with all parameters specified.
 	for _, sc := range storageClassList.Items {
 		if sc.Parameters[scParamStoragePolicyID] == storagePolicyId {
-			policyUsageList := &storagepolicyusagev1alpha1.StoragePolicyUsageList{}
+			policyUsageList := &storagepolicyv1alpha1.StoragePolicyUsageList{}
 			err := storageQuotaClient.List(ctx, policyUsageList, &client.ListOptions{
 				Namespace: namespace,
 			})
@@ -2914,7 +2910,7 @@ func policyQuotaCRAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
 func policyQuotaCRDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	ctx, log := logger.GetNewContextWithLogger()
 	// Verify object received.
-	var policyQuotaObj storagepolicyusagev1alpha1.StoragePolicyQuota
+	var policyQuotaObj storagepolicyv1alpha1.StoragePolicyQuota
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object,
 		&policyQuotaObj)
 	if err != nil {
@@ -2935,7 +2931,7 @@ func policyQuotaCRDeleted(obj interface{}, metadataSyncer *metadataSyncInformer)
 		log.Errorf("policyQuotaCRDeleted: Failed to create CnsOperator client. Err: %+v", err)
 		return
 	}
-	policyUsageList := &storagepolicyusagev1alpha1.StoragePolicyUsageList{}
+	policyUsageList := &storagepolicyv1alpha1.StoragePolicyUsageList{}
 	err = storageQuotaClient.List(ctx, policyUsageList, &client.ListOptions{
 		Namespace: namespace,
 	})
@@ -2950,7 +2946,7 @@ func policyQuotaCRDeleted(obj interface{}, metadataSyncer *metadataSyncInformer)
 		if usage.Spec.StoragePolicyId == storagePolicyId &&
 			(usage.Spec.ResourceKind == ResourceKindPVC ||
 				(isStorageQuotaM2Enabled && usage.Spec.ResourceKind == ResourceKindSnapshot)) {
-			policyUsageCR := storagepolicyusagev1alpha1.StoragePolicyUsage{
+			policyUsageCR := storagepolicyv1alpha1.StoragePolicyUsage{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      usage.Name,
 					Namespace: namespace,
@@ -3014,53 +3010,15 @@ func startStoragePolicyQuotaCRInformer(ctx context.Context, cfg *restclient.Conf
 // This method also creates StoragePolicyUsage CRs when the CR is not found for PVCs in Pending state.
 func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
-	log.Debugf("storagePolicyUsageCRSync: Starting CnsVolumeOperationRequest CR sync.")
-	// Get K8s PVs in State "Bound".
-	k8sPVsInBoundState, err := getBoundPVs(ctx, metadataSyncer)
-	if err != nil {
-		log.Errorf("Failed to get PVs from kubernetes. Err: %+v", err)
-		return
-	}
-	// Get K8s PVCs not in Bound State.
-	k8sPVCsInPendingState, err := getPVCsInPendingState(ctx, metadataSyncer)
-	if err != nil {
-		log.Errorf("Failed to get PVCs in Pending state from kubernetes. Err: %+v", err)
-		return
-	}
-	namespaceToK8sVolumesMap := make(map[string][]*v1.PersistentVolume)
-	for _, pv := range k8sPVsInBoundState {
-		namespaceToK8sVolumesMap[pv.Spec.ClaimRef.Namespace] =
-			append(namespaceToK8sVolumesMap[pv.Spec.ClaimRef.Namespace], pv.DeepCopy())
-	}
-	// Prepare Config and NewClientForGroup for cnsOperatorClient
-	restConfig, err := config.GetConfig()
-	if err != nil {
-		log.Errorf("storagePolicyUsageCRSync: Failed to get Kubernetes config. Err: %+v", err)
-		return
-	}
-	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
-	if err != nil {
-		log.Errorf("storagePolicyUsageCRSync: Failed to create CnsOperator client. Err: %+v", err)
-		return
-	}
-	volumeInfoCRList := volumeInfoService.ListAllVolumeInfos()
-	cnsVolumeInfoMap := make(map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo)
-	for _, volumeInfo := range volumeInfoCRList {
-		cnsvolumeinfo := &cnsvolumeinfov1alpha1.CNSVolumeInfo{}
-		err := runtime.DefaultUnstructuredConverter.FromUnstructured(volumeInfo.(*unstructured.Unstructured).Object,
-			&cnsvolumeinfo)
-		if err != nil {
-			log.Errorf("storagePolicyUsageCRSync: Failed to parse cnsvolumeinfo object: %v, err: %v", cnsvolumeinfo, err)
-			continue
-		}
-		cnsVolumeInfoMap[cnsvolumeinfo.Name] = cnsvolumeinfo.DeepCopy()
-	}
-	config, err := k8s.GetKubeConfig(ctx)
+	log.Infof("storagePolicyUsageCRSync: Starting storage policy usage CR sync")
+
+	// Prepare map of storagepolicyID to storageclassnames.
+	k8sconfig, err := k8s.GetKubeConfig(ctx)
 	if err != nil {
 		log.Errorf("storagePolicyUsageCRSync: Failed to get KubeConfig. err: %v", err)
 		return
 	}
-	k8sClient, err := clientset.NewForConfig(config)
+	k8sClient, err := clientset.NewForConfig(k8sconfig)
 	if err != nil {
 		log.Errorf("storagePolicyUsageCRSync: Failed to create kubernetes client. Err: %+v", err)
 		return
@@ -3070,85 +3028,107 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 		log.Errorf("storagePolicyUsageCRSync: Failed to list storageclasses. Err: %+v", err)
 		return
 	}
-	scNameToPolicyIdMap := make(map[string]string)
+	scPolicyIdToNameMap := make(map[string][]string)
 	for _, sc := range storageClassList.Items {
-		if _, ok := scNameToPolicyIdMap[sc.Parameters[scParamStoragePolicyID]]; !ok {
-			scNameToPolicyIdMap[sc.Name] =
-				sc.Parameters[scParamStoragePolicyID]
-		}
+		policyID := sc.Parameters[scParamStoragePolicyID]
+		scPolicyIdToNameMap[policyID] = append(scPolicyIdToNameMap[policyID], sc.Name)
 	}
 
-	for _, pvc := range k8sPVCsInPendingState {
-		storagePolicyUsageInstanceName := *pvc.Spec.StorageClassName + "-" + storagepolicyusagev1alpha1.NameSuffixForPVC
-		storagePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
-		err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
-			Namespace: pvc.Namespace,
-			Name:      storagePolicyUsageInstanceName},
-			storagePolicyUsageCR)
-		if err == nil {
-			// Found storagePolicyUsageCR. Move to the next PVC
-			log.Debugf("storagePolicyUsageCRSync: Found storagePolicyUsageCR %q for the PVC %q in namespace %q",
-				storagePolicyUsageInstanceName, pvc.Name, pvc.Namespace)
+	// Prepare Config and NewClientForGroup for cnsOperatorClient
+	restConfig, err := config.GetConfig()
+	if err != nil {
+		log.Errorf("storagePolicyUsageCRSync: Failed to get Kubernetes k8sconfig. Err: %+v", err)
+		return
+	}
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		log.Errorf("storagePolicyUsageCRSync: Failed to create CnsOperator client. Err: %+v", err)
+		return
+	}
+
+	// List storagePolicyQuota in all namespaces.
+	spqList := &storagepolicyv1alpha1.StoragePolicyQuotaList{}
+	err = cnsOperatorClient.List(ctx, spqList)
+	if err != nil {
+		log.Errorf("storagePolicyUsageCRSync: failed to list %q CR from all "+
+			"supervisor namespaces. Error: %+v", cnsoperatorv1alpha1.CnsStoragePolicyQuotaSingular, err)
+		return
+	}
+	for _, spq := range spqList.Items {
+		// Make sure storagePolicyQuota instance is not getting deleted.
+		if spq.DeletionTimestamp != nil {
+			log.Infof("storagePolicyUsageCRSync: Deletion timestamp set on StoragePolicyQuota %q in "+
+				"namespace %q. Ignoring creation of StoragePolicyUsage for this instance.", spq.Name, spq.Namespace)
 			continue
 		}
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				_, err := createStoragePolicyUsageCR(ctx, cnsOperatorClient, storagePolicyUsageInstanceName, pvc.Namespace,
-					scNameToPolicyIdMap[*pvc.Spec.StorageClassName], *pvc.Spec.StorageClassName, ResourceKindPVC,
-					ResourceAPIgroupPVC, PVCQuotaExtensionServiceName)
-				if err != nil {
-					log.Errorf("storagePolicyUsageCRSync: Failed to create %q CR for %q kind. Err: %+v",
-						cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular, ResourceKindPVC, err)
-					return
-				}
-				log.Infof("storagePolicyUsageCRSync: Successfully created the storagePolicyUsage CR %q in namespace %q",
-					storagePolicyUsageInstanceName, pvc.Namespace)
-			}
-		}
-	}
-	// For a given list of volumes in a namespace, identify the storage class associated
-	// with the volumes using the CnsVolumeInfo CR details. The storage class info is then
-	// used for constructing the name of storagePolicyUsage CR that needs to be created.
-	for ns, volumes := range namespaceToK8sVolumesMap {
-		storageClassMapForBoundVolumes := make(map[string]string)
-		for _, pv := range volumes {
-			if cnsVolumeInfo, ok := cnsVolumeInfoMap[pv.Spec.CSI.VolumeHandle]; ok {
-				if cnsVolumeInfo.Spec.Namespace == ns {
-					storageClassMapForBoundVolumes[cnsVolumeInfo.Spec.StorageClassName] =
-						cnsVolumeInfo.Spec.StorageClassName
-				}
-			}
-		}
-		for _, scName := range storageClassMapForBoundVolumes {
-			storagePolicyUsageInstanceName := scName + "-" + storagepolicyusagev1alpha1.NameSuffixForPVC
-			storagePolicyUsageCR := &storagepolicyusagev1alpha1.StoragePolicyUsage{}
+		policyID := spq.Spec.StoragePolicyId
+		// For each StoragePolicyQuota, verify if a StoragePolicyUsage CR exists. If not, create one.
+		for _, scName := range scPolicyIdToNameMap[policyID] {
+			storagePolicyUsageInstanceName := scName + "-" + storagepolicyv1alpha1.NameSuffixForPVC
+			storagePolicyUsageCR := &storagepolicyv1alpha1.StoragePolicyUsage{}
 			err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
-				Namespace: ns,
+				Namespace: spq.Namespace,
 				Name:      storagePolicyUsageInstanceName},
 				storagePolicyUsageCR)
 			if err == nil {
-				break
-			}
-			if err != nil {
+				// Found storagePolicyUsageCR. Move to the next SC.
+				log.Debugf("storagePolicyUsageCRSync: Found storagePolicyUsage CR %q for "+
+					"StoragePolicyQuota %q in namespace %q", storagePolicyUsageInstanceName, spq.Name, spq.Namespace)
+				continue
+			} else {
 				if apierrors.IsNotFound(err) {
-					_, err := createStoragePolicyUsageCR(ctx, cnsOperatorClient, storagePolicyUsageInstanceName, ns,
-						scNameToPolicyIdMap[scName], scName, ResourceKindPVC, ResourceAPIgroupPVC, PVCQuotaExtensionServiceName)
+					_, err = createStoragePolicyUsageCR(ctx, cnsOperatorClient, storagePolicyUsageInstanceName,
+						spq.Namespace, policyID, scName, ResourceKindPVC, ResourceAPIgroupPVC,
+						PVCQuotaExtensionServiceName)
 					if err != nil {
-						log.Errorf("storagePolicyUsageCRSync: Failed to create %q CR for %q kind. Err: %+v",
-							cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular, ResourceKindPVC, err)
-						return
+						log.Errorf("storagePolicyUsageCRSync: Failed to create %q CR with name %q in "+
+							"namespace %q for %q kind. Err: %+v", cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular,
+							storagePolicyUsageInstanceName, spq.Namespace, ResourceKindPVC, err)
+						continue
 					}
+					log.Infof("storagePolicyUsageCRSync: Successfully created the storagePolicyUsage CR %q "+
+						"in namespace %q", storagePolicyUsageInstanceName, spq.Namespace)
+				} else {
+					log.Errorf("storagePolicyUsageCRSync: Failed to fetch storagePolicyUsage CR %q for "+
+						"StoragePolicyQuota %q in namespace %q. Error: %+v", storagePolicyUsageInstanceName, spq.Name,
+						spq.Namespace, err)
+					continue
 				}
 			}
 		}
 	}
-	// Get the list of all StoragePolicyUsage CRs from all supervisor namespaces
-	storagePolicyUsageList := &storagepolicyusagev1alpha1.StoragePolicyUsageList{}
+
+	// Get K8s PVs in "Bound" State.
+	k8sPVsInBoundState, err := getBoundPVs(ctx, metadataSyncer)
+	if err != nil {
+		log.Errorf("Failed to get PVs from kubernetes. Err: %+v", err)
+		return
+	}
+	namespaceToK8sVolumesMap := make(map[string][]*v1.PersistentVolume)
+	for _, pv := range k8sPVsInBoundState {
+		namespaceToK8sVolumesMap[pv.Spec.ClaimRef.Namespace] =
+			append(namespaceToK8sVolumesMap[pv.Spec.ClaimRef.Namespace], pv.DeepCopy())
+	}
+	// Get the list of all StoragePolicyUsage CRs from all supervisor namespaces.
+	storagePolicyUsageList := &storagepolicyv1alpha1.StoragePolicyUsageList{}
 	err = cnsOperatorClient.List(ctx, storagePolicyUsageList)
 	if err != nil {
 		log.Errorf("storagePolicyUsageCRSync: failed to list %s CR from all supervisor namespaces. Error: %+v",
-			storagepolicyusagev1alpha1.CRDSingular, err)
+			cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular, err)
 		return
+	}
+	volumeInfoCRList := volumeInfoService.ListAllVolumeInfos()
+	cnsVolumeInfoMap := make(map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo)
+	for _, volumeInfo := range volumeInfoCRList {
+		cnsVolumeInfoObj := &cnsvolumeinfov1alpha1.CNSVolumeInfo{}
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(volumeInfo.(*unstructured.Unstructured).Object,
+			&cnsVolumeInfoObj)
+		if err != nil {
+			log.Errorf("storagePolicyUsageCRSync: Failed to parse CNSVolumeInfo object: %v. Error: %+v",
+				cnsVolumeInfoObj, err)
+			continue
+		}
+		cnsVolumeInfoMap[cnsVolumeInfoObj.Name] = cnsVolumeInfoObj.DeepCopy()
 	}
 	// Check if volumeInfoCRList is not empty
 	if len(volumeInfoCRList) > 0 {
@@ -3197,8 +3177,8 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 							storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Used.Value())
 					}
 				} else {
-					patchedStoragePolicyUsage.Status = storagepolicyusagev1alpha1.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyusagev1alpha1.QuotaUsageDetails{
+					patchedStoragePolicyUsage.Status = storagepolicyv1alpha1.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha1.QuotaUsageDetails{
 							Used: totalUsedQty,
 						},
 					}

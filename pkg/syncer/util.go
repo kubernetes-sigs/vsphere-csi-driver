@@ -96,29 +96,6 @@ func getBoundPVs(ctx context.Context, metadataSyncer *metadataSyncInformer) ([]*
 	return boundPVs, nil
 }
 
-// getPVCsInPendingState is a helper function for fetching PVCs not in Bound state.
-func getPVCsInPendingState(ctx context.Context, metadataSyncer *metadataSyncInformer) ([]*v1.PersistentVolumeClaim,
-	error) {
-	log := logger.GetLogger(ctx)
-	var pendingPVCs []*v1.PersistentVolumeClaim
-	// Get all PVCs from kubernetes.
-	allPVCs, err := metadataSyncer.pvcLister.List(labels.Everything())
-	if err != nil {
-		return nil, err
-	}
-	for _, pvc := range allPVCs {
-		if pvc.ObjectMeta.Annotations[common.AnnStorageProvisioner] == csitypes.Name {
-			log.Debugf("getPVCsInPendingState: pvc %s in namespace %s is in state %v",
-				pvc.Name, pvc.Namespace, pvc.Status.Phase)
-			if pvc.Status.Phase == v1.ClaimPending {
-				pendingPVCs = append(pendingPVCs, pvc)
-			}
-		}
-	}
-	log.Infof("getPVCsInPendingState: pendingPVCs %v", pendingPVCs)
-	return pendingPVCs, nil
-}
-
 // fullSyncGetInlineMigratedVolumesInfo is a helper function for retrieving
 // inline PV information from Pods.
 func fullSyncGetInlineMigratedVolumesInfo(ctx context.Context,
