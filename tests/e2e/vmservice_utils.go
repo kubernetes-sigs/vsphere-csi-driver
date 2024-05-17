@@ -32,9 +32,10 @@ import (
 
 	"github.com/onsi/gomega"
 	"github.com/pkg/sftp"
+	"github.com/vmware-tanzu/vm-operator/api/v1alpha2/common"
 	"golang.org/x/crypto/ssh"
 
-	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -43,6 +44,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
+
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 )
 
@@ -256,7 +258,7 @@ func waitNGetVmiForImageName(ctx context.Context, c ctlrclient.Client, namespace
 			err := c.List(ctx, vmImagesList)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, instance := range vmImagesList.Items {
-				if instance.Status.ImageName == imageName {
+				if instance.Status.Name == imageName {
 					framework.Logf("Found vmi %v for image name %v", instance.Name, imageName)
 					vmi = instance.Name
 					return true, nil
@@ -278,20 +280,27 @@ func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespa
 	for _, pvc := range pvcs {
 		vols = append(vols, vmopv1.VirtualMachineVolume{
 			Name: pvc.Name,
-			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
-				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
+			VirtualMachineVolumeSource: vmopv1.VirtualMachineVolumeSource{
+				PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
+					PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
+				},
 			},
 		})
 	}
 	vm := vmopv1.VirtualMachine{
 		ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: namespace},
 		Spec: vmopv1.VirtualMachineSpec{
-			PowerState:   vmopv1.VirtualMachinePoweredOn,
+			PowerState:   vmopv1.VirtualMachinePowerStateOn,
 			ImageName:    vmi,
 			ClassName:    vmClass,
 			StorageClass: storageClassName,
 			Volumes:      vols,
-			VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: "CloudInit", SecretName: secretName},
+			Bootstrap: &vmopv1.VirtualMachineBootstrapSpec{CloudInit: &vmopv1.VirtualMachineBootstrapCloudInitSpec{
+				RawCloudConfig: &common.SecretKeySelector{
+					Name: secretName,
+					Key:  "user-data",
+				},
+			}},
 		},
 	}
 	err := c.Create(ctx, &vm)
@@ -341,10 +350,11 @@ func waitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace strin
 				}
 				return false, nil
 			}
-			if vm.Status.VmIp == "" {
+			networkStatus := vm.Status.Network
+			if networkStatus == nil || networkStatus.PrimaryIP4 == "" {
 				return false, nil
 			}
-			ip = vm.Status.VmIp
+			ip = networkStatus.PrimaryIP4
 			return true, nil
 		})
 	framework.Logf("Found IP '%s' for VM '%s'", ip, name)
@@ -746,8 +756,10 @@ func createVmServiceVmWithPvcsWithZone(ctx context.Context, c ctlrclient.Client,
 	for _, pvc := range pvcs {
 		vols = append(vols, vmopv1.VirtualMachineVolume{
 			Name: pvc.Name,
-			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
-				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
+			VirtualMachineVolumeSource: vmopv1.VirtualMachineVolumeSource{
+				PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
+					PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
+				},
 			},
 		})
 	}
@@ -756,12 +768,17 @@ func createVmServiceVmWithPvcsWithZone(ctx context.Context, c ctlrclient.Client,
 	vm := vmopv1.VirtualMachine{
 		ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: namespace, Labels: labels},
 		Spec: vmopv1.VirtualMachineSpec{
-			PowerState:   vmopv1.VirtualMachinePoweredOn,
+			PowerState:   vmopv1.VirtualMachinePowerStateOn,
 			ImageName:    vmi,
 			ClassName:    vmClass,
 			StorageClass: storageClassName,
 			Volumes:      vols,
-			VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: "CloudInit", SecretName: secretName},
+			Bootstrap: &vmopv1.VirtualMachineBootstrapSpec{CloudInit: &vmopv1.VirtualMachineBootstrapCloudInitSpec{
+				RawCloudConfig: &common.SecretKeySelector{
+					Name: secretName,
+					Key:  "user-data",
+				},
+			}},
 		},
 	}
 	err := c.Create(ctx, &vm)

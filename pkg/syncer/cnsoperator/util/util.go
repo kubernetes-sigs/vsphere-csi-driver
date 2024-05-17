@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -98,11 +98,23 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 	}
 
 	var networkName string
-	for _, networkInterface := range virtualMachineInstance.Spec.NetworkInterfaces {
+
+	// NSX
+	//   network:
+	//    interfaces:
+	//    - name: eth0
+	//      network:
+	//        apiVersion: vmware.com/v1alpha1
+	//        kind: VirtualNetwork
+	//        name: <>
+	// virtualnetwork object: network.interfaces.network.name <> in the above spec
+	// networkinterfaces object: vm-medium-1-ltw8-vnet
+
+	for _, networkInterface := range virtualMachineInstance.Spec.Network.Interfaces {
 		// The assumption is that a TKG VM will have only a single network interface.
 		// This logic needs to be revisited when multiple network interface support
 		// is added.
-		networkName = networkInterface.NetworkName
+		networkName = networkInterface.Network.Name
 	}
 	log.Debugf("VirtualMachine %s/%s is configured with network %s", vmNamespace, vmName, networkName)
 
@@ -121,9 +133,14 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 			return "", fmt.Errorf("failed to get SNAT IP annotation from VirtualMachine %s/%s", vmNamespace, vmName)
 		}
 	} else {
-		ip = virtualMachineInstance.Status.VmIp
+		networkStatus := virtualMachineInstance.Status.Network
+		if networkStatus == nil {
+			return "", fmt.Errorf("vm.Status.Network is not populated for %s/%s", vmNamespace, vmName)
+		}
+
+		ip = networkStatus.PrimaryIP4
 		if ip == "" {
-			return "", fmt.Errorf("vm.Status.VmIp is not populated for %s/%s", vmNamespace, vmName)
+			return "", fmt.Errorf("vm.Status.Network.PrimaryIP4 is not populated for %s/%s", vmNamespace, vmName)
 		}
 	}
 	log.Infof("Found external IP Address %s for VirtualMachine %s/%s", ip, vmNamespace, vmName)
