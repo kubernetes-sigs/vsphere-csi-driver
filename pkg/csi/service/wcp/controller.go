@@ -75,7 +75,6 @@ var (
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
 		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
 	}
-	checkCompatibleDataStores = true
 	// volumeInfoService holds the pointer to VolumeInfo service instance
 	// This will hold mapping for VolumeID to Storage policy info for PodVMOnStretchedSupervisor deployments
 	volumeInfoService cnsvolumeinfo.VolumeInfoService
@@ -628,7 +627,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	if isPodVMOnStretchSupervisorFSSEnabled {
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
 			c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores,
-			isTKGSHAEnabled, checkCompatibleDataStores,
+			isTKGSHAEnabled,
 			&cnsvolume.CreateVolumeExtraParams{
 				VolSizeBytes:                         volSizeBytes,
 				StorageClassName:                     req.Parameters[common.AttributeStorageClassName],
@@ -638,7 +637,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	} else {
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
 			c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores,
-			isTKGSHAEnabled, checkCompatibleDataStores, nil)
+			isTKGSHAEnabled, nil)
 	}
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
@@ -901,10 +900,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	start := time.Now()
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	if chkDataStoreCompatibility := req.Parameters["checkCompatibleDatastores"]; chkDataStoreCompatibility == "false" {
-		checkCompatibleDataStores = false
-		delete(req.Parameters, "checkCompatibleDatastores")
-	}
+
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	createVolumeInternal := func() (
 		*csi.CreateVolumeResponse, string, error) {

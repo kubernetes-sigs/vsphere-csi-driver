@@ -30,6 +30,7 @@ import (
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/pbm"
+	"github.com/vmware/govmomi/pbm/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -290,7 +291,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 			},
 		},
 	}
-	params["checkCompatibleDatastores"] = "false"
+
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
@@ -355,6 +356,147 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	}
 
 	// Delete.
+	reqDelete := &csi.DeleteVolumeRequest{
+		VolumeId: volID,
+	}
+	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the volume has been deleted.
+	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 0 {
+		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
+	}
+}
+
+// Create new Storage Policy and pass this storage policy's name through parameters to CreateVolume
+// function call. Verify that volume creation succeeds and it uses newly created storage policy.
+func TestCreateVolumeWithNewlyCreatedStoragePolicy(t *testing.T) {
+	// Create context.
+	ct := getControllerTest(t)
+
+	params := make(map[string]string)
+
+	pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create new Storage Policy
+	storagePolicyName := "Kubernetes-VSAN-TestPolicy"
+	pbmCreateSpecForVSAN := pbm.CapabilityProfileCreateSpec{
+		Name:        storagePolicyName,
+		Description: "VSAN Test policy create",
+		Category:    string(types.PbmProfileCategoryEnumREQUIREMENT),
+		CapabilityList: []pbm.Capability{
+			{
+				ID:        "hostFailuresToTolerate",
+				Namespace: "VSAN",
+				PropertyList: []pbm.Property{
+					{
+						ID:       "hostFailuresToTolerate",
+						Value:    "2",
+						DataType: "int",
+					},
+				},
+			},
+			{
+				ID:        "stripeWidth",
+				Namespace: "VSAN",
+				PropertyList: []pbm.Property{
+					{
+						ID:       "stripeWidth",
+						Value:    "1",
+						DataType: "int",
+					},
+				},
+			},
+		},
+	}
+
+	// Create PBM capability spec for the above defined user spec
+	createSpecVSAN, err := pbm.CreateCapabilityProfileSpec(pbmCreateSpecForVSAN)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create SPBM VSAN profile
+	vsanProfileID, err := pc.CreateProfile(ctx, *createSpecVSAN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("VSAN Storage Policy %q successfully created", vsanProfileID.UniqueId)
+
+	defer func() {
+		_, err = pc.DeleteProfile(ctx, []types.PbmProfileId{*vsanProfileID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("VSAN Storage Policy %+v successfully deleted", vsanProfileID.UniqueId)
+	}()
+
+	// Verify if profile created exists by issuing a PbmRetrieveContent request
+	_, err = ct.vcenter.PbmRetrieveContent(ctx, []string{vsanProfileID.UniqueId})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Storage Policy %q exists on vCenter", vsanProfileID.UniqueId)
+
+	params[common.AttributeStoragePolicyName] = storagePolicyName
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	// Create volume.
+	// As part of create volume PbmCheckCompatibility and GetStoragePolicyIDByName
+	// functions will get tested.
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	// Make sure that volume is using the newly created storage profile
+	if queryResult.Volumes[0].StoragePolicyId != vsanProfileID.UniqueId {
+		t.Fatalf("failed to match volume policy ID: %s", vsanProfileID.UniqueId)
+	}
+
+	// Delete volume
 	reqDelete := &csi.DeleteVolumeRequest{
 		VolumeId: volID,
 	}

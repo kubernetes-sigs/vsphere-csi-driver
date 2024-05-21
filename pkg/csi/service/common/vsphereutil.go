@@ -56,8 +56,8 @@ type VanillaCreateBlockVolParamsForMultiVC struct {
 
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
 func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager,
-	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo, filterSuspendedDatastores bool, useSupervisorId,
-	checkCompatibleDataStores bool, extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
+	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo, filterSuspendedDatastores,
+	useSupervisorId bool, extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
@@ -198,11 +198,9 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		}
 	}
 
-	if checkCompatibleDataStores {
-		fault, err := isDataStoreCompatible(ctx, vc, spec, datastores, datastoreObj)
-		if err != nil {
-			return nil, fault, err
-		}
+	fault, err := isDataStoreCompatible(ctx, vc, spec, datastores, datastoreObj)
+	if err != nil {
+		return nil, fault, err
 	}
 
 	var containerClusterArray []cnstypes.CnsContainerCluster
