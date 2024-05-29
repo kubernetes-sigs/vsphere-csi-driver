@@ -1424,7 +1424,9 @@ func invokeVCenterReboot(ctx context.Context, host string) error {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
-	return nil
+	// checking for host to be down
+	err = waitForHostToBeDown(ctx, host)
+	return err
 }
 
 // invokeVCenterServiceControl invokes the given command for the given service
