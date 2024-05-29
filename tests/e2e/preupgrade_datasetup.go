@@ -19,6 +19,9 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"strconv"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -47,6 +50,8 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		persistentvolumes []*v1.PersistentVolume
 		podArray          []*v1.Pod
 		labels_ns         map[string]string
+		curtimestring     string
+		val               string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -63,6 +68,13 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		labels_ns = map[string]string{}
 		labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
 		labels_ns["e2e-framework"] = f.BaseName
+
+		// Generate a random value to aviod duplicate names for storage policy or pods or pvc
+		curtime := time.Now().Unix()
+		randomValue := rand.Int()
+		val = strconv.FormatInt(int64(randomValue), 10)
+		val = string(val[1:3])
+		curtimestring = strconv.FormatInt(curtime, 10)
 	})
 
 	// Test to setup up predata before the Testbed is upgraded
@@ -72,13 +84,14 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 	// 1. Create a SC with allowVolumeExpansion set to 'true'
 	// 2. create statefulset with replica 3 using the above created SC
 
-	ginkgo.It("[csi-block-vanilla-preupgradedata] Verify creation of statefulset", func() {
+	ginkgo.It("[csi-block-vanilla-preupgradedata] [csi-file-vanilla-preupgradedata] "+
+		"Verify creation of statefulset", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// var pvcSizeBeforeExpansion int64
 		scParameters := make(map[string]string)
 		scParameters[scParamFsType] = ext4FSType
-		storageClassName = "preupgrade-sc-sts"
+		storageClassName = "preupgrade-sc-sts-" + curtimestring + val
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		scParameters[scParamDatastoreURL] = sharedVSANDatastoreURL
@@ -97,6 +110,13 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storageClassName
+
+		//For file Vanilla tests
+		if rwxAccessMode {
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
+				v1.ReadWriteMany
+		}
+
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
@@ -120,7 +140,8 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 	// 6. Create pods using PVC's on specific node.
 	// 7. Wait for Disk to be attached to the node.
 
-	ginkgo.It("[csi-block-vanilla-preupgradedata] Verify creation of dynamic pvcs and pods", func() {
+	ginkgo.It("[csi-block-vanilla-preupgradedata] [csi-file-vanilla-preupgradedata] "+
+		"Verify creation of dynamic pvcs and pods", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		scParameters := make(map[string]string)
@@ -128,7 +149,7 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		// Create Storage class and PVC
 		ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 		var err error
-		storageClassName = "preupgrade-sc-pods"
+		storageClassName = "preupgrade-sc-pods-" + curtimestring + val
 		namespace, err := framework.CreateTestingNS(ctx, f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -140,8 +161,16 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		count := 0
 		for count < 3 {
 			ginkgo.By("Creating PVCs using the Storage Class")
+
+			accessMode := v1.ReadWriteOnce
+
+			//For file Vanilla tests
+			if rwxAccessMode {
+				accessMode = v1.ReadWriteMany
+			}
+
 			pvclaims[count], err = fpv.CreatePVC(ctx, client, namespace.Name,
-				getPersistentVolumeClaimSpecWithStorageClass(namespace.Name, diskSize, sc, nil, ""))
+				getPersistentVolumeClaimSpecWithStorageClass(namespace.Name, diskSize, sc, nil, accessMode))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			count++
 		}
@@ -159,37 +188,39 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 			podCount++
 		}
 
-		var vmUUID string
-		ginkgo.By("Verify the volumes are attached to the node vm")
-		podCount = 0
-		for podCount < 3 {
-			pvclaim = pvclaims[podCount]
-			pv := getPvFromClaim(client, namespace.Name, pvclaim.Name)
+		//Skip for file Vanilla tests
+		if !rwxAccessMode {
+			var vmUUID string
+			ginkgo.By("Verify the volumes are attached to the node vm")
+			podCount = 0
+			for podCount < 3 {
+				pvclaim = pvclaims[podCount]
+				pv := getPvFromClaim(client, namespace.Name, pvclaim.Name)
 
-			volumeID := pv.Spec.CSI.VolumeHandle
-			if vanillaCluster {
-				vmUUID = getNodeUUID(ctx, client, podArray[podCount].Spec.NodeName)
-			}
-			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
-				pv.Spec.CSI.VolumeHandle, podArray[podCount].Spec.NodeName))
-			isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
-				fmt.Sprintf("Volume: %s is not attached to the node: %s",
+				volumeID := pv.Spec.CSI.VolumeHandle
+				if vanillaCluster {
+					vmUUID = getNodeUUID(ctx, client, podArray[podCount].Spec.NodeName)
+				}
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 					pv.Spec.CSI.VolumeHandle, podArray[podCount].Spec.NodeName))
-			podCount++
+				isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
+					fmt.Sprintf("Volume: %s is not attached to the node: %s",
+						pv.Spec.CSI.VolumeHandle, podArray[podCount].Spec.NodeName))
+				podCount++
+			}
+
+			for _, pv := range persistentvolumes {
+
+				framework.Logf("Volume: %s should be present in the CNS",
+					pv.Spec.CSI.VolumeHandle)
+				volumeID := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeCreated(volumeID)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			}
 		}
-
-		for _, pv := range persistentvolumes {
-
-			framework.Logf("Volume: %s should be present in the CNS",
-				pv.Spec.CSI.VolumeHandle)
-			volumeID := pv.Spec.CSI.VolumeHandle
-			err = e2eVSphere.waitForCNSVolumeToBeCreated(volumeID)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		}
-
 	})
 
 	// Test to setup up predata before the Testbed is upgraded
@@ -201,7 +232,8 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 	// 3. Wait for PV-1, PV-2, PV-3  to be provisioned.
 	// 4. Wait for PVC's status to become Bound.
 
-	ginkgo.It("[csi-block-vanilla-preupgradedata] Verify creation of standalone pvcs", func() {
+	ginkgo.It("[csi-block-vanilla-preupgradedata] [csi-file-vanilla-preupgradedata] "+
+		"Verify creation of standalone pvcs", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		scParameters := make(map[string]string)
@@ -210,7 +242,7 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 		var err error
 		var pvclaimsarray = make([]*v1.PersistentVolumeClaim, 5)
-		storageClassName = "preupgrade-sc-pvcs"
+		storageClassName = "preupgrade-sc-pvcs-" + curtimestring + val
 		namespace, err := framework.CreateTestingNS(ctx, f.BaseName, client, labels_ns)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -219,10 +251,17 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("storage class created is : %s", sc.Name)
 
+		accessMode := v1.ReadWriteOnce
+
+		//For file Vanilla tests
+		if rwxAccessMode {
+			accessMode = v1.ReadWriteMany
+		}
+
 		for count := 0; count < 5; count++ {
 			ginkgo.By("Creating PVCs using the Storage Class")
 			pvclaimsarray[count], err = fpv.CreatePVC(ctx, client, namespace.Name,
-				getPersistentVolumeClaimSpecWithStorageClass(namespace.Name, diskSize, sc, nil, ""))
+				getPersistentVolumeClaimSpecWithStorageClass(namespace.Name, diskSize, sc, nil, accessMode))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		}
