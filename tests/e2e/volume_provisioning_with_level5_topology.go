@@ -44,7 +44,7 @@ import (
 )
 
 var _ = ginkgo.Describe("[topologyL5-positive] TopologyL5-Positive", func() {
-	f := framework.NewDefaultFramework("topologyL5-positive")
+	f := framework.NewDefaultFramework("topology-positive")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                    clientset.Interface

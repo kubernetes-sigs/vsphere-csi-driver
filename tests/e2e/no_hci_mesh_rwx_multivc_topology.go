@@ -47,9 +47,8 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 	f := framework.NewDefaultFramework("rwx-nohci-multivc-positive")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client    clientset.Interface
-		namespace string
-
+		client                     clientset.Interface
+		namespace                  string
 		allowedTopologies          []v1.TopologySelectorLabelRequirement
 		topValStartIndex           int
 		topValEndIndex             int
@@ -221,6 +220,10 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 				"Setup is not in healthy state, Got timed-out waiting for required VC services to be up and running")
 		}
+
+		// setting all global variables to nil before starting new testcase
+		pvs, pvclaim, pv, allowedTopologies, depl,
+			pods, podList = nil, nil, nil, nil, nil, nil, nil
 	})
 
 	/* TESTCASE-1
@@ -586,7 +589,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 	9. Perform cleanup by deleting deployment Pods, PVC and SC
 	*/
 
-	ginkgo.It("Multiple standalone pods attached to single rwx pvc with datastore url"+
+	ginkgo.It("Multiple standalone pods attached to single rwx pvc with datastore url "+
 		"tagged to Az2 in SC", ginkgo.Label(p0, file, vanilla, multiVc, newTest), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1073,7 +1076,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 	17. Perform cleanup by deleting pods,pvc and sc
 	*/
 
-	ginkgo.It("Podcreation and lables update when "+
+	ginkgo.It("Pod creation and lables update when "+
 		"vsan health is down", ginkgo.Label(p1, file, vanilla, multiVc, newTest, disruptive), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())

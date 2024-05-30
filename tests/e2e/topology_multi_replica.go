@@ -50,7 +50,7 @@ import (
 
 var _ = ginkgo.Describe("[topologyL5-multireplica] TopologyL5-MultiReplica",
 	func() {
-		f := framework.NewDefaultFramework("topologyL5-multireplica")
+		f := framework.NewDefaultFramework("topology-multireplica")
 		f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 		var (
 			client                     clientset.Interface
