@@ -48,9 +48,9 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provisioning-With-MultiReplica-Level5",
+var _ = ginkgo.Describe("[topologyL5-multireplica] TopologyL5-MultiReplica",
 	func() {
-		f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
+		f := framework.NewDefaultFramework("topologyL5-multireplica")
 		f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 		var (
 			client                     clientset.Interface
@@ -112,9 +112,9 @@ var _ = ginkgo.Describe("[csi-topology-multireplica-level5] Topology-Aware-Provi
 			isVsanHealthServiceStopped = false
 			clientIndex = 0
 
-			topologyMap := GetAndExpectStringEnvVar(topologyMap)
-			topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap, topologyLength)
-			allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+			topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
+			topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap)
+			allowedTopologies = createAllowedTopolgies(topologyMap)
 
 			nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 			nimbusGeneratedVcPwd = GetAndExpectStringEnvVar(nimbusVcPwd)

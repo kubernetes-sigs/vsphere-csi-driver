@@ -43,8 +43,8 @@ import (
 	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 )
 
-var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", func() {
-	f := framework.NewDefaultFramework("topology-volume-snapshot")
+var _ = ginkgo.Describe("[topologyL5-snapshot] TopologyL5-Snapshot", func() {
+	f := framework.NewDefaultFramework("topologyL5-snapshot")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                  clientset.Interface
@@ -85,10 +85,9 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 
 		topologyLength, leafNode, _, leafNodeTag1, leafNodeTag2 = 5, 4, 0, 1, 2
 
-		topologyMap := GetAndExpectStringEnvVar(topologyMap)
-		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap,
-			topologyLength)
-		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
+		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap)
+		allowedTopologies = createAllowedTopolgies(topologyMap)
 
 		var datacenters []string
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)

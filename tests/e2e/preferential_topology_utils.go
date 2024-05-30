@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v6/apis/volumesnapshot/v1"
@@ -56,6 +57,11 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 	var clusterList, clusList, clusFolderTemp, clusterGroupRes []string
 	var clusterFolderName string
 	var clusterFolder, clusterGroup, cluster string
+
+	/* Reading the topology setup type (Level 2 or Level 5), and based on the selected setup type,
+	fetching the list of clusters */
+	topologySetupType := GetAndExpectStringEnvVar(envTopologySetupType)
+
 	for i := 0; i < len(dataCenter); i++ {
 		if !multivc {
 			clusterFolder = govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
@@ -94,28 +100,39 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 			clusterGroupRes = strings.Split(clusterGroupResult.Stdout, "\n")
 		}
 		if !multivc {
-			cluster = govcLoginCmd() + "govc ls " + clusterGroupRes[0] + " | sort"
-
-			framework.Logf("cmd: %s ", cluster)
-			clusterResult, err := sshExec(sshClientConfig, masterIp, cluster)
-			if err != nil && clusterResult.Code != 0 {
-				fssh.LogResult(clusterResult)
-				return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-					cluster, masterIp, err)
+			if topologySetupType == "Level2" {
+				var clusterRes []string
+				for _, str := range clusterGroupRes {
+					if str != "" {
+						clusterRes = append(clusterRes, str)
+					}
+				}
+				sort.Strings(clusterRes)
+				return clusterRes, nil
+			} else if topologySetupType == "Level5" {
+				cluster = govcLoginCmd() + "govc ls " + clusterGroupRes[0] + " | sort"
+				framework.Logf("cmd: %s ", cluster)
+				clusterResult, err := sshExec(sshClientConfig, masterIp, cluster)
+				if err != nil && clusterResult.Code != 0 {
+					fssh.LogResult(clusterResult)
+					return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						cluster, masterIp, err)
+				}
+				if clusterResult.Stdout != "" {
+					clusListTemp := strings.Split(clusterResult.Stdout, "\n")
+					clusList = append(clusList, clusListTemp...)
+				}
+				for i := 0; i < len(clusList)-1; i++ {
+					clusterList = append(clusterList, clusList[i])
+				}
+				clusList = nil
 			}
-			if clusterResult.Stdout != "" {
-				clusListTemp := strings.Split(clusterResult.Stdout, "\n")
-				clusList = append(clusList, clusListTemp...)
-			}
-			for i := 0; i < len(clusList)-1; i++ {
-				clusterList = append(clusterList, clusList[i])
-			}
-			clusList = nil
 		} else {
 			return clusterGroupRes, nil
 		}
 	}
 	return clusterList, nil
+
 }
 
 /*

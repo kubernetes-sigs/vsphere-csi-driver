@@ -38,8 +38,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", func() {
-	f := framework.NewDefaultFramework("multi-vc-config-secret")
+var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
+	f := framework.NewDefaultFramework("multivc-configsecret")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                      clientset.Interface
@@ -106,8 +106,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-config-secret] Multi-VC-Config-Secret", f
 		csiReplicas = *csiDeployment.Spec.Replicas
 
 		// read testbed topology map
-		topologyMap := GetAndExpectStringEnvVar(topologyMap)
-		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
+		allowedTopologies = createAllowedTopolgies(topologyMap)
 
 		// save original vsphere conf credentials in temp variable
 		vCenterIP = multiVCe2eVSphere.multivcConfig.Global.VCenterHostname

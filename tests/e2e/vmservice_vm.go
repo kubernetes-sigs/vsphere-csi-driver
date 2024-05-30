@@ -664,7 +664,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		topologyHaMap := GetAndExpectStringEnvVar(topologyHaMap)
-		allowedTopos := createAllowedTopolgies(topologyHaMap, tkgshaTopologyLevels)
+		allowedTopos := createAllowedTopolgies(topologyHaMap)
 		allowedTopologyHAMap := createAllowedTopologiesMap(allowedTopos)
 		pvcAnnotations := make(map[string]string)
 		topoList := []string{}
@@ -778,7 +778,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		topologyHaMap := GetAndExpectStringEnvVar(topologyHaMap)
-		allowedTopos := createAllowedTopolgies(topologyHaMap, tkgshaTopologyLevels)
+		allowedTopos := createAllowedTopolgies(topologyHaMap)
 		allowedTopologyHAMap := createAllowedTopologiesMap(allowedTopos)
 		pvcAnnotations := make(map[string]string)
 		topoList := []string{}

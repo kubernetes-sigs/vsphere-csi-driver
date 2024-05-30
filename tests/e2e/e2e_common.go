@@ -228,7 +228,7 @@ const (
 	tkgAPI                                    = "/apis/run.tanzu.vmware.com/v1alpha3/namespaces" +
 		"/test-gc-e2e-demo-ns/tanzukubernetesclusters/"
 	topologykey                                = "topology.csi.vmware.com"
-	topologyMap                                = "TOPOLOGY_MAP"
+	envTopologyMap                             = "TOPOLOGY_MAP"
 	topologyHaMap                              = "TOPOLOGY_HA_MAP"
 	topologyFeature                            = "TOPOLOGY_FEATURE"
 	topologyTkgHaName                          = "tkgs_ha"
@@ -432,6 +432,8 @@ var (
 	envVsanDsStoragePolicyCluster3 = "VSAN_DATASTORE_CLUSTER3_STORAGE_POLICY"
 	envNonVsanDsUrl                = "NON_VSAN_DATASTOREURL"
 	envVsanDsUrlCluster3           = "VSAN_DATASTOREURL_CLUSTER3"
+	envRemoteDatastoreUrl          = "REMOTE_DATASTORE_URL"
+	envTopologySetupType           = "TOPOLOGY_SETUP_TYPE"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.

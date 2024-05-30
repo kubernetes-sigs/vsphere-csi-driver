@@ -36,8 +36,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm", func() {
-	f := framework.NewDefaultFramework("multi-vc-operation-storm")
+var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func() {
+	f := framework.NewDefaultFramework("multivc-operationstorm")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                      clientset.Interface
@@ -93,8 +93,8 @@ var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
-		topologyMap := GetAndExpectStringEnvVar(topologyMap)
-		allowedTopologies = createAllowedTopolgies(topologyMap, topologyLength)
+		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
+		allowedTopologies = createAllowedTopolgies(topologyMap)
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 
 		sshClientConfig = &ssh.ClientConfig{
@@ -115,7 +115,7 @@ var _ = ginkgo.Describe("[csi-multi-vc-operation-storm] Multi-VC-Operation-Storm
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		clusterWorkerMap := GetAndExpectStringEnvVar(workerClusterMap)
-		_, workerInitialAlias = createTopologyMapLevel5(clusterWorkerMap, topologyLength)
+		_, workerInitialAlias = createTopologyMapLevel5(clusterWorkerMap)
 
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
