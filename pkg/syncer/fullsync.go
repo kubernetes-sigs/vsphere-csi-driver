@@ -788,21 +788,15 @@ func fullSyncConstructVolumeMaps(ctx context.Context, pvList []*v1.PersistentVol
 			var cnsMetadata []cnstypes.BaseCnsEntityMetadata
 			allEntityMetadata := volume.Metadata.EntityMetadata
 			for _, metadata := range allEntityMetadata {
-				if metadata.(*cnstypes.CnsKubernetesEntityMetadata).ClusterID ==
-					clusterIDforVolumeMetadata {
+				if metadata.(*cnstypes.CnsKubernetesEntityMetadata).ClusterID == clusterIDforVolumeMetadata {
 					cnsMetadata = append(cnsMetadata, metadata)
 				}
 			}
 			volumeToCnsEntityMetadataMap[volume.VolumeId.Id] = cnsMetadata
-			if len(volume.Metadata.ContainerClusterArray) == 1 &&
-				clusterIDforVolumeMetadata == volume.Metadata.ContainerClusterArray[0].ClusterId &&
-				metadataSyncer.configInfo.Cfg.Global.ClusterDistribution ==
-					volume.Metadata.ContainerClusterArray[0].ClusterDistribution {
-				log.Debugf("Volume %s has cluster distribution set to %s",
-					volume.Name, volume.Metadata.ContainerClusterArray[0].ClusterDistribution)
-				volumeClusterDistributionMap[volume.VolumeId.Id] = true
-			}
 
+			volumeClusterDistributionMap[volume.VolumeId.Id] =
+				hasClusterDistributionSet(ctx, volume, clusterIDforVolumeMetadata,
+					metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
 		}
 	}
 	return volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, volumeClusterDistributionMap, nil

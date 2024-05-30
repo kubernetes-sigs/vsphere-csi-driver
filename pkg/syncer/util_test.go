@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -389,5 +391,88 @@ func TestGetTopologySegmentsFromNodeAffinityRulesMultipleMatchExpressions(t *tes
 		if foundMatch == false {
 			t.Errorf("Mismatch in topology segments")
 		}
+	}
+}
+
+func TestHasClusterDistributionSet(t *testing.T) {
+	tests := []struct {
+		name                        string
+		volume                      cnstypes.CnsVolume
+		clusterIDforVolumeMetadata  string
+		expectedClusterDistribution string
+		expectedResult              bool
+	}{
+		{
+			name: "Cluster distribution matches",
+			volume: cnstypes.CnsVolume{
+				VolumeId: cnstypes.CnsVolumeId{
+					Id: "volumeID",
+				},
+				Metadata: cnstypes.CnsVolumeMetadata{
+					ContainerClusterArray: []cnstypes.CnsContainerCluster{
+						{ClusterId: "cluster-1", ClusterDistribution: "SupervisorCluster"},
+						{ClusterId: "cluster-2", ClusterDistribution: "TKGService"},
+					},
+				},
+			},
+			clusterIDforVolumeMetadata:  "cluster-1",
+			expectedClusterDistribution: "SupervisorCluster",
+			expectedResult:              true,
+		},
+		{
+			name: "Cluster distribution does not set",
+			volume: cnstypes.CnsVolume{
+				VolumeId: cnstypes.CnsVolumeId{
+					Id: "volumeID",
+				},
+				Metadata: cnstypes.CnsVolumeMetadata{
+					ContainerClusterArray: []cnstypes.CnsContainerCluster{
+						{ClusterId: "cluster-1", ClusterDistribution: ""},
+						{ClusterId: "cluster-2", ClusterDistribution: "TKGService"},
+					},
+				},
+			},
+			clusterIDforVolumeMetadata:  "cluster-1",
+			expectedClusterDistribution: "SupervisorCluster",
+			expectedResult:              false,
+		},
+		{
+			volume: cnstypes.CnsVolume{
+				VolumeId: cnstypes.CnsVolumeId{
+					Id: "volumeID",
+				},
+				Metadata: cnstypes.CnsVolumeMetadata{
+					ContainerClusterArray: []cnstypes.CnsContainerCluster{
+						{ClusterId: "cluster-1", ClusterDistribution: "SupervisorCluster"},
+						{ClusterId: "cluster-2", ClusterDistribution: "TKGService"},
+					},
+				},
+			},
+			clusterIDforVolumeMetadata:  "cluster-3",
+			expectedClusterDistribution: "SupervisorCluster",
+			expectedResult:              false,
+		},
+		{
+			name: "No container clusters in metadata",
+			volume: cnstypes.CnsVolume{
+				VolumeId: cnstypes.CnsVolumeId{
+					Id: "volumeID",
+				},
+				Metadata: cnstypes.CnsVolumeMetadata{
+					ContainerClusterArray: []cnstypes.CnsContainerCluster{},
+				},
+			},
+			clusterIDforVolumeMetadata:  "cluster-1",
+			expectedClusterDistribution: "SupervisorCluster",
+			expectedResult:              false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := hasClusterDistributionSet(context.Background(),
+				test.volume, test.clusterIDforVolumeMetadata, test.expectedClusterDistribution)
+			assert.Equal(t, test.expectedResult, result)
+		})
 	}
 }
