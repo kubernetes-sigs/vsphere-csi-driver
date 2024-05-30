@@ -314,6 +314,7 @@ var (
 	windowsEnv           bool
 	multipleSvc          bool
 	multivc              bool
+	thumbprintBasedAuth  bool
 )
 
 // For busybox pod image
@@ -495,5 +496,11 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	topologyType := os.Getenv("TOPOLOGY_TYPE")
 	if strings.TrimSpace(string(topologyType)) == "MULTI_VC" {
 		multivc = true
+	}
+
+	//Check if it is multivc env
+	authType := os.Getenv("AUTHENTICATION_TYPE")
+	if strings.TrimSpace(string(authType)) == "THUMBPRINT" {
+		thumbprintBasedAuth = true
 	}
 }
