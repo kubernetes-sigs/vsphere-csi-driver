@@ -587,6 +587,12 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 			k8sOrchestratorInstance.supervisorFSS.featureStatesLock.Unlock()
 		}
 	}
+
+	// if configMapNamespace is empty, it means the FSS namespace was not set
+	// so we should not care about watching it.
+	if configMapNamespaceToListen == "" {
+		return nil
+	}
 	// Set up kubernetes configmap listener for CSI namespace.
 	err = k8sOrchestratorInstance.informerManager.AddConfigMapListener(
 		ctx,
