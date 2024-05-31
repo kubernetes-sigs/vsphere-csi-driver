@@ -914,3 +914,22 @@ func addResourceVersion(patchBytes []byte, resourceVersion string) ([]byte, erro
 	}
 	return versionBytes, nil
 }
+
+// hasClusterDistributionSet checks volume information obtained from CNS queryvolume API and check
+// expected cluster distribution is set for specific clusterID in ContainerClusterArray associated with volume
+// for Volumes Created from TKG Cluster, QueryVolume returns two entries for containerClusterArray
+// one for clusterFlavor: "WORKLOAD" and clusterDistribution "SupervisorCluster" and
+// another for clusterFlavor: "GUEST_CLUSTER" clusterDistribution: "TKGService"
+func hasClusterDistributionSet(ctx context.Context, volume cnstypes.CnsVolume,
+	clusterIDforVolumeMetadata string, expectedClusterDistribution string) bool {
+	log := logger.GetLogger(ctx)
+	for _, containerCluster := range volume.Metadata.ContainerClusterArray {
+		if clusterIDforVolumeMetadata == containerCluster.ClusterId &&
+			containerCluster.ClusterDistribution == expectedClusterDistribution {
+			log.Debugf("Volume %s has cluster distribution set to %s",
+				volume.Name, containerCluster.ClusterDistribution)
+			return true
+		}
+	}
+	return false
+}
