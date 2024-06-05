@@ -103,8 +103,8 @@ var (
 const (
 	ResourceKindPVC               = "PersistentVolumeClaim"
 	ResourceKindSnapshot          = "VolumeSnapshot"
-	PVCQuotaExtensionServiceName  = "volume.cns.vsphere.vmware.com"
-	SnapQuotaExtensionServiceName = "snapshot.cns.vsphere.vmware.com"
+	PVCQuotaExtensionServiceName  = "cns-storage-quota-extension-service-volume"
+	SnapQuotaExtensionServiceName = "cns-storage-quota-extension-service-snapshot"
 	scParamStoragePolicyID        = "storagePolicyID"
 )
 
