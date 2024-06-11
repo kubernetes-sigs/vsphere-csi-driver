@@ -63,7 +63,6 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-positive] RWX-Topology-HciMesh-Single
 		podList                 []*v1.Pod
 		pvs                     []*v1.PersistentVolume
 		noPodsToDeploy          int
-		remoteDsUrl             string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -106,9 +105,6 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-positive] RWX-Topology-HciMesh-Single
 		//setting map values
 		labelsMap["app"] = "test"
 		scParameters[scParamFsType] = nfs4FSType
-
-		// remote datastore url
-		remoteDsUrl = GetAndExpectStringEnvVar(envRemoteDatastoreUrl)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -483,6 +479,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-positive] RWX-Topology-HciMesh-Single
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		// remote datastore url
+		remoteDsUrl := GetAndExpectStringEnvVar(envRemoteDatastoreUrl)
 		scParameters["datastoreurl"] = remoteDsUrl
 
 		// deployment pod and pvc count
@@ -597,6 +595,9 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-positive] RWX-Topology-HciMesh-Single
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		// remote datastore url
+		remoteDsUrl := GetAndExpectStringEnvVar(envRemoteDatastoreUrl)
 
 		// fetch file share volume id
 		fileShareVolumeId1, err := creatFileShareForSingleVc(remoteDsUrl)

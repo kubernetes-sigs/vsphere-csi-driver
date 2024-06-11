@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -29,6 +30,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	"golang.org/x/crypto/ssh"
 	appsv1 "k8s.io/api/apps/v1"
@@ -43,6 +45,7 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 )
 
 /*
@@ -838,4 +841,104 @@ func getAllowedTopologyForLevel2(allowedTopologies []v1.TopologySelectorLabelReq
 		})
 	}
 	return result, nil
+}
+
+/*
+verifyK8sNodeStatusAfterSiteRecovery verifies that all k8s nodes be in up and
+running state post site recovery
+*/
+func verifyK8sNodeStatusAfterSiteRecovery(client clientset.Interface, ctx context.Context,
+	sshClientConfig *ssh.ClientConfig, nodeList *v1.NodeList) error {
+	k8sMasterIPs := getK8sMasterIPs(ctx, client)
+	checkNodesStatus := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
+	framework.Logf("Invoking command '%v' on host %v", checkNodesStatus, k8sMasterIPs[0])
+	result, err := sshExec(sshClientConfig, k8sMasterIPs[0], checkNodesStatus)
+	nodeNames := strings.Split(result.Stdout, "\n")
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("command failed/couldn't execute command: %s "+
+			"on host: %v, error: %w", checkNodesStatus, k8sMasterIPs[0], err)
+	}
+
+	for _, nodeName := range nodeNames {
+		if nodeName != "" {
+			framework.Logf("Node which is disconnected and needs to be powered on: %s", nodeName)
+			vmUUID := getNodeUUID(ctx, client, nodeName)
+			if vmUUID == "" {
+				return fmt.Errorf("VM UUID is empty for node: %s", nodeName)
+			}
+			framework.Logf("VM uuid is: %s for node: %s", vmUUID, nodeName)
+			vmRef, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+			if err != nil {
+				return fmt.Errorf("failed to get VM by UUID %s: %w", vmUUID, err)
+			}
+			framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
+			if vmRef == nil {
+				return fmt.Errorf("vmRef is nil for VM uuid: %s", vmUUID)
+			}
+			vm := object.NewVirtualMachine(e2eVSphere.Client.Client, vmRef.Reference())
+			_, err = vm.PowerOn(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to power on VM %s: %w", vmUUID, err)
+			}
+
+			err = vm.WaitForPowerState(ctx, vimtypes.VirtualMachinePowerStatePoweredOn)
+			if err != nil {
+				return fmt.Errorf("error waiting for VM %s to power on: %w", vmUUID, err)
+			}
+		}
+	}
+
+	// Wait for testbed to be back to normal
+	time.Sleep(pollTimeoutShort)
+
+	ginkgo.By("Wait for k8s cluster to be healthy")
+	wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+	err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
+	if err != nil {
+		return fmt.Errorf("error waiting for all nodes to be ready: %w", err)
+	}
+	return nil
+}
+
+/* This util will perform psod operation on a host */
+func psodHost(hostIP string) error {
+	ginkgo.By("PSOD")
+	sshCmd := fmt.Sprintf("vsish -e set /config/Misc/intOpts/BlueScreenTimeout %s", psodTime)
+	op, err := runCommandOnESX("root", hostIP, sshCmd)
+	framework.Logf(op)
+	if err != nil {
+		return fmt.Errorf("failed to set BlueScreenTimeout: %w", err)
+	}
+
+	ginkgo.By("Injecting PSOD")
+	psodCmd := "vsish -e set /reliability/crashMe/Panic 1"
+	op, err = runCommandOnESX("root", hostIP, psodCmd)
+	framework.Logf(op)
+	if err != nil {
+		return fmt.Errorf("failed to inject PSOD: %w", err)
+	}
+	return nil
+}
+
+/*
+This utility fetches a list of hosts in a specified cluster and returns them as a list of strings.
+*/
+func fetchListofHostsInCluster(ctx context.Context, clusterName string) []string {
+	var hostList []string
+	var hostsInCluster []*object.HostSystem
+	clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	hostsInCluster = getHostsByClusterName(ctx, clusterComputeResource, clusterName)
+	for i := 0; i < len(hostsInCluster); i++ {
+		for _, esxInfo := range tbinfo.esxHosts {
+			host := hostsInCluster[i].Common.InventoryPath
+			hostIp := strings.Split(host, "/")
+			if hostIp[len(hostIp)-1] == esxInfo["ip"] {
+				esxHostIP := esxInfo["ip"]
+				hostList = append(hostList, esxHostIP)
+			}
+		}
+	}
+	return hostList
 }

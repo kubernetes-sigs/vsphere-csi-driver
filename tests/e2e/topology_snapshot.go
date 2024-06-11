@@ -43,8 +43,8 @@ import (
 	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 )
 
-var _ = ginkgo.Describe("[topologyL5-snapshot] TopologyL5-Snapshot", func() {
-	f := framework.NewDefaultFramework("topologyL5-snapshot")
+var _ = ginkgo.Describe("[topology-snapshot] Topology-Snapshot", func() {
+	f := framework.NewDefaultFramework("topology-snapshot")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                  clientset.Interface

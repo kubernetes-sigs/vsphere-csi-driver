@@ -3193,7 +3193,7 @@ func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
 	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
 		"csi-fetch-preferred-datastores-intervalinmin = %d\n"+"query-limit = \"%d\"\n"+
 		"list-volume-threshold = \"%d\"\n\n"+
-		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n"+
+		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n\n"+
 		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n"+
 		"[Labels]\ntopology-categories = \"%s\"",
 		cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
