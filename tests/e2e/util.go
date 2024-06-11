@@ -89,6 +89,7 @@ import (
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	storagepolicyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
@@ -2899,7 +2900,7 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 // given crd is created/deleted in the supervisor cluster. This method will
 // fetch the list of CRD Objects for a given crdName, Version and Group and then
 // verifies if the given expectedInstanceName exist in the list.
-func verifyCNSFileAccessConfigCRDInSupervisor(ctx context.Context, f *framework.Framework,
+func verifyCNSFileAccessConfigCRDInSupervisor(ctx context.Context,
 	expectedInstanceName string, crdName string, crdVersion string, crdGroup string, isCreated bool) {
 	// Adding an explicit wait time for the recounciler to refresh the status.
 	time.Sleep(30 * time.Second)
@@ -6973,4 +6974,22 @@ func getHostMoref4K8sNode(
 	ctx context.Context, client clientset.Interface, node *v1.Node) vim25types.ManagedObjectReference {
 	vmIp2MoRefMap := vmIpToMoRefMap(ctx)
 	return vmIp2MoRefMap[getK8sNodeIP(node)]
+}
+
+func setQuota(ctx context.Context, restClientConfig *rest.Config,
+	scName string, namespace string, quota string) {
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	spq := &storagepolicyv1alpha1.StoragePolicyQuota{}
+	err = cnsOperatorClient.Get(ctx,
+		pkgtypes.NamespacedName{Name: scName + storagePolicyQuota, Namespace: namespace}, spq)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	spq.Spec.Limit.Reset()
+	spq.Spec.Limit.Add(resource.MustParse(quota))
+	framework.Logf("set quota %s", quota)
+
+	err = cnsOperatorClient.Update(ctx, spq)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

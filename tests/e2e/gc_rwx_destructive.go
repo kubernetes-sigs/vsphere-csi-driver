@@ -226,7 +226,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 						persistentvolume, tempPod)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod")
-					verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+pvcNameInSV,
+					verifyCNSFileAccessConfigCRDInSupervisor(ctx, sspod.Spec.NodeName+"-"+pvcNameInSV,
 						crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 					// Verify using CNS Query API if VolumeID retrieved from PV is present.
@@ -343,7 +343,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 					fcdIDInCNS := getVolumeIDFromSupervisorCluster(pvcNameInSV)
 					gomega.Expect(fcdIDInCNS).NotTo(gomega.BeEmpty())
 					ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod")
-					verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+pvcNameInSV,
+					verifyCNSFileAccessConfigCRDInSupervisor(ctx, sspod.Spec.NodeName+"-"+pvcNameInSV,
 						crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 				}
 			}
@@ -487,11 +487,11 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod with pvc1")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, ddpod.Spec.NodeName+"-"+pvc1NameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, ddpod.Spec.NodeName+"-"+pvc1NameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod with pvc2")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, ddpod.Spec.NodeName+"-"+pvc2NameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, ddpod.Spec.NodeName+"-"+pvc2NameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 		}
 
@@ -562,11 +562,11 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod with pvc1")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, ddpod.Spec.NodeName+"-"+pvc1NameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, ddpod.Spec.NodeName+"-"+pvc1NameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod with pvc2")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, ddpod.Spec.NodeName+"-"+pvc2NameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, ddpod.Spec.NodeName+"-"+pvc2NameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 		}
 

@@ -194,7 +194,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+pvcNameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		}()
 
@@ -203,7 +203,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod1")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+pvcNameInSV,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
@@ -268,7 +268,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 
 			ginkgo.By(fmt.Sprintf("Verifying whether the CnsFileAccessConfig CRD %s is created or not for Pod %s",
 				tempPod.Spec.NodeName+"-"+pvcNameInSV, multipod.Name))
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, tempPod.Spec.NodeName+"-"+pvcNameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, tempPod.Spec.NodeName+"-"+pvcNameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 		}
 
@@ -308,7 +308,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, multiPod.Spec.NodeName+"-"+pvcNameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, multiPod.Spec.NodeName+"-"+pvcNameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		}
 	})
@@ -460,7 +460,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 				gomega.Expect(fcdIDInCNS).NotTo(gomega.BeEmpty())
 
 				framework.Logf("Searching for file access config crd %s", tempPod.Spec.NodeName+"-"+pvcNameInSV)
-				verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, tempPod.Spec.NodeName+"-"+pvcNameInSV,
+				verifyCNSFileAccessConfigCRDInSupervisor(ctx, tempPod.Spec.NodeName+"-"+pvcNameInSV,
 					crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 				fileAccessCRD = append(fileAccessCRD, tempPod.Spec.NodeName+"-"+pvcNameInSV)
 			}

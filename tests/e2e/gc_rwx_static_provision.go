@@ -157,12 +157,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume static Provision Test", func(
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+volHandle,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		}()
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod1")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle,
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+volHandle,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
@@ -214,12 +214,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume static Provision Test", func(
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod2")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod2.Spec.NodeName+"-"+volHandle,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		}()
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod2")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle,
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod2.Spec.NodeName+"-"+volHandle,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
@@ -332,7 +332,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume static Provision Test", func(
 		}()
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod1")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle,
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+volHandle,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
@@ -358,7 +358,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume static Provision Test", func(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+volHandle,
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+volHandle,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 
 		// Creating label for PV
@@ -398,12 +398,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume static Provision Test", func(
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod2")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod2.Spec.NodeName+"-"+volHandle,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		}()
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod2")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+volHandle,
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod2.Spec.NodeName+"-"+volHandle,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible from pod2")

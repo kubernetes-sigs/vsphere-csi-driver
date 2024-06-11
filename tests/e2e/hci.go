@@ -222,7 +222,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 
 		ginkgo.By("create a sts with 3 replicas")
 		var replicas int32 = 3
-		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false, false, replicas, "", "")
+		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false, false, replicas, "", 0, "")
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -304,7 +304,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 
 		ginkgo.By("Create a sts with 3 replicas")
 		var replicas int32 = 3
-		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false, false, replicas, "", "")
+		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false, false, replicas, "", 0, "")
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
