@@ -2900,7 +2900,7 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 // given crd is created/deleted in the supervisor cluster. This method will
 // fetch the list of CRD Objects for a given crdName, Version and Group and then
 // verifies if the given expectedInstanceName exist in the list.
-func verifyCNSFileAccessConfigCRDInSupervisor(ctx context.Context, f *framework.Framework,
+func verifyCNSFileAccessConfigCRDInSupervisor(ctx context.Context,
 	expectedInstanceName string, crdName string, crdVersion string, crdGroup string, isCreated bool) {
 	// Adding an explicit wait time for the recounciler to refresh the status.
 	time.Sleep(30 * time.Second)
