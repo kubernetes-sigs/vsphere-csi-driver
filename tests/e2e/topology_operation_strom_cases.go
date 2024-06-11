@@ -40,8 +40,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[topologyL5-operationstorm] TopologyL5-OperationStorm", func() {
-	f := framework.NewDefaultFramework("topologyL5-operationstorm")
+var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", func() {
+	f := framework.NewDefaultFramework("topology-operationstorm")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                  clientset.Interface

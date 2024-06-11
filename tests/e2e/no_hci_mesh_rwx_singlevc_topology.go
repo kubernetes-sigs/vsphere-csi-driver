@@ -231,6 +231,11 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+
+		// setting all global variables to nil before starting new testcase
+		pvs, pvclaim, pv, allowedTopologies, allowedTopologyForSC,
+			nodeSelectorTerms, allowedTopologyForPod, depl = nil, nil, nil, nil, nil, nil, nil, nil
+
 	})
 
 	/*
@@ -468,7 +473,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 		15. Perform cleanup by deleting Pods, PVCs and SC.
 	*/
 
-	ginkgo.It("TC4Deployment Pods attached to single RWX PVC with vSAN storage policy of rack-1 "+
+	ginkgo.It("Pods attached to Rwx pvc with vSAN storage policy of rack-1 "+
 		"defined in SC along with top level allowed topology "+
 		"specified", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
 
@@ -514,7 +519,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 			/* setting rack1(cluster1) as node selector terms for deployment pod creation */
 			allowedTopologyForPod = getTopologySelector(topologyAffinityDetails, topologyCategories,
 				topologyLength, leafNode, leafNodeTag0)[4:]
-			nodeSelectorTerms, err = getNodeSelectorMapForDeploymentPods(allowedTopologies)
+			nodeSelectorTerms, err = getNodeSelectorMapForDeploymentPods(allowedTopologyForPod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -724,7 +729,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 			// Node selector term for deployment Pod region1 > zone1 > building1 > level1 > rack2
 			allowedTopologyForPod = getTopologySelector(topologyAffinityDetails, topologyCategories,
 				topologyLength, leafNode, leafNodeTag1)
-			nodeSelectorTerms, err = getNodeSelectorMapForDeploymentPods(allowedTopologies)
+			nodeSelectorTerms, err = getNodeSelectorMapForDeploymentPods(allowedTopologyForPod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// Get allowed topologies for Storage Class region1 > zone1 > building1 > level1 > rack3
@@ -986,24 +991,24 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 
 			/* Setting zone1 for pod node selector terms */
 			allowedTopologyForPod = allowedTopologyForSC
-			nodeSelectorTerms, err = getNodeSelectorMapForDeploymentPods(allowedTopologyForSC)
+			nodeSelectorTerms, err = getNodeSelectorMapForDeploymentPods(allowedTopologyForPod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		} else if topologySetupType == "Level5" {
 			// Get allowed topologies for Storage Class (rack > rack1)
 			ginkgo.By("Set node selector term for deployment pods so that all pods should get created " +
 				"on one single AZ i.e. cluster-1(rack-1)")
-			allowedTopologies = getTopologySelector(topologyAffinityDetails, topologyCategories,
+			allowedTopologyForSC = getTopologySelector(topologyAffinityDetails, topologyCategories,
 				topologyLength, leafNode, leafNodeTag0)[4:]
-			allowedTopologyForPod = allowedTopologies
-			nodeSelectorTerms, err = getNodeSelectorMapForDeploymentPods(allowedTopologies)
+			allowedTopologyForPod = allowedTopologyForSC
+			nodeSelectorTerms, err = getNodeSelectorMapForDeploymentPods(allowedTopologyForPod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with allowed topology "+
 			"specified to single level cluster-1", accessmode, nfs4FSType))
 		storageclass, pvclaims, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap,
-			scParameters, diskSize, allowedTopologies, bindingModeImm, false, accessmode, "", nil, createPvcItr, false, false)
+			scParameters, diskSize, allowedTopologyForSC, bindingModeImm, false, accessmode, "", nil, createPvcItr, false, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))

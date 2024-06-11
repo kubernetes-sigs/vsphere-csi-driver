@@ -48,9 +48,9 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[topologyL5-multireplica] TopologyL5-MultiReplica",
+var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 	func() {
-		f := framework.NewDefaultFramework("topologyL5-multireplica")
+		f := framework.NewDefaultFramework("topology-multireplica")
 		f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 		var (
 			client                     clientset.Interface

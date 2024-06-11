@@ -58,10 +58,6 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 	var clusterFolderName string
 	var clusterFolder, clusterGroup, cluster string
 
-	/* Reading the topology setup type (Level 2 or Level 5), and based on the selected setup type,
-	fetching the list of clusters */
-	topologySetupType := GetAndExpectStringEnvVar(envTopologySetupType)
-
 	for i := 0; i < len(dataCenter); i++ {
 		if !multivc {
 			clusterFolder = govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
@@ -100,6 +96,10 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 			clusterGroupRes = strings.Split(clusterGroupResult.Stdout, "\n")
 		}
 		if !multivc {
+			/* Reading the topology setup type (Level 2 or Level 5), and based on the selected setup type,
+			fetching the list of clusters */
+			topologySetupType := GetAndExpectStringEnvVar(envTopologySetupType)
+
 			if topologySetupType == "Level2" {
 				var clusterRes []string
 				for _, str := range clusterGroupRes {
