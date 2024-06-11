@@ -201,7 +201,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 					ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod")
-					verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+pvcNameInSV,
+					verifyCNSFileAccessConfigCRDInSupervisor(ctx, sspod.Spec.NodeName+"-"+pvcNameInSV,
 						crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 					cnsFileAccessConfigCRDList = append(cnsFileAccessConfigCRDList,
@@ -263,7 +263,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for missing Pod")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, missingPod.Spec.NodeName+"-"+missingVolumeHandle,
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, missingPod.Spec.NodeName+"-"+missingVolumeHandle,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		//Add a check to validate CnsVolumeMetadata crd
 		verifyCRDInSupervisorWithWait(ctx, f, missingVolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, false)
@@ -338,7 +338,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 					gomega.Expect(fcdIDInCNS).NotTo(gomega.BeEmpty())
 
 					ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod")
-					verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+pvcNameInSV,
+					verifyCNSFileAccessConfigCRDInSupervisor(ctx, sspod.Spec.NodeName+"-"+pvcNameInSV,
 						crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 					cnsFileAccessConfigCRDList = append(cnsFileAccessConfigCRDList,
@@ -376,7 +376,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 
 		ginkgo.By("Wait and verify CNSFileAccessConfig CRD is fully deleted")
 		for _, crdName := range cnsFileAccessConfigCRDList {
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, crdName, crdCNSFileAccessConfig,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, crdName, crdCNSFileAccessConfig,
 				crdVersion, crdGroup, false)
 		}
 	})
@@ -497,7 +497,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 					ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod")
-					verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+pvcNameInSV,
+					verifyCNSFileAccessConfigCRDInSupervisor(ctx, sspod.Spec.NodeName+"-"+pvcNameInSV,
 						crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 					cnsFileAccessConfigCRDList = append(cnsFileAccessConfigCRDList,
@@ -558,7 +558,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for missing Pod")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, missingPod.Spec.NodeName+"-"+missingVolumeHandle,
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, missingPod.Spec.NodeName+"-"+missingVolumeHandle,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		//Add a check to validate CnsVolumeMetadata crd
 		verifyCRDInSupervisorWithWait(ctx, f, missingVolumeHandle, crdCNSVolumeMetadatas, crdVersion, crdGroup, false)
@@ -633,7 +633,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 					gomega.Expect(fcdIDInCNS).NotTo(gomega.BeEmpty())
 
 					ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod")
-					verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+pvcNameInSV,
+					verifyCNSFileAccessConfigCRDInSupervisor(ctx, sspod.Spec.NodeName+"-"+pvcNameInSV,
 						crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 					cnsFileAccessConfigCRDList = append(cnsFileAccessConfigCRDList,
@@ -671,7 +671,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 
 		ginkgo.By("Wait and verify CNSFileAccessConfig CRD is fully deleted")
 		for _, crdName := range cnsFileAccessConfigCRDList {
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, crdName, crdCNSFileAccessConfig,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, crdName, crdCNSFileAccessConfig,
 				crdVersion, crdGroup, false)
 		}
 	})
