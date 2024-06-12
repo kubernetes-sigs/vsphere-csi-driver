@@ -70,11 +70,7 @@ func GetKubeConfig(ctx context.Context) (*restclient.Config, error) {
 	log := logger.GetLogger(ctx)
 	var config *restclient.Config
 	var err error
-	kubecfgPath := os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
-	kubecfgFlag := flag.Lookup("kubeconfig")
-	if kubecfgFlag != nil {
-		kubecfgPath = kubecfgFlag.Value.(flag.Getter).Get().(string)
-	}
+	kubecfgPath := getKubeConfigPath(ctx)
 	if kubecfgPath != "" {
 		log.Infof("k8s client using kubeconfig from %s", kubecfgPath)
 		config, err = clientcmd.BuildConfigFromFlags("", kubecfgPath)
@@ -92,6 +88,40 @@ func GetKubeConfig(ctx context.Context) (*restclient.Config, error) {
 	}
 	config.QPS, config.Burst = getClientThroughput(ctx, false)
 	return config, nil
+}
+
+// getKubeConfigPath returns the Kubeconfig path from the environment variable KUBECONFIG.
+// If the kubeconfig flag is supplied as an argument to the process, then it overrides the value
+// obtained from the KUBECONFIG environment variable and uses the supplied flag value.
+func getKubeConfigPath(ctx context.Context) string {
+	log := logger.GetLogger(ctx)
+	var kubecfgPath string
+	// Check if the kubeconfig flag is set
+	kubecfgFlag := flag.Lookup("kubeconfig")
+	if kubecfgFlag != nil {
+		flagValue := kubecfgFlag.Value.String()
+		if flagValue != "" {
+			kubecfgPath = flagValue
+			log.Infof("Kubeconfig path obtained from kubeconfig flag: %q", kubecfgPath)
+		} else {
+			log.Info("Kubeconfig flag is set but empty, checking environment variable value")
+		}
+	} else {
+		log.Info("Kubeconfig flag not set, checking environment variable value")
+	}
+	if kubecfgPath == "" {
+		// Get the Kubeconfig path from the environment variable
+		kubecfgPath = os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
+		log.Infof("Kubeconfig path obtained from environment variable %q: %q",
+			clientcmd.RecommendedConfigPathEnvVar, kubecfgPath)
+	}
+	// Final logging of the Kubeconfig path used
+	if kubecfgPath == "" {
+		log.Info("No Kubeconfig path found, either from environment variable or flag")
+	} else {
+		log.Infof("Final Kubeconfig path used: %q", kubecfgPath)
+	}
+	return kubecfgPath
 }
 
 // NewClient creates a newk8s client based on a service account.
