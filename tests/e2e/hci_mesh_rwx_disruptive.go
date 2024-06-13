@@ -54,24 +54,13 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		scParameters               map[string]string
 		accessmode                 v1.PersistentVolumeAccessMode
 		labelsMap                  map[string]string
-		replica                    int32
-		createPvcItr               int
-		createDepItr               int
-		pvclaim                    *v1.PersistentVolumeClaim
 		allowedTopologies          []v1.TopologySelectorLabelRequirement
 		err                        error
-		depl                       []*appsv1.Deployment
 		topologyClusterList        []string
-		powerOffHostsList          []string
 		nimbusGeneratedK8sVmPwd    string
 		sshClientConfig            *ssh.ClientConfig
 		nodeList                   *v1.NodeList
-		noPodsToDeploy             int
 		clusterComputeResource     []*object.ClusterComputeResource
-		noOfHostToBringDown        int
-		podList                    []*v1.Pod
-		service                    *v1.Service
-		statefulset                *appsv1.StatefulSet
 		k8sVersion                 string
 		isVsanHealthServiceStopped bool
 		vmknic4VsanDown            bool
@@ -191,7 +180,6 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 				gomega.Expect(client.CoreV1().Pods(namespace).Delete(ctx, pod.Name,
 					*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 			}
-			podList = nil
 		}
 
 		// perfrom cleanup of old stale entries of nginx service if left in the setup
@@ -218,7 +206,6 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 				err := client.AppsV1().Deployments(namespace).Delete(ctx, dep.Name, metav1.DeleteOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
-			depl = nil
 		}
 
 		// perfrom cleanup of old stale entries of pv if left in the setup
@@ -229,7 +216,6 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 				gomega.Expect(client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name,
 					*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
 			}
-			pvs = nil
 		}
 
 		// Initialize an empty slice to hold all hosts
@@ -293,8 +279,13 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		createPvcItr = 5
-		createDepItr = 1
+		var service *v1.Service
+		var replica int32
+		var depl []*appsv1.Deployment
+		var statefulset *appsv1.StatefulSet
+
+		createPvcItr := 5
+		createDepItr := 1
 		stsReplicas := 7
 
 		// remote datastore url
@@ -353,7 +344,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}()
 
 		ginkgo.By("Create StatefulSet with replica count 3 with RWX PVC access mode")
-		service, _, err = createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, true,
+		service, statefulset, err = createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, true,
 			int32(stsReplicas), false, allowedTopologies, false, false, false, accessmode, storageclass, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -417,7 +408,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create standalone Pods and attach it to pvc created above")
 		var podListNew []*v1.Pod
-		noPodsToDeploy = 3
+		noPodsToDeploy := 3
 		for i := 0; i < len(pvclaimsNew); i++ {
 			podListNew, _ = createStandalonePodsForRWXVolume(client, ctx, namespace, nil,
 				pvclaimsNew[i], false, execRWXCommandPod, noPodsToDeploy)
@@ -462,9 +453,11 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		replica = 3
-		createPvcItr = 5
-		createDepItr = 1
+		var depl []*appsv1.Deployment
+
+		replica := 3
+		createPvcItr := 5
+		createDepItr := 1
 
 		// remote datastore url
 		remoteDsUrl := GetAndExpectStringEnvVar(envRemoteDatastoreUrl)
@@ -495,8 +488,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create Deployment")
 		for i := 0; i < len(pvclaims); i++ {
-			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
-				pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
+			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica), false,
+				labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
 			depl = append(depl, deploymentList...)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -521,12 +514,12 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Scale up deployment1 to replica count 5")
 		replica = 5
-		_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+		_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 			true, labelsMap, pvclaims[0], nil, execRWXCommandPod, nginxImage, true, depl[0], 0)
 
 		ginkgo.By("Scale down deployment2 to replica count 1")
 		replica = 1
-		_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+		_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 			true, labelsMap, pvclaims[1], nil, execRWXCommandPod, nginxImage, true, depl[1], 0)
 
 		ginkgo.By("Creating new rwx pvcs when multiple sites are down")
@@ -545,7 +538,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create standalone Pods and attach it to pvc created above")
 		var podListNew []*v1.Pod
-		noPodsToDeploy = 3
+		noPodsToDeploy := 3
 		for i := 0; i < len(pvclaimsNew); i++ {
 			podListNew, _ = createStandalonePodsForRWXVolume(client, ctx, namespace, nil,
 				pvclaimsNew[i], false, execRWXCommandPod, noPodsToDeploy)
@@ -579,7 +572,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ginkgo.By("Scale up all deployment sets to replica count 10")
 		replica = 10
 		for i := 0; i < len(depl); i++ {
-			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -617,10 +610,15 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		defer cancel()
 
 		var pvclaimsNew []*v1.PersistentVolumeClaim
+		var service *v1.Service
+		var depl []*appsv1.Deployment
+		var statefulset *appsv1.StatefulSet
+		var podList []*v1.Pod
+
 		stsReplicas := 3
-		replica = 3
-		createPvcItr = 5
-		createDepItr = 1
+		replica := 3
+		createPvcItr := 5
+		createDepItr := 1
 
 		// remote datastore url
 		remoteDsUrl := GetAndExpectStringEnvVar(envRemoteDatastoreUrl)
@@ -656,8 +654,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create Deployments")
 		for i := 0; i < len(pvclaims); i++ {
-			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
-				pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
+			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica), false,
+				labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			depl = append(depl, deploymentList...)
 		}
@@ -698,7 +696,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}
 
 		ginkgo.By("Create standalone Pods with different read/write permissions and attach it to a newly created rwx pvcs")
-		noPodsToDeploy = 3
+		noPodsToDeploy := 3
 		for i := 0; i < len(pvclaimsNew); i++ {
 			pods, _ := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaimsNew[i], false, execRWXCommandPod,
 				noPodsToDeploy)
@@ -738,7 +736,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 				ginkgo.By("Scale up all deployment set replica count to 5 when psod is performed on Az3.")
 				replica = 5
 				for i := 0; i < len(depl); i++ {
-					_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+					_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 						true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 				}
 			}
@@ -769,8 +767,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create single standalone Pods using pvc created above")
 		noPodsToDeploy = 1
-		podListNew, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaim, false, execRWXCommandPod,
-			noPodsToDeploy)
+		podListNew, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaimsNewSet[0], false,
+			execRWXCommandPod, noPodsToDeploy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			for i := 0; i < len(podListNew); i++ {
@@ -801,13 +799,13 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Scale up dep1 to replica count 10")
 		replica = 10
-		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 			true, labelsMap, pvclaims[0], nil, execRWXCommandPod, nginxImage, true, depl[0], 0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Scale down dep2 to replica count 1")
 		replica = 1
-		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 			true, labelsMap, pvclaims[1], nil, execRWXCommandPod, nginxImage, true, depl[1], 0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
@@ -836,9 +834,11 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		createPvcItr = 5
-		createDepItr = 1
-		replica = 3
+		createPvcItr := 5
+		createDepItr := 1
+		replica := 3
+
+		var depl []*appsv1.Deployment
 
 		// remote datastore url
 		remoteDsUrl := GetAndExpectStringEnvVar(envRemoteDatastoreUrl)
@@ -865,8 +865,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create Deployment")
 		for i := 0; i < len(pvclaims); i++ {
-			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
-				pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
+			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
+				false, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
 			depl = append(depl, deploymentList...)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -901,7 +901,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ginkgo.By("Scale up all deployment sets to replica count 5")
 		replica = 5
 		for i := 0; i < len(depl); i++ {
-			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -926,7 +926,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ginkgo.By("Scale up all deployment sets to replica count 7")
 		replica = 7
 		for i := 0; i < len(depl); i++ {
-			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -959,8 +959,13 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		createPvcItr = 5
-		createDepItr = 1
+		var service *v1.Service
+		var replica int32
+		var depl []*appsv1.Deployment
+		var statefulset *appsv1.StatefulSet
+
+		createPvcItr := 5
+		createDepItr := 1
 		stsReplicas := 7
 
 		// remote datastore url
@@ -1021,7 +1026,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}()
 
 		ginkgo.By("Create StatefulSet with replica count 3 with RWX PVC access mode")
-		service, _, err = createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, true,
+		service, statefulset, err = createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, true,
 			int32(stsReplicas), false, allowedTopologies, false, false, false, accessmode, storageclass, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1037,7 +1042,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ginkgo.By("Scale up all deployment sets to replica count 5")
 		replica = 5
 		for i := 0; i < len(depl); i++ {
-			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -1093,8 +1098,11 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		createPvcItr = 5
-		createDepItr = 1
+		createPvcItr := 5
+		createDepItr := 1
+
+		var replica int32
+		var depl []*appsv1.Deployment
 
 		// remote datastore url
 		remoteDsUrl := GetAndExpectStringEnvVar(envRemoteDatastoreUrl)
@@ -1190,7 +1198,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create standalone Pods and attach it to pvc created above")
 		var podListNew []*v1.Pod
-		noPodsToDeploy = 1
+		noPodsToDeploy := 1
 		for i := 0; i < len(pvclaimsNew); i++ {
 			podListNew, _ = createStandalonePodsForRWXVolume(client, ctx, namespace, nil,
 				pvclaimsNew[i], false, execRWXCommandPod, noPodsToDeploy)
@@ -1205,7 +1213,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Scale up deployment1 to replica count 5")
 		replica = 5
-		_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+		_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 			true, labelsMap, pvclaims[0], nil, execRWXCommandPod, nginxImage, true, depl[0], 0)
 
 		// power on vm
@@ -1230,7 +1238,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ginkgo.By("Scale up all deployment sets to replica count 10")
 		replica = 7
 		for i := 0; i < len(depl); i++ {
-			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -1267,9 +1275,11 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		replica = 3
-		createPvcItr = 5
-		createDepItr = 1
+		var depl []*appsv1.Deployment
+
+		replica := 3
+		createPvcItr := 5
+		createDepItr := 1
 
 		// remote datastore url
 		remoteDsUrl := GetAndExpectStringEnvVar(envRemoteDatastoreUrl)
@@ -1300,8 +1310,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create Deployment")
 		for i := 0; i < len(pvclaims); i++ {
-			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
-				pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
+			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica), false,
+				labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
 			depl = append(depl, deploymentList...)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -1326,12 +1336,12 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Scale up deployment1 to replica count 5")
 		replica = 5
-		_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+		_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 			true, labelsMap, pvclaims[0], nil, execRWXCommandPod, nginxImage, true, depl[0], 0)
 
 		ginkgo.By("Scale down deployment2 to replica count 1")
 		replica = 1
-		_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+		_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 			true, labelsMap, pvclaims[1], nil, execRWXCommandPod, nginxImage, true, depl[1], 0)
 
 		ginkgo.By("Creating new rwx pvcs when multiple sites are down")
@@ -1350,7 +1360,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create standalone Pods and attach it to pvc created above")
 		var podListNew []*v1.Pod
-		noPodsToDeploy = 3
+		noPodsToDeploy := 3
 		for i := 0; i < len(pvclaimsNew); i++ {
 			podListNew, _ = createStandalonePodsForRWXVolume(client, ctx, namespace, nil,
 				pvclaimsNew[i], false, execRWXCommandPod, noPodsToDeploy)
@@ -1384,7 +1394,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ginkgo.By("Scale up all deployment sets to replica count 10")
 		replica = 10
 		for i := 0; i < len(depl); i++ {
-			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -1423,10 +1433,15 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		var service *v1.Service
+		var depl []*appsv1.Deployment
+		var statefulset *appsv1.StatefulSet
+		var powerOffHostsList []string
+
 		stsReplicas := 3
-		replica = 3
-		createPvcItr = 5
-		createDepItr = 1
+		replica := 3
+		createPvcItr := 5
+		createDepItr := 1
 
 		// remote datastore url
 		remoteDsUrl := GetAndExpectStringEnvVar(envRemoteDatastoreUrl)
@@ -1461,8 +1476,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create Deployment")
 		for i := 0; i < len(pvclaims); i++ {
-			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
-				pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
+			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica), false,
+				labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
 			depl = append(depl, deploymentList...)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -1491,7 +1506,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 			}
 		}()
 
-		noOfHostToBringDown = 1
+		noOfHostToBringDown := 1
 		powerOffHostsList4 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[3],
 			noOfHostToBringDown)
 		powerOffHostsList = append(powerOffHostsList, powerOffHostsList4...)
@@ -1503,7 +1518,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ginkgo.By("Scale up deployment to replica count 5")
 		replica = 5
 		for i := 0; i < len(depl); i++ {
-			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -1530,7 +1545,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create standalone Pods and attach it to pvc created above")
 		var podListNew []*v1.Pod
-		noPodsToDeploy = 3
+		noPodsToDeploy := 3
 		for i := 0; i < len(pvclaimsNew); i++ {
 			podListNew, _ = createStandalonePodsForRWXVolume(client, ctx, namespace,
 				nil, pvclaimsNew[i], false, execRWXCommandPod, noPodsToDeploy)
@@ -1570,7 +1585,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ginkgo.By("Perform scaleup operation on deployment. Increase the replica count to 7")
 		replica = 7
 		for i := 0; i < len(depl); i++ {
-			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+			_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -1607,10 +1622,15 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		var service *v1.Service
+		var depl []*appsv1.Deployment
+		var powerOffHostsList []string
+		var statefulset *appsv1.StatefulSet
+
 		stsReplicas := 3
-		replica = 2
-		createPvcItr = 5
-		createDepItr = 1
+		replica := 2
+		createPvcItr := 5
+		createDepItr := 1
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with "+
 			"all allowed topologies specified", accessmode, nfs4FSType))
@@ -1642,14 +1662,14 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create Deployments and perform sites down when pod creations are in progress")
 		for i := 0; i < len(pvclaims); i++ {
-			deploymentList, _, _ := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
+			deploymentList, _, _ := createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica), false, labelsMap,
 				pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
 			depl = append(depl, deploymentList...)
 
 			if i == 2 {
 				ginkgo.By("Bring down 1 ESXi host in zone2 and Bring down 1 ESXi " +
 					"host in zone3 and full remote site down")
-				noOfHostToBringDown = 1
+				noOfHostToBringDown := 1
 				powerOffHostsList2 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[1],
 					noOfHostToBringDown)
 				powerOffHostsList = append(powerOffHostsList, powerOffHostsList2...)
@@ -1706,7 +1726,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create single standalone Pods using pvc created above")
 		var podListNew []*v1.Pod
-		noPodsToDeploy = 3
+		noPodsToDeploy := 3
 		for i := 0; i < len(pvclaimsNew); i++ {
 			podListNew, _ = createStandalonePodsForRWXVolume(client, ctx, namespace, nil,
 				pvclaimsNew[i], false, execRWXCommandPod, noPodsToDeploy)
@@ -1721,7 +1741,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Scale up dep1 to replica count 5")
 		replica = 5
-		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 			true, labelsMap, pvclaims[0], nil, execRWXCommandPod, nginxImage, true, depl[0], 0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1745,7 +1765,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Scale down dep3 to replica count 1")
 		replica = 1
-		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 			true, labelsMap, pvclaims[2], nil, execRWXCommandPod, nginxImage, true, depl[2], 0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1789,10 +1809,15 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		var pvclaimsNew []*v1.PersistentVolumeClaim
 		var hostList []string
+		var service *v1.Service
+		var depl []*appsv1.Deployment
+		var statefulset *appsv1.StatefulSet
+		var podList []*v1.Pod
+
 		stsReplicas := 3
-		replica = 3
-		createPvcItr = 5
-		createDepItr = 1
+		replica := 3
+		createPvcItr := 5
+		createDepItr := 1
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with "+
 			"all allowed topologies specified", accessmode, nfs4FSType))
@@ -1824,8 +1849,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create Deployments")
 		for i := 0; i < len(pvclaims); i++ {
-			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
-				pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
+			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica), false,
+				labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			depl = append(depl, deploymentList...)
 		}
@@ -1867,7 +1892,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}
 
 		ginkgo.By("Create standalone Pods with different read/write permissions and attach it to a newly created rwx pvcs")
-		noPodsToDeploy = 3
+		noPodsToDeploy := 3
 		for i := 0; i < len(pvclaimsNew); i++ {
 			pods, _ := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaimsNew[i], false, execRWXCommandPod,
 				noPodsToDeploy)
@@ -1911,7 +1936,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 				ginkgo.By("Scale up all deployment set replica count to 5 when psod is performed on Az3.")
 				replica = 5
 				for i := 0; i < len(depl); i++ {
-					_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+					_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 						true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 				}
 			}
@@ -1942,8 +1967,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create single standalone Pods using pvc created above")
 		noPodsToDeploy = 1
-		podListNew, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaim, false, execRWXCommandPod,
-			noPodsToDeploy)
+		podListNew, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaimsNewSet[0],
+			false, execRWXCommandPod, noPodsToDeploy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			for i := 0; i < len(podListNew); i++ {
@@ -1974,56 +1999,56 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Scale up dep1 to replica count 10")
 		replica = 10
-		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 			true, labelsMap, pvclaims[0], nil, execRWXCommandPod, nginxImage, true, depl[0], 0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Scale down dep2 to replica count 1")
 		replica = 1
-		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+		_, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 			true, labelsMap, pvclaims[1], nil, execRWXCommandPod, nginxImage, true, depl[1], 0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	/*
-		Operation Storm and Multi Replica Usecase
-		Workload Pod creation in scale + Multiple site down (partial/full) + kill CSI provisioner and CSi-attacher +
-		dynamic Pod/PVC creation + vSAN-Health service down
+	   Operation Storm and Multi Replica Usecase
+	   Workload Pod creation in scale + Multiple site down (partial/full) + kill CSI provisioner and CSi-attacher +
+	   dynamic Pod/PVC creation + vSAN-Health service down
 
-		SC → all allowed topology set, → Immediate Binding mode
+	   SC → all allowed topology set, → Immediate Binding mode
 
-		Steps:
-		1. Identify the CSI-Controller-Pod where CSI Provisioner, CSI Attacher are the leader
-		2. Create Storage class with allowed topology set to all levels of AZs
-		3. Create 10 dynamic PVCs with "RWX" acces mode.
-		4. While volume creation is in progress, kill CSI-Provisioner identified in step #1
-		5. Wait for rwx pvcs to reach Bound state.
-		6. Create deployment Pods with 3 replicas each for each rwx created pvc
-		7. While pod creation is in progress, kill CSI-attacher, identified in step #1
-		8. Wait for PVCs to reach Bound state and Pods to reach running state.
-		9. Volume provisioning and pod placement should happen on any of the AZ.
-		10. Bring down all ESXI hosts of cluster-2/Az2
-		12. Try to perform scaleup operation on deployment (dep1, dep2 and dep3)
-		Increase the replica count from 3 to 7. When scaleup is going on, kill the CSI Attacher identified in step #1
-		13. Try reading/writing into the volume from each deployment Pod
-		14. Now bring down partially ESXi hosts of cluster3
-		15. Try to perform scaleup operation on all deployments . Incrase the replica count from 7 to 10.
-		16. Create few dynamic PVC's with labels added for PV and PVC with "RWX" access mode
-		17. Verify newly created PVC creation status. It should reach to Bound state.
-		18. Stop vSAN-health service.
-		19. Update labels for PV and PVC.
-		20. Start vSAN-health service.
-		21. Create standalone Pods using the newly PVC created
-		22. Verify Pods status. PVC should reach to Bound state and Pods should reach to running state.
-		23. Create StatefulSet with 3 replica
-		24. Bring back all the ESXI hosts of cluster-2 and cluster-3
-		25. Wait for system to be back to normal.
-		26. Verify all workload pods should be in a running ready state after site recovery.
-		26. Perform scale-up/scale-down operation on statefulset.
-		27. Veirfy scaling operation went smooth for statefulset.
-		28. Perform scaledown operation on deployment set. Decrease the replica count to 1.
-		29. Verify CNS metadata for the PVCs for which labels were updated.
-		30. Perform cleanup by deleting StatefulSets, Pods, PVCs and SC.
+	   Steps:
+	   1. Identify the CSI-Controller-Pod where CSI Provisioner, CSI Attacher are the leader
+	   2. Create Storage class with allowed topology set to all levels of AZs
+	   3. Create 10 dynamic PVCs with "RWX" acces mode.
+	   4. While volume creation is in progress, kill CSI-Provisioner identified in step #1
+	   5. Wait for rwx pvcs to reach Bound state.
+	   6. Create deployment Pods with 3 replicas each for each rwx created pvc
+	   7. While pod creation is in progress, kill CSI-attacher, identified in step #1
+	   8. Wait for PVCs to reach Bound state and Pods to reach running state.
+	   9. Volume provisioning and pod placement should happen on any of the AZ.
+	   10. Bring down all ESXI hosts of cluster-2/Az2
+	   12. Try to perform scaleup operation on deployment (dep1, dep2 and dep3)
+	   Increase the replica count from 3 to 7. When scaleup is going on, kill the CSI Attacher identified in step #1
+	   13. Try reading/writing into the volume from each deployment Pod
+	   14. Now bring down partially ESXi hosts of cluster3
+	   15. Try to perform scaleup operation on all deployments . Incrase the replica count from 7 to 10.
+	   16. Create few dynamic PVC's with labels added for PV and PVC with "RWX" access mode
+	   17. Verify newly created PVC creation status. It should reach to Bound state.
+	   18. Stop vSAN-health service.
+	   19. Update labels for PV and PVC.
+	   20. Start vSAN-health service.
+	   21. Create standalone Pods using the newly PVC created
+	   22. Verify Pods status. PVC should reach to Bound state and Pods should reach to running state.
+	   23. Create StatefulSet with 3 replica
+	   24. Bring back all the ESXI hosts of cluster-2 and cluster-3
+	   25. Wait for system to be back to normal.
+	   26. Verify all workload pods should be in a running ready state after site recovery.
+	   26. Perform scale-up/scale-down operation on statefulset.
+	   27. Veirfy scaling operation went smooth for statefulset.
+	   28. Perform scaledown operation on deployment set. Decrease the replica count to 1.
+	   29. Verify CNS metadata for the PVCs for which labels were updated.
+	   30. Perform cleanup by deleting StatefulSets, Pods, PVCs and SC.
 	*/
 
 	ginkgo.It("Operation storm with workload creation on scale", ginkgo.Label(p1, file, vanilla,
@@ -2034,10 +2059,16 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		var pvclaimsNew []*v1.PersistentVolumeClaim
 		var fullSyncWaitTime int
+		var service *v1.Service
+		var depl []*appsv1.Deployment
+		var powerOffHostsList []string
+		var podList []*v1.Pod
+		var statefulset *appsv1.StatefulSet
+
 		stsReplicas := 3
-		replica = 3
-		createPvcItr = 10
-		createDepItr = 1
+		replica := 3
+		createPvcItr := 10
+		createDepItr := 1
 
 		if os.Getenv(envFullSyncWaitTime) != "" {
 			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
@@ -2098,8 +2129,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Create Deployments with 3 replicas each for each rwx created pvc")
 		for i := 0; i < len(pvclaims); i++ {
-			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica, false, labelsMap,
-				pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
+			deploymentList, _, err := createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
+				false, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, false, nil, createDepItr)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			depl = append(depl, deploymentList...)
 
@@ -2138,8 +2169,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 			"dep3 to 7 when Az2 site is down and in between kill csi attacher")
 		replica = 7
 		for i := 0; i < 3; i++ {
-			_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
-				true, labelsMap, pvclaim, nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
+			_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
+				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 
 			if i == 1 {
 				ginkgo.By("Kill CSI-Attacher container")
@@ -2150,7 +2181,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}
 
 		ginkgo.By("Bring down few esxi hosts in Az3, partial site down")
-		noOfHostToBringDown = 1
+		noOfHostToBringDown := 1
 		powerOffHostsList1 := powerOffEsxiHostByCluster(ctx, &e2eVSphere, topologyClusterList[2],
 			noOfHostToBringDown)
 		defer func() {
@@ -2162,8 +2193,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ginkgo.By("Scale up all deployment set replica count to 10 when Az2 full site is down and Az3 partial site is down")
 		replica = 10
 		for i := 0; i < len(depl); i++ {
-			_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
-				true, labelsMap, pvclaim, nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
+			_, _, _ = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
+				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 		}
 
 		ginkgo.By("Create new set of rwx pvcs")
@@ -2229,7 +2260,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 
 		ginkgo.By("Create standalone Pods with different read/write permissions and attach it to a newly created rwx pvcs")
-		noPodsToDeploy = 3
+		noPodsToDeploy := 3
 		for i := 0; i < len(pvclaimsNew); i++ {
 			pods, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaimsNew[i], false, execRWXCommandPod,
 				noPodsToDeploy)
@@ -2246,7 +2277,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}()
 
 		ginkgo.By("Create StatefulSet with replica count 3 with RWX PVC access mode")
-		service, _, _ = createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, true,
+		service, statefulset, _ = createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, true,
 			int32(stsReplicas), false, allowedTopologies, false, false, false, accessmode, storageclass, false, "")
 
 		// Bring up
@@ -2282,7 +2313,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ginkgo.By("Scale down all deployment sets to replica count of 1 and verify cns volume metadata")
 		replica = 1
 		for i := 0; i < len(depl); i++ {
-			_, pods, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, replica,
+			_, pods, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica),
 				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

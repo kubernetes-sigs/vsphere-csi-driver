@@ -236,7 +236,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 			ginkgo.By("Wait for k8s cluster to be healthy")
 			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
 			err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-			//gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		}()
 
