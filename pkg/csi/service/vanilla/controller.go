@@ -3062,12 +3062,12 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// sign. That is, a string of "<UUID>+<UUID>". Because, all other CNS snapshot APIs still require both
 		// VolumeID and SnapshotID as the input, while corresponding snapshot APIs in upstream CSI require SnapshotID.
 		// So, we need to bridge the gap in vSphere CSI driver and return a combined SnapshotID to CSI Snapshotter.
-		snapshotID, snapshotCreateTimePtr, err := common.CreateSnapshotUtil(ctx, volumeManager, volumeID, req.Name, nil)
+		snapshotID, cnsSnapshotInfo, err := common.CreateSnapshotUtil(ctx, volumeManager, volumeID, req.Name, nil)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to create snapshot on volume %q: %v", volumeID, err)
+				"failed to create snapshot on volume %q with error: %v", volumeID, err)
 		}
-		snapshotCreateTimeInProto := timestamppb.New(*snapshotCreateTimePtr)
+		snapshotCreateTimeInProto := timestamppb.New(cnsSnapshotInfo.SnapshotLatestOperationCompleteTime)
 
 		createSnapshotResponse := &csi.CreateSnapshotResponse{
 			Snapshot: &csi.Snapshot{
@@ -3082,7 +3082,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		log.Infof("CreateSnapshot succeeded for snapshot %s "+
 			"on volume %s size %d Time proto %+v Timestamp %+v Response: %+v",
 			snapshotID, volumeID, snapshotSizeInMB*common.MbInBytes, snapshotCreateTimeInProto,
-			*snapshotCreateTimePtr, createSnapshotResponse)
+			cnsSnapshotInfo.SnapshotLatestOperationCompleteTime, createSnapshotResponse)
 		return createSnapshotResponse, nil
 	}
 

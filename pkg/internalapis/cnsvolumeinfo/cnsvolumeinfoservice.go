@@ -3,6 +3,7 @@ package cnsvolumeinfo
 import (
 	"context"
 	"strings"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -74,7 +75,7 @@ type VolumeInfoService interface {
 	GetVolumeInfoForVolumeID(ctx context.Context, volumeID string) (*cnsvolumeinfov1alpha1.CNSVolumeInfo, error)
 
 	// PatchVolumeInfo patches the CNSVolumeInfo instance associated with volumeID in given parameters.
-	PatchVolumeInfo(ctx context.Context, volumeID string, patchBytes []byte) error
+	PatchVolumeInfo(ctx context.Context, volumeID string, patchBytes []byte, retries int) error
 }
 
 // InitVolumeInfoService returns the singleton VolumeInfoService.
@@ -283,14 +284,32 @@ func (volumeInfo *volumeInfo) GetVolumeInfoForVolumeID(ctx context.Context, volu
 }
 
 // PatchVolumeInfo patches the CNSVolumeInfo instance associated with volumeID in given parameters.
-func (volumeInfo *volumeInfo) PatchVolumeInfo(ctx context.Context, volumeID string, patchBytes []byte) error {
+func (volumeInfo *volumeInfo) PatchVolumeInfo(ctx context.Context, volumeID string, patchBytes []byte,
+	allowedRetries int) error {
 	log := logger.GetLogger(ctx)
 
 	volumeInfoInstance, err := volumeInfo.GetVolumeInfoForVolumeID(ctx, volumeID)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to fetch CnsVolumeInfo instance for volumeID: %q", volumeID)
 	}
-	return volumeInfo.k8sClient.Patch(ctx, volumeInfoInstance, client.RawPatch(types.MergePatchType, patchBytes))
+	attempt := 0
+	for {
+		attempt++
+		err := volumeInfo.k8sClient.Patch(ctx, volumeInfoInstance, client.RawPatch(types.MergePatchType, patchBytes))
+		if err != nil && attempt >= allowedRetries {
+			log.Errorf("attempt: %d, failed to patch the cnsvolumeinfo %q namespace %q",
+				attempt, volumeInfoInstance.Name, volumeInfoInstance.Namespace)
+			return err
+		} else if err == nil {
+			log.Infof("attempt: %d, Successfully patched the cnsvolumeinfo %q namespace %q",
+				attempt, volumeInfoInstance.Name, volumeInfoInstance.Namespace)
+			return nil
+		}
+		log.Warnf("attempt %d, failed to patch cnsvolumeinfo %q namespace %q, will retry",
+			attempt, volumeInfoInstance.Name, volumeInfoInstance.Namespace)
+		time.Sleep(100 * time.Millisecond)
+	}
+
 }
 
 // getCnsVolumeInfoCrName replaces "file:" with "file-" as K8s only allows alphanumeric and "-" in object name."

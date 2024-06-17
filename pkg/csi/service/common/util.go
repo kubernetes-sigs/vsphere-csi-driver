@@ -33,15 +33,17 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 )
 
 const (
 	defaultK8sCloudOperatorServicePort = 10000
+	missingSnapshotAggregatedCapacity  = "csi.vsphere.missing-snapshot-aggregated-capacity"
 )
 
 var ErrAvailabilityZoneCRNotRegistered = errors.New("AvailabilityZone custom resource not registered")
@@ -435,4 +437,39 @@ func GetCSINamespace() string {
 		CSINamespace = cnsconfig.DefaultCSINamespace
 	}
 	return CSINamespace
+}
+
+func GetValidatedCNSVolumeInfoPatch(ctx context.Context, cnsSnapshotInfo *cnsvolume.CnsSnapshotInfo,
+	cnsVolumeInfo *cnsvolumeinfov1alpha1.CNSVolumeInfo) map[string]interface{} {
+	log := logger.GetLogger(ctx)
+	var patch map[string]interface{}
+	if cnsSnapshotInfo.AggregatedSnapshotCapacityInMb == -1 {
+		log.Infof("Couldn't retrieve aggregated snapshot capacity for volume %q and snapshot %q",
+			cnsVolumeInfo.Spec.VolumeID, cnsSnapshotInfo.SnapshotID)
+		patchAnnotation := MergeMaps(cnsVolumeInfo.Annotations,
+			map[string]string{missingSnapshotAggregatedCapacity: "true"})
+		patch = map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"annotations": patchAnnotation,
+			},
+			"spec": map[string]interface{}{
+				"validaggregatedsnapshotsize": false,
+			},
+		}
+	} else {
+		log.Infof("retrieved aggregated snapshot capacity %d for volume %q and snapshot %q",
+			cnsSnapshotInfo.AggregatedSnapshotCapacityInMb, cnsVolumeInfo.Spec.VolumeID, cnsSnapshotInfo.SnapshotID)
+		delete(cnsVolumeInfo.Annotations, missingSnapshotAggregatedCapacity)
+		patch = map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"annotations": cnsVolumeInfo.Annotations,
+			},
+			"spec": map[string]interface{}{
+				"validaggregatedsnapshotsize":         true,
+				"aggregatedsnapshotsize":              cnsSnapshotInfo.AggregatedSnapshotCapacityInMb,
+				"snapshotlatestoperationcompletetime": &metav1.Time{Time: cnsSnapshotInfo.SnapshotLatestOperationCompleteTime},
+			},
+		}
+	}
+	return patch
 }
