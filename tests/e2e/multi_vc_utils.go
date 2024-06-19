@@ -35,6 +35,7 @@ import (
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
 
+	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -700,6 +701,10 @@ func readVsphereConfCredentialsInMultiVcSetup(cfg string) (e2eTestConfig, error)
 	dataCenterList := make([]string, 0)
 
 	key, value := "", ""
+	var netPerm NetPermissionConfig
+	var permissions vsanfstypes.VsanFileShareAccessType
+	var rootSquash bool
+
 	lines := strings.Split(cfg, "\n")
 	for index, line := range lines {
 		if index == 0 {
@@ -781,6 +786,12 @@ func readVsphereConfCredentialsInMultiVcSetup(cfg string) (e2eTestConfig, error)
 			if strconvErr != nil {
 				return config, fmt.Errorf("invalid value for list-volume-threshold: %s", value)
 			}
+		case "ips":
+			netPerm.Ips = value
+		case "permissions":
+			netPerm.Permissions = permissions
+		case "rootsquash":
+			netPerm.RootSquash = rootSquash
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
 		}

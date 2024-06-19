@@ -739,7 +739,7 @@ setNetPermissionsInVsphereConfSecret utility configures network permissions with
 levels of read and write access
 */
 func setNetPermissionsInVsphereConfSecret(client clientset.Interface, ctx context.Context,
-	csiNamespace string, csiReplicas int32, netPermissionIps string,
+	csiNamespace string, netPermissionIps string,
 	permissions vsanfstypes.VsanFileShareAccessType, rootSquash bool) error {
 
 	var modifiedConf string
@@ -782,19 +782,10 @@ func setNetPermissionsInVsphereConfSecret(client clientset.Interface, ctx contex
 			return fmt.Errorf("failed to update secret: %v", err)
 		}
 	} else {
-		err = writeNewDataAndUpdateVsphereConfSecret(client, ctx, csiNamespace, vsphereCfg)
+		err = updateVsphereConfSecretForFileVolumes(client, ctx, csiNamespace, vsphereCfg, netPerm)
 		if err != nil {
 			return fmt.Errorf("failed to write new data and update vsphere conf secret: %v", err)
 		}
-	}
-
-	// restart csi driver
-	restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
-	if !restartSuccess {
-		return fmt.Errorf("csi driver restart not successful: %v", err)
-	}
-	if err != nil {
-		return fmt.Errorf("failed to restart csi driver: %v", err)
 	}
 
 	return nil
@@ -941,4 +932,205 @@ func fetchListofHostsInCluster(ctx context.Context, clusterName string) []string
 		}
 	}
 	return hostList
+}
+
+/*
+writeNewDataAndUpdateVsphereConfSecret uitl edit the vsphere conf and returns the updated
+vsphere config sceret
+*/
+func updateVsphereConfSecretForFileVolumes(client clientset.Interface, ctx context.Context,
+	csiNamespace string, cfg e2eTestConfig, netPerm NetPermissionConfig) error {
+	var result string
+
+	// fetch current secret
+	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	// modify vshere conf file
+	vCenterHostnames := strings.Split(cfg.Global.VCenterHostname, ",")
+	users := strings.Split(cfg.Global.User, ",")
+	passwords := strings.Split(cfg.Global.Password, ",")
+	dataCenters := strings.Split(cfg.Global.Datacenters, ",")
+	ports := strings.Split(cfg.Global.VCenterPort, ",")
+
+	result += fmt.Sprintf("[Global]\ncluster-distribution = \"%s\"\n"+
+		"csi-fetch-preferred-datastores-intervalinmin = %d\n"+
+		"query-limit = %d\nlist-volume-threshold = %d\n\n"+
+		"[NetPermissions \"A\"]\nips = \"%s\"\npermissions = \"%s\"\nrootsquash = %t \n\n",
+		cfg.Global.ClusterDistribution, cfg.Global.CSIFetchPreferredDatastoresIntervalInMin, cfg.Global.QueryLimit,
+		cfg.Global.ListVolumeThreshold, netPerm.Ips, netPerm.Permissions, netPerm.RootSquash)
+	for i := 0; i < len(vCenterHostnames); i++ {
+		result += fmt.Sprintf("[VirtualCenter \"%s\"]\ninsecure-flag = \"%t\"\nuser = \"%s\"\npassword = \"%s\"\n"+
+			"port = \"%s\"\ndatacenters = \"%s\"\n\n",
+			vCenterHostnames[i], cfg.Global.InsecureFlag, users[i], passwords[i], ports[i], dataCenters[i])
+	}
+
+	result += fmt.Sprintf("[Labels]\ntopology-categories = \"%s\"\n", cfg.Labels.TopologyCategories)
+
+	framework.Logf(result)
+
+	// update config secret with newly updated vshere conf file
+	framework.Logf("Updating the secret to reflect new conf credentials")
+	currentSecret.Data[vSphereCSIConf] = []byte(result)
+	_, err = client.CoreV1().Secrets(csiNamespace).Update(ctx, currentSecret, metav1.UpdateOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+/* createFileShareForMultiVc created file share for multivc setup */
+func (vs *multiVCvSphere) createFileShareForMultiVc(datastoreUrl string, clientIndex int) (string, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// variable declaration
+	var err error
+	var defaultDatastore *object.Datastore
+	var datacenters []string
+	var defaultDatacenter *object.Datacenter
+
+	// connect to vc cns
+	connectMultiVC(ctx, &multiVCe2eVSphere)
+	if err != nil {
+		return "", err
+	}
+
+	// Check if clientIndex is valid
+	if clientIndex < 0 || clientIndex >= len(multiVCe2eVSphere.multiVcClient) {
+		return "", fmt.Errorf("clientIndex %d is out of range", clientIndex)
+	}
+	client := multiVCe2eVSphere.multiVcClient[clientIndex]
+
+	// find the datacenter details
+	finder := find.NewFinder(client.Client, false)
+	cfg, err := getConfig()
+	if err != nil {
+		return "", err
+	}
+	dcList := strings.Split(cfg.Global.Datacenters, ",")
+	for _, dc := range dcList {
+		dcName := strings.TrimSpace(dc)
+		if dcName != "" {
+			datacenters = append(datacenters, dcName)
+		}
+	}
+
+	// find datastore details based on passed datastore url
+	for _, dc := range datacenters {
+		defaultDatacenter, err = finder.Datacenter(ctx, dc)
+		if err != nil {
+			continue
+		}
+		finder.SetDatacenter(defaultDatacenter)
+		defaultDatastore, err = getDatastoreByURL(ctx, datastoreUrl, defaultDatacenter)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		return "", fmt.Errorf("datastore is not found in the datacenter list: %v", err)
+	}
+
+	ginkgo.By("Creating file share")
+	cnsCreateReq := cnstypes.CnsCreateVolume{
+		This: cnsVolumeManagerInstance,
+		CreateSpecs: []cnstypes.CnsVolumeCreateSpec{*createFileShareSpecForMultiVc(defaultDatastore.Reference(),
+			clientIndex)},
+	}
+	// Connects to multiple CNS clients
+	err = connectMultiVcCns(ctx, vs)
+	if err != nil {
+		return "", err
+	}
+
+	clientM := multiVCe2eVSphere.multiVcCnsClient[clientIndex].Client
+	cnsCreateRes, err := cnsmethods.CnsCreateVolume(ctx, clientM, &cnsCreateReq)
+	if err != nil {
+		return "", err
+	}
+	task := object.NewTask(client.Client, cnsCreateRes.Returnval)
+
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	if err != nil {
+		return "", err
+	}
+	taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+	if err != nil {
+		return "", err
+	}
+	fileShareVolumeID := taskResult.GetCnsVolumeOperationResult().VolumeId.Id
+
+	// Deleting the volume with deleteDisk set to false.
+	ginkgo.By("Deleting the fileshare with deleteDisk set to false")
+	cnsDeleteReq := cnstypes.CnsDeleteVolume{
+		This:       cnsVolumeManagerInstance,
+		VolumeIds:  []cnstypes.CnsVolumeId{{Id: fileShareVolumeID}},
+		DeleteDisk: false,
+	}
+	cnsDeleteRes, err := cnsmethods.CnsDeleteVolume(ctx, multiVCe2eVSphere.multiVcCnsClient[clientIndex].Client,
+		&cnsDeleteReq)
+	if err != nil {
+		return fileShareVolumeID, err
+	}
+	task = object.NewTask(client.Client, cnsDeleteRes.Returnval)
+
+	taskInfo, err = cns.GetTaskInfo(ctx, task)
+	if err != nil {
+		return fileShareVolumeID, err
+	}
+	_, err = cns.GetTaskResult(ctx, taskInfo)
+	if err != nil {
+		return fileShareVolumeID, err
+	}
+	return fileShareVolumeID, nil
+}
+
+/*
+createFileShareSpecForMultiVc util will crete file share spec
+for anyone of the VC which is passed
+*/
+func createFileShareSpecForMultiVc(datastore vimtypes.ManagedObjectReference,
+	clientIndex int) *cnstypes.CnsVolumeCreateSpec {
+	netPermissions := vsanfstypes.VsanFileShareNetPermission{
+		Ips:         "*",
+		Permissions: vsanfstypes.VsanFileShareAccessTypeREAD_WRITE,
+		AllowRoot:   true,
+	}
+	configUser := []string{multiVCe2eVSphere.multivcConfig.Global.User}
+	if strings.Contains(multiVCe2eVSphere.multivcConfig.Global.User, ",") {
+		configUser = strings.Split(multiVCe2eVSphere.multivcConfig.Global.User, ",")
+	}
+
+	containerCluster := &cnstypes.CnsContainerCluster{
+		ClusterType:   string(cnstypes.CnsClusterTypeKubernetes),
+		ClusterId:     multiVCe2eVSphere.multivcConfig.Global.ClusterID,
+		VSphereUser:   configUser[clientIndex],
+		ClusterFlavor: string(cnstypes.CnsClusterFlavorVanilla),
+	}
+	var containerClusterArray []cnstypes.CnsContainerCluster
+	containerClusterArray = append(containerClusterArray, *containerCluster)
+	createSpec := &cnstypes.CnsVolumeCreateSpec{
+		Name:       "testFileSharex",
+		VolumeType: "FILE",
+		Datastores: []vimtypes.ManagedObjectReference{datastore},
+		BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{
+			CnsFileBackingDetails: cnstypes.CnsFileBackingDetails{
+				CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
+					CapacityInMb: fileSizeInMb,
+				},
+			},
+		},
+		Metadata: cnstypes.CnsVolumeMetadata{
+			ContainerCluster:      *containerCluster,
+			ContainerClusterArray: containerClusterArray,
+		},
+		CreateSpec: &cnstypes.CnsVSANFileCreateSpec{
+			SoftQuotaInMb: fileSizeInMb,
+			Permission:    []vsanfstypes.VsanFileShareNetPermission{netPermissions},
+		},
+	}
+	return createSpec
 }
