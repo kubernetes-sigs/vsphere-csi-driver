@@ -3975,6 +3975,8 @@ func waitForHostToBeUp(ip string, pollInfo ...time.Duration) error {
 	framework.Logf("checking host status of %v", ip)
 	pollTimeOut := healthStatusPollTimeout
 	pollInterval := 30 * time.Second
+	// var to store host reachability count
+	hostReachableCount := 0
 	if pollInfo != nil {
 		if len(pollInfo) == 1 {
 			pollTimeOut = pollInfo[0]
@@ -3991,9 +3993,16 @@ func waitForHostToBeUp(ip string, pollInfo ...time.Duration) error {
 			if err != nil {
 				framework.Logf("host %s unreachable, error: %s", ip, err.Error())
 				return false, nil
+			} else {
+				framework.Logf("host %s is reachable", ip)
+				hostReachableCount += 1
 			}
-			framework.Logf("host %s reachable", ip)
-			return true, nil
+			// checking if host is reachable 5 times
+			if hostReachableCount == 5 {
+				framework.Logf("host %s is reachable atleast 5 times", ip)
+				return true, nil
+			}
+			return false, nil
 		})
 	return waitErr
 }
@@ -6848,7 +6857,7 @@ func checkVcServicesHealthPostReboot(ctx context.Context, host string, timeout .
 	//list of default stopped services in VC
 	var defaultStoppedServicesList = []string{"vmcam", "vmonapi", "vmware-imagebuilder", "vmware-netdumper",
 		"vmware-rbd-watchdog", "vmware-vcha"}
-	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTime, true,
+	waitErr := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pollTime, true,
 		func(ctx context.Context) (bool, error) {
 			var pendingServiceslist []string
 			var noAdditionalServiceStopped = false
@@ -6880,21 +6889,21 @@ func checkVcServicesHealthPostReboot(ctx context.Context, host string, timeout .
 				for _, service := range servicesStoppedInVc {
 					if !(slices.Contains(defaultStoppedServicesList, service)) {
 						framework.Logf("Starting additional service %s in stopped state", service)
-						err = invokeVCenterServiceControl(ctx, startOperation, service, host)
-						if err != nil {
-							return false, fmt.Errorf("couldn't start service : %s on vCenter host: %v", service, err)
-						}
-						// wait for 30 seconds,in case dependent service are still in pending state
-						time.Sleep(30 * time.Second)
+						_ = invokeVCenterServiceControl(ctx, startOperation, service, host)
+						// wait for 120 seconds,in case dependent service are still in pending state
+						time.Sleep(120 * time.Second)
 					}
 				}
 			}
 			// Checking status for pendingStart Service list and starting it accordingly
 			for _, service := range pendingServiceslist {
 				framework.Logf("Checking status for additional service %s in StartPending state", service)
-				err = invokeVCenterServiceControl(ctx, statusOperation, service, host)
-				if err != nil {
-					return false, fmt.Errorf("couldn't check status of service : %s on vCenter host: %v", service, err)
+				sshCmd := fmt.Sprintf("service-control --%s %s", statusOperation, service)
+				framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+				result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
+				if err != nil || result.Code != 0 {
+					fssh.LogResult(result)
+					return false, fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 				}
 				if strings.Contains(strings.TrimSpace(result.Stdout), "Running") {
 					framework.Logf("Additional service %s got into Running from StartPending state", service)
