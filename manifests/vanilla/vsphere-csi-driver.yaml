@@ -676,6 +676,7 @@ spec:
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"
+            - "--probe-timeout=4s"
           volumeMounts:
             - name: plugin-dir
               mountPath: /csi
