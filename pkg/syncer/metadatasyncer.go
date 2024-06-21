@@ -31,12 +31,15 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
@@ -98,6 +101,15 @@ var (
 
 	// ResourceAPIgroupSnapshot is API group for volume snapshot
 	ResourceAPIgroupSnapshot = "snapshot.storage.k8s.io"
+
+	// availabilityZoneCRGroupName indicates the group name for AvailabilityZone CR
+	availabilityZoneCRGroupName = "topology.tanzu.vmware.com"
+
+	// availabilityZoneCRVersion indicates the version used for AvailabilityZone CR
+	availabilityZoneCRVersion = "v1alpha1"
+
+	// availabilityZoneCRResourceName indicates the resource name of AvailabilityZone CR
+	availabilityZoneCRResourceName = "availabilityzones"
 )
 
 const (
@@ -330,6 +342,26 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				return logger.LogNewErrorf(log, "failed to start informer on %q instances. Error: %v",
 					cnsoperatorv1alpha1.CnsStoragePolicyQuotaSingular, err)
 			}
+
+			go func() {
+				isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
+				if isStorageQuotaM2Enabled {
+					// TODO: Wait for fullSync to update "zones" value on all CnsVolumeInfo CRs
+
+					// Start informer on AvailabilityZone CRs
+					err = startAvailabilityZoneCRInformer(ctx, k8sConfig)
+					if err != nil {
+						if err == common.ErrAvailabilityZoneCRNotRegistered {
+							log.Errorf("failed to start informer on AvailabilityZone CR, as AZ CR is not registered.")
+							os.Exit(1)
+						} else {
+							log.Errorf("failed to start informer on AvailabilityZone CR instances. "+
+								"Error: %v", err)
+							os.Exit(1)
+						}
+					}
+				}
+			}()
 		}
 	} else {
 		// code block only applicable to Vanilla
@@ -3195,4 +3227,104 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 			}
 		}
 	}
+}
+
+// startAvailabilityZoneCRInformer listens on changes to AvailabilityZone CR instances
+func startAvailabilityZoneCRInformer(ctx context.Context, cfg *restclient.Config) error {
+	log := logger.GetLogger(ctx)
+	// Check if AZ CR is registered in the environment.
+	// Create a new AvailabilityZone client.
+	azClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create AvailabilityZone client using config. Err: %+v", err)
+	}
+	// Get AvailabilityZone list
+	azResource := schema.GroupVersionResource{
+		Group: availabilityZoneCRGroupName, Version: availabilityZoneCRVersion,
+		Resource: availabilityZoneCRResourceName}
+	_, err = azClient.Resource(azResource).List(ctx, metav1.ListOptions{})
+	// Handling the scenario where AvailabilityZone CR is not registered in the
+	// supervisor cluster.
+	if apiMeta.IsNoMatchError(err) {
+		log.Info("AvailabilityZone CR is not registered on the cluster")
+		return common.ErrAvailabilityZoneCRNotRegistered
+	}
+
+	// At this point, we are sure the AZ CR is registered. Create an informer for AvailabilityZone instances.
+	dynInformer, err := k8s.GetDynamicInformer(ctx, availabilityZoneCRGroupName,
+		availabilityZoneCRVersion, availabilityZoneCRResourceName, metav1.NamespaceAll, cfg, true)
+	if err != nil {
+		log.Errorf("failed to create dynamic informer for AvailabilityZone CR. Error: %+v", err)
+		return err
+	}
+	availabilityZoneInformer := dynInformer.Informer()
+	_, err = availabilityZoneInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			availabilityZoneCRAdded(obj)
+		},
+		UpdateFunc: nil,
+		DeleteFunc: func(obj interface{}) {
+			availabilityZoneCRDeleted(obj)
+		},
+	})
+	if err != nil {
+		return logger.LogNewErrorf(log,
+			"failed to add event handler on informer for availabilityzones CR. Error: %v", err)
+	}
+
+	// Start informer.
+	go func() {
+		log.Info("Informer to watch on AvailabilityZone CR starting..")
+		availabilityZoneInformer.Run(make(chan struct{}))
+	}()
+	return nil
+}
+
+// availabilityZoneCRAdded starts watching on add, update and delete events on hosts of clusters belonging
+// to this availability zone
+func availabilityZoneCRAdded(obj interface{}) {
+	_, log := logger.GetNewContextWithLogger()
+	// Retrieve name of CR instance.
+	azName, found, err := unstructured.NestedString(obj.(*unstructured.Unstructured).Object, "metadata", "name")
+	if !found || err != nil {
+		log.Errorf("failed to get `name` from AvailabilityZone instance: %+v, Error: %+v", obj, err)
+		return
+	}
+	// Retrieve clusterMorefs from instance spec.
+	clusterComputeResourceMoIds, found, err := unstructured.NestedStringSlice(obj.(*unstructured.Unstructured).Object,
+		"spec", "clusterComputeResourceMoIDs")
+	if len(clusterComputeResourceMoIds) == 0 || !found || err != nil {
+		log.Errorf("failed to get `clusterComputeResourceMoIds` from AvailabilityZone instance: %+v, "+
+			"Error: %+v", obj, err)
+		return
+	}
+
+	log.Infof("AvailabilityZone CR %s got added, it has clusterComputeResourceMoIDs %v",
+		azName, clusterComputeResourceMoIds)
+
+	// TODO: Create ContainerView PropertyCollector to watch on Add, update and delete events on hosts of this cluster
+}
+
+// availabilityZoneCRDeleted stops watching on events of hosts belonging to clusters of this availability zone
+func availabilityZoneCRDeleted(obj interface{}) {
+	_, log := logger.GetNewContextWithLogger()
+	// Retrieve name of CR instance.
+	azName, found, err := unstructured.NestedString(obj.(*unstructured.Unstructured).Object, "metadata", "name")
+	if !found || err != nil {
+		log.Errorf("failed to get `name` from AvailabilityZone instance: %+v, Error: %+v", obj, err)
+		return
+	}
+	// Retrieve clusterMorefs from instance spec.
+	clusterComputeResourceMoIds, found, err := unstructured.NestedStringSlice(obj.(*unstructured.Unstructured).Object,
+		"spec", "clusterComputeResourceMoIDs")
+	if len(clusterComputeResourceMoIds) == 0 || !found || err != nil {
+		log.Errorf("failed to get `clusterComputeResourceMoIds` from AvailabilityZone instance: %+v, "+
+			"Error: %+v", obj, err)
+		return
+	}
+
+	log.Infof("AvailabilityZone CR %s got deleted, it has clusterComputeResourceMoIDs %v",
+		azName, clusterComputeResourceMoIds)
+
+	// TODO: Stop watching on any host events of this cluster
 }
