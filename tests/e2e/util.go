@@ -48,7 +48,6 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
-	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v2"
 
@@ -1426,9 +1425,7 @@ func invokeVCenterReboot(ctx context.Context, host string) error {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
-	// checking for host to be down
-	err = waitForHostToBeDown(ctx, host)
-	return err
+	return nil
 }
 
 // invokeVCenterServiceControl invokes the given command for the given service
@@ -3096,10 +3093,7 @@ func trimQuotes(str string) string {
 // Returns a de-serialized structured config data
 func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 	var config e2eTestConfig
-	var netPerm NetPermissionConfig
 	key, value := "", ""
-	var permissions vsanfstypes.VsanFileShareAccessType
-	var rootSquash bool
 	lines := strings.Split(cfg, "\n")
 	for index, line := range lines {
 		if index == 0 {
@@ -3175,12 +3169,7 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			config.Global.SupervisorID = value
 		case "targetvSANFileShareClusters":
 			config.Global.TargetVsanFileShareClusters = value
-		case "ips":
-			netPerm.Ips = value
-		case "permissions":
-			netPerm.Permissions = permissions
-		case "rootsquash":
-			netPerm.RootSquash = rootSquash
+
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
 		}
@@ -3194,7 +3183,7 @@ func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
 	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
 		"csi-fetch-preferred-datastores-intervalinmin = %d\n"+"query-limit = \"%d\"\n"+
 		"list-volume-threshold = \"%d\"\n\n"+
-		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n\n"+
+		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n"+
 		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n"+
 		"[Labels]\ntopology-categories = \"%s\"",
 		cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
@@ -4329,12 +4318,12 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	}
 	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
 	if err != nil {
-		return deployment, fmt.Errorf("deployment %q Create API error: %v", deploymentSpec.Name, err)
+		return nil, fmt.Errorf("deployment %q Create API error: %v", deploymentSpec.Name, err)
 	}
 	framework.Logf("Waiting deployment %q to complete", deploymentSpec.Name)
 	err = fdep.WaitForDeploymentComplete(client, deployment)
 	if err != nil {
-		return deployment, fmt.Errorf("deployment %q failed to complete: %v", deploymentSpec.Name, err)
+		return nil, fmt.Errorf("deployment %q failed to complete: %v", deploymentSpec.Name, err)
 	}
 	return deployment, nil
 }
