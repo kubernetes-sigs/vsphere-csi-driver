@@ -19,11 +19,16 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/vmware/govmomi/object"
+	vim25types "github.com/vmware/govmomi/vim25/types"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -49,12 +54,16 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-positive] RWX-Topology-HciMesh-Single
 		topologyAffinityDetails map[string][]string
 		topologyCategories      []string
 		leafNode                int
+		leafNodeTag0            int
 		leafNodeTag1            int
 		leafNodeTag2            int
 		topologyLength          int
 		scParameters            map[string]string
 		accessmode              v1.PersistentVolumeAccessMode
 		labelsMap               map[string]string
+		migratedVms             []vim25types.ManagedObjectReference
+		allowedTopologies       []v1.TopologySelectorLabelRequirement
+		topologySetupType       string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -90,13 +99,23 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-positive] RWX-Topology-HciMesh-Single
 			1 represents rack2
 			2 represents rack3
 		*/
-		topologyLength, leafNode, _, leafNodeTag1, leafNodeTag2 = 5, 4, 0, 1, 2
+		topologyLength, leafNode, leafNodeTag0, leafNodeTag1, leafNodeTag2 = 5, 4, 0, 1, 2
 		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
 		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap)
-
+		allowedTopologies = createAllowedTopolgies(topologyMap)
+		framework.Logf("allowedTopologies: %v", allowedTopologies)
 		//setting map values
 		labelsMap["app"] = "test"
 		scParameters[scParamFsType] = nfs4FSType
+
+		for _, vm := range migratedVms {
+			e2eVSphere.svmotionVM2DiffDs(ctx, object.NewVirtualMachine(e2eVSphere.Client.Client, vm.Reference()),
+				GetAndExpectStringEnvVar(envRemoteHCIDsUrl))
+		}
+
+		/* Reading the topology setup type (Level 2 or Level 5), and based on the selected setup type,
+		executing the test case on the corresponding setup */
+		topologySetupType = GetAndExpectStringEnvVar(envTopologySetupType)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -702,5 +721,317 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-positive] RWX-Topology-HciMesh-Single
 		isCorrectPlacement = e2eVSphere.verifyPreferredDatastoreMatch(pv2.Spec.CSI.VolumeHandle, datastoreUrlsRack1)
 		gomega.Expect(isCorrectPlacement).To(gomega.BeTrue(), fmt.Sprintf("Volume provisioning has happened on the wrong "+
 			"datastore. Expected 'true', got '%v'", isCorrectPlacement))
+	})
+
+	/*
+		TESTCASE-6
+		Expose pvc created from snapshot to different AZ
+
+		Steps:
+		1. Create a SC say sc1 with AZ1 affinity and one more say sc2
+			with AZ3 affinity and both SCs should point to remote ds.
+		2. Create a PVC with sc1 say pvc1 on remote ds and wait for it to be bound
+		3. Create a pod in AZ1 with pvc1 say pod1
+		   and wait for it be ready and verify pvc1 is accessible in pod1
+		4. Write some data to pvc1
+		5. Take snapshot of pvc1 say snap1
+		6. Create a PVC say pvc2 (on remote ds) from snap1 and sc2
+		7. Create pod in AZ 3 say pod 2 with pvc2 and wait for it be ready and verify pvc2 is accessible in pod2
+		8. Verify data from step 4 in pvc2
+		9. Verify pvc1 is accessible in pod1
+		10.Cleanup pod, pvc, snaps and sc created in the test.
+	*/
+
+	ginkgo.It("Expose pvc created from snapshot to different AZ", ginkgo.Label(p0, block, vanilla, level5, level2, newTest), func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var err error
+		var snapc *snapclient.Clientset
+		var pandoraSyncWaitTime int
+		remoteDsUrl := GetAndExpectStringEnvVar(envRemoteHCIDsUrl)
+
+		scParameters = map[string]string{}
+		scParameters[scParamStoragePolicyName] = GetAndExpectStringEnvVar(envStoragePolicyNameForHCIRemoteDatastores)
+		if os.Getenv(envPandoraSyncWaitTime) != "" {
+			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+		}
+
+		nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		//Get allowed topologies for Storage Class (region1 > zone1 > building1 > level1 > rack3)
+		allowedTopologyForSC1 := getTopologySelector(topologyAffinityDetails, topologyCategories,
+			topologyLength, leafNode, leafNodeTag0)
+		allowedTopologyForSC2 := getTopologySelector(topologyAffinityDetails, topologyCategories,
+			topologyLength, leafNode, leafNodeTag2)
+
+		sc1Spec := getVSphereStorageClassSpec("sc-az1", scParameters, allowedTopologyForSC1, "", "", false)
+		sc1, err := client.StorageV1().StorageClasses().Create(ctx, sc1Spec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		sc2Spec := getVSphereStorageClassSpec("sc-az3", scParameters, allowedTopologyForSC2, "", "", false)
+		sc2, err := client.StorageV1().StorageClasses().Create(ctx, sc2Spec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc1.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			err = client.StorageV1().StorageClasses().Delete(ctx, sc2.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		pvcs := []*v1.PersistentVolumeClaim{}
+		pvclaims2d := [][]*v1.PersistentVolumeClaim{}
+		pvc1, pv1 := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "", diskSize, sc1, true)
+		pvcs = append(pvcs, pvc1)
+		pvclaims2d = append(pvclaims2d, []*v1.PersistentVolumeClaim{pvc1})
+		volHandle1 := pv1[0].Spec.CSI.VolumeHandle
+
+		ginkgo.By("Verify if VolumeID is created on the remote datastore")
+		dsUrlWhereVolumeIsPresent := fetchDsUrl4CnsVol(e2eVSphere, volHandle1)
+		framework.Logf("Volume: %s is present on %s", volHandle1, dsUrlWhereVolumeIsPresent)
+		e2eVSphere.verifyDatastoreMatch(volHandle1, []string{remoteDsUrl})
+
+		_, err = verifyVolumeTopologyForLevel5(pv1[0], topologyAffinityDetails)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc1.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle1)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		pod1, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false,
+			"")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify that volumes are accessible for all the pods")
+		verifyVolMountsInPods(ctx, client, []*v1.Pod{pod1}, pvclaims2d)
+
+		defer func() {
+			deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pod1}, true)
+		}()
+
+		_, err = verifyPodLocationLevel5(pod1, nodes, topologyAffinityDetails)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create volume snapshot class")
+		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			if vanillaCluster {
+				err = snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name, metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Create a volume snapshot")
+		volumeSnapshot, snapshotContent, snapshotCreated,
+			snapshotContentCreated, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
+			pvc1, volHandle1, diskSize, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			if snapshotContentCreated {
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			if snapshotCreated {
+				framework.Logf("Deleting volume snapshot")
+				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
+
+				framework.Logf("Wait till the volume snapshot is deleted")
+				err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc,
+					*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		pvc2, pv2, _ := verifyVolumeRestoreOperation(ctx, client,
+			namespace, sc2, volumeSnapshot, diskSize, false)
+		volHandle2 := pv2[0].Spec.CSI.VolumeHandle
+		pvclaims2d = append(pvclaims2d, []*v1.PersistentVolumeClaim{pvc2})
+
+		ginkgo.By("Verify if VolumeID is created on the remote datastore")
+		dsUrlWhereVolumeIsPresent = fetchDsUrl4CnsVol(e2eVSphere, volHandle2)
+		framework.Logf("Volume: %s is present on %s", volHandle2, dsUrlWhereVolumeIsPresent)
+		e2eVSphere.verifyDatastoreMatch(volHandle1, []string{remoteDsUrl})
+
+		_, err = verifyVolumeTopologyForLevel5(pv2[0], topologyAffinityDetails)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc2.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		pod2, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc2}, false,
+			"")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pod2}, true)
+		}()
+		ginkgo.By("Verify that volumes are accessible for all the pods")
+		verifyVolMountsInPods(ctx, client, []*v1.Pod{pod2}, pvclaims2d)
+		_, err = verifyPodLocationLevel5(pod2, nodes, topologyAffinityDetails)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	})
+
+	/*
+	   Topology - Relocate vm between local and remote ds
+	   Steps:
+
+	   1. Create a SC with AZ1 affinity and one more with AZ3 affinity
+	      respectively and both SCs should point to remote ds.
+	   2. Create 5 pvcs each with remote ds in AZ1 and AZ3 and
+	      wait for them to be bound using SCs from step 1.
+	   3. Create pods with each of the PVCs from step 2 in AZ1 and
+	      AZ3 respectively and wait for them to be ready.
+	   4. Verify volumes are accessible in each of the pods from step 3
+	   5. Storage vmotion remote workers in AZ1 and AZ3 to local ds
+	   6. Verify volumes are accessible in each of the PVCs from step2
+	   7. Storage vmotion workers from step 4 back to remote ds
+	   8. Verify volumes are accessible in each of the PVCs from step2
+	   9. Cleanup all the pods, pvcs and SCs created for the test
+	*/
+	ginkgo.It("Topology - Relocate vm between local and remote ds", ginkgo.Label(p0, block, vanilla, hci), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By("Create a SC which points to remote vsan ds")
+		scParameters = map[string]string{}
+		var allowedTopologyForSC1, allowedTopologyForSC2 []v1.TopologySelectorLabelRequirement
+		var sc1, sc2 *storagev1.StorageClass
+		var err error
+		scParameters[scParamStoragePolicyName] = GetAndExpectStringEnvVar(envStoragePolicyNameForHCIRemoteDatastores)
+		if topologySetupType == "Level2" {
+
+			/* Setting zone1 for pod node selector terms */
+			keyValues := []KeyValue{
+				{KeyIndex: 0, ValueIndex: 0}, // Key: k8s-region, Value: region1
+				{KeyIndex: 1, ValueIndex: 0}, // Key: k8s-zone, Value: zone1
+			}
+			framework.Logf("keyValues: %v", keyValues)
+			allowedTopologyForSC1, err = getAllowedTopologyForLevel2(allowedTopologies, keyValues)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			sc1Spec := getVSphereStorageClassSpec("remote-az1", scParameters, allowedTopologyForSC1, "", "", false)
+			sc1, err = client.StorageV1().StorageClasses().Create(ctx, sc1Spec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			/* Setting zone3 for pod node selector terms */
+			keyValues = []KeyValue{
+				{KeyIndex: 0, ValueIndex: 2}, // Key: k8s-region, Value: region3
+				{KeyIndex: 1, ValueIndex: 2}, // Key: k8s-zone, Value: zone3
+			}
+
+			allowedTopologyForSC2, err = getAllowedTopologyForLevel2(allowedTopologies, keyValues)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			sc2Spec := getVSphereStorageClassSpec("remote-az3", scParameters, allowedTopologyForSC2, "", "", false)
+			sc2, err = client.StorageV1().StorageClasses().Create(ctx, sc2Spec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else if topologySetupType == "Level5" {
+			allowedTopologyForSC1 = getTopologySelector(topologyAffinityDetails, topologyCategories,
+				topologyLength, leafNode, leafNodeTag0)
+			sc1Spec := getVSphereStorageClassSpec("remote-az1", scParameters, allowedTopologyForSC1, "", "", false)
+			sc1, err = client.StorageV1().StorageClasses().Create(ctx, sc1Spec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			allowedTopologyForSC2 = getTopologySelector(topologyAffinityDetails, topologyCategories,
+				topologyLength, leafNode, leafNodeTag2)
+			sc2Spec := getVSphereStorageClassSpec("remote-az3", scParameters, allowedTopologyForSC2, "", "", false)
+			sc2, err = client.StorageV1().StorageClasses().Create(ctx, sc2Spec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc1.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			err = client.StorageV1().StorageClasses().Delete(ctx, sc2.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		scs := []*storagev1.StorageClass{}
+		scs = append(scs, sc1, sc2)
+		k := 0
+		pvcs := []*v1.PersistentVolumeClaim{}
+		pvclaims2d := [][]*v1.PersistentVolumeClaim{}
+		ginkgo.By("create 5 pvcs with each storageclass on remote vsan ds")
+		for i := 0; i < 10 && k < 2; i++ {
+			pvc, err := createPVC(ctx, client, namespace, nil, "", scs[k], "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvcs = append(pvcs, pvc)
+			pvclaims2d = append(pvclaims2d, []*v1.PersistentVolumeClaim{pvc})
+			if i == 5 || i == 10 {
+				k += 1
+			}
+		}
+
+		ginkgo.By("Wait for pvcs to be bound")
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			for i, pvc := range pvcs {
+				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[i].Spec.CSI.VolumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Attach a pod to each of the PVCs created earlier")
+		ginkgo.By("Wait for all pods to be running and verify that the respective pvcs are accessible")
+		pods := createMultiplePods(ctx, client, pvclaims2d, true)
+
+		defer func() {
+			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+		}()
+
+		for i := 0; i < 10; i++ {
+			_, err = verifyVolumeTopologyForLevel5(pvs[i], topologyAffinityDetails)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			_, err = verifyPodLocationLevel5(pods[i], nodes, topologyAffinityDetails)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Storage vmotion workers to local vsan datastore")
+		workervms := getWorkerVmMoRefs(ctx, client)
+		for _, vm := range workervms {
+			e2eVSphere.svmotionVM2DiffDs(ctx, object.NewVirtualMachine(e2eVSphere.Client.Client, vm.Reference()),
+				GetAndExpectStringEnvVar(envSharedDatastoreURL))
+			migratedVms = append(migratedVms, vm)
+		}
+
+		ginkgo.By("Verify that volumes are accessible for all the pods")
+		verifyVolMountsInPods(ctx, client, pods, pvclaims2d)
+
+		ginkgo.By("Storage vmotion workers back to remote datastore")
+		for _, vm := range workervms {
+			e2eVSphere.svmotionVM2DiffDs(ctx, object.NewVirtualMachine(e2eVSphere.Client.Client, vm.Reference()),
+				GetAndExpectStringEnvVar(envRemoteHCIDsUrl))
+			migratedVms = append(migratedVms[:0], migratedVms[1:]...)
+		}
+
+		ginkgo.By("Verify that volumes are accessible for all the pods that belong to remote workers")
+		verifyVolMountsInPods(ctx, client, pods, pvclaims2d)
+
+		for i := 0; i < 10; i++ {
+			_, err = verifyVolumeTopologyForLevel5(pvs[i], topologyAffinityDetails)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			_, err = verifyPodLocationLevel5(pods[i], nodes, topologyAffinityDetails)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 	})
 })

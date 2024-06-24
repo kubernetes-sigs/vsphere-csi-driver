@@ -330,7 +330,7 @@ func govcLoginCmdForMultiVC(i int) string {
 	return loginCmd
 }
 
-// deleteStorageProfile util deletes the storage policy from vcenter
+/*deletes storage profile deletes the storage profile*/
 func deleteStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig,
 	storagePolicyName string, clientIndex int) error {
 	removeStoragePolicy := govcLoginCmdForMultiVC(clientIndex) +
@@ -348,16 +348,6 @@ func deleteStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig,
 /*deletes storage profile deletes the storage profile*/
 func createStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig,
 	storagePolicyName string, clientIndex int) error {
-	attachTagCat := govcLoginCmdForMultiVC(clientIndex) +
-		"govc tags.attach -c " + "shared-cat-todelete1" + " " + "shared-tag-todelete1" +
-		" " + "'" + "/VSAN-DC/datastore/vsanDatastore" + "'"
-	framework.Logf("cmd to attach tag to preferred datastore: %s ", attachTagCat)
-	attachTagCatRes, err := sshExec(sshClientConfig, masterIp, attachTagCat)
-	if err != nil && attachTagCatRes.Code != 0 {
-		fssh.LogResult(attachTagCatRes)
-		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			attachTagCat, masterIp, err)
-	}
 	createStoragePolicy := govcLoginCmdForMultiVC(clientIndex) +
 		"govc storage.policy.create -category=shared-cat-todelete1 -tag=shared-tag-todelete1 " + storagePolicyName
 	framework.Logf("Create storage policy: %s ", createStoragePolicy)
