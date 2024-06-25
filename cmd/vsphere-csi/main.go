@@ -58,7 +58,7 @@ func main() {
 	// Set CO Init params.
 	clusterFlavor, err := csiconfig.GetClusterFlavor(ctx)
 	if err != nil {
-		log.Errorf("failed retrieving cluster flavor. Error: %v", err)
+		log.Errorf("failed retrieving the cluster flavor. Error: %v", err)
 	}
 	serviceMode := os.Getenv(csitypes.EnvVarMode)
 	commonco.SetInitParams(ctx, clusterFlavor, &service.COInitParams, *supervisorFSSName, *supervisorFSSNamespace,
