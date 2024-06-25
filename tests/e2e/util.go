@@ -829,8 +829,8 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 	isStorageClassPresent := false
 	p := map[string]string{}
 
-	if scParameters == nil && os.Getenv(envHciMountRemoteDs) == "true" {
-		p[scParamStoragePolicyName] = os.Getenv(envStoragePolicyNameForHCIRemoteDatastores)
+	if scParameters == nil && os.Getenv(envStoragePolicyNameForNkpEncryption) != "" {
+		p[scParamStoragePolicyName] = os.Getenv(envStoragePolicyNameForNkpEncryption)
 		scParameters = p
 	}
 	ginkgo.By(fmt.Sprintf("Creating StorageClass %s with scParameters: %+v and allowedTopologies: %+v "+
