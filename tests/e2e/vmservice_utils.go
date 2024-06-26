@@ -191,8 +191,8 @@ func getContentLib(vcRestSessionId string, libId string) subscribedContentLibBas
 	cl.name = v["name"].(string)
 	cl.Id = v["id"].(string)
 	cl.ds_moId = v["storage_backings"].([]interface{})[0].(map[string]interface{})["datastore_id"].(string)
-	cl.url = v["subscription_info"].(map[string]interface{})["subscription_url"].(string)
-
+	//cl.url = v["subscription_info"].(map[string]interface{})["subscription_url"].(string)
+	cl.url = "https://wp-content-pstg.broadcom.com/vmsvc/lib.json"
 	framework.Logf("Content lib with id %v: %v", libId, cl)
 	return cl
 }
