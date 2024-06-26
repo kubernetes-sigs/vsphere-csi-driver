@@ -24,12 +24,15 @@ import (
 	"testing"
 	"time"
 
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
-
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -415,4 +418,107 @@ func TestGenerateGuestClusterRequestedTopologyJSON(t *testing.T) {
 	}
 	t.Logf("volumeAccessibleTopologyJSON %v match with expectedVolumeAccessibleTopologyJSON: %v",
 		volumeAccessibleTopologyJSON, expectedVolumeAccessibleTopologyJSON)
+}
+
+func TestVirtualMachineVolumePatchWithOptimisticMerge(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vmoperatortypes.AddToScheme(scheme)
+
+	client := ctrlclientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(&vmoperatortypes.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-vm",
+				Namespace: "my-namespace",
+			},
+			Spec: vmoperatortypes.VirtualMachineSpec{
+				Volumes: []vmoperatortypes.VirtualMachineVolume{
+					{
+						Name: "my-vol-1",
+						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+							PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+								ClaimName: "my-pvc-1",
+							},
+						},
+					},
+				},
+			},
+		}).
+		WithStatusSubresource(&vmoperatortypes.VirtualMachine{}).
+		Build()
+
+	var (
+		vm1 vmoperatortypes.VirtualMachine
+		ctx = context.Background()
+		key = ctrlclient.ObjectKey{Name: "my-vm", Namespace: "my-namespace"}
+	)
+
+	if err := client.Get(ctx, key, &vm1); err != nil {
+		t.Fatal(err)
+	}
+
+	addVolumePatch := ctrlclient.MergeFromWithOptions(
+		vm1.DeepCopy(),
+		ctrlclient.MergeFromWithOptimisticLock{})
+
+	vm1.Spec.Volumes = append(
+		vm1.Spec.Volumes,
+		vmoperatortypes.VirtualMachineVolume{
+			Name: "my-vol-2",
+			PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+					ClaimName: "my-pvc-2",
+				},
+			},
+		})
+
+	if err := client.Patch(ctx, &vm1, addVolumePatch); err != nil {
+		t.Fatal(err)
+	}
+
+	var vm2 vmoperatortypes.VirtualMachine
+	if err := client.Get(ctx, key, &vm2); err != nil {
+		t.Fatal(err)
+	}
+
+	if a, e := len(vm2.Spec.Volumes), 2; a != e {
+		t.Fatalf("invalid number of volumes: a=%d, e=%d", a, e)
+	}
+	if a, e := vm2.Spec.Volumes[0].Name, "my-vol-1"; a != e {
+		t.Fatalf("invalid volume name: a=%s, e=%s", a, e)
+	}
+	if a, e := vm2.Spec.Volumes[1].Name, "my-vol-2"; a != e {
+		t.Fatalf("invalid volume name: a=%s, e=%s", a, e)
+	}
+
+	rmVolumePatch := ctrlclient.MergeFromWithOptions(
+		vm2.DeepCopy(),
+		ctrlclient.MergeFromWithOptimisticLock{})
+
+	vm2.Spec.Volumes = []vmoperatortypes.VirtualMachineVolume{
+		{
+			Name: "my-vol-2",
+			PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+					ClaimName: "my-pvc-2",
+				},
+			},
+		},
+	}
+
+	if err := client.Patch(ctx, &vm2, rmVolumePatch); err != nil {
+		t.Fatal(err)
+	}
+
+	var vm3 vmoperatortypes.VirtualMachine
+	if err := client.Get(ctx, key, &vm3); err != nil {
+		t.Fatal(err)
+	}
+
+	if a, e := len(vm3.Spec.Volumes), 1; a != e {
+		t.Fatalf("invalid number of volumes: a=%d, e=%d", a, e)
+	}
+	if a, e := vm3.Spec.Volumes[0].Name, "my-vol-2"; a != e {
+		t.Fatalf("invalid volume name: a=%s, e=%s", a, e)
+	}
 }
