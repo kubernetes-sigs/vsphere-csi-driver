@@ -5859,7 +5859,8 @@ func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMaste
 		containerKillCmd)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
-		if strings.Contains(cmdResult.Stderr, "OCI runtime resume failed") {
+		if strings.Contains(cmdResult.Stderr, "OCI runtime resume failed") ||
+			strings.Contains(cmdResult.Stderr, "cannot resume a stopped container: unknown") {
 			return nil
 		}
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6220,7 +6221,7 @@ func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string
 	containerName string, k8sVersion float64) (string, error) {
 	containerId := ""
 	cmdToGetContainerId := ""
-	waitErr := wait.PollUntilContextTimeout(context.Background(), poll, pollTimeoutShort*3, true,
+	waitErr := wait.PollUntilContextTimeout(context.Background(), poll*5, pollTimeout*4, true,
 		func(ctx context.Context) (bool, error) {
 			if k8sVersion <= 1.23 {
 				cmdToGetContainerId = "docker ps | grep " + containerName + " | " +
