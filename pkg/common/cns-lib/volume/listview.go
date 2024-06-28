@@ -221,9 +221,16 @@ func (l *ListViewImpl) isClientValid(reconnect bool) error {
 		return ErrSessionNotAuthenticated
 	}
 
+	log.Infof("logging out current session and clearing idle sessions")
+
+	err := l.govmomiClient.Logout(l.ctx)
+	if err != nil {
+		log.Errorf("failed to logout current listview session. still cleared idle sessions. err: %v", err)
+	}
+
 	log.Infof("creating a new session...")
 
-	err := cnsvsphere.ReadVCConfigs(l.ctx, l.virtualCenter)
+	err = cnsvsphere.ReadVCConfigs(l.ctx, l.virtualCenter)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to read VC config. err: %v", err)
 	}
