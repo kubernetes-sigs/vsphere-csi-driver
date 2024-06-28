@@ -461,7 +461,6 @@ data:
   "tkgs-ha": "true"
   "list-volumes": "true"
   "cnsmgr-suspend-create-volume": "true"
-  "listview-tasks": "true"
   "storage-quota-m2": "false"
   "vdpp-on-stretched-supervisor": "false"
 kind: ConfigMap

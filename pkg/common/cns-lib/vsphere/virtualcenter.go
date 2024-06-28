@@ -349,6 +349,7 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 		}
 		return err
 	}
+	vc.Client.Timeout = 0 * time.Minute
 	// Recreate PbmClient if created using timed out VC Client.
 	if vc.PbmClient != nil {
 		if vc.PbmClient, err = pbm.NewClient(ctx, vc.Client.Client); err != nil {
