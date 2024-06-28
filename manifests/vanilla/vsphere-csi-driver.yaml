@@ -251,6 +251,7 @@ spec:
             - "--leader-election-retry-period=30s"
             - "--kube-api-qps=100"
             - "--kube-api-burst=100"
+            - "--worker-threads=100"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
