@@ -326,6 +326,14 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 			return nil
 		}
 	}
+
+	log.Infof("logging out current session and clearing idle sessions")
+
+	err = vc.Client.Logout(ctx)
+	if err != nil {
+		log.Errorf("failed to logout current session. still clearing idle sessions. err: %v", err)
+	}
+
 	// If session has expired, create a new instance.
 	log.Infof("Creating a new client session as the existing one isn't valid or not authenticated")
 	if vc.Config.ReloadVCConfigForNewClient {
