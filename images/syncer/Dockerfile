@@ -41,7 +41,8 @@ ENV CGO_ENABLED=0
 
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 
-RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
+RUN go test -v -c -coverpkg=./... ./cmd/syncer/ -o /build/vsphere-syncer.test
+##RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
 
 ################################################################################
 ##                               MAIN STAGE                                   ##
@@ -54,6 +55,21 @@ ARG GIT_COMMIT
 # This label will be overridden from driver base image
 LABEL git_commit=$GIT_COMMIT
 
-COPY --from=builder /build/vsphere-syncer /bin/vsphere-syncer
+##COPY --from=builder /build/vsphere-syncer /bin/vsphere-syncer
 
-ENTRYPOINT ["/bin/vsphere-syncer"]
+##ENTRYPOINT ["/bin/vsphere-syncer"]
+# Set permissions for the /tmp/cloud directory
+RUN mkdir -p /tmp/cloud
+
+RUN chmod 777 /tmp/cloud
+
+# Save the timestamp in an environment variable
+ENV TIMESTAMP $(date +%s)
+
+# Create an empty file with the desired name
+RUN touch /tmp/cloud/contr-syncer-$TIMESTAMP.out
+
+COPY --from=builder /build/vsphere-syncer.test /bin/vsphere-syncer.test
+
+#ENTRYPOINT ["/bin/vsphere-syncer.test", "-test.coverprofile=/tmp/cloud/syncer-dump.out"]
+ENTRYPOINT ["/bin/sh", "-c", "/bin/vsphere-syncer.test -test.coverprofile=/tmp/cloud/contr-syncer-dump.out"]
