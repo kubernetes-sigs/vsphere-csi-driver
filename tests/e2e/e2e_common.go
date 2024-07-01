@@ -85,6 +85,7 @@ const (
 	envRegionZoneWithSharedDS                  = "TOPOLOGY_WITH_SHARED_DATASTORE"
 	envRemoteHCIDsUrl                          = "REMOTE_HCI_DS_URL"
 	envSharedDatastoreURL                      = "SHARED_VSPHERE_DATASTORE_URL"
+	envSharedDatastore2URL                     = "SHARED_VSPHERE_DATASTORE2_URL"
 	envSharedVVOLDatastoreURL                  = "SHARED_VVOL_DATASTORE_URL"
 	envSharedNFSDatastoreURL                   = "SHARED_NFS_DATASTORE_URL"
 	envSharedVMFSDatastoreURL                  = "SHARED_VMFS_DATASTORE_URL"

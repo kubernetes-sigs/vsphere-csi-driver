@@ -7017,5 +7017,37 @@ func removeStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config
 		pkgtypes.NamespacedName{Name: scName + storagePolicyQuota, Namespace: namespace}, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Quota after removing:  %s", spq.Spec.Limit)
+}
 
+// getK8sMasterIP gets k8s master ip in vanilla setup.
+func getK8sNodeIPs(ctx context.Context, client clientset.Interface) []string {
+	var err error
+	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var k8sNodeIPs []string
+	for _, node := range nodes.Items {
+
+		addrs := node.Status.Addresses
+		for _, addr := range addrs {
+			if addr.Type == v1.NodeExternalIP && (net.ParseIP(addr.Address)).To4() != nil {
+				k8sNodeIPs = append(k8sNodeIPs, addr.Address)
+			}
+		}
+
+	}
+	gomega.Expect(k8sNodeIPs).NotTo(gomega.BeEmpty(), "Unable to find k8s node IP")
+	return k8sNodeIPs
+}
+
+//
+func getK8sVmMos(ctx context.Context, client clientset.Interface, k8sNodeIpList []string) []vim25types.ManagedObjectReference {
+	vmIp2MoRefMap := vmIpToMoRefMap(ctx)
+
+	k8sNodeVmRef := []vim25types.ManagedObjectReference{}
+
+	for _, ip := range k8sNodeIpList {
+		k8sNodeVmRef = append(k8sNodeVmRef, vmIp2MoRefMap[ip])
+	}
+
+	return k8sNodeVmRef
 }

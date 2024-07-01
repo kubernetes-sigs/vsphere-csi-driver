@@ -1345,6 +1345,66 @@ func (vs *vSphere) getDsByUrl(ctx context.Context, datastoreURL string) mo.Datas
 	return dsMo
 }
 
+func (vs *vSphere) getResourcePoolList(ctx context.Context, clusterName string) mo.ResourcePool {
+	finder := find.NewFinder(vs.Client.Client, false)
+	dcString := e2eVSphere.Config.Global.Datacenters
+	dc, err := finder.Datacenter(ctx, dcString)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	finder.SetDatacenter(dc)
+	resourcePools, err := finder.ResourcePoolList(ctx, "*")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("resourcePoolList: %v", resourcePools)
+	var targetRsPoolMo mo.ResourcePool
+	var resourcePoolList []vim25types.ManagedObjectReference
+	for _, rsPool := range resourcePools {
+		rsPath := rsPool.InventoryPath
+		framework.Logf("rsPath: %v", rsPath)
+		rsPathList := strings.Split(rsPath, "/")
+		if rsPathList[2] == clusterName {
+			framework.Logf("moObj:%v, rsPoolProperties: %v", rsPool.Reference(), rsPool.Properties(ctx, rsPool.Reference(), nil, targetRsPoolMo))
+			break
+		}
+		resourcePoolList = append(resourcePoolList, rsPool.Reference())
+		//targetRsPoolMo=&rsPool.Reference()
+	}
+	/*framework.Logf("resPooolMoList: %v", resourcePoolList)
+	var rsPoolMoList []mo.ResourcePool
+	pc := property.DefaultCollector(vs.Client.Client)
+	framework.Logf("pc:%v", pc)
+	properties := []string{"summary"}
+	err = pc.Retrieve(ctx, resourcePoolList, properties, &rsPoolMoList)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("rsPoolMoList : %v", rsPoolMoList)
+	var targetRsPoolMo mo.ResourcePool
+	for _, mo := range rsPoolMoList {
+		framework.Logf("mo:%v")
+		targetRsPoolMo = mo
+	}
+	gomega.Expect(targetRsPoolMo).NotTo(gomega.BeNil())
+	*/
+	return targetRsPoolMo
+
+}
+
+func (vs *vSphere) svmotionVM2DiffDsOfDiffCluster(ctx context.Context, vm *object.VirtualMachine, destinationDsUrl string, clusterName string) {
+	dsMo := vs.getDsByUrl(ctx, destinationDsUrl)
+	relocateSpec := vim25types.VirtualMachineRelocateSpec{}
+	dsref := dsMo.Reference()
+	rsPoolMo := vs.getResourcePoolList(ctx, "*")
+	relocateSpec.Datastore = &dsref
+	framework.Logf("rsPoolMo: %v", rsPoolMo)
+
+	//relocateSpec.Pool = rsPoolMo
+	vmname, err := vm.ObjectName(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Starting relocation of vm %s to datastore %s of different cluster: %s", vmname, dsref.Value, clusterName)
+	task, err := vm.Relocate(ctx, relocateSpec, vim25types.VirtualMachineMovePriorityHighPriority)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	_, err = task.WaitForResultEx(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Relocation of vm %s to datastore %s completed successfully: %s", vmname, dsref.Value, clusterName)
+}
+
 func (vs *vSphere) getAllVms(ctx context.Context) []*object.VirtualMachine {
 	finder := find.NewFinder(vs.Client.Client, false)
 	dcString := e2eVSphere.Config.Global.Datacenters
