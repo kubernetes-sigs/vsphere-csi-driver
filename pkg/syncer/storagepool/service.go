@@ -40,46 +40,43 @@ type Service struct {
 	spController   *SpController
 	scWatchCntlr   *StorageClassWatch
 	migrationCntlr *migrationController
-	clusterID      string
+	clusterIDs     []string
 }
 
 var (
-	defaultStoragePoolService     *Service = new(Service)
+	defaultStoragePoolService     = new(Service)
 	defaultStoragePoolServiceLock sync.Mutex
 )
 
 // InitStoragePoolService initializes the StoragePool service that updates
 // vSphere Datastore information into corresponding k8s StoragePool resources.
+// TODO: handle the scenario when there's a change in the availability zones
 func InitStoragePoolService(ctx context.Context,
 	configInfo *commonconfig.ConfigurationInfo, coInitParams *interface{}) error {
 	log := logger.GetLogger(ctx)
-	var clusterId string
-	clusterId = configInfo.Cfg.Global.ClusterID
+	clusterIDs := []string{configInfo.Cfg.Global.ClusterID}
+
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 		clusterComputeResourceMoIds, err := common.GetClusterComputeResourceMoIds(ctx)
 		if err != nil {
 			log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
 			return err
 		}
-		if len(clusterComputeResourceMoIds) > 1 {
-			log.Infof("skip initializing the StoragePoolService as stretched supervisor is detected.")
+
+		clusterIDs = clusterComputeResourceMoIds
+		if len(clusterIDs) > 1 &&
+			(!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) ||
+				!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VdppOnStretchedSupervisor)) {
+			log.Infof("`%s` and `%s` should be enabled for storage pool service on Stretched Supervisor. Exiting...",
+				common.PodVMOnStretchedSupervisor, common.VdppOnStretchedSupervisor)
 			return nil
-		}
-		if len(clusterComputeResourceMoIds) == 1 {
-			clusterId = clusterComputeResourceMoIds[0]
 		}
 	}
 
 	log.Infof("Initializing Storage Pool Service")
-	// Get a config to talk to the apiserver.
-	cfg, err := config.GetConfig()
-	if err != nil {
-		log.Errorf("Failed to get Kubernetes config. Err: %+v", err)
-		return err
-	}
 
 	// Create StoragePool CRD.
-	err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, storagepoolconfig.EmbedStoragePoolCRFile,
+	err := k8s.CreateCustomResourceDefinitionFromManifest(ctx, storagepoolconfig.EmbedStoragePoolCRFile,
 		storagepoolconfig.EmbedStoragePoolCRFileName)
 	if err != nil {
 		crdKind := reflect.TypeOf(spv1alpha1.StoragePool{}).Name()
@@ -101,9 +98,16 @@ func InitStoragePoolService(ctx context.Context,
 	}
 
 	// Start the services.
-	spController, err := newSPController(vc, clusterId)
+	spController, err := newSPController(vc, clusterIDs)
 	if err != nil {
 		log.Errorf("Failed starting StoragePool controller. Err: %+v", err)
+		return err
+	}
+
+	// Get a config to talk to the apiserver.
+	cfg, err := config.GetConfig()
+	if err != nil {
+		log.Errorf("Failed to get Kubernetes config. Err: %+v", err)
 		return err
 	}
 
@@ -128,7 +132,7 @@ func InitStoragePoolService(ctx context.Context,
 		}
 	}()
 
-	migrationController := initMigrationController(vc, clusterId)
+	migrationController := initMigrationController(vc, clusterIDs)
 	go func() {
 		diskDecommEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
 		defer diskDecommEnablementTicker.Stop()
@@ -144,13 +148,16 @@ func InitStoragePoolService(ctx context.Context,
 		}
 	}()
 
+	storagePoolService := new(Service)
+	storagePoolService.spController = spController
+	storagePoolService.scWatchCntlr = scWatchCntlr
+	storagePoolService.migrationCntlr = migrationController
+	storagePoolService.clusterIDs = clusterIDs
+
 	// Create the default Service.
 	defaultStoragePoolServiceLock.Lock()
-	defer defaultStoragePoolServiceLock.Unlock()
-	defaultStoragePoolService.spController = spController
-	defaultStoragePoolService.scWatchCntlr = scWatchCntlr
-	defaultStoragePoolService.migrationCntlr = migrationController
-	defaultStoragePoolService.clusterID = clusterId
+	defaultStoragePoolService = storagePoolService
+	defaultStoragePoolServiceLock.Unlock()
 
 	startPropertyCollectorListener(ctx)
 

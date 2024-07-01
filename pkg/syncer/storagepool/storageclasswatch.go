@@ -18,7 +18,6 @@ package storagepool
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"reflect"
 	"strings"
@@ -27,7 +26,6 @@ import (
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -36,24 +34,16 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
-const (
-	// We are still deciding where exactly to publish the storage policy
-	// content, so keep this off for now.
-	featureSwitchStorageClassContentAnnotation = false
-
-	policyContentAnnotationKey = "cns.vmware.com/policy"
-)
-
 // StorageClassWatch keeps state to watch storage classes and keep
 // an in-memory cache of datastore / storage pool accessibility.
 type StorageClassWatch struct {
 	scWatch        watch.Interface
 	clientset      *kubernetes.Clientset
 	vc             *cnsvsphere.VirtualCenter
-	policyIds      []string
-	policyToScMap  map[string]*storagev1.StorageClass
+	policyIDs      []string
+	policyToScMap  map[string]map[string]*storagev1.StorageClass
 	isHostLocalMap map[string]bool
-	clusterID      string
+	clusterIDs     []string
 	spController   *SpController
 
 	dsPolicyCompatMapCache map[string][]string
@@ -83,7 +73,7 @@ func startStorageClassWatch(ctx context.Context,
 	}
 	w.clientset = clientset
 	w.vc = spController.vc
-	w.clusterID = spController.clusterID
+	w.clusterIDs = spController.clusterIDs
 	w.spController = spController
 	w.isHostLocalMap = make(map[string]bool)
 
@@ -188,7 +178,7 @@ func (w *StorageClassWatch) needsRefreshStorageClassCache(ctx context.Context, s
 		return false
 	}
 	// Lookup StorageClass from our cache.
-	cachedSc, found := w.policyToScMap[thisStoragePolicyID]
+	cachedSc, found := w.policyToScMap[thisStoragePolicyID][sc.Name]
 	switch eventType {
 	case watch.Added, watch.Modified:
 		// Need to refresh our cache if this StorageClass is missing or anything
@@ -214,107 +204,49 @@ func (w *StorageClassWatch) needsRefreshStorageClassCache(ctx context.Context, s
 func (w *StorageClassWatch) refreshStorageClassCache(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 
-	policyIds := make([]string, 0)
-	policyToSCMap := make(map[string]*storagev1.StorageClass)
-	scClient := w.clientset.StorageV1().StorageClasses()
-	scList, err := scClient.List(ctx, metav1.ListOptions{})
+	scList, err := w.clientset.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Errorf("Failed to query Storage Classes. Err: %+v", err)
 		return err
 	}
+
+	policyIDs := make([]string, 0)
+	policyToSCMap := make(map[string]map[string]*storagev1.StorageClass)
 	for idx, sc := range scList.Items {
 		policyID := getStoragePolicyIDFromSC(&sc)
 		if policyID == "" {
 			continue
 		}
-		policyIds = append(policyIds, policyID)
-		policyToSCMap[policyID] = &scList.Items[idx]
-	}
 
+		if _, ok := policyToSCMap[policyID]; !ok {
+			policyToSCMap[policyID] = make(map[string]*storagev1.StorageClass)
+			policyIDs = append(policyIDs, policyID)
+		}
+		policyToSCMap[policyID][scList.Items[idx].Name] = &scList.Items[idx]
+	}
 	w.policyToScMap = policyToSCMap
-	w.policyIds = policyIds
-	w.isHostLocalMap = make(map[string]bool)
-
-	err = w.addStorageClassPolicyAnnotations(ctx)
-	if err != nil {
-		log.Errorf("addStorageClassPolicyAnnotations failed. err: %v", err)
-	}
-
-	err = ReconcileAllStoragePools(ctx, w, w.spController)
-	if err != nil {
-		log.Errorf("ReconcileAllStoragePools failed. err: %v", err)
-	}
-
-	return nil
-}
-
-// We want each StorageClass to have an annotation capturing the content of the
-// SPBM storage policy. This function makes it so.
-func (w *StorageClassWatch) addStorageClassPolicyAnnotation(ctx context.Context,
-	profile cnsvsphere.SpbmPolicyContent) error {
-	log := logger.GetLogger(ctx)
-
-	sc := w.policyToScMap[profile.ID]
-	w.isHostLocalMap[sc.Name] = isHostLocalProfile(profile)
-	log.Infof("sc %s is hostLocal: %t", sc.Name, w.isHostLocalMap[sc.Name])
-	profileBytes, err := json.Marshal(profile)
-	if err != nil {
-		log.Errorf("Failed to marshal policy: %s", err)
-		return err
-	}
-	value, exists := sc.Annotations[policyContentAnnotationKey]
-	if exists && value == string(profileBytes) {
-		return nil
-	}
-
-	patch := map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"annotations": map[string]string{
-				policyContentAnnotationKey: string(profileBytes),
-			},
-		},
-	}
-
-	patchBytes, err := json.Marshal(patch)
-	if err != nil {
-		log.Errorf("Failed to marshal patch: %s", err)
-		return err
-	}
-
-	if !featureSwitchStorageClassContentAnnotation {
-		return nil
-	}
-
-	scClient := w.clientset.StorageV1().StorageClasses()
-	_, err = scClient.Patch(ctx, sc.Name, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
-	if err != nil {
-		log.Errorf("Failed to patch: %s", err)
-		return err
-	}
-
-	return nil
-}
-
-// Perform a remediation, get policy content for all storage classes, and update
-// their annotation if necessary.
-func (w *StorageClassWatch) addStorageClassPolicyAnnotations(ctx context.Context) error {
-	log := logger.GetLogger(ctx)
-	if len(w.policyIds) == 0 {
-		log.Debugf("No storage policies to fetch")
-		return nil
-	}
+	w.policyIDs = policyIDs
 
 	profiles, err := w.fetchPolicies(ctx)
 	if err != nil {
 		log.Errorf("fetchPolicies failed. err: %v", err)
 		return err
 	}
+
+	isHostLocalMap := make(map[string]bool)
 	for _, profile := range profiles {
-		err := w.addStorageClassPolicyAnnotation(ctx, profile)
-		if err != nil {
-			log.Errorf("addStorageClassPolicyAnnotation failed. err: %v", err)
+		for _, sc := range w.policyToScMap[profile.ID] {
+			isHostLocalMap[sc.Name] = isHostLocalProfile(profile)
+			log.Infof("sc %s is hostLocal: %t", sc.Name, w.isHostLocalMap[sc.Name])
 		}
 	}
+	w.isHostLocalMap = isHostLocalMap
+
+	err = ReconcileAllStoragePools(ctx, w, w.spController)
+	if err != nil {
+		log.Errorf("ReconcileAllStoragePools failed. err: %v", err)
+	}
+
 	return nil
 }
 
@@ -328,7 +260,7 @@ func (w *StorageClassWatch) fetchPolicies(ctx context.Context) ([]cnsvsphere.Spb
 	log := logger.GetLogger(ctx)
 	var profiles []cnsvsphere.SpbmPolicyContent
 	var err error
-	policyIds := w.policyIds
+	policyIds := w.policyIDs
 	for i := 0; i < 2; i++ {
 		profiles, err = w.vc.PbmRetrieveContent(ctx, policyIds)
 		if err != nil {
@@ -345,13 +277,13 @@ func (w *StorageClassWatch) fetchPolicies(ctx context.Context) ([]cnsvsphere.Spb
 			}
 			// Remove the invalid profiles from policyIds and fetch valid profiles
 			// once again.
-			log.Infof("Removing invalid profileIds %v from cache: %v", invalidProfiles, w.policyIds)
+			log.Infof("Removing invalid profileIds %v from cache: %v", invalidProfiles, w.policyIDs)
 			invalidProfileMap := make(map[string]bool, len(invalidProfiles))
 			for _, p := range invalidProfiles {
 				invalidProfileMap[p] = true
 			}
 			validProfileIds := make([]string, 0)
-			for _, p := range w.policyIds {
+			for _, p := range w.policyIDs {
 				if !invalidProfileMap[p] {
 					validProfileIds = append(validProfileIds, p)
 				}
@@ -401,7 +333,7 @@ func isInvalidProfileErr(ctx context.Context, err error) (bool, []string) {
 // is compatible with. Returns a dict of format:
 // datastoreMoId -> []string of policyIds
 //
-// If storage classes haven't recently changed, and if forceRefreshforceRefresh
+// If storage classes haven't recently changed, and if forceRefresh
 // is false, will return cached data.
 func (w *StorageClassWatch) getDatastoreToPolicyCompatibility(ctx context.Context,
 	datastores []*cnsvsphere.DatastoreInfo, forceRefresh bool) (map[string][]string, error) {
@@ -409,6 +341,7 @@ func (w *StorageClassWatch) getDatastoreToPolicyCompatibility(ctx context.Contex
 	if !forceRefresh {
 		return w.dsPolicyCompatMapCache, nil
 	}
+
 	datastoreToPoliciesMap := make(map[string][]string)
 	datastoreMorList := make([]vimtypes.ManagedObjectReference, 0)
 	for _, ds := range datastores {
@@ -416,16 +349,16 @@ func (w *StorageClassWatch) getDatastoreToPolicyCompatibility(ctx context.Contex
 		datastoreToPoliciesMap[ds.Datastore.Reference().Value] = make([]string, 0)
 	}
 
-	for _, policyID := range w.policyIds {
+	for _, policyID := range w.policyIDs {
 		compat, err := w.vc.PbmCheckCompatibility(ctx, datastoreMorList, policyID)
 		if err != nil {
-			isInvalidProfileErr, _ := isInvalidProfileErr(ctx, err)
-			if isInvalidProfileErr {
+			if isInvalidProfileErr, _ := isInvalidProfileErr(ctx, err); isInvalidProfileErr {
 				// Stale policyIDs can be skipped safely.
 				log.Infof("Skipping non-existent policy %s that failed in check PBM compatibility %v with error %v",
 					policyID, datastoreMorList, err)
 				continue
 			}
+
 			return datastoreToPoliciesMap, err
 		}
 
@@ -435,6 +368,5 @@ func (w *StorageClassWatch) getDatastoreToPolicyCompatibility(ctx context.Contex
 	}
 
 	w.dsPolicyCompatMapCache = datastoreToPoliciesMap
-
 	return datastoreToPoliciesMap, nil
 }

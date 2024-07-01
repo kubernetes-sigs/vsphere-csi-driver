@@ -43,16 +43,15 @@ import (
 // migrationController is responsible for processing CNS volume relocation
 // to another StoragePool.
 type migrationController struct {
-	vc        *cnsvsphere.VirtualCenter
-	clusterID string
+	vc         *cnsvsphere.VirtualCenter
+	clusterIDs []string
 }
 
-func initMigrationController(vc *cnsvsphere.VirtualCenter, clusterID string) *migrationController {
-	migrationCntlr := migrationController{
-		vc:        vc,
-		clusterID: clusterID,
+func initMigrationController(vc *cnsvsphere.VirtualCenter, clusterIDs []string) *migrationController {
+	return &migrationController{
+		vc:         vc,
+		clusterIDs: clusterIDs,
 	}
-	return &migrationCntlr
 }
 
 func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID string, targetSPName string) error {
@@ -70,7 +69,7 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 	if !found || err != nil {
 		return fmt.Errorf("failed to find datastoreUrl in StoragePool %s", targetSPName)
 	}
-	dsInfo, err := cnsvsphere.GetDatastoreInfoByURL(ctx, m.vc, m.clusterID, datastoreURL)
+	dsInfo, err := cnsvsphere.GetDatastoreInfoByURL(ctx, m.vc, m.clusterIDs, datastoreURL)
 	if err != nil {
 		return fmt.Errorf("failed to get datastore corresponding to URL %v", datastoreURL)
 	}
