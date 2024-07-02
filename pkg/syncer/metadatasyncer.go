@@ -343,20 +343,31 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					cnsoperatorv1alpha1.CnsStoragePolicyQuotaSingular, err)
 			}
 
+			isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
 			go func() {
-				isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
+				if isStorageQuotaM2Enabled {
+					// TODO: Wait for fullSync to create CnsVolumeInfo CRs if necessary
+					cnsVolumeInfoCRInformerErr := startCnsVolumeInfoCRInformer(ctx, k8sConfig, metadataSyncer)
+					if cnsVolumeInfoCRInformerErr != nil {
+						log.Errorf("failed to start informer on %q instances. Error: %v",
+							cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, cnsVolumeInfoCRInformerErr)
+						os.Exit(1)
+					}
+				}
+			}()
+			go func() {
 				if isStorageQuotaM2Enabled {
 					// TODO: Wait for fullSync to update "zones" value on all CnsVolumeInfo CRs
 
 					// Start informer on AvailabilityZone CRs
-					err = startAvailabilityZoneCRInformer(ctx, k8sConfig)
-					if err != nil {
-						if err == common.ErrAvailabilityZoneCRNotRegistered {
+					availabilityZoneCRInformerErr := startAvailabilityZoneCRInformer(ctx, k8sConfig)
+					if availabilityZoneCRInformerErr != nil {
+						if availabilityZoneCRInformerErr == common.ErrAvailabilityZoneCRNotRegistered {
 							log.Errorf("failed to start informer on AvailabilityZone CR, as AZ CR is not registered.")
 							os.Exit(1)
 						} else {
 							log.Errorf("failed to start informer on AvailabilityZone CR instances. "+
-								"Error: %v", err)
+								"Error: %v", availabilityZoneCRInformerErr)
 							os.Exit(1)
 						}
 					}
@@ -3327,4 +3338,61 @@ func availabilityZoneCRDeleted(obj interface{}) {
 		azName, clusterComputeResourceMoIds)
 
 	// TODO: Stop watching on any host events of this cluster
+}
+
+// startCnsVolumeInfoCRInformer creates and starts an informer for CnsVolumeInfo custom resource.
+func startCnsVolumeInfoCRInformer(ctx context.Context, cfg *restclient.Config,
+	metadataSyncer *metadataSyncInformer) error {
+	log := logger.GetLogger(ctx)
+	// Create an informer for CnsVolumeInfo instances.
+	dynInformer, err := k8s.GetDynamicInformer(ctx, cnsvolumeinfov1alpha1.GroupName,
+		cnsvolumeinfov1alpha1.Version, cnsvolumeinfov1alpha1.CnsVolumeInfoPlural, metav1.NamespaceAll, cfg, true)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to create dynamic informer for %s CR. Error: %+v",
+			cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, err)
+	}
+	cnsVolumeInformer := dynInformer.Informer()
+	_, err = cnsVolumeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			cnsVolumeInfoCRUpdated(oldObj, newObj, metadataSyncer)
+		},
+	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on informer for %q CR. Error: %v",
+			cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, err)
+	}
+	// Start informer.
+	go func() {
+		log.Infof("Informer to watch on %s CR starting..", cnsvolumeinfov1alpha1.CnsVolumeInfoSingular)
+		cnsVolumeInformer.Run(make(chan struct{}))
+	}()
+	return nil
+}
+
+// cnsVolumeInfoCRUpdated updates the VolumeSnapshot StoragePolicyUsage "used" capacity. This is used to track
+// snapshot aggregated capacity usage per volume basis
+func cnsVolumeInfoCRUpdated(oldObj interface{}, newObj interface{}, metadataSyncer *metadataSyncInformer) {
+	_, log := logger.GetNewContextWithLogger()
+	// Verify both objects received.
+	var (
+		oldCnsVolumeInfoObj cnsvolumeinfov1alpha1.CNSVolumeInfo
+		newCnsVolumeInfoObj cnsvolumeinfov1alpha1.CNSVolumeInfo
+	)
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(
+		newObj.(*unstructured.Unstructured).Object, &newCnsVolumeInfoObj)
+	if err != nil {
+		log.Errorf("cnsVolumeInfoCRUpdated: failed to cast new object %+v to %s. Error: %+v", newObj,
+			cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, err)
+		return
+	}
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(
+		oldObj.(*unstructured.Unstructured).Object, &oldCnsVolumeInfoObj)
+	if err != nil {
+		log.Errorf("cnsVolumeInfoCRUpdated: failed to cast old object %+v to %s. Error: %+v", oldObj,
+			cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, err)
+		return
+	}
+	log.Debugf("cnsVolumeInfoCRUpdated: Old CnsVolumeInfo: +%v, Updated CnsVolumeInfo: +%+v",
+		oldCnsVolumeInfoObj, newCnsVolumeInfoObj)
+	// TODO: add logic to update VolumeSnapshot StoragePolicyUsage.
 }
