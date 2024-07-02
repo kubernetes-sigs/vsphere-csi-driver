@@ -30,6 +30,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vsan"
 	vsantypes "github.com/vmware/govmomi/vsan/types"
 	"golang.org/x/crypto/ssh"
@@ -175,6 +176,24 @@ func createFaultDomainMap(ctx context.Context, vs *vSphere) map[string]string {
 	finder.SetDatacenter(dc)
 	hosts, err := finder.HostSystemList(ctx, "*")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("hosts: %v", hosts)
+	if guestCluster {
+		hostsInVsanStretchCluster := []*object.HostSystem{}
+		for _, host := range hosts {
+			hostInfo := host.Common.InventoryPath
+			hostIpInfo := strings.Split(hostInfo, "/")
+			hostCluster := hostIpInfo[len(hostIpInfo)-2]
+			if !strings.Contains(hostCluster, "EdgeMgmtCluster") {
+				hostsInVsanStretchCluster = append(hostsInVsanStretchCluster, host)
+			}
+
+		}
+		hosts = hostsInVsanStretchCluster
+		/*clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		hosts = getHostsByClusterName(ctx, clusterComputeResource, "vSANCluster")*/
+	}
+	framework.Logf("hosts: %v", hosts)
 	for _, host := range hosts {
 		vsanSystem, _ := host.ConfigManager().VsanSystem(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -198,7 +217,6 @@ func createFaultDomainMap(ctx context.Context, vs *vSphere) map[string]string {
 			framework.Logf("host: %s, site: %s", host.Name(), hostConfig.FaultDomainInfo.Name)
 		}
 	}
-
 	return fdMap
 }
 
@@ -663,7 +681,7 @@ func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) 
 // statefulset, deployment and volumes of statfulset created
 func createStsDeployment(ctx context.Context, client clientset.Interface, namespace string,
 	sc *storagev1.StorageClass, isDeploymentRequired bool, modifyStsSpec bool,
-	replicaCount int32, stsName string,
+	stsReplica int32, stsName string, depReplicaCount int32,
 	accessMode v1.PersistentVolumeAccessMode) (*appsv1.StatefulSet, *appsv1.Deployment, []string) {
 	var pvclaims []*v1.PersistentVolumeClaim
 	if accessMode == "" {
@@ -680,7 +698,7 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 		statefulset.Name = stsName
 		statefulset.Spec.Template.Labels["app"] = statefulset.Name
 		statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
-		*(statefulset.Spec.Replicas) = replicaCount
+		*(statefulset.Spec.Replicas) = stsReplica
 	}
 	CreateStatefulSet(namespace, statefulset, client)
 	replicas := *(statefulset.Spec.Replicas)
@@ -730,7 +748,7 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 		labelsMap := make(map[string]string)
 		labelsMap["app"] = "test"
 		deployment, err := createDeployment(
-			ctx, client, 1, labelsMap, nil, namespace, pvclaims, "", false, busyBoxImageOnGcr)
+			ctx, client, depReplicaCount, labelsMap, nil, namespace, pvclaims, "", false, busyBoxImageOnGcr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		deployment, err = client.AppsV1().Deployments(namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
@@ -749,38 +767,58 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 
 // volumeLifecycleActions creates pvc and pod and waits for them to be in healthy state and then deletes them
 func volumeLifecycleActions(ctx context.Context, client clientset.Interface, namespace string,
-	sc *storagev1.StorageClass) {
+	sc *storagev1.StorageClass, accessMode v1.PersistentVolumeAccessMode) {
 
-	if rwxAccessMode {
-		pvc1, err := createPVC(ctx, client, namespace, nil, "", sc, v1.ReadWriteMany)
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		accessMode = v1.ReadWriteOnce
+	}
+	var pod1 *v1.Pod
+
+	if vanillaCluster {
+		pvc1, err := createPVC(ctx, client, namespace, nil, diskSize, sc, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		time.Sleep(time.Duration(80) * time.Second)
 
 		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx,
 			client, []*v1.PersistentVolumeClaim{pvc1}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
 
-		verifyVolPropertiesFromCnsQueryResults(e2eVSphere, volHandle)
-
-		//Create Pod1
-		ginkgo.By(fmt.Sprintf("create pod with pvc: %s", pvc1.Name))
-		pod1, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, "")
+		pod1, err = createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		//Create file1.txt on Pod1
-		ginkgo.By("Create file1.txt on Pod1")
-		err = e2eoutput.CreateEmptyFileOnPod(namespace, pod1.Name, filePath1)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if rwxAccessMode {
+			//Create file1.txt on Pod1
+			ginkgo.By("Create file1.txt on Pod1")
+			err = e2eoutput.CreateEmptyFileOnPod(namespace, pod1.Name, filePath1)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		//Write data on file1.txt on Pod1
-		data := "This file file1 is written by Pod1"
-		ginkgo.By("Write on file1.txt from Pod1")
-		writeDataOnFileFromPod(namespace, pod1.Name, filePath1, data)
+			//Write data on file1.txt on Pod1
+			data := "This file file1 is written by Pod1"
+			ginkgo.By("Write on file1.txt from Pod1")
+			writeDataOnFileFromPod(namespace, pod1.Name, filePath1, data)
 
-		ginkgo.By(fmt.Sprintf("Deleting the pod : %s in namespace %s", pod1.Name, namespace))
-		err = fpod.DeletePodWithWait(ctx, client, pod1)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Deleting the pod : %s in namespace %s", pod1.Name, namespace))
+			err = fpod.DeletePodWithWait(ctx, client, pod1)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		} else {
+			vmUUID := getNodeUUID(ctx, client, pod1.Spec.NodeName)
+			framework.Logf("VMUUID : %s", vmUUID)
+			isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
+				"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
+
+			framework.Logf("Verify the volume is accessible")
+			_, err = e2eoutput.LookForStringInPodExec(namespace, pod1.Name,
+				[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod1")
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod1.Spec.NodeName+"-"+volHandle,
+				crdCNSFileAccessConfig, crdVersion, crdGroup, true)
+			deletePodAndWaitForVolsToDetach(ctx, client, pod1)
+		}
 
 		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc1.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -830,7 +868,6 @@ func volumeLifecycleActions(ctx context.Context, client clientset.Interface, nam
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}
-
 }
 
 // scaleDownStsAndVerifyPodMetadata scales down replica of a statefulset if required
@@ -1171,4 +1208,18 @@ func checkForEventWithMessage(client clientset.Interface, namespace string,
 		}
 	}
 	return eventFound
+}
+
+// verifyNodesStateInSupervisor
+func verifyNodesStateInSupervisor(ctx context.Context, nodeList *v1.NodeList) {
+
+	var svcClient clientset.Interface
+	var err error
+	if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+		svcClient, err = createKubernetesClientFromConfig(k8senv)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	wait4AllK8sNodesToBeUp(ctx, svcClient, nodeList)
+	err = waitForAllNodes2BeReady(ctx, svcClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
