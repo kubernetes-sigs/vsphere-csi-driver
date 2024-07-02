@@ -22,6 +22,18 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+// GroupName represents the group for cnsvolumeinfo apis
+const GroupName = "cns.vmware.com"
+
+// Version represents the version for cnsvolumeinfo apis
+const Version = "v1alpha1"
+
+// CnsVolumeInfoPlural is plural of CnsVolumeInfo
+const CnsVolumeInfoPlural = "cnsvolumeinfoes"
+
+// CnsVolumeInfoSingular is Singular of CnsVolumeInfo
+const CnsVolumeInfoSingular = "cnsvolumeinfo"
+
 // SchemeGroupVersion define schema Group and version
 var SchemeGroupVersion = schema.GroupVersion{
 	Group:   "cns.vmware.com",
