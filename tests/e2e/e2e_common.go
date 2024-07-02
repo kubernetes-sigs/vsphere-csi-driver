@@ -241,6 +241,7 @@ const (
 	datstoreSharedBetweenClusters              = "DATASTORE_SHARED_BETWEEN_TWO_CLUSTERS"
 	datastoreUrlSpecificToCluster              = "DATASTORE_URL_SPECIFIC_TO_CLUSTER"
 	storagePolicyForDatastoreSpecificToCluster = "STORAGE_POLICY_FOR_DATASTORE_SPECIFIC_TO_CLUSTER"
+	envStoragePolicyNameForNkpEncryption       = "STORAGE_POLICY_FOR_NKP_ENCRYPTION"
 	topologyCluster                            = "TOPOLOGY_CLUSTERS"
 	topologyLength                             = 5
 	tkgshaTopologyLevels                       = 1
