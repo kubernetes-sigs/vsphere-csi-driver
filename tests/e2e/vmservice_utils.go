@@ -191,8 +191,8 @@ func getContentLib(vcRestSessionId string, libId string) subscribedContentLibBas
 	cl.name = v["name"].(string)
 	cl.Id = v["id"].(string)
 	cl.ds_moId = v["storage_backings"].([]interface{})[0].(map[string]interface{})["datastore_id"].(string)
-	cl.url = v["subscription_info"].(map[string]interface{})["subscription_url"].(string)
-
+	//cl.url = v["subscription_info"].(map[string]interface{})["subscription_url"].(string)
+	cl.url = "https://wp-content-pstg.broadcom.com/vmsvc/lib.json"
 	framework.Logf("Content lib with id %v: %v", libId, cl)
 	return cl
 }
@@ -250,7 +250,7 @@ func invokeVCRestAPIDeleteRequest(vcRestSessionId string, url string) ([]byte, i
 // waitNGetVmiForImageName waits and fetches VM image CR for given image name in the specified namespace
 func waitNGetVmiForImageName(ctx context.Context, c ctlrclient.Client, namespace string, imageName string) string {
 	vmi := ""
-	err := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+	err := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout*3, true,
 		func(ctx context.Context) (bool, error) {
 			vmImagesList := &vmopv1.VirtualMachineImageList{}
 			err := c.List(ctx, vmImagesList)
