@@ -1298,8 +1298,8 @@ github.com/vishvananda/netns v0.0.2 h1:Cn05BRLm+iRP/DZxyVSsfVyrzgjDbwHwkVt38qvXn
 github.com/vishvananda/netns v0.0.2/go.mod h1:yitZXdAVI+yPFSb4QUe+VW3vOVl4PZPNcBgbPxAtJxw=
 github.com/vmware-tanzu/vm-operator/api v1.8.2 h1:7cZHVusqAmAMFWvsiU7X5xontxdjasknI/sVfe0p0Z4=
 github.com/vmware-tanzu/vm-operator/api v1.8.2/go.mod h1:vauVboD3sQxP+pb28TnI9wfrj+0nH2zSEc9Q7AzWJ54=
-github.com/vmware/govmomi v0.37.2 h1:5ANLoaTxWv600ZnoosJ2zXbM3A+EaxqGheEZbRN8YVE=
-github.com/vmware/govmomi v0.37.2/go.mod h1:mtGWtM+YhTADHlCgJBiskSRPOZRsN9MSjPzaZLte/oQ=
+github.com/vmware/govmomi v0.37.3 h1:L2y2Ba09tYiZwdPtdF64Ox9QZeJ8vlCUGcAF9SdODn4=
+github.com/vmware/govmomi v0.37.3/go.mod h1:mtGWtM+YhTADHlCgJBiskSRPOZRsN9MSjPzaZLte/oQ=
 github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f/go.mod h1:N2zxlSyiKSe5eX1tZViRH5QA0qijqEDrYZiPEAiq3wU=
 github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415/go.mod h1:GwrjFmJcFw6At/Gs6z4yjiIwzuJ1/+UwLxMQDVQXShQ=
 github.com/xeipuuv/gojsonschema v1.2.0/go.mod h1:anYRn/JVcOK2ZgGU+IjEV4nwlhoK5sQluxsYJ78Id3Y=

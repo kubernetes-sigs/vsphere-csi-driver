@@ -159,10 +159,12 @@ type CnsVolumeInfo struct {
 }
 
 type CnsSnapshotInfo struct {
-	SnapshotID                string
-	SourceVolumeID            string
-	SnapshotDescription       string
-	SnapshotCreationTimestamp time.Time
+	SnapshotID                          string
+	SourceVolumeID                      string
+	SnapshotDescription                 string
+	SnapshotCreationTimestamp           time.Time
+	AggregatedSnapshotCapacityInMb      int64
+	SnapshotLatestOperationCompleteTime time.Time
 }
 
 // CreateVolumeExtraParams consist of values required by the CreateVolume interface and
@@ -2369,12 +2371,32 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 				log.Infof("Snapshot with name %q and id %q on Volume %q is already created on CNS with opId: %q.",
 					instanceName, volumeOperationDetails.SnapshotID, volumeOperationDetails.VolumeID,
 					volumeOperationDetails.OperationDetails.OpID)
-
+				log.Infof("Retriving aggregated Snapshot Capacity for volume with volumeID %q", volumeID)
+				aggregatedSnapshotCapacity, err := m.getAggregatedSnapshotSize(ctx, volumeID)
+				if err != nil {
+					return nil, logger.LogNewErrorf(log, "Failed to retrive volume with volumeID %q with error %v", volumeID, err)
+				}
+				taskMoRef := vim25types.ManagedObjectReference{
+					Type:  "Task",
+					Value: volumeOperationDetails.OperationDetails.TaskID,
+				}
+				createSnapshotsTask = object.NewTask(m.virtualCenter.Client.Client, taskMoRef)
+				createSnapshotsTaskInfo, err := cns.GetTaskInfo(ctx, createSnapshotsTask)
+				snapshotLatestOperationCompleteTime := *createSnapshotsTaskInfo.CompleteTime
+				if err != nil {
+					log.Warnf("Failed to retrive taskinfo for snapshot %q taskid %q and volumeID %q with error %v",
+						volumeOperationDetails.SnapshotID, volumeOperationDetails.OperationDetails.TaskID, volumeID, err)
+					log.Infof("Using create snapshot timestamp instead of create snapshot task completion time for snapshot %q and volumeID %q",
+						volumeOperationDetails.SnapshotID, volumeID)
+					snapshotLatestOperationCompleteTime = volumeOperationDetails.OperationDetails.TaskInvocationTimestamp.Time
+				}
 				return &CnsSnapshotInfo{
-					SnapshotID:                volumeOperationDetails.SnapshotID,
-					SourceVolumeID:            volumeOperationDetails.VolumeID,
-					SnapshotDescription:       volumeOperationDetails.Name,
-					SnapshotCreationTimestamp: volumeOperationDetails.OperationDetails.TaskInvocationTimestamp.Time,
+					SnapshotID:                          volumeOperationDetails.SnapshotID,
+					SourceVolumeID:                      volumeOperationDetails.VolumeID,
+					SnapshotDescription:                 volumeOperationDetails.Name,
+					SnapshotCreationTimestamp:           volumeOperationDetails.OperationDetails.TaskInvocationTimestamp.Time,
+					AggregatedSnapshotCapacityInMb:      aggregatedSnapshotCapacity,
+					SnapshotLatestOperationCompleteTime: snapshotLatestOperationCompleteTime,
 				}, nil
 			}
 			// Validate if previous operation was PartiallyFailed. If yes, return error from here itself instead
@@ -2483,12 +2505,18 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 
 				log.Infof("CreateSnapshot: Snapshot with name %s on volume %q is confirmed to be created "+
 					"successfully with SnapshotID %q", instanceName, volumeID, queriedCnsSnapshot.SnapshotId.Id)
-
+				log.Infof("Retriving aggregated Snapshot Capacity for volume with volumeID %q", volumeID)
+				aggregatedSnapshotCapacity, err := m.getAggregatedSnapshotSize(ctx, volumeID)
+				if err != nil {
+					return nil, logger.LogNewErrorf(log, "Failed to retrive volume with volumeID %q with error %v", volumeID, err)
+				}
 				return &CnsSnapshotInfo{
-					SnapshotID:                queriedCnsSnapshot.SnapshotId.Id,
-					SourceVolumeID:            volumeID,
-					SnapshotDescription:       snapshotName,
-					SnapshotCreationTimestamp: queriedCnsSnapshot.CreateTime,
+					SnapshotID:                          queriedCnsSnapshot.SnapshotId.Id,
+					SourceVolumeID:                      volumeID,
+					SnapshotDescription:                 snapshotName,
+					SnapshotCreationTimestamp:           queriedCnsSnapshot.CreateTime,
+					AggregatedSnapshotCapacityInMb:      aggregatedSnapshotCapacity,
+					SnapshotLatestOperationCompleteTime: queriedCnsSnapshot.CreateTime,
 				}, nil
 			} else {
 				errMsg := fmt.Sprintf("Snapshot with name %s on volume %q is not present in CNS. "+
@@ -2559,12 +2587,13 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 	}
 
 	snapshotCreateResult := interface{}(createSnapshotsTaskResult).(*cnstypes.CnsSnapshotCreateResult)
-
 	cnsSnapshotInfo := &CnsSnapshotInfo{
-		SnapshotID:                snapshotCreateResult.Snapshot.SnapshotId.Id,
-		SourceVolumeID:            snapshotCreateResult.Snapshot.VolumeId.Id,
-		SnapshotDescription:       snapshotCreateResult.Snapshot.Description,
-		SnapshotCreationTimestamp: snapshotCreateResult.Snapshot.CreateTime,
+		SnapshotID:                          snapshotCreateResult.Snapshot.SnapshotId.Id,
+		SourceVolumeID:                      snapshotCreateResult.Snapshot.VolumeId.Id,
+		SnapshotDescription:                 snapshotCreateResult.Snapshot.Description,
+		SnapshotCreationTimestamp:           snapshotCreateResult.Snapshot.CreateTime,
+		AggregatedSnapshotCapacityInMb:      snapshotCreateResult.AggregatedSnapshotCapacityInMb,
+		SnapshotLatestOperationCompleteTime: *createSnapshotsTaskInfo.CompleteTime,
 	}
 
 	if m.idempotencyHandlingEnabled {
@@ -2937,4 +2966,21 @@ func GetAllManagerInstances(ctx context.Context) map[string]*defaultManager {
 		newManagerInstanceMap[managerInstance.virtualCenter.Config.Host] = managerInstance
 	}
 	return newManagerInstanceMap
+}
+
+func (m *defaultManager) getAggregatedSnapshotSize(ctx context.Context, volumeID string) (aggregatedSnapshotCapacity int64, err error) {
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
+	}
+	queryResult, err := m.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		return
+	}
+	if queryResult != nil && len(queryResult.Volumes) > 1 {
+		val, ok := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+		if ok {
+			aggregatedSnapshotCapacity = val.AggregatedSnapshotCapacityInMb
+		}
+	}
+	return
 }
