@@ -249,6 +249,7 @@ const (
 	vsphereClusterIdConfigMapName              = "vsphere-csi-cluster-id"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
+	storagePolicyQuota = "-storagepolicyquota"
 )
 
 /*
