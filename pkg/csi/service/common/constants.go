@@ -421,8 +421,11 @@ const (
 	StorageQuotaM2 = "storage-quota-m2"
 	// VdppOnStretchedSupervisor enables support for vDPp workloads on stretched SV clusters
 	VdppOnStretchedSupervisor = "vdpp-on-stretched-supervisor"
+	// CSIDetachOnSupervisor enables CSI to detach the disk from the podvm in a supervisor environment
+	CSIDetachOnSupervisor = "CSI_Detach_Supported"
 )
 
 var WCPFeatureStates = map[string]struct{}{
 	PodVMOnStretchedSupervisor: {},
+	CSIDetachOnSupervisor:      {},
 }
