@@ -59,6 +59,26 @@ spec:
                   description: Capacity stores the current capacity of the PersistentVolume this volume represents.
                   pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                   x-kubernetes-int-or-string: true
+                validaggregatedsnapshotsize:
+                  description: ValidAggregatedSnapshotSize defines if the presented AggregatedSnapshotSize is valid.
+                  type: boolean
+                aggregatedsnapshotsize:
+                  anyOf:
+                    - type: integer
+                    - type: string
+                  description: AggregatedSnapshotSize stores the aggregate snapshot size for volume.
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                zones:
+                  description: Zones of the volume post provisioning.
+                  items:
+                    type: string
+                  type: array
+                snapshotlatestoperationcompletetime:
+                  description: SnapshotLatestOperationCompleteTime is Associated time stamp of the create snapshot task completion.
+                    This is used to ordering concurrent snapshots on same volume.
+                  format: date-time
+                  type: string
               required:
                 - vCenterServer
                 - volumeID

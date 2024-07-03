@@ -46,6 +46,19 @@ type CNSVolumeInfoSpec struct {
 
 	// Capacity stores the current capacity of the PersistentVolume this volume represents.
 	Capacity *resource.Quantity `json:"capacity,omitempty"`
+
+	// ValidAggregatedSnapshotSize defines if the presented AggregatedSnapshotSize is valid.
+	ValidAggregatedSnapshotSize bool `json:"validaggregatedsnapshotsize"`
+
+	// AggregatedSnapshotSize stores the aggregate snapshot size for volume.
+	AggregatedSnapshotSize *resource.Quantity `json:"aggregatedsnapshotsize,omitempty"`
+
+	// These are Zones of the volume post provisioning.
+	Zones []string `json:"zones"`
+
+	// Associated time stamp of the create or delete snapshot task completion.
+	// This is used to ordering concurrent snapshots on same volume.
+	SnapshotLatestOperationCompleteTime metav1.Time `json:"snapshotlatestoperationcompletetime"`
 }
 
 //+kubebuilder:object:root=true
