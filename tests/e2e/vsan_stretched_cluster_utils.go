@@ -217,6 +217,7 @@ func createFaultDomainMap(ctx context.Context, vs *vSphere) map[string]string {
 			framework.Logf("host: %s, site: %s", host.Name(), hostConfig.FaultDomainInfo.Name)
 		}
 	}
+
 	return fdMap
 }
 
@@ -868,6 +869,7 @@ func volumeLifecycleActions(ctx context.Context, client clientset.Interface, nam
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}
+
 }
 
 // scaleDownStsAndVerifyPodMetadata scales down replica of a statefulset if required
