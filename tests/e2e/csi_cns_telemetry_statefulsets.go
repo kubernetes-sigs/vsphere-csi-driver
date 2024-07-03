@@ -22,6 +22,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	v1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -76,9 +77,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
-		}
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
 		fss.DeleteAllStatefulSets(ctx, client, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
@@ -101,6 +99,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 	ginkgo.It("Statefulset service for cluster-distribution metadata check", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		var clusterDistributionValue string
+		var sc *v1.StorageClass
+		var err error
 		clusterFlavor := GetAndExpectStringEnvVar(envClusterFlavor)
 		defer cancel()
 		// Decide which test setup is available to run.
@@ -109,14 +109,21 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 			scParameters = nil
 			clusterDistributionValue = vanillaClusterDistribution
 			storageClassName = "nginx-sc-telemtery"
+
+			scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
+			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			storageClassName = storagePolicyName
 			scParameters[scParamStoragePolicyID] = profileID
-			storageClassName = defaultNginxStorageClassName
-			// Create resource quota.
-			createResourceQuota(client, namespace, rqLimit, defaultNginxStorageClassName)
 			clusterDistributionValue = svClusterDistribution
+
+			sc, err = client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		} else {
 			ginkgo.By("Set Resource quota for GC")
 			storageClassName = defaultNginxStorageClassName
@@ -124,7 +131,20 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, rqLimit)
 			clusterDistributionValue = tkgClusterDistribution
+
+			scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
+			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		}
+
+		defer func() {
+			if !supervisorCluster {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+		}()
 
 		ginkgo.By("Creating service")
 		service := CreateService(namespace, client)
@@ -132,13 +152,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 			deleteService(namespace, client, service)
 		}()
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")

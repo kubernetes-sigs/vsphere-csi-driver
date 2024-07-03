@@ -27,6 +27,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -83,7 +84,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		defer cancel()
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 		if pvc != nil {
@@ -116,6 +116,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
+
 		waitForAllHostsToBeUp(ctx, &e2eVSphere)
 	})
 
@@ -148,8 +149,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			// Create resource quota.
-			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
 				nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
 		} else if guestCluster {
@@ -254,10 +253,22 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(nonShareadstoragePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			// Create resource quota.
-			createResourceQuota(client, namespace, rqLimit, nonShareadstoragePolicyName)
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
-				nil, scParameters, diskSize, nil, "", false, "", nonShareadstoragePolicyName)
+
+			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, nonShareadstoragePolicyName, metav1.GetOptions{})
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, nonShareadstoragePolicyName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, nonShareadstoragePolicyName, namespace, defaultrqLimit)
+
+			pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", storageclass, nil, accessMode)
+			pvclaim, err = fpv.CreatePVC(ctx, client, namespace, pvcspec)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		} else if guestCluster {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = nonShareadstoragePolicyName
@@ -267,8 +278,11 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
 		}()
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered",
@@ -850,7 +864,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			// Create resource quota.
 		}
 
 		sc, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
@@ -870,7 +883,15 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		}()
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Spec.StorageClassName = &sc.Name
 		CreateStatefulSet(namespace, statefulset, client)
+
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
+		}()
+
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready.
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
@@ -907,10 +928,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			}
 		}
 
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
-		}()
 	})
 
 	// Verify health annotaiton is not added on the PV.

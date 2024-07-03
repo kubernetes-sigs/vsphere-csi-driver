@@ -133,7 +133,6 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 		if guestCluster {
@@ -235,10 +234,11 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			// Create resource quota.
-			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName, namespace, defaultrqLimit)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
-				scParameters, "", nil, "", false, "", storagePolicyName)
+				scParameters, "", nil, "", true, "", storagePolicyName)
+
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -322,11 +322,12 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			// Create resource quota.
-			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName, namespace, defaultrqLimit)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
-				scParameters, "", nil, "", false, "", storagePolicyName)
+				scParameters, "", nil, "", true, "", storagePolicyName)
 		}
+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if !supervisorCluster {
@@ -849,7 +850,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		ginkgo.By("create a new pod pod2, using pvc1")
 		pod2, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, execCommand)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).To(gomega.HaveOccurred())
 		defer func() {
 			err := fpod.DeletePodWithWait(ctx, client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

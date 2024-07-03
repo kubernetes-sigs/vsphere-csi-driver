@@ -205,13 +205,13 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
-			storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
+			storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, storagePolicyName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 
 		ginkgo.By("create resource quota")
-		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 
 		return restConfig, storageclass, profileID
 	}
@@ -242,7 +242,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 
 		ginkgo.By("create resource quota")
-		createResourceQuota(client, namespace, rqLimit, storageclass.GetName())
+		setStoragePolicyQuota(ctx, restConfig, storageclass.GetName(), namespace, rqLimit)
 
 		return restConfig, storageclass, profileID
 	}
@@ -269,8 +269,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 				namespace, cnsRegistervolume, poll, supervisorClusterOperationsTimeout))
 		}
 
-		ginkgo.By("Delete Resource quota")
-		deleteResourceQuota(client, namespace)
 	}
 
 	// This test verifies the static provisioning workflow.
@@ -766,8 +764,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		volumeExists := verifyVolumeExistInSupervisorCluster(svcPVCName)
 		gomega.Expect(volumeExists).To(gomega.BeFalse())
 
-		ginkgo.By("Delete Resource quota")
-		deleteResourceQuota(client, namespace)
 	})
 
 	// This test verifies the static provisioning workflow on supervisor cluster.
@@ -976,8 +972,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		deleteFCDRequired = false
 
-		ginkgo.By("Delete existing resource quota")
-		deleteResourceQuota(client, namespace)
+		ginkgo.By("Remove existing storage  quota")
+		removeStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace)
 
 		ginkgo.By("Import above created FCD")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteOnce)
@@ -988,7 +984,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Create resource quota")
-		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 		framework.Logf("Wait till the PVC creation succeeds after increasing resource quota")
 		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
 			restConfig, namespace, cnsRegisterVolume, poll, pollTimeout))
@@ -1118,7 +1114,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		ginkgo.By("Creating Resource quota")
-		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 
 		ginkgo.By("Create FCD")
 		fcdID1, err := e2eVSphere.createFCDwithValidProfileID(ctx,
@@ -1322,7 +1318,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		ginkgo.By("Creating Resource quota")
-		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 
 		ginkgo.By("Create FCD")
 		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
@@ -1404,7 +1400,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		ginkgo.By("Creating Resource quota")
-		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 
 		ginkgo.By("Create FCD")
 		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
@@ -1501,7 +1497,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		}()
 
 		ginkgo.By("Creating Resource quota")
-		createResourceQuota(client, namespace, rqLimit, nonsharedDatastoreName)
+		setStoragePolicyQuota(ctx, restConfig, nonsharedDatastoreName, namespace, rqLimit)
 
 		ginkgo.By("Create FCD")
 		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
@@ -1526,8 +1522,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		expectedErrorMsg := "Volume in the spec is not accessible to all nodes in the cluster"
 		gomega.Expect(strings.Contains(actualErrorMsg, expectedErrorMsg), gomega.BeTrue())
 
-		ginkgo.By("Delete Resource quota")
-		deleteResourceQuota(client, namespace)
 	})
 
 	// This test verifies the static provisioning on SVC, when FCD with
@@ -1905,7 +1899,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		ginkgo.By("create resource quota")
-		createResourceQuota(client, namespaceToDelete, rqLimit, storageclass.Name)
+		setStoragePolicyQuota(ctx, restConfig, storageclass.Name, namespace, rqLimit)
 
 		ginkgo.By("Creating FCD (CNS Volume)")
 		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
@@ -2047,8 +2041,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 				framework.ExpectNoError(waitForCNSRegisterVolumeToGetDeleted(ctx,
 					restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
 
-				ginkgo.By("Delete Resource quota")
-				deleteResourceQuota(client, namespace)
 			}()
 		}
 

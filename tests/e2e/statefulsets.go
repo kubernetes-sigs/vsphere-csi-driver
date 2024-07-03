@@ -88,6 +88,11 @@ var _ = ginkgo.Describe("statefulset", func() {
 
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+
+		service, err := client.CoreV1().Services(namespace).Get(ctx, servicename, metav1.GetOptions{})
+		if err == nil && service != nil {
+			deleteService(namespace, client, service)
+		}
 	})
 
 	ginkgo.AfterEach(func() {
@@ -101,9 +106,14 @@ var _ = ginkgo.Describe("statefulset", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
+
+		service, err := client.CoreV1().Services(namespace).Get(ctx, servicename, metav1.GetOptions{})
+		if err == nil && service != nil {
+			deleteService(namespace, client, service)
+		}
+
 	})
 
 	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] Statefulset "+
@@ -888,7 +898,8 @@ var _ = ginkgo.Describe("statefulset", func() {
 		var hostInMM *object.HostSystem
 
 		// create resource quota
-		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+		restConfig := getRestConfigClient()
+		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 
 		ginkgo.By("Get the storageclass from Supervisor")
 		sc, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
