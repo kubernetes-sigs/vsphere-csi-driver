@@ -106,6 +106,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		var datacenters []string
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		nonSharedDatastoreURL = GetAndExpectStringEnvVar(envNonSharedStorageClassDatastoreURL)
+
 		finder := find.NewFinder(e2eVSphere.Client.Client, false)
 		cfg, err := getConfig()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -865,7 +866,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 9. Verify PV is deleted automatically.
 	// 10. Verify Volume id deleted automatically.
 	// 11. Verify CRD deleted automatically.
-	ginkgo.It("[csi-supervisor] Verify static provisioning workflow on SVC import "+
+	ginkgo.It("[csi-supervisor] [stretched-svc] Verify static provisioning workflow on SVC import "+
 		"FCD", ginkgo.Label(p0, block, wcp), func() {
 
 		var err error

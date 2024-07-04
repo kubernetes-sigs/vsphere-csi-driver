@@ -4942,7 +4942,7 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 		for _, topology := range nodeSelector.MatchExpressions {
 			if val, ok := allowedTopologiesMap[topology.Key]; ok {
 				if !compareStringLists(val, topology.Values) {
-					if topologyFeature == topologyTkgHaName {
+					if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor {
 						return false, fmt.Errorf("pv node affinity details: %v does not match"+
 							"with: %v in the allowed topologies", topology.Values, val)
 					} else {
@@ -4951,7 +4951,7 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 					}
 				}
 			} else {
-				if topologyFeature == topologyTkgHaName {
+				if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor {
 					return false, fmt.Errorf("pv node affinity key: %v does not does not exist in the"+
 						"allowed topologies map: %v", topology.Key, allowedTopologiesMap)
 				} else {
@@ -5370,7 +5370,7 @@ func getTopologySelector(topologyAffinityDetails map[string][]string,
 	position ...int) []v1.TopologySelectorLabelRequirement {
 	topologyFeature := os.Getenv(topologyFeature)
 	var key string
-	if topologyFeature == topologyTkgHaName {
+	if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor {
 		key = tkgHATopologyKey
 	} else {
 		key = topologykey
@@ -5390,10 +5390,12 @@ func getTopologySelector(topologyAffinityDetails map[string][]string,
 				values = append(values, topologyAffinityDetails[category][rng])
 			}
 		} else {
-			if topologyFeature == topologyTkgHaName {
+			if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor {
 				values = topologyAffinityDetails[key+"/"+category]
+				framework.Logf("values: %v", values)
 			} else {
 				values = topologyAffinityDetails[category]
+				framework.Logf("values: %v", values)
 			}
 		}
 
