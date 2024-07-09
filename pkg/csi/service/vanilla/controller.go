@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/fsnotify/fsnotify"
+	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
@@ -2867,7 +2869,23 @@ func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityReques
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("GetCapacity: called with args %+v", *req)
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "getCapacity")
+	var totalcapacity int64
+	var maxvolumesize int64
+	if req.AccessibleTopology != nil {
+		segments := req.AccessibleTopology.GetSegments()
+		if segments["topology.csi.vmware.com/k8s-zone"] == "zone-1" {
+			totalcapacity = 0
+			maxvolumesize = 0
+		} else {
+			totalcapacity = math.MaxInt64
+			maxvolumesize = math.MaxInt64
+		}
+	}
+	resp := &csi.GetCapacityResponse{
+		AvailableCapacity: totalcapacity,
+		MaximumVolumeSize: &wrappers.Int64Value{Value: maxvolumesize},
+	}
+	return resp, nil
 }
 
 // initVolumeMigrationService is a helper method to initialize
@@ -2918,6 +2936,7 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
 		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
+		csi.ControllerServiceCapability_RPC_GET_CAPACITY,
 	}
 
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {

@@ -5,6 +5,7 @@ metadata:
 spec:
   attachRequired: true
   podInfoOnMount: false
+  storageCapacity: true
 ---
 kind: ServiceAccount
 apiVersion: v1
@@ -77,6 +78,9 @@ rules:
   - apiGroups: [ "cns.vmware.com" ]
     resources: [ "csinodetopologies" ]
     verbs: ["get", "update", "watch", "list"]
+  - apiGroups: [ "storage.k8s.io" ]
+    resources: [ "csistoragecapacities" ]
+    verbs: [ "create", "list", "watch" ]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -390,9 +394,19 @@ spec:
             # needed only for topology aware setup
             #- "--feature-gates=Topology=true"
             #- "--strict-topology"
+            - "--enable-capacity=true"
+            - "--capacity-ownerref-level=-1"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
