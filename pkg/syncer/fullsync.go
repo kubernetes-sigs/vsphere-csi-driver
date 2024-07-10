@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"time"
@@ -41,6 +42,8 @@ import (
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
+
+const allowedRetriesToPatchCNSVolumeInfo = 5
 
 // CsiFullSync reconciles volume metadata on a vanilla k8s cluster with volume
 // metadata on CNS.
@@ -136,19 +139,16 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			metadataSyncer.configInfo.Cfg.Global.ClusterID,
 		},
 	}
-
 	volManager, err := getVolManagerForVcHost(ctx, vc, metadataSyncer)
 	if err != nil {
 		log.Errorf("FullSync for VC %s: Failed to get volume manager. Err: %v", vc, err)
 		return err
 	}
-
 	queryAllResult, err := volManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
 	if err != nil {
 		log.Errorf("FullSync for VC %s: QueryVolume failed with err=%+v", vc, err.Error())
 		return err
 	}
-
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
 		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 		// Replace Volume Metadata using old cluster ID and replace with the new SupervisorID
@@ -233,11 +233,31 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 				metadataSyncer.configInfo.Cfg.Global.SupervisorID,
 			},
 		}
+		querySelection := cnstypes.CnsQuerySelection{
+			Names: []string{
+				string(cnstypes.QuerySelectionNameTypeVolumeType),
+				string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
+			},
+		}
 		// get queryAllResult using new Supervisor ID for rest of full sync operations
-		queryAllResult, err = volManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
+		queryAllResult, err = volManager.QueryAllVolume(ctx, queryFilter, querySelection)
 		if err != nil {
 			log.Errorf("FullSync for VC %s: QueryVolume failed with err=%+v", vc, err.Error())
 			return err
+		}
+
+		cnsVolumeMap := make(map[string]cnstypes.CnsVolume)
+		for _, vol := range queryAllResult.Volumes {
+			cnsVolumeMap[vol.VolumeId.Id] = vol
+		}
+		if isStorageQuotaM2FSSEnabled {
+			log.Infof("calling validateAndCorrectVolumeInfoSnapshotDetails with %d volumes", len(cnsVolumeMap))
+			err = validateAndCorrectVolumeInfoSnapshotDetails(ctx, cnsVolumeMap)
+			if err != nil {
+				log.Errorf("FullSync for VC %s: Error while sync CNSVolumeinfo snapshot details, failed with err=%+v",
+					vc, err.Error())
+				return err
+			}
 		}
 	}
 
@@ -441,7 +461,6 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 			}
 		}
 	}
-
 	volumeInfoCRList := volumeInfoService.ListAllVolumeInfos()
 	for _, volumeInfo := range volumeInfoCRList {
 		cnsvolumeinfo := &cnsvolumeinfov1alpha1.CNSVolumeInfo{}
@@ -451,7 +470,6 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 			log.Errorf("FullSync for VC %s: failed to parse cnsvolumeinfo object: %v, err: %v", vc, cnsvolumeinfo, err)
 			continue
 		}
-
 		if cnsvolumeinfo.Spec.VCenterServer == vc {
 			if _, exists := currentK8sPVMap[cnsvolumeinfo.Spec.VolumeID]; !exists {
 				// If a PV is not present in the cluster for two full sync cycles, delete its VolumeInfo CR.
@@ -473,9 +491,74 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 	log.Debugf("FullSync for VC %s: volumeInfoCrDeletionMap: %v", vc, volumeInfoCrDeletionMap)
 }
 
+// validateAndCorrectVolumeInfoSnapshotDetails sync cnsvolumeinfo snapshot details with by comparing
+// the aggregatedSnapshotSize of CNS volume.
+// validate aggregated snapshot size: compare aggregated snapshot size of individual volume
+// in cns with the size in cnsvolumeinfo. if found discrepancy in order to correct the values
+// update the cnsvolumeinfo.
+func validateAndCorrectVolumeInfoSnapshotDetails(ctx context.Context,
+	cnsVolumeMap map[string]cnstypes.CnsVolume) error {
+	log := logger.GetLogger(ctx)
+	volumeInfoCRList := volumeInfoService.ListAllVolumeInfos()
+	for _, volumeInfo := range volumeInfoCRList {
+		cnsvolumeinfo := &cnsvolumeinfov1alpha1.CNSVolumeInfo{}
+		err := runtime.DefaultUnstructuredConverter.FromUnstructured(volumeInfo.(*unstructured.Unstructured).Object,
+			&cnsvolumeinfo)
+		if err != nil {
+			log.Errorf("Failed to parse cnsvolumeinfo object: %v, err: %v", cnsvolumeinfo, err)
+			continue
+		}
+		if cnsVol, ok := cnsVolumeMap[cnsvolumeinfo.Spec.VolumeID]; ok {
+			log.Infof("validate volume info for storage details for volume %s", cnsVol.VolumeId.Id)
+			var aggregatedSnapshotCapacity int64
+			if cnsVol.BackingObjectDetails != nil &&
+				cnsVol.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails) != nil {
+				val, ok := cnsVol.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+				if ok {
+					aggregatedSnapshotCapacity = val.AggregatedSnapshotCapacityInMb
+				}
+				if cnsvolumeinfo.Spec.AggregatedSnapshotSize == nil || aggregatedSnapshotCapacity !=
+					cnsvolumeinfo.Spec.AggregatedSnapshotSize.Value() {
+					// use current time as snapshot completion time is not available in fullsync.
+					currentTime := time.Now()
+					cnsSnapInfo := &volumes.CnsSnapshotInfo{
+						SourceVolumeID:                      cnsvolumeinfo.Spec.VolumeID,
+						SnapshotLatestOperationCompleteTime: time.Now(),
+						AggregatedSnapshotCapacityInMb:      aggregatedSnapshotCapacity,
+					}
+					log.Infof("unable to get snapshot operation completion time for volumeID %d "+
+						"will use current time %v instead", cnsvolumeinfo.Spec.VolumeID, currentTime)
+					patch, err := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapInfo)
+					if err != nil {
+						log.Errorf("unable to get VolumeInfo patch for %q. Error: %+v",
+							cnsvolumeinfo.Spec.VolumeID, err)
+						return err
+					}
+					patchBytes, err := json.Marshal(patch)
+					if err != nil {
+						log.Errorf("error while create VolumeInfo patch for volume %q. Error while marshaling: %+v",
+							cnsvolumeinfo.Spec.VolumeID, err)
+						return err
+					}
+					err = volumeInfoService.PatchVolumeInfo(ctx, cnsvolumeinfo.Spec.VolumeID, patchBytes,
+						allowedRetriesToPatchCNSVolumeInfo)
+					if err != nil {
+						log.Errorf("failed to patch CNSVolumeInfo instance to update snapshot details."+
+							"for volume %q. Error: %+v", cnsvolumeinfo.Spec.VolumeID, err)
+						return err
+					}
+					log.Infof("Updated CNSvolumeInfo with Snapshot details successfully for volume %q",
+						cnsvolumeinfo.Spec.VolumeID)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // fullSyncCreateVolumes creates volumes with given array of createSpec.
 // Before creating a volume, all current K8s volumes are retrieved.
-// If the volume is successfully created, it is removed from cnsCreationMap.
+// If the volume is successfully created, it is removed from `cnsCreationMap`.
 func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVolumeCreateSpec,
 	metadataSyncer *metadataSyncInformer, wg *sync.WaitGroup, migrationFeatureStateForFullSync bool,
 	volManager volumes.Manager, vc string) {
