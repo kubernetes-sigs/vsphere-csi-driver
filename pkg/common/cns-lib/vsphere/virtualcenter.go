@@ -134,8 +134,6 @@ type VirtualCenterConfig struct {
 	// TargetvSANFileShareClusters represents file service enabled vSAN clusters
 	// on which file volumes can be created.
 	TargetvSANFileShareClusters []string
-	// VCClientTimeout is the limit in minutes for requests made by vCenter client.
-	VCClientTimeout int
 	// QueryLimit specifies the number of volumes that can be fetched by CNS
 	// QueryAll API at a time
 	QueryLimit int
@@ -174,7 +172,7 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 		log.Debugf("using thumbprint %s for url %s ", vc.Config.Thumbprint, url.Host)
 	}
 
-	soapClient.Timeout = time.Duration(vc.Config.VCClientTimeout) * time.Minute
+	soapClient.Timeout = 0 * time.Minute
 	log.Debugf("Setting vCenter soap client timeout to %v", soapClient.Timeout)
 	vimClient, err := vim25.NewClient(ctx, soapClient)
 	if err != nil {
@@ -326,6 +324,14 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 			return nil
 		}
 	}
+
+	log.Infof("logging out current session and clearing idle sessions")
+
+	err = vc.Client.Logout(ctx)
+	if err != nil {
+		log.Errorf("failed to logout current session. still clearing idle sessions. err: %v", err)
+	}
+
 	// If session has expired, create a new instance.
 	log.Infof("Creating a new client session as the existing one isn't valid or not authenticated")
 	if vc.Config.ReloadVCConfigForNewClient {

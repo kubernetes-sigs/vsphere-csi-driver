@@ -23,15 +23,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/leaderelection"
+	rl "k8s.io/client-go/tools/leaderelection/resourcelock"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -183,19 +185,49 @@ func main() {
 				log.Fatalf("Creating Kubernetes client failed. Err: %v", err)
 			}
 			lockName := "vsphere-syncer"
-			le := leaderelection.NewLeaderElection(k8sClient, lockName, run)
-
-			if *leaderElectionNamespace != "" {
-				le.WithNamespace(*leaderElectionNamespace)
+			id, err := defaultLeaderElectionIdentity()
+			if err != nil {
+				log.Fatalf("error getting the default leader identity. Err: %v", err)
 			}
-
-			le.WithLeaseDuration(*leaderElectionLeaseDuration)
-			le.WithRenewDeadline(*leaderElectionRenewDeadline)
-			le.WithRetryPeriod(*leaderElectionRetryPeriod)
-
-			if err := le.Run(); err != nil {
-				log.Fatalf("Error initializing leader election: %v", err)
+			resourceLockConfig := rl.ResourceLockConfig{
+				Identity: sanitizeName(id),
 			}
+			if *leaderElectionNamespace == "" {
+				*leaderElectionNamespace = inClusterNamespace()
+			}
+			log.Debugf("identity: %v, leaderElectionNamespace: %v",
+				resourceLockConfig.Identity, *leaderElectionNamespace)
+			lock, err := rl.New(rl.LeasesResourceLock, *leaderElectionNamespace, lockName, k8sClient.CoreV1(),
+				k8sClient.CoordinationV1(), resourceLockConfig)
+			if err != nil {
+				log.Fatalf("Creating lock for leader election failed. Err: %v", err)
+			}
+			leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
+				Lock:          lock,
+				LeaseDuration: *leaderElectionLeaseDuration,
+				RenewDeadline: *leaderElectionRenewDeadline,
+				RetryPeriod:   *leaderElectionRetryPeriod,
+				Callbacks: leaderelection.LeaderCallbacks{
+					OnStartedLeading: func(_ context.Context) {
+						log.Info("became leader, starting")
+						run(ctx)
+					},
+					OnStoppedLeading: func() {
+						log.Info("stopped leading. disconnecting vc session")
+						utils.LogoutAllvCenterSessions(ctx)
+						os.Exit(0)
+					},
+					OnNewLeader: func(identity string) {
+						if identity == resourceLockConfig.Identity {
+							//  current replica reacquired lease
+							return
+						}
+						log.Infof("new leader detected, current leader: %s", identity)
+					},
+				},
+				ReleaseOnCancel: true,
+				Name:            lockName,
+			})
 		}
 	} else {
 		log.Fatalf("unsupported operation mode: %v", *operationMode)
@@ -209,7 +241,7 @@ func main() {
 // <Name> will be the name of this container.
 func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	coInitParams *interface{}) func(ctx context.Context) {
-	return func(ctx context.Context) {
+	return func(_ context.Context) {
 		log := logger.GetLogger(ctx)
 		// Disconnect vCenter sessions on restart
 		defer func() {
@@ -338,4 +370,36 @@ func cleanupSessions(ctx context.Context, r interface{}) {
 	log.Info("Recovered from panic. Disconnecting the existing vc sessions.")
 	utils.LogoutAllvCenterSessions(ctx)
 	os.Exit(0)
+}
+
+func defaultLeaderElectionIdentity() (string, error) {
+	return os.Hostname()
+}
+
+// sanitizeName sanitizes the provided string so it can be consumed by leader election library
+func sanitizeName(name string) string {
+	re := regexp.MustCompile("[^a-zA-Z0-9-]")
+	name = re.ReplaceAllString(name, "-")
+	if name[len(name)-1] == '-' {
+		// name must not end with '-'
+		name = name + "X"
+	}
+	return name
+}
+
+// inClusterNamespace returns the namespace in which the pod is running in by checking
+// the env var POD_NAMESPACE, then the file /var/run/secrets/kubernetes.io/serviceaccount/namespace.
+// if neither returns a valid namespace, the "default" namespace is returned
+func inClusterNamespace() string {
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		return ns
+	}
+
+	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
+		if ns := strings.TrimSpace(string(data)); len(ns) > 0 {
+			return ns
+		}
+	}
+
+	return "default"
 }

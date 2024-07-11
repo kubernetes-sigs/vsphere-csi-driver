@@ -410,8 +410,6 @@ const (
 	// CSIInternalGeneratedClusterID enables support to generate unique cluster
 	// ID internally if user doesn't provide it in vSphere config secret.
 	CSIInternalGeneratedClusterID = "csi-internal-generated-cluster-id"
-	// ListViewPerf uses govmomi ListView to wait for CNS tasks
-	ListViewPerf = "listview-tasks"
 	// TopologyAwareFileVolume enables provisioning of file volumes in a topology enabled environment
 	TopologyAwareFileVolume = "topology-aware-file-volume"
 	// PodVMOnStretchedSupervisor is the WCP FSS which determines if PodVM

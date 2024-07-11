@@ -21,10 +21,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/vmware/govmomi/vapi/tags"
 	"github.com/vmware/govmomi/vim25/mo"
+
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
 	"github.com/vmware/govmomi/object"
@@ -120,14 +120,6 @@ func (vm *VirtualMachine) Renew(ctx context.Context, reconnect bool) error {
 }
 
 const (
-	// poolSize is the number of goroutines to run while trying to find a
-	// virtual machine.
-	poolSize = 8
-	// dcBufferSize is the buffer size for the channel that is used to
-	// asynchronously receive *Datacenter instances.
-	dcBufferSize = poolSize * 10
-	//ProviderPrefix is the prefix used for the ProviderID set on the node
-	// Example: vsphere://4201794a-f26b-8914-d95a-edeb7ecc4a8f
 	providerPrefix = "vsphere://"
 )
 
@@ -158,76 +150,39 @@ func GetUUIDFromVMReference(ctx context.Context, vc *VirtualCenter, vmRef types.
 func GetVirtualMachineByUUID(ctx context.Context, uuid string, instanceUUID bool) (*VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("Initiating asynchronous datacenter listing with uuid %s", uuid)
-	dcsChan, errChan := AsyncGetAllDatacenters(ctx, dcBufferSize)
-
-	var wg sync.WaitGroup
 	var nodeVM *VirtualMachine
-	var poolErr error
 
-	for i := 0; i < poolSize; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				select {
-				case err, ok := <-errChan:
-					if !ok {
-						// Async function finished.
-						log.Debugf("AsyncGetAllDatacenters finished with uuid %s", uuid)
-						return
-					} else if err == context.Canceled {
-						// Canceled by another instance of this goroutine.
-						log.Debugf("AsyncGetAllDatacenters ctx was canceled with uuid %s", uuid)
-						return
-					} else {
-						// Some error occurred.
-						log.Errorf("AsyncGetAllDatacenters with uuid %s sent an error: %v", uuid, err)
-						poolErr = err
-						return
-					}
+	for _, vc := range GetVirtualCenterManager(ctx).GetAllVirtualCenters() {
+		dcs, err := vc.GetDatacenters(ctx)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to fetch datacenters for vc %v with err: %v", vc.Config.Host, err)
+		}
 
-				case dc, ok := <-dcsChan:
-					if !ok {
-						// Async function finished.
-						log.Debugf("AsyncGetAllDatacenters finished with uuid %s", uuid)
-						return
-					}
-
-					// Found some Datacenter object.
-					log.Infof("AsyncGetAllDatacenters with uuid %s sent a dc %v", uuid, dc)
-					if vm, err := dc.GetVirtualMachineByUUID(ctx, uuid, instanceUUID); err != nil {
-						if err == ErrVMNotFound {
-							// Didn't find VM on this DC, so, continue searching on other DCs.
-							log.Warnf("Couldn't find VM given uuid %s on DC %v with err: %v, continuing search", uuid, dc, err)
-							continue
-						} else {
-							// Some serious error occurred, so stop the async function.
-							log.Errorf("Failed finding VM given uuid %s on DC %v with err: %v", uuid, dc, err)
-							poolErr = err
-							return
-						}
-					} else {
-						// Virtual machine was found, so stop the async function.
-						log.Infof("Found VM %v given uuid %s on DC %v", vm, uuid, dc)
-						nodeVM = vm
-						return
-					}
+		for _, dc := range dcs {
+			if vm, err := dc.GetVirtualMachineByUUID(ctx, uuid, instanceUUID); err != nil {
+				if errors.Is(err, ErrVMNotFound) {
+					// Didn't find VM on this DC, so, continue searching on other DCs.
+					log.Warnf("Couldn't find VM given uuid %s on DC %v with err: %v, continuing search", uuid, dc, err)
+					continue
 				}
+				// Some serious error occurred, so stop the async function.
+				log.Errorf("Failed finding VM given uuid %s on DC %v with err: %v", uuid, dc, err)
+			} else {
+				// Virtual machine was found, so stop the async function.
+				log.Infof("Found VM %v given uuid %s on DC %v", vm, uuid, dc)
+				nodeVM = vm
+				break
 			}
-		}()
+		}
 	}
-	wg.Wait()
 
 	if nodeVM != nil {
 		log.Infof("Returning VM %v for UUID %s", nodeVM, uuid)
 		return nodeVM, nil
-	} else if poolErr != nil {
-		log.Errorf("Returning err: %v for UUID %s", poolErr, uuid)
-		return nil, poolErr
-	} else {
-		log.Errorf("Returning VM not found err for UUID %s", uuid)
-		return nil, ErrVMNotFound
 	}
+
+	log.Errorf("Returning VM not found err for UUID %s", uuid)
+	return nil, ErrVMNotFound
 }
 
 // GetHostSystem returns HostSystem object of the virtual machine.

@@ -460,7 +460,6 @@ data:
   "tkgs-ha": "true"
   "list-volumes": "true"
   "cnsmgr-suspend-create-volume": "true"
-  "listview-tasks": "true"
   "storage-quota-m2": "false"
 kind: ConfigMap
 metadata:
