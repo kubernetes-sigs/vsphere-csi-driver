@@ -52,9 +52,6 @@ type Config struct {
 		// VolumeMigrationCRCleanupIntervalInMin specifies the interval after which
 		// stale CnsVSphereVolumeMigration CRs will be cleaned up.
 		VolumeMigrationCRCleanupIntervalInMin int `gcfg:"volumemigration-cr-cleanup-intervalinmin"`
-		// VCClientTimeout specifies a time limit in minutes for requests made by client
-		// If not set, default will be 5 minutes
-		VCClientTimeout int `gcfg:"vc-client-timeout"`
 		// Cluster Distribution Name
 		ClusterDistribution string `gcfg:"cluster-distribution"`
 

@@ -133,7 +133,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	multivCenterCSITopologyEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.MultiVCenterCSITopology)
 	csiMigrationEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
-	tasksListViewEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListViewPerf)
 	filterSuspendedDatastores = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CnsMgrSuspendCreateVolume)
 	isTopologyAwareFileVolumeEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
@@ -155,8 +154,9 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return err
 		}
 		vc.Config = vcenterconfig
-		volumeManager, err := cnsvolume.GetManager(ctx, vc, operationStore, true, false, false, tasksListViewEnabled,
-			cnstypes.CnsClusterFlavorVanilla)
+		volumeManager, err := cnsvolume.GetManager(ctx, vc, operationStore,
+			true, false,
+			false, cnstypes.CnsClusterFlavorVanilla)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
@@ -219,8 +219,9 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 					"err=%v", vcenterconfig.Host, err)
 			}
 			c.managers.VcenterConfigs[vcenterconfig.Host] = vcenterconfig
-			volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore, true, true,
-				multivCenterTopologyDeployment, tasksListViewEnabled, cnstypes.CnsClusterFlavorVanilla)
+			volumeManager, err := cnsvolume.GetManager(ctx, vcenter,
+				operationStore, true, true,
+				multivCenterTopologyDeployment, cnstypes.CnsClusterFlavorVanilla)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 			}
@@ -287,9 +288,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		return err
 	}
 
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListViewPerf) {
-		go cnsvolume.ClearInvalidTasksFromListView(multivCenterCSITopologyEnabled)
-	}
+	go cnsvolume.ClearInvalidTasksFromListView(multivCenterCSITopologyEnabled)
 	cfgPath := cnsconfig.GetConfigPath(ctx)
 
 	watcher, err := fsnotify.NewWatcher()
