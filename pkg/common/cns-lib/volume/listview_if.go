@@ -15,11 +15,12 @@ type ListViewIf interface {
 	AddTask(ctx context.Context, taskMoRef types.ManagedObjectReference, ch chan TaskResult) error
 	// RemoveTask removes task from listview and the internal map
 	RemoveTask(ctx context.Context, taskMoRef types.ManagedObjectReference) error
-	// SetVirtualCenter is a setter method for the reference to the global vcenter object.
+	// ResetVirtualCenter updates the VC object reference.
+	// It also triggers a restart of listview object and connection to VC.
+	// This is required as VC.Connect() can return true as the VC object points to latest config
+	// but adding a task to a listview object created with an older VC object will error out
 	// use case: ReloadConfiguration
-	SetVirtualCenter(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter)
-	// LogoutSession logout the vCenter Session
-	LogoutSession(ctx context.Context) error
+	ResetVirtualCenter(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter)
 	// MarkTaskForDeletion marks a given task MoRef for deletion by a cleanup goroutine
 	// use case: failure to remove task due to a vc issue
 	MarkTaskForDeletion(ctx context.Context, taskMoRef types.ManagedObjectReference) error

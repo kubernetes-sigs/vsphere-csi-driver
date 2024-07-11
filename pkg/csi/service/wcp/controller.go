@@ -163,10 +163,9 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		}
 	}
 
-	tasksListViewEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.ListViewPerf)
-	volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled, false, false,
-		tasksListViewEnabled, cnstypes.CnsClusterFlavorWorkload)
+	volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
+		idempotencyHandlingEnabled, false,
+		false, cnstypes.CnsClusterFlavorWorkload)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}
@@ -192,9 +191,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	}
 
 	go cnsvolume.ClearTaskInfoObjects()
-	if tasksListViewEnabled {
-		go cnsvolume.ClearInvalidTasksFromListView(false)
-	}
+	go cnsvolume.ClearInvalidTasksFromListView(false)
 	cfgPath := cnsconfig.GetConfigPath(ctx)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -392,10 +389,9 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 		}
 		c.manager.VcenterConfig = newVCConfig
 
-		tasksListViewEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-			common.ListViewPerf)
-		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore, idempotencyHandlingEnabled, false,
-			false, tasksListViewEnabled, cnstypes.CnsClusterFlavorWorkload)
+		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
+			idempotencyHandlingEnabled, false,
+			false, cnstypes.CnsClusterFlavorWorkload)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}

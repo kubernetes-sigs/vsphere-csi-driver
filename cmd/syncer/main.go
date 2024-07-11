@@ -241,7 +241,7 @@ func main() {
 // <Name> will be the name of this container.
 func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	coInitParams *interface{}) func(ctx context.Context) {
-	return func(ctx context.Context) {
+	return func(_ context.Context) {
 		log := logger.GetLogger(ctx)
 		// Disconnect vCenter sessions on restart
 		defer func() {
