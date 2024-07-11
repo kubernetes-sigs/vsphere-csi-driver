@@ -67,18 +67,17 @@ const (
 )
 
 var (
-	csiConfig            *cnsconfig.Config
-	ctx                  context.Context
-	cnsVCenterConfig     *cnsvsphere.VirtualCenterConfig
-	err                  error
-	virtualCenterManager cnsvsphere.VirtualCenterManager
-	virtualCenter        *cnsvsphere.VirtualCenter
-	metadataSyncer       *metadataSyncInformer
-	k8sclient            clientset.Interface
-	dc                   []*cnsvsphere.Datacenter
-	volumeManager        cnsvolumes.Manager
-	dsList               []vimtypes.ManagedObjectReference
-	cancel               context.CancelFunc
+	csiConfig        *cnsconfig.Config
+	ctx              context.Context
+	cnsVCenterConfig *cnsvsphere.VirtualCenterConfig
+	err              error
+	virtualCenter    *cnsvsphere.VirtualCenter
+	metadataSyncer   *metadataSyncInformer
+	k8sclient        clientset.Interface
+	dc               []*cnsvsphere.Datacenter
+	volumeManager    cnsvolumes.Manager
+	dsList           []vimtypes.ManagedObjectReference
+	cancel           context.CancelFunc
 )
 
 func TestSyncerWorkflows(t *testing.T) {
@@ -87,7 +86,6 @@ func TestSyncerWorkflows(t *testing.T) {
 	defer cancel()
 
 	t.Log("TestSyncerWorkflows: start")
-	var cleanup func()
 	vcsimParams := unittestcommon.VcsimParams{
 		Datacenters:     1,
 		Clusters:        1,
@@ -98,8 +96,17 @@ func TestSyncerWorkflows(t *testing.T) {
 		Version:         "7.0.3",
 		ApiVersion:      "7.0",
 	}
-	csiConfig, cleanup = unittestcommon.ConfigFromEnvOrVCSim(ctx, vcsimParams, false)
-	defer cleanup()
+	csiConfig, _ = unittestcommon.ConfigFromEnvOrVCSim(ctx, vcsimParams, false)
+	defer func() {
+		err = os.Unsetenv("VSPHERE_CSI_CONFIG")
+		if err != nil {
+			t.Logf("failed to unset VSPHERE_CSI_CONFIG. err=%v", err)
+		}
+		err = os.Remove("test_vsphere.conf")
+		if err != nil {
+			t.Logf("failed to remove test_vsphere.conf. err=%v", err)
+		}
+	}()
 
 	// CNS based CSI requires a valid cluster name.
 	csiConfig.Global.ClusterID = testClusterName
@@ -111,9 +118,10 @@ func TestSyncerWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	virtualCenterManager = cnsvsphere.GetVirtualCenterManager(ctx)
+	configInfo := &cnsconfig.ConfigurationInfo{}
+	configInfo.Cfg = csiConfig
 
-	virtualCenter, err = virtualCenterManager.RegisterVirtualCenter(ctx, cnsVCenterConfig)
+	virtualCenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,6 +130,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	defer func() {
 		if virtualCenter != nil {
 			err = virtualCenter.Disconnect(ctx)
@@ -131,15 +140,18 @@ func TestSyncerWorkflows(t *testing.T) {
 		}
 	}()
 
-	volumeManager, err = cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false, false, "")
+	volumeManager, err = cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false, "")
 	if err != nil {
 		t.Fatalf("failed to create an instance of volume manager. err=%v", err)
 	}
 
+	err = volumeManager.ResetManager(ctx, virtualCenter)
+	if err != nil {
+		t.Fatalf("failed to reset volume manager with new vcenter. err=%v", err)
+	}
+
 	// Initialize metadata syncer object.
 	metadataSyncer = &metadataSyncInformer{}
-	configInfo := &cnsconfig.ConfigurationInfo{}
-	configInfo.Cfg = csiConfig
 	metadataSyncer.configInfo = configInfo
 	metadataSyncer.volumeManager = volumeManager
 	metadataSyncer.host = virtualCenter.Config.Host
@@ -187,7 +199,6 @@ func TestSyncerWorkflows(t *testing.T) {
 		return
 	}
 	dsList = append(dsList, datastoreInfoObj.Datastore.Reference())
-
 	runTestMetadataSyncInformer(t)
 	runTestFullSyncWorkflows(t)
 	t.Log("TestSyncerWorkflows: end")
@@ -572,6 +583,7 @@ func getPersistentVolumeClaimSpec(pvcName string, namespace string,
 func runTestFullSyncWorkflows(t *testing.T) {
 	t.Log("TestFullSyncWorkflows start")
 	// Create spec for new volume.
+	t.Logf("csiConfig: %v", csiConfig)
 	createSpec := cnstypes.CnsVolumeCreateSpec{
 		DynamicData: vimtypes.DynamicData{},
 		Name:        testVolumeName,

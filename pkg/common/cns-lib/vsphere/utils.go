@@ -26,9 +26,8 @@ import (
 )
 
 const (
-	vsanDType                       = "vsanD"
-	defaultVCClientTimeoutInMinutes = 5
-	cnsMgrDatastoreSuspended        = "cns.vmware.com/datastoreSuspended"
+	vsanDType                = "vsanD"
+	cnsMgrDatastoreSuspended = "cns.vmware.com/datastoreSuspended"
 	// VSphere70u3Version is a 3 digit value to indicate the minimum vSphere
 	// version to use query volume async API.
 	VSphere70u3Version int = 703
@@ -41,15 +40,6 @@ var (
 	// ErrNotSupported represents not supported error.
 	ErrNotSupported = errors.New("not supported")
 )
-
-// IsInvalidCredentialsError returns true if error is of type InvalidLogin.
-func IsInvalidCredentialsError(err error) bool {
-	isInvalidCredentialsError := false
-	if soap.IsSoapFault(err) {
-		_, isInvalidCredentialsError = soap.ToSoapFault(err).VimFault().(types.InvalidLogin)
-	}
-	return isInvalidCredentialsError
-}
 
 // IsNotFoundError checks if err is the NotFound fault.
 func IsNotFoundError(err error) bool {
@@ -193,18 +183,6 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 		targetvSANClustersForFile = strings.Split(cfg.VirtualCenter[host].TargetvSANFileShareClusters, ",")
 	}
 
-	var vcClientTimeout int
-	if cfg.Global.VCClientTimeout == 0 {
-		log.Info("Defaulting timeout for vCenter Client to 5 minutes")
-		cfg.Global.VCClientTimeout = defaultVCClientTimeoutInMinutes
-	}
-	if cfg.Global.VCClientTimeout < 0 {
-		log.Warnf("Invalid value %v for timeout is specified as vc-client-timeout. Defaulting to %v minutes.",
-			cfg.Global.VCClientTimeout, defaultVCClientTimeoutInMinutes)
-		cfg.Global.VCClientTimeout = defaultVCClientTimeoutInMinutes
-	}
-	vcClientTimeout = cfg.Global.VCClientTimeout
-
 	vcCAFile := cfg.Global.CAFile
 	vcThumbprint := cfg.Global.Thumbprint
 
@@ -217,7 +195,6 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 		Password:                    cfg.VirtualCenter[host].Password,
 		Insecure:                    cfg.VirtualCenter[host].InsecureFlag,
 		TargetvSANFileShareClusters: targetvSANClustersForFile,
-		VCClientTimeout:             vcClientTimeout,
 		QueryLimit:                  cfg.Global.QueryLimit,
 		ListVolumeThreshold:         cfg.Global.ListVolumeThreshold,
 		MigrationDataStoreURL:       cfg.VirtualCenter[host].MigrationDataStoreURL,
@@ -254,17 +231,7 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 		if strings.TrimSpace(cfg.VirtualCenter[vCenterIP].TargetvSANFileShareClusters) != "" {
 			targetvSANClustersForFile = strings.Split(cfg.VirtualCenter[vCenterIP].TargetvSANFileShareClusters, ",")
 		}
-		var vcClientTimeout int
-		if cfg.Global.VCClientTimeout == 0 {
-			log.Info("Defaulting timeout for vCenter Client to 5 minutes")
-			cfg.Global.VCClientTimeout = defaultVCClientTimeoutInMinutes
-		}
-		if cfg.Global.VCClientTimeout < 0 {
-			log.Warnf("Invalid value %v for timeout is specified as vc-client-timeout. Defaulting to %v minutes.",
-				cfg.Global.VCClientTimeout, defaultVCClientTimeoutInMinutes)
-			cfg.Global.VCClientTimeout = defaultVCClientTimeoutInMinutes
-		}
-		vcClientTimeout = cfg.Global.VCClientTimeout
+
 		vcConfig := &VirtualCenterConfig{
 			Host:                        vCenterIP,
 			Port:                        port,
@@ -274,7 +241,6 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 			Password:                    cfg.VirtualCenter[vCenterIP].Password,
 			Insecure:                    cfg.VirtualCenter[vCenterIP].InsecureFlag,
 			TargetvSANFileShareClusters: targetvSANClustersForFile,
-			VCClientTimeout:             vcClientTimeout,
 			QueryLimit:                  cfg.Global.QueryLimit,
 			ListVolumeThreshold:         cfg.Global.ListVolumeThreshold,
 		}
