@@ -38,7 +38,6 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
-	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 )
 
 const (
@@ -439,31 +438,27 @@ func GetCSINamespace() string {
 	return CSINamespace
 }
 
-func GetValidatedCNSVolumeInfoPatch(ctx context.Context, cnsSnapshotInfo *cnsvolume.CnsSnapshotInfo,
-	cnsVolumeInfo *cnsvolumeinfov1alpha1.CNSVolumeInfo) map[string]interface{} {
+func GetValidatedCNSVolumeInfoPatch(ctx context.Context,
+	cnsSnapshotInfo *cnsvolume.CnsSnapshotInfo) (map[string]interface{}, error) {
 	log := logger.GetLogger(ctx)
 	var patch map[string]interface{}
+	if cnsSnapshotInfo == nil || cnsSnapshotInfo.SnapshotID == "" || cnsSnapshotInfo.SourceVolumeID == "" {
+		log.Errorf("SnapshotID %q or VolumeID %q values cannot be empty",
+			cnsSnapshotInfo.SnapshotID, cnsSnapshotInfo.SourceVolumeID)
+		return nil, logger.LogNewErrorf(log, "SnapshotID and VolumeID values cannot be empty")
+	}
 	if cnsSnapshotInfo.AggregatedSnapshotCapacityInMb == -1 {
 		log.Infof("Couldn't retrieve aggregated snapshot capacity for volume %q and snapshot %q",
-			cnsVolumeInfo.Spec.VolumeID, cnsSnapshotInfo.SnapshotID)
-		patchAnnotation := MergeMaps(cnsVolumeInfo.Annotations,
-			map[string]string{missingSnapshotAggregatedCapacity: "true"})
+			cnsSnapshotInfo.SourceVolumeID, cnsSnapshotInfo.SnapshotID)
 		patch = map[string]interface{}{
-			"metadata": map[string]interface{}{
-				"annotations": patchAnnotation,
-			},
 			"spec": map[string]interface{}{
 				"validaggregatedsnapshotsize": false,
 			},
 		}
 	} else {
 		log.Infof("retrieved aggregated snapshot capacity %d for volume %q and snapshot %q",
-			cnsSnapshotInfo.AggregatedSnapshotCapacityInMb, cnsVolumeInfo.Spec.VolumeID, cnsSnapshotInfo.SnapshotID)
-		delete(cnsVolumeInfo.Annotations, missingSnapshotAggregatedCapacity)
+			cnsSnapshotInfo.AggregatedSnapshotCapacityInMb, cnsSnapshotInfo.SourceVolumeID, cnsSnapshotInfo.SnapshotID)
 		patch = map[string]interface{}{
-			"metadata": map[string]interface{}{
-				"annotations": cnsVolumeInfo.Annotations,
-			},
 			"spec": map[string]interface{}{
 				"validaggregatedsnapshotsize":         true,
 				"aggregatedsnapshotsize":              cnsSnapshotInfo.AggregatedSnapshotCapacityInMb,
@@ -471,5 +466,5 @@ func GetValidatedCNSVolumeInfoPatch(ctx context.Context, cnsSnapshotInfo *cnsvol
 			},
 		}
 	}
-	return patch
+	return patch, nil
 }

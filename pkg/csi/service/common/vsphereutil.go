@@ -1050,23 +1050,24 @@ func CreateSnapshotUtil(ctx context.Context, volumeManager cnsvolume.Manager, vo
 }
 
 // DeleteSnapshotUtil is the helper function to delete CNS snapshot for given snapshotId
-func DeleteSnapshotUtil(ctx context.Context, volumeManager cnsvolume.Manager, csiSnapshotID string) error {
+func DeleteSnapshotUtil(ctx context.Context, volumeManager cnsvolume.Manager, csiSnapshotID string,
+	extraParams interface{}) (*cnsvolume.CnsSnapshotInfo, error) {
 	log := logger.GetLogger(ctx)
 
 	cnsVolumeID, cnsSnapshotID, err := ParseCSISnapshotID(csiSnapshotID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	log.Debugf("vSphere CSI driver is deleting snapshot %q on volume: %q", cnsSnapshotID, cnsVolumeID)
-	err = volumeManager.DeleteSnapshot(ctx, cnsVolumeID, cnsSnapshotID)
+	cnsSnapshotInfo, err := volumeManager.DeleteSnapshot(ctx, cnsVolumeID, cnsSnapshotID, extraParams)
 	if err != nil {
-		return logger.LogNewErrorf(log, "failed to delete snapshot %q on volume %q with error %+v",
+		return nil, logger.LogNewErrorf(log, "failed to delete snapshot %q on volume %q with error %+v",
 			cnsSnapshotID, cnsVolumeID, err)
 	}
 	log.Debugf("Successfully deleted snapshot %q on volume %q", cnsSnapshotID, cnsVolumeID)
 
-	return nil
+	return cnsSnapshotInfo, nil
 }
 
 // GetCnsVolumeType is the helper function that determines the volume type based on the volume-id

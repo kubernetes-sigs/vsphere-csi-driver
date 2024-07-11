@@ -1734,7 +1734,10 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 			}
 			if cnsVolumeInfo.Spec.SnapshotLatestOperationCompleteTime.Time.Before(
 				cnsSnapshotInfo.SnapshotLatestOperationCompleteTime) {
-				patch := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapshotInfo, cnsVolumeInfo)
+				patch, err := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapshotInfo)
+				if err != nil {
+					return nil, err
+				}
 				err = c.UpdateCNSVolumeInfo(ctx, patch, volumeID)
 				if err != nil {
 					return nil, err
@@ -1811,11 +1814,52 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	}
 	deleteSnapshotInternal := func() (*csi.DeleteSnapshotResponse, error) {
 		csiSnapshotID := req.GetSnapshotId()
-		err := common.DeleteSnapshotUtil(ctx, c.manager.VolumeManager, csiSnapshotID)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"Failed to delete WCP snapshot %q. Error: %+v",
-				csiSnapshotID, err)
+		isStorageQuotaM2FSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.StorageQuotaM2)
+		if isStorageQuotaM2FSSEnabled {
+			volumeID, _, err := common.ParseCSISnapshotID(csiSnapshotID)
+			if err != nil {
+				return nil, err
+			}
+			cnsVolumeInfo, err := volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", volumeID, err)
+			}
+			cnsSnapshotInfo, err := common.DeleteSnapshotUtil(ctx, c.manager.VolumeManager, csiSnapshotID,
+				&cnsvolume.DeletesnapshotExtraParams{
+					StorageClassName:           cnsVolumeInfo.Spec.StorageClassName,
+					StoragePolicyID:            cnsVolumeInfo.Spec.StoragePolicyID,
+					Capacity:                   cnsVolumeInfo.Spec.Capacity,
+					Namespace:                  cnsVolumeInfo.Namespace,
+					IsStorageQuotaM2FSSEnabled: isStorageQuotaM2FSSEnabled,
+				})
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"Failed to delete WCP snapshot %q. Error: %+v",
+					csiSnapshotID, err)
+			}
+			if cnsVolumeInfo.Spec.SnapshotLatestOperationCompleteTime.Time.Before(
+				cnsSnapshotInfo.SnapshotLatestOperationCompleteTime) {
+				patch, err := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapshotInfo)
+				if err != nil {
+					return nil, err
+				}
+				err = c.UpdateCNSVolumeInfo(ctx, patch, cnsVolumeInfo.Spec.VolumeID)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				log.Infof("CNSVolumeInfo is already updated, skiping update for volume %d and snapshot %d",
+					cnsVolumeInfo.Spec.VolumeID, cnsSnapshotInfo.SnapshotID)
+			}
+		} else {
+			_, err := common.DeleteSnapshotUtil(ctx, c.manager.VolumeManager, csiSnapshotID, nil)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"Failed to delete WCP snapshot %q. Error: %+v",
+					csiSnapshotID, err)
+			}
 		}
 
 		log.Infof("DeleteSnapshot: successfully deleted snapshot %q", csiSnapshotID)
@@ -1830,6 +1874,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusDeleteSnapshotOpType,
 			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
+
 	return resp, err
 }
 
