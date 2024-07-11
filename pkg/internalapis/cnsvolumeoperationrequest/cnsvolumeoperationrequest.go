@@ -224,10 +224,12 @@ func (or *operationRequestStore) StoreRequestDetails(
 			}
 			if isPodVMOnStretchSupervisorFSSEnabled && operationToStore.QuotaDetails != nil {
 				newInstance.Status.StorageQuotaDetails = &cnsvolumeoprequestv1alpha1.QuotaDetails{
-					Reserved:         operationToStore.QuotaDetails.Reserved,
-					StoragePolicyId:  operationToStore.QuotaDetails.StoragePolicyId,
-					StorageClassName: operationToStore.QuotaDetails.StorageClassName,
-					Namespace:        operationToStore.QuotaDetails.Namespace,
+					Reserved:                            operationToStore.QuotaDetails.Reserved,
+					StoragePolicyId:                     operationToStore.QuotaDetails.StoragePolicyId,
+					StorageClassName:                    operationToStore.QuotaDetails.StorageClassName,
+					Namespace:                           operationToStore.QuotaDetails.Namespace,
+					AggregatedSnapshotSize:              operationToStore.QuotaDetails.AggregatedSnapshotSize,
+					SnapshotLatestOperationCompleteTime: operationToStore.QuotaDetails.SnapshotLatestOperationCompleteTime,
 				}
 			}
 			err = or.k8sclient.Create(ctx, newInstance)
@@ -266,10 +268,12 @@ func (or *operationRequestStore) StoreRequestDetails(
 	updatedInstance.Status.Capacity = operationToStore.Capacity
 	if isPodVMOnStretchSupervisorFSSEnabled && operationToStore.QuotaDetails != nil {
 		updatedInstance.Status.StorageQuotaDetails = &cnsvolumeoprequestv1alpha1.QuotaDetails{
-			Reserved:         operationToStore.QuotaDetails.Reserved,
-			StoragePolicyId:  operationToStore.QuotaDetails.StoragePolicyId,
-			StorageClassName: operationToStore.QuotaDetails.StorageClassName,
-			Namespace:        operationToStore.QuotaDetails.Namespace,
+			Reserved:                            operationToStore.QuotaDetails.Reserved,
+			StoragePolicyId:                     operationToStore.QuotaDetails.StoragePolicyId,
+			StorageClassName:                    operationToStore.QuotaDetails.StorageClassName,
+			Namespace:                           operationToStore.QuotaDetails.Namespace,
+			AggregatedSnapshotSize:              operationToStore.QuotaDetails.AggregatedSnapshotSize,
+			SnapshotLatestOperationCompleteTime: operationToStore.QuotaDetails.SnapshotLatestOperationCompleteTime,
 		}
 	}
 

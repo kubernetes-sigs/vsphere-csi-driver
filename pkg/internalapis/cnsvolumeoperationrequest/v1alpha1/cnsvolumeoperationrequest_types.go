@@ -64,6 +64,11 @@ type QuotaDetails struct {
 	StorageClassName string `json:"storageClassName,omitempty"`
 	// Namespace of the PersistentVolumeClaim.
 	Namespace string `json:"namespace,omitempty"`
+	// AggregatedSnapshotSize stores the aggregate snapshot size for volume.
+	AggregatedSnapshotSize *resource.Quantity `json:"aggregatedsnapshotsize,omitempty"`
+	// Associated time stamp of the create or delete snapshot task completion.
+	// This is used to ordering concurrent snapshots on same volume.
+	SnapshotLatestOperationCompleteTime metav1.Time `json:"snapshotlatestoperationcompletetime,omitempty"`
 }
 
 // OperationDetails stores the details of the operation performed on a volume.

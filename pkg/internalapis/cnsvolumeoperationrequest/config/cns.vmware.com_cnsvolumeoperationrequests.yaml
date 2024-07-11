@@ -82,6 +82,18 @@ spec:
                   namespace:
                     description: Namespace of the PersistentVolumeClaim.
                     type: string
+                  aggregatedsnapshotsize:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: AggregatedSnapshotSize stores the aggregate snapshot size for volume.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  snapshotlatestoperationcompletetime:
+                    description: SnapshotLatestOperationCompleteTime is Associated time stamp of the create snapshot task completion.
+                      This is used to ordering concurrent snapshots on same volume.
+                    format: date-time
+                    type: string
                 type: object
               firstOperationDetails:
                 description: FirstOperationDetails stores the details of the first

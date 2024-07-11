@@ -61,6 +61,8 @@ import (
 const (
 	vsanDirect = "vsanD"
 	vsanSna    = "vsan-sna"
+	// allowedRetriesToPatchCNSVolumeInfo retry allowed for patching CNSVolumeInfo with snapshot details
+	allowedRetriesToPatchCNSVolumeInfo = 5
 )
 
 var (
@@ -1703,7 +1705,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// VolumeID and SnapshotID as the input, while corresponding snapshot APIs in upstream CSI require SnapshotID.
 		// So, we need to bridge the gap in vSphere CSI driver and return a combined SnapshotID to CSI Snapshotter.
 		var snapshotID string
-		var snapshotCreateTimePtr *time.Time
+		var cnsSnapshotInfo *cnsvolume.CnsSnapshotInfo
 		var cnsVolumeInfo *cnsvolumeinfov1alpha1.CNSVolumeInfo
 		isStorageQuotaM2FSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.StorageQuotaM2)
@@ -1713,7 +1715,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", volumeID, err)
 			}
-			snapshotID, snapshotCreateTimePtr, err = common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
+			snapshotID, cnsSnapshotInfo, err = common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
 				volumeID, req.Name, &cnsvolume.CreateSnapshotExtraParams{
 					StorageClassName:           cnsVolumeInfo.Spec.StorageClassName,
 					StoragePolicyID:            cnsVolumeInfo.Spec.StoragePolicyID,
@@ -1721,16 +1723,37 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 					Capacity:                   cnsVolumeInfo.Spec.Capacity,
 					IsStorageQuotaM2FSSEnabled: isStorageQuotaM2FSSEnabled,
 				})
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to create snapshot on volume %q with error: %v", volumeID, err)
+			}
+			cnsVolumeInfo, err := volumeInfoService.GetVolumeInfoForVolumeID(ctx, cnsSnapshotInfo.SourceVolumeID)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", cnsVolumeInfo.Spec.VolumeID, err)
+			}
+			if cnsVolumeInfo.Spec.SnapshotLatestOperationCompleteTime.Time.Before(
+				cnsSnapshotInfo.SnapshotLatestOperationCompleteTime) {
+				patch := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapshotInfo, cnsVolumeInfo)
+				err = c.UpdateCNSVolumeInfo(ctx, patch, volumeID)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				log.Infof("CNSVolumeInfo is already updated, skipping update for volume %q and snapshot %q",
+					volumeID, snapshotID)
+			}
+			log.Infof("successfully updated aggregated snapshot capacity: %d for volume %q and snapshot %q",
+				cnsSnapshotInfo.AggregatedSnapshotCapacityInMb, volumeID, snapshotID)
 		} else {
-			snapshotID, snapshotCreateTimePtr, err = common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
+			snapshotID, cnsSnapshotInfo, err = common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
 				volumeID, req.Name, nil)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to create snapshot on volume %q with error: %v", volumeID, err)
+			}
 		}
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to create snapshot on volume %q: %v", volumeID, err)
-		}
-		snapshotCreateTimeInProto := timestamppb.New(*snapshotCreateTimePtr)
-
+		snapshotCreateTimeInProto := timestamppb.New(cnsSnapshotInfo.SnapshotLatestOperationCompleteTime)
 		createSnapshotResponse := &csi.CreateSnapshotResponse{
 			Snapshot: &csi.Snapshot{
 				SizeBytes:      snapshotSizeInMB * common.MbInBytes,
@@ -1744,7 +1767,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		log.Infof("CreateSnapshot succeeded for snapshot %s "+
 			"on volume %s size %d Time proto %+v Timestamp %+v Response: %+v",
 			snapshotID, volumeID, snapshotSizeInMB*common.MbInBytes, snapshotCreateTimeInProto,
-			*snapshotCreateTimePtr, createSnapshotResponse)
+			cnsSnapshotInfo.SnapshotLatestOperationCompleteTime, createSnapshotResponse)
 
 		volumeSnapshotName := req.Parameters[common.VolumeSnapshotNameKey]
 		volumeSnapshotNamespace := req.Parameters[common.VolumeSnapshotNamespaceKey]
@@ -1972,7 +1995,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to create patch for CNSVolumeInfo instance. Error: %+v", err)
 			}
-			err = volumeInfoService.PatchVolumeInfo(ctx, volumeID, patchBytes)
+			err = volumeInfoService.PatchVolumeInfo(ctx, volumeID, patchBytes, allowedRetriesToPatchCNSVolumeInfo)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to patch CNSVolumeInfo instance to increase capacity from %q to %d."+
@@ -2014,4 +2037,20 @@ func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.Controlle
 func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.ControllerModifyVolumeRequest) (
 	*csi.ControllerModifyVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
+}
+
+func (c *controller) UpdateCNSVolumeInfo(ctx context.Context, patch map[string]interface{}, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to create patch for CNSVolumeInfo instance. Error: %+v", err)
+	}
+	err = volumeInfoService.PatchVolumeInfo(ctx, volumeID, patchBytes, allowedRetriesToPatchCNSVolumeInfo)
+	if err != nil {
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to patch CNSVolumeInfo instance to update snapshot details."+
+				" Error: %+v", err)
+	}
+	return nil
 }
