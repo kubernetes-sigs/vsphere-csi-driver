@@ -755,6 +755,7 @@ func GetConfigPath(ctx context.Context) string {
 			cfgPath = DefaultCloudConfigPath
 		}
 	}
+
 	return cfgPath
 }
 

@@ -43,11 +43,9 @@ var (
 )
 
 func startPropertyCollectorListener(ctx context.Context) {
-	scWatchCntlr := defaultStoragePoolService.GetScWatch()
-	SpController := defaultStoragePoolService.GetSPController()
 	exitChannel := make(chan interface{})
 	go managePCListenerInstance(ctx, exitChannel)
-	initListener(ctx, scWatchCntlr, SpController, exitChannel)
+	initListener(ctx, defaultStoragePoolService.GetScWatch(), defaultStoragePoolService.GetSPController(), exitChannel)
 }
 
 // managePCListenerInstance is responsible for making sure that Property
@@ -69,13 +67,7 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch,
 	spController *SpController, exitChannel chan interface{}) {
 	log := logger.GetLogger(ctx)
 
-	// Initialize a PropertyCollector that watches all objects in the hierarchy
-	// of cluster -> hosts in the cluster -> datastores mounted on hosts. One or
-	// more StoragePool instances would be created for each Datastore.
-	clusterMoref := types.ManagedObjectReference{
-		Type:  "ClusterComputeResource",
-		Value: spController.clusterID,
-	}
+	filter := new(property.WaitFilter)
 	ts := types.TraversalSpec{
 		Type: "ClusterComputeResource",
 		Path: "host",
@@ -88,8 +80,16 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch,
 			},
 		},
 	}
-	filter := new(property.WaitFilter)
-	filter.Add(clusterMoref, clusterMoref.Type, []string{"host"}, &ts)
+	for _, clusterID := range scWatchCntlr.clusterIDs {
+		// Initialize a PropertyCollector that watches all objects in the hierarchy
+		// of cluster -> hosts in the cluster -> datastores mounted on hosts. One or
+		// more StoragePool instances would be created for each Datastore.
+		clusterMoref := types.ManagedObjectReference{
+			Type:  "ClusterComputeResource",
+			Value: clusterID,
+		}
+		filter.Add(clusterMoref, clusterMoref.Type, []string{"host"}, &ts)
+	}
 	prodHost := types.PropertySpec{
 		Type:    "HostSystem",
 		PathSet: []string{"datastore", "runtime.inMaintenanceMode"},
@@ -230,36 +230,34 @@ func ReconcileAllStoragePools(ctx context.Context, scWatchCntlr *StorageClassWat
 		log.Errorf("failed to connect to vCenter. Err: %+v", err)
 		return err
 	}
+
 	// Get datastores from VC.
-	sharedDatastores, vsanDirectDatastores, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, &vc,
-		spCtl.clusterID, true)
-	if err != nil {
-		log.Errorf("Failed to find datastores from VC. Err: %+v", err)
-		return err
-	}
-	datastores := append(sharedDatastores, vsanDirectDatastores...)
+	clusterIDToDSs := cnsvsphere.GetCandidateDatastoresInClusters(ctx, &vc,
+		spCtl.clusterIDs, true)
 	validStoragePoolNames := make(map[string]bool)
 	// Create StoragePools that are missing and add them to intendedStateMap.
-	for _, dsInfo := range datastores {
-		spName := makeStoragePoolName(dsInfo.Info.Name)
-		validStoragePoolNames[spName] = true
-		intendedState, err := newIntendedState(ctx, dsInfo, scWatchCntlr)
-		if err != nil {
-			log.Errorf("Error reconciling StoragePool for datastore %s. Err: %v", dsInfo.Reference().Value, err)
-			continue
-		}
-		err = spCtl.applyIntendedState(ctx, intendedState)
-		if err != nil {
-			log.Errorf("Error applying intended state of StoragePool %s. Err: %v", intendedState.spName, err)
-			continue
-		}
-
-		// Create vsan-sna StoragePools for local vsan datastore.
-		if intendedState.dsType == vsanDsType && !intendedState.isRemoteVsan {
-			err := spCtl.updateVsanSnaIntendedState(ctx, intendedState, validStoragePoolNames, scWatchCntlr)
+	for clusterID, DSs := range clusterIDToDSs {
+		for _, dsInfo := range DSs {
+			validStoragePoolNames[makeStoragePoolName(dsInfo.Info.Name)] = true
+			intendedState, err := newIntendedState(ctx, clusterID, dsInfo, scWatchCntlr)
 			if err != nil {
-				log.Errorf("Error updating intended state of vSAN SNA StoragePools. Err: %v", err)
+				log.Errorf("Error reconciling StoragePool for datastore %s. Err: %v", dsInfo.Reference().Value, err)
 				continue
+			}
+
+			err = spCtl.applyIntendedState(ctx, intendedState)
+			if err != nil {
+				log.Errorf("Error applying intended state of StoragePool %s. Err: %v", intendedState.spName, err)
+				continue
+			}
+
+			// Create vsan-sna StoragePools for local vsan datastore.
+			if intendedState.dsType == vsanDsType && !intendedState.isRemoteVsan {
+				err := spCtl.updateVsanSnaIntendedState(ctx, intendedState, validStoragePoolNames, scWatchCntlr)
+				if err != nil {
+					log.Errorf("Error updating intended state of vSAN SNA StoragePools. Err: %v", err)
+					continue
+				}
 			}
 		}
 	}

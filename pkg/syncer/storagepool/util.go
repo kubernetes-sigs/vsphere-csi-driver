@@ -118,11 +118,19 @@ func getHostMoIDToK8sNameMap(ctx context.Context) (map[string]string, error) {
 }
 
 // findAccessibleNodes returns the k8s node names of ESX hosts (limited to
-// clusterID) on which the given datastore is mounted and accessible. The
+// clusterIDs) on which the given datastore is mounted and accessible. The
 // values in the map tells whether the ESX host is in Maintenance Mode.
 func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 	clusterID string, vcclient *vim25.Client) (map[string]bool, error) {
 	log := logger.GetLogger(ctx)
+
+	nodes := make(map[string]bool)
+	// Now find the k8s node names of these hosts.
+	hostMoIDTok8sName, err := getHostMoIDToK8sNameMap(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	clusterMoref := vimtypes.ManagedObjectReference{
 		Type:  "ClusterComputeResource",
 		Value: clusterID,
@@ -130,13 +138,10 @@ func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 	cluster := object.NewComputeResource(vcclient, clusterMoref)
 	hosts, err := datastore.AttachedClusterHosts(ctx, cluster)
 	if err != nil {
-		log.Infof("Failed to get attached hosts of datastore %s, err=%+v", datastore.Reference().Value, err)
+		log.Errorf("Failed to get attached hosts of datastore %s, err=%+v", datastore.Reference().Value, err)
 		return nil, err
 	}
 
-	// Now find the k8s node names of these hosts.
-	hostMoIDTok8sName, err := getHostMoIDToK8sNameMap(ctx)
-	nodes := make(map[string]bool)
 	for _, host := range hosts {
 		thisName, ok := hostMoIDTok8sName[host.Reference().Value]
 		if !ok || thisName == "" {
@@ -146,6 +151,7 @@ func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 			log.Debugf("Ignoring node %s without vmware-system-esxi-node-moid annotation", host.Reference().Value)
 			continue
 		}
+
 		inMM, err := getHostInMaintenanceMode(ctx, host)
 		if err != nil {
 			log.Errorf("Error finding the host %s Maintenance Mode state: %v", host.Reference().Value, err)
@@ -153,8 +159,9 @@ func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 		}
 		nodes[thisName] = inMM
 	}
+
 	log.Infof("Accessible nodes in MM for datastore %s: %v", datastore.Reference().Value, nodes)
-	return nodes, err
+	return nodes, nil
 }
 
 // getHostInMaintenanceMode returns whether the given host is in MaintenanceMode.

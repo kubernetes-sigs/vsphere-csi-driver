@@ -18,6 +18,7 @@ package storagepool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -89,22 +90,22 @@ type intendedState struct {
 // SpController holds the intended state updated by property collector listener
 // and has methods to apply intended state into actual k8s state.
 type SpController struct {
-	vc        *cnsvsphere.VirtualCenter
-	clusterID string
+	vc         *cnsvsphere.VirtualCenter
+	clusterIDs []string
 	// intendedStateMap stores the datastoreMoid -> IntendedState for each
 	// datastore. Underlying map type map[string]*intendedState.
 	intendedStateMap sync.Map
 }
 
-func newSPController(vc *cnsvsphere.VirtualCenter, clusterID string) (*SpController, error) {
+func newSPController(vc *cnsvsphere.VirtualCenter, clusterIDs []string) (*SpController, error) {
 	return &SpController{
-		vc:        vc,
-		clusterID: clusterID,
+		vc:         vc,
+		clusterIDs: clusterIDs,
 	}, nil
 }
 
 // newIntendedState creates a new IntendedState for a StoragePool.
-func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
+func newIntendedState(ctx context.Context, clusterID string, ds *cnsvsphere.DatastoreInfo,
 	scWatchCntlr *StorageClassWatch) (*intendedState, error) {
 	log := logger.GetLogger(ctx)
 
@@ -118,9 +119,6 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 	}
 	vcClient := vc.Client
 
-	clusterID := scWatchCntlr.clusterID
-	spName := makeStoragePoolName(ds.Info.Name)
-
 	// Get datastore properties like capacity, freeSpace, dsURL, dsType,
 	// accessible, inMM, containerID.
 	dsProps := getDatastoreProperties(ctx, ds)
@@ -130,13 +128,19 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 		return nil, err
 	}
 
+	remoteVsan, err := isRemoteVsan(ctx, dsProps, clusterID, vcClient.Client)
+	if err != nil {
+		log.Errorf("Not able to determine whether Datastore is vSAN Remote. %+v", err)
+		return nil, err
+	}
+
 	nodesMap, err := findAccessibleNodes(ctx, ds.Datastore.Datastore, clusterID, vcClient.Client)
 	if err != nil {
 		log.Errorf("Error finding accessible nodes of datastore %v. Err: %+v", ds, err)
 		return nil, err
 	}
 
-	// Only add nodes that are not inMM to the list of nodes.
+	// Only add nodes that are not in MM to the list of nodes.
 	nodes := make([]string, 0)
 	// allNodesInMM makes sense to be true only when there are nodes visible
 	// for this datastore.
@@ -153,32 +157,24 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 		log.Errorf("Failed to get dsPolicyCompatMap. Err: %+v", err)
 		return nil, err
 	}
+
 	compatSC := make([]string, 0)
-	dsPolicies, ok := dsPolicyCompatMap[ds.Reference().Value]
-	if ok {
+	if dsPolicies, ok := dsPolicyCompatMap[ds.Reference().Value]; ok {
 		for _, policyID := range dsPolicies {
-			scName := scWatchCntlr.policyToScMap[policyID].Name
-			compatSC = append(compatSC, scName)
+			for scName := range scWatchCntlr.policyToScMap[policyID] {
+				compatSC = append(compatSC, scName)
+			}
 		}
 	} else {
 		log.Infof("Failed to get compatible policies for %s", ds.Reference().Value)
 	}
-
-	remoteVsan, err := isRemoteVsan(ctx, dsProps, clusterID, vcClient.Client)
-	if err != nil {
-		log.Errorf("Not able to determine whether Datastore is vSAN Remote. %+v", err)
-		return nil, err
-	}
-
-	allocatableSpace := getAllocatableSpace(dsProps.freeSpace, dsProps.dsType)
-
 	return &intendedState{
 		dsMoid:           ds.Reference().Value,
 		dsType:           dsProps.dsType,
-		spName:           spName,
+		spName:           makeStoragePoolName(ds.Info.Name),
 		capacity:         dsProps.capacity,
 		freeSpace:        dsProps.freeSpace,
-		allocatableSpace: allocatableSpace,
+		allocatableSpace: getAllocatableSpace(dsProps.freeSpace, dsProps.dsType),
 		url:              dsProps.dsURL,
 		accessible:       dsProps.accessible,
 		datastoreInMM:    dsProps.inMM,
@@ -189,12 +185,15 @@ func newIntendedState(ctx context.Context, ds *cnsvsphere.DatastoreInfo,
 	}, nil
 }
 
-func isRemoteVsan(ctx context.Context, dsprops *dsProps, clusterID string, vcclient *vim25.Client) (bool, error) {
-	log := logger.GetLogger(ctx)
+func isRemoteVsan(ctx context.Context, dsprops *dsProps,
+	clusterID string, vcclient *vim25.Client) (bool, error) {
+	log := logger.GetLogger(ctx).Named("isRemoteVsan")
 	// If datastore type is not vsan, then return false.
 	if dsprops.dsType != vsanDsType {
+		log.Infof("Datastore %s is not a vSAN datastore", dsprops.dsName)
 		return false, nil
 	}
+
 	// Get vsan cluster uuid.
 	clsMoRef := types.ManagedObjectReference{
 		Type:  "ClusterComputeResource",
@@ -207,18 +206,19 @@ func isRemoteVsan(ctx context.Context, dsprops *dsProps, clusterID string, vccli
 		log.Errorf("Error fetching cluster properties for %s. Err: %+v", clusterID, err)
 		return false, err
 	}
+
 	vsanClsUUID := clsMo.ConfigurationEx.(*types.ClusterConfigInfoEx).VsanConfigInfo.DefaultConfig.Uuid
 	vsanClsUUID = strings.ReplaceAll(vsanClsUUID, "-", "")
 	dsContainerID := strings.ReplaceAll(dsprops.containerID, "-", "")
 	log.Debugf("Verifying whether vSAN Datastore %s with containerID: %s is local to cluster uuid %s",
 		dsprops.dsName, dsContainerID, vsanClsUUID)
-	// The vsan datastore is a remote mounted one if its containerID is not the
-	// same as vsan cluster uuid.
-	if dsContainerID != vsanClsUUID {
-		log.Infof("vSAN Datastore %s is remote to this cluster", dsprops.dsName)
-		return true, nil
+	if dsContainerID == vsanClsUUID {
+		log.Infof("vSAN Datastore %s is not remote to this cluster", dsprops.dsName)
+		return false, nil
 	}
-	return false, nil
+
+	log.Infof("vSAN Datastore %s is remote to this cluster", dsprops.dsName)
+	return true, nil
 }
 
 // newIntendedVsanSNAState creates a new IntendedState for a sna StoragePool.
@@ -291,11 +291,16 @@ func (c *SpController) getVsanHostCapacities(ctx context.Context) (map[string]*c
 	log := logger.GetLogger(ctx)
 	out := make(map[string]*cnsvsphere.VsanHostCapacity)
 
-	// Fetch all hosts in VC cluster.
-	hosts, err := c.vc.GetHostsByCluster(ctx, c.clusterID)
-	if err != nil {
-		log.Errorf("Failed to find datastores from VC. Err: %+v", err)
-		return out, err
+	var hosts []*cnsvsphere.HostSystem
+	for _, clusterID := range c.clusterIDs {
+		// Fetch all hosts in VC cluster.
+		clusterHosts, err := c.vc.GetHostsByCluster(ctx, clusterID)
+		if err != nil {
+			log.Errorf("Failed to find datastores from VC. Err: %+v", err)
+			continue
+		}
+
+		hosts = append(hosts, clusterHosts...)
 	}
 
 	// Get hostMoid to k8s node names.
@@ -336,7 +341,8 @@ func (c *SpController) applyIntendedState(ctx context.Context, state *intendedSt
 	// Create resource.
 	sp, err := spClient.Resource(*spResource).Get(ctx, state.spName, metav1.GetOptions{})
 	if err != nil {
-		statusErr, ok := err.(*k8serrors.StatusError)
+		var statusErr *k8serrors.StatusError
+		ok := errors.As(err, &statusErr)
 		if ok && statusErr.Status().Reason == metav1.StatusReasonNotFound {
 			log.Infof("Creating StoragePool instance for %s", state.spName)
 			sp := state.createUnstructuredStoragePool(ctx)
