@@ -30,7 +30,6 @@ import (
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
-
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -55,8 +54,8 @@ type VanillaCreateBlockVolParamsForMultiVC struct {
 
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
 func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager,
-	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo, filterSuspendedDatastores,
-	useSupervisorId bool, extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
+	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo, filterSuspendedDatastores, useSupervisorId,
+	isVdppOnStretchedSvFssEnabled bool, extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
@@ -83,36 +82,30 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 			log.Errorf("Error occurred while filter suspended datastores, err: %+v", err)
 			return nil, csifault.CSIInternalFault, err
 		}
-
 	}
+
 	var datastoreObj *vsphere.Datastore
 	var datastores []vim25types.ManagedObjectReference
 	var datastoreInfoList []*vsphere.DatastoreInfo
 	if spec.ScParams.DatastoreURL == "" {
 		// Check if datastore URL is specified by the storage pool parameter.
-		if spec.VsanDirectDatastoreURL != "" {
-			// Create Datacenter object.
-			var dcList []*vsphere.Datacenter
-			for _, dc := range vc.Config.DatacenterPaths {
-				dcList = append(dcList,
-					&vsphere.Datacenter{
-						Datacenter: object.NewDatacenter(
-							vc.Client.Client,
-							vim25types.ManagedObjectReference{
-								Type:  "Datacenter",
-								Value: dc,
-							}),
-						VirtualCenterHost: vc.Config.Host,
-					})
-			}
+		if spec.VsanDatastoreURL != "" {
 			// Search the datastore from the URL in the datacenter list.
-			var datastoreObj *vsphere.Datastore
 			var datastoreInfoObj *vsphere.DatastoreInfo
-			for _, datacenter := range dcList {
-				datastoreInfoObj, err = datacenter.GetDatastoreInfoByURL(ctx, spec.VsanDirectDatastoreURL)
+			for _, dc := range vc.Config.DatacenterPaths {
+				datacenter := &vsphere.Datacenter{
+					Datacenter: object.NewDatacenter(
+						vc.Client.Client,
+						vim25types.ManagedObjectReference{
+							Type:  "Datacenter",
+							Value: dc,
+						}),
+					VirtualCenterHost: vc.Config.Host,
+				}
+				datastoreInfoObj, err = datacenter.GetDatastoreInfoByURL(ctx, spec.VsanDatastoreURL)
 				if err != nil {
 					log.Warnf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
-						spec.VsanDirectDatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
+						spec.VsanDatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
 					continue
 				}
 
@@ -121,7 +114,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 				}
 				datastoreObj = datastoreInfoObj.Datastore
 				log.Debugf("Successfully fetched the datastore %v from the URL: %v",
-					datastoreObj.Reference(), spec.VsanDirectDatastoreURL)
+					datastoreObj.Reference(), spec.VsanDatastoreURL)
 				datastores = append(datastores, datastoreObj.Reference())
 				datastoreInfoList = append(datastoreInfoList, datastoreInfoObj)
 				break
@@ -131,7 +124,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 				// Currently, just return csi.fault.Internal.
 				return nil, csifault.CSIInternalFault,
 					logger.LogNewErrorf(log, "DatastoreURL: %s specified in the create volume spec is not found.",
-						spec.VsanDirectDatastoreURL)
+						spec.VsanDatastoreURL)
 			}
 		} else {
 			// If DatastoreURL is not specified in StorageClass, get all shared
@@ -197,9 +190,11 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		}
 	}
 
-	fault, err := isDataStoreCompatible(ctx, vc, spec, datastores, datastoreObj)
-	if err != nil {
-		return nil, fault, err
+	if !isVdppOnStretchedSvFssEnabled || spec.VsanDatastoreURL == "" {
+		fault, err := isDataStoreCompatible(ctx, vc, spec, datastores, datastoreObj)
+		if err != nil {
+			return nil, fault, err
+		}
 	}
 
 	var containerClusterArray []cnstypes.CnsContainerCluster

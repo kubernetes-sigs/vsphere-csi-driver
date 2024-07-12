@@ -462,18 +462,32 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	topologyRequirement = req.GetAccessibilityRequirements()
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
+	isVdppOnStretchedSVEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VdppOnStretchedSupervisor)
 	topoSegToDatastoresMap := make(map[string][]*cnsvsphere.DatastoreInfo)
 	if isTKGSHAEnabled {
 		// TKGS-HA feature is enabled
-		// Identify the topology keys in Accessibility requirements.
+		// Identify the topology keys in Accessibility requirements and infer the environment type based on these keys.
+
+		// If both zone and hostname labels are present in the request -
+		// it's host local volume provisioning on a stretched supervisor.
+
+		// If only zone label is present in the request -
+		// it's non-host local volume provisioning on a stretched supervisor.
+
+		// If only hostname label is present in the request -
+		// it's host local volume provisioning on a non-stretched supervisor.
+
+		// If neither zone nor hostname label is present in the request -
+		// it's non-host local volume provisioning on a non-stretched supervisor.
 		hostnameLabelPresent, zoneLabelPresent = checkTopologyKeysFromAccessibilityReqs(topologyRequirement)
-		// TODO: TKGS-HA: This case will only arise when spherelet will add zone and hostname labels to CSINodes.
-		// Currently spherelet only accepts hostname. We will handle this case later.
 		if zoneLabelPresent && hostnameLabelPresent {
-			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-				"support for topology requirement with both zone and hostname labels is not yet implemented.")
+			if isVdppOnStretchedSVEnabled {
+				log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
+			} else {
+				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
+					"support for topology requirement with both zone and hostname labels is not yet implemented.")
+			}
 		} else if zoneLabelPresent {
-			// StorageTopologyType should be set if topology label is present
 			if storageTopologyType == "" {
 				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
 					"StorageTopologyType is unset while topology label is present")
@@ -496,17 +510,21 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					"failed to find shared datastores for given topology requirement. Error: %v", err)
 			}
 		} else {
-			// zone labels not Present in the topologyRequirement
-			if len(clusterComputeResourceMoIds) > 1 {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-					"stretched supervisor cluster does not support creating volumes "+
-						"without zone keys in the topologyRequirement  . Error: %v", err)
-			}
-			sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc,
-				clusterComputeResourceMoIds[0], true)
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed finding candidate datastores to place volume. Error: %v", err)
+			if hostnameLabelPresent && isVdppOnStretchedSVEnabled {
+				log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
+			} else {
+				// zone labels not Present in the topologyRequirement
+				if len(clusterComputeResourceMoIds) > 1 {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+						"stretched supervisor cluster does not support creating volumes "+
+							"without zone keys in the topologyRequirement  . Error: %v", err)
+				}
+				sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc,
+					clusterComputeResourceMoIds[0], true)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed finding candidate datastores to place volume. Error: %v", err)
+				}
 			}
 		}
 	} else {
@@ -519,7 +537,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 	}
 	candidateDatastores := append(sharedDatastores, vsanDirectDatastores...)
-
 	if storagePool != "" {
 		if !isValidAccessibilityRequirement(topologyRequirement) {
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
@@ -530,6 +547,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"error in specified StoragePool %s. Error: %+v", storagePool, err)
 		}
+
 		overlappingNodes, err := getOverlappingNodes(spAccessibleNodes, topologyRequirement)
 		if err != nil || len(overlappingNodes) == 0 {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
@@ -551,13 +569,34 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
 					"too many accessible nodes")
 			}
+
+			if isVdppOnStretchedSVEnabled {
+				selectedDatastoreURL, err = getDatastoreURLFromStoragePool(ctx, storagePool)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"error in specified StoragePool %s. Error: %+v", storagePool, err)
+				}
+				log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
+			}
+
 			hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, accessibleNodes[0])
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get ESX Host Moid from API server. Error: %+v", err)
 			}
+
 			affineToHost = hostMoid
 			log.Debugf("Setting the affineToHost value as %s", affineToHost)
+		}
+
+		if isVdppOnStretchedSVEnabled {
+			datastore, err := cnsvsphere.GetDatastoreInfoByURL(ctx, vc, clusterComputeResourceMoIds, selectedDatastoreURL)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to find the datastore from the selected datastore URL %s. Error: %v", selectedDatastoreURL, err)
+			}
+
+			candidateDatastores = []*cnsvsphere.DatastoreInfo{datastore}
 		}
 	}
 
@@ -615,10 +654,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		ScParams:                &common.StorageClassParams{},
 		AffineToHost:            affineToHost,
 		VolumeType:              common.BlockVolumeType,
-		VsanDirectDatastoreURL:  selectedDatastoreURL,
+		VsanDatastoreURL:        selectedDatastoreURL,
 		ContentSourceSnapshotID: contentSourceSnapshotID,
 	}
-
 	var (
 		volumeInfo *cnsvolume.CnsVolumeInfo
 		faultType  string
@@ -626,7 +664,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	if isPodVMOnStretchSupervisorFSSEnabled {
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
 			c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores,
-			isTKGSHAEnabled,
+			isTKGSHAEnabled, isVdppOnStretchedSVEnabled,
 			&cnsvolume.CreateVolumeExtraParams{
 				VolSizeBytes:                         volSizeBytes,
 				StorageClassName:                     req.Parameters[common.AttributeStorageClassName],
@@ -636,7 +674,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	} else {
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
 			c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores,
-			isTKGSHAEnabled, nil)
+			isTKGSHAEnabled, isVdppOnStretchedSVEnabled, nil)
 	}
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
@@ -656,7 +694,22 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 
 	// Calculate accessible topology for the provisioned volume in case of topology aware environment.
 	if isTKGSHAEnabled {
-		if zoneLabelPresent && !hostnameLabelPresent {
+		if hostnameLabelPresent {
+			// Configure the volumeTopology in the response so that the external
+			// provisioner will properly sets up the nodeAffinity for this volume.
+			if isVdppOnStretchedSVEnabled {
+				resp.Volume.AccessibleTopology = topologyRequirement.GetPreferred()
+			} else {
+				for _, hostName := range accessibleNodes {
+					volumeTopology := &csi.Topology{
+						Segments: map[string]string{
+							v1.LabelHostname: hostName,
+						},
+					}
+					resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
+				}
+			}
+		} else if zoneLabelPresent {
 			selectedDatastore := volumeInfo.DatastoreURL
 			// CreateBlockVolumeUtil with idempotency enabled does not return datastore
 			// information when it uses the cached information from CR. In such cases,
@@ -722,6 +775,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					"failed to find accessible topologies for volume %q. Error: %+v",
 					volumeInfo.VolumeID.Id, err)
 			}
+
 			// Add topology segments to the CreateVolumeResponse.
 			for _, topoSegments := range datastoreAccessibleTopology {
 				volumeTopology := &csi.Topology{
@@ -729,18 +783,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				}
 				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 			}
-		} else if hostnameLabelPresent {
-			// Configure the volumeTopology in the response so that the external
-			// provisioner will properly sets up the nodeAffinity for this volume.
-			for _, hostName := range accessibleNodes {
-				volumeTopology := &csi.Topology{
-					Segments: map[string]string{
-						v1.LabelHostname: hostName,
-					},
-				}
-				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
-			}
-			log.Debugf("Volume Accessible Topology: %+v", resp.Volume.AccessibleTopology)
 		}
 	} else {
 		// Configure the volumeTopology in the response so that the external
@@ -754,10 +796,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				}
 				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 			}
-			log.Debugf("Volume Accessible Topology: %+v", resp.Volume.AccessibleTopology)
 		}
 	}
-
+	log.Debugf("Volume Accessible Topology: %+v", resp.Volume.AccessibleTopology)
 	// Set the Snapshot VolumeContentSource in the CreateVolumeResponse
 	if contentSourceSnapshotID != "" {
 		resp.Volume.ContentSource = &csi.VolumeContentSource{

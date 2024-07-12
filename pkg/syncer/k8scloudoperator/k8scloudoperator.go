@@ -349,7 +349,7 @@ func (k8sCloudOperator *k8sCloudOperator) PlacePersistenceVolumeClaim(ctx contex
 
 	scName, err := GetSCNameFromPVC(pvc)
 	if err != nil {
-		log.Errorf("Fail to get Storage class name from PVC with +v", err)
+		log.Errorf("Fail to get Storage class name from PVC with %+v", err)
 		return out, err
 	}
 
