@@ -249,7 +249,10 @@ const (
 	vsphereClusterIdConfigMapName              = "vsphere-csi-cluster-id"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
-	storagePolicyQuota = "-storagepolicyquota"
+	storagePolicyQuota         = "-storagepolicyquota"
+	podVMOnStretchedSupervisor = "stretched-svc"
+	stretchedSVCTopologyLevels = 1
+	envZonalStoragePolicyName2 = "ZONAL2_STORAGECLASS"
 )
 
 /*
@@ -318,6 +321,7 @@ var (
 	windowsEnv           bool
 	multipleSvc          bool
 	multivc              bool
+	stretchedSVC         bool
 )
 
 // For busybox pod image
@@ -501,5 +505,11 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	topologyType := os.Getenv("TOPOLOGY_TYPE")
 	if strings.TrimSpace(string(topologyType)) == "MULTI_VC" {
 		multivc = true
+	}
+
+	//Check if its stretched SVC testbed
+	testbedType := os.Getenv("STRETCHED_SVC")
+	if strings.TrimSpace(string(testbedType)) == "1" {
+		stretchedSVC = true
 	}
 }

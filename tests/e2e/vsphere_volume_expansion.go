@@ -77,9 +77,16 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		bootstrap()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var err error
 
 		isVsanHealthServiceStopped = false
 		isSPSServiceStopped = false
+
+		if !stretchedSVC {
+			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+			profileID = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			defaultDatastore = getDefaultDatastore(ctx)
+		}
 
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		profileID = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
@@ -2504,6 +2511,154 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 	})
 
+	/**
+	Offline and online volume expansion on stretched SVC
+	    1. Create zonal storage policy
+		2. Create PVC which uses the above sc.
+		3. Wait for PV to be provisioned.
+		4. Wait for PVC's status to become Bound and note down the size
+		5. Modify PVC's size to trigger offline volume expansion
+		6. verify the PVC status will change to "Resizing", but resize won't succeed until POD is created
+		9. Create POD
+		10. Verify PVC resize completes
+		11. Verify the resized PVC by doing CNS query
+		12. Modify PVC's size to trigger online volume expansion
+		12. Make sure data is intact on the PV mounted on the pod
+		13. After resize completes verify and Make sure file system has also increased
+		14. clean up the data
+	*/
+	ginkgo.It("[stretched-svc] offline and online volume "+
+		"expansion on stretched svc", ginkgo.Label(p1, block, newTest), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var pvclaims []*v1.PersistentVolumeClaim
+		//var zonalPolicy string
+		var categories []string
+		var allowedTopologyHAMap map[string][]string
+
+		scParameters := make(map[string]string)
+
+		topologyHaMap := GetAndExpectStringEnvVar(topologyHaMap)
+		_, categories = createTopologyMapLevel5(topologyHaMap)
+		allowedTopologies := createAllowedTopolgies(topologyHaMap)
+		allowedTopologyHAMap = createAllowedTopologiesMap(allowedTopologies)
+		framework.Logf("Topology map: %v, categories: %v", allowedTopologyHAMap, categories)
+
+		zonalPolicy := GetAndExpectStringEnvVar(envZonalStoragePolicyName)
+		scParameters[svStorageClassName] = zonalPolicy
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		pvclaim, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Expect claim to provision volume successfully")
+		pvclaims = append(pvclaims, pvclaim)
+		pv, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := pv[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		// Modify PVC spec to trigger volume expansion
+		// We expand the PVC while no pod is using it to ensure offline expansion
+		ginkgo.By("Expanding current pvc")
+		currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+		newSize := currentPvcSize.DeepCopy()
+		newSize.Add(resource.MustParse("1Gi"))
+		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+		pvclaim, err = expandPVCSize(pvclaim, newSize, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+
+		pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+		if pvcSize.Cmp(newSize) != 0 {
+			framework.Failf("error updating pvc size %q", pvclaim.Name)
+		}
+
+		ginkgo.By("Waiting for controller volume resize to finish")
+		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if len(queryResult.Volumes) == 0 {
+			err = fmt.Errorf("queryCNSVolumeWithResult returned no volume")
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Verifying disk size requested in volume expansion is honored")
+		newSizeInMb := int64(3072)
+		if queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).CapacityInMb != newSizeInMb {
+			err = fmt.Errorf("got wrong disk size after volume expansion")
+		}
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Create a Pod to use this PVC, and verify volume has been attached
+		ginkgo.By("Creating pod to attach PV to the node")
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			ginkgo.By("Deleting the pod")
+			err = fpod.DeletePodWithWait(ctx, client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		var vmUUID string
+		var exists bool
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, pod.Spec.NodeName))
+
+		annotations := pod.Annotations
+		vmUUID, exists = annotations[vmUUIDLabel]
+		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+
+		framework.Logf("VMUUID : %s", vmUUID)
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+
+		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
+		_, err = e2eoutput.LookForStringInPodExec(namespace, pod.Name,
+			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for file system resize to finish")
+		pvclaim, err = waitForFSResize(pvclaim, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		pvcConditions := pvclaim.Status.Conditions
+		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
+
+		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
+		fsSize, err := getFSSizeMb(f, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("File system size after expansion : %s, before expansion: %s", fsSize, diskSizeInMb)
+
+		// Filesystem size may be smaller than the size of the block volume
+		// so here we are checking if the new filesystem size is greater than
+		// the original volume size as the filesystem is formatted for the
+		// first time after pod creation
+		if fsSize < diskSizeInMb {
+			framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize)
+		}
+		ginkgo.By("File system resize finished successfully")
+
+		ginkgo.By("Increase PVC size and verify online volume resize")
+		increaseSizeOfPvcAttachedToPod(f, client, namespace, pvclaim, pod)
+
+	})
+
 })
 
 // increaseOnlineVolumeMultipleTimes this method increases the same volume
@@ -2827,7 +2982,7 @@ func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Int
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 		fsSize, err = getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("File system size after expansion : %v", fsSize)
+		framework.Logf("File system size after expansion : %v, fsSize, after expansion : %v", originalSizeInMb, fsSize)
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
 		// the original volume size as the filesystem is formatted for the

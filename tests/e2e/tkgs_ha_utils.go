@@ -898,3 +898,17 @@ func verifyStsVolumeMetadata(client clientset.Interface, ctx context.Context, na
 	}
 
 }
+
+// verifyAnnotationsAndNodeAffinityInSVC verifies annotations on SVC PVC
+// and node affinities and pod location of volumes on correct zones
+func verifyAnnotationsAndNodeAffinityInSVC(allowedTopologyHAMap map[string][]string,
+	pod *v1.Pod, nodeList *v1.NodeList, pv *v1.PersistentVolume) {
+
+	framework.Logf("Verify  PV has has required  node affinity details")
+	_, err := verifyVolumeTopologyForLevel5(pv, allowedTopologyHAMap)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("SVC PV: %s has required Pv node affinity details", pv.Name)
+
+	_, err = verifyPodLocationLevel5(pod, nodeList, allowedTopologyHAMap)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
