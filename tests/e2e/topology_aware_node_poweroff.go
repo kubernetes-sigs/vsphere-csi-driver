@@ -59,6 +59,25 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+
+		// delete nginx-sc storage class incase any stale entry left
+		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
+		if err == nil && sc != nil {
+			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name,
+				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+		}
+
+		framework.Logf("Delete service %s incase stale entry left", servicename)
+		serviceList, err := client.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if len(serviceList.Items) != 0 {
+			for _, service := range serviceList.Items {
+				if service.Name == servicename {
+					err = client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}
+		}
 	})
 
 	// 1. Create a Storage Class with spec containing valid region and zone in
