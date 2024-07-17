@@ -2918,7 +2918,7 @@ func policyQuotaCRAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
 				}
 			}
 			if !foundPvcUsageInstance {
-				pvcQuotaUsageInstanceName := sc.Name + "-" + "pvc-usage"
+				pvcQuotaUsageInstanceName := sc.Name + "-" + storagepolicyv1alpha1.NameSuffixForPVC
 				_, err := createStoragePolicyUsageCR(ctx, storageQuotaClient, pvcQuotaUsageInstanceName, namespace,
 					storagePolicyId, sc.Name, ResourceKindPVC, ResourceAPIgroupPVC, PVCQuotaExtensionServiceName)
 				if err != nil {
@@ -2930,7 +2930,7 @@ func policyQuotaCRAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
 					cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular, storagePolicyId, sc.Name, ResourceKindPVC)
 			}
 			if isStorageQuotaM2Enabled && !foundSnapUsageInstance {
-				snapQuotaUsageInstanceName := sc.Name + "-" + "snapshot-usage"
+				snapQuotaUsageInstanceName := sc.Name + "-" + storagepolicyv1alpha1.NameSuffixForSnapshot
 				_, err := createStoragePolicyUsageCR(ctx, storageQuotaClient, snapQuotaUsageInstanceName, namespace,
 					storagePolicyId, sc.Name, ResourceKindSnapshot, ResourceAPIgroupSnapshot, SnapQuotaExtensionServiceName)
 				if err != nil {
@@ -3094,6 +3094,7 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 			"supervisor namespaces. Error: %+v", cnsoperatorv1alpha1.CnsStoragePolicyQuotaSingular, err)
 		return
 	}
+	isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
 	for _, spq := range spqList.Items {
 		// Make sure storagePolicyQuota instance is not getting deleted.
 		if spq.DeletionTimestamp != nil {
@@ -3104,6 +3105,7 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 		policyID := spq.Spec.StoragePolicyId
 		// For each StoragePolicyQuota, verify if a StoragePolicyUsage CR exists. If not, create one.
 		for _, scName := range scPolicyIdToNameMap[policyID] {
+			// Create StoragePolicyUsage CR for PVC resource kind if not present already.
 			storagePolicyUsageInstanceName := scName + "-" + storagepolicyv1alpha1.NameSuffixForPVC
 			storagePolicyUsageCR := &storagepolicyv1alpha1.StoragePolicyUsage{}
 			err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
@@ -3111,10 +3113,9 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 				Name:      storagePolicyUsageInstanceName},
 				storagePolicyUsageCR)
 			if err == nil {
-				// Found storagePolicyUsageCR. Move to the next SC.
+				// Found storagePolicyUsageCR for PVC kind. Check for storagePolicyUsageCR for snapshot kind next.
 				log.Debugf("storagePolicyUsageCRSync: Found storagePolicyUsage CR %q for "+
 					"StoragePolicyQuota %q in namespace %q", storagePolicyUsageInstanceName, spq.Name, spq.Namespace)
-				continue
 			} else {
 				if apierrors.IsNotFound(err) {
 					_, err = createStoragePolicyUsageCR(ctx, cnsOperatorClient, storagePolicyUsageInstanceName,
@@ -3124,15 +3125,48 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 						log.Errorf("storagePolicyUsageCRSync: Failed to create %q CR with name %q in "+
 							"namespace %q for %q kind. Err: %+v", cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular,
 							storagePolicyUsageInstanceName, spq.Namespace, ResourceKindPVC, err)
-						continue
+					} else {
+						log.Infof("storagePolicyUsageCRSync: Successfully created the storagePolicyUsage CR %q "+
+							"in namespace %q", storagePolicyUsageInstanceName, spq.Namespace)
 					}
-					log.Infof("storagePolicyUsageCRSync: Successfully created the storagePolicyUsage CR %q "+
-						"in namespace %q", storagePolicyUsageInstanceName, spq.Namespace)
 				} else {
 					log.Errorf("storagePolicyUsageCRSync: Failed to fetch storagePolicyUsage CR %q for "+
 						"StoragePolicyQuota %q in namespace %q. Error: %+v", storagePolicyUsageInstanceName, spq.Name,
 						spq.Namespace, err)
+				}
+			}
+			if isStorageQuotaM2Enabled {
+				// Create StoragePolicyUsage CR for snapshot resource kind if not present already.
+				storagePolicyUsageInstanceName = scName + "-" + storagepolicyv1alpha1.NameSuffixForSnapshot
+				storagePolicyUsageCR = &storagepolicyv1alpha1.StoragePolicyUsage{}
+				err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
+					Namespace: spq.Namespace,
+					Name:      storagePolicyUsageInstanceName},
+					storagePolicyUsageCR)
+				if err == nil {
+					// Found storagePolicyUsageCR for snapshot kind. Move to the next SC.
+					log.Debugf("storagePolicyUsageCRSync: Found storagePolicyUsage CR %q for "+
+						"StoragePolicyQuota %q in namespace %q", storagePolicyUsageInstanceName, spq.Name, spq.Namespace)
 					continue
+				} else {
+					if apierrors.IsNotFound(err) {
+						_, err = createStoragePolicyUsageCR(ctx, cnsOperatorClient, storagePolicyUsageInstanceName,
+							spq.Namespace, policyID, scName, ResourceKindSnapshot, ResourceAPIgroupSnapshot,
+							SnapQuotaExtensionServiceName)
+						if err != nil {
+							log.Errorf("storagePolicyUsageCRSync: Failed to create %q CR with name %q in "+
+								"namespace %q for %q kind. Err: %+v", cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular,
+								storagePolicyUsageInstanceName, spq.Namespace, ResourceKindSnapshot, err)
+							continue
+						}
+						log.Infof("storagePolicyUsageCRSync: Successfully created the storagePolicyUsage CR %q "+
+							"in namespace %q", storagePolicyUsageInstanceName, spq.Namespace)
+					} else {
+						log.Errorf("storagePolicyUsageCRSync: Failed to fetch storagePolicyUsage CR %q for "+
+							"StoragePolicyQuota %q in namespace %q. Error: %+v", storagePolicyUsageInstanceName, spq.Name,
+							spq.Namespace, err)
+						continue
+					}
 				}
 			}
 		}
@@ -3174,63 +3208,65 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 	if len(volumeInfoCRList) > 0 {
 		// Iterate through storagePolicyUsageList
 		for _, storagePolicyUsage := range storagePolicyUsageList.Items {
-			totalUsedQty := resource.NewQuantity(int64(0), resource.BinarySI)
-			// For every storagePolicyUsage, fetch "Bound" PVs in that namespace from k8sVolumesToNamespaceMap
-			if volumes, ok := namespaceToK8sVolumesMap[storagePolicyUsage.Namespace]; ok {
-				for _, pv := range volumes {
-					// Verify the StorageClass, StoragePolicyId match with the storagePolicyUsage spec
-					// using the cnsVolumeInfo CR for the volume
-					if cnsVolumeInfo, ok := cnsVolumeInfoMap[pv.Spec.CSI.VolumeHandle]; ok {
-						if cnsVolumeInfo.Spec.StorageClassName == storagePolicyUsage.Spec.StorageClassName &&
-							cnsVolumeInfo.Spec.StoragePolicyID == storagePolicyUsage.Spec.StoragePolicyId &&
-							cnsVolumeInfo.Spec.Namespace == storagePolicyUsage.Namespace {
-							// Compute the total used capacity for the voluems in the current namespace(iteration)
-							totalUsedQty.Add(*cnsVolumeInfo.Spec.Capacity)
-						} else {
-							continue
+			if storagePolicyUsage.Spec.ResourceKind == ResourceKindPVC {
+				totalUsedQty := resource.NewQuantity(int64(0), resource.BinarySI)
+				// For every storagePolicyUsage, fetch "Bound" PVs in that namespace from k8sVolumesToNamespaceMap
+				if volumes, ok := namespaceToK8sVolumesMap[storagePolicyUsage.Namespace]; ok {
+					for _, pv := range volumes {
+						// Verify the StorageClass, StoragePolicyId match with the storagePolicyUsage spec
+						// using the cnsVolumeInfo CR for the volume
+						if cnsVolumeInfo, ok := cnsVolumeInfoMap[pv.Spec.CSI.VolumeHandle]; ok {
+							if cnsVolumeInfo.Spec.StorageClassName == storagePolicyUsage.Spec.StorageClassName &&
+								cnsVolumeInfo.Spec.StoragePolicyID == storagePolicyUsage.Spec.StoragePolicyId &&
+								cnsVolumeInfo.Spec.Namespace == storagePolicyUsage.Namespace {
+								// Compute the total used capacity for the voluems in the current namespace(iteration)
+								totalUsedQty.Add(*cnsVolumeInfo.Spec.Capacity)
+							} else {
+								continue
+							}
 						}
 					}
-				}
-				patchedStoragePolicyUsage := *storagePolicyUsage.DeepCopy()
-				if patchedStoragePolicyUsage.Status.ResourceTypeLevelQuotaUsage != nil {
-					// Compare the expected total used capacity vs the actual used capacity value in storagePolicyUsage CR
-					patchedStoragePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Used = totalUsedQty
-					currentUsedCapacity := storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Used
-					if !reflect.DeepEqual(currentUsedCapacity.Value(), totalUsedQty.Value()) {
-						log.Infof("storagePolicyUsageCRSync: The used capacity field for StoragepolicyUsage CR: %q in namespace: %q "+
-							"is not matching with the total capacity of all the k8s volumes in Bound state. Current: %v . "+
-							"Expected: %v", storagePolicyUsage.Name, storagePolicyUsage.Namespace,
-							currentUsedCapacity.Value(), totalUsedQty.Value())
+					patchedStoragePolicyUsage := *storagePolicyUsage.DeepCopy()
+					if patchedStoragePolicyUsage.Status.ResourceTypeLevelQuotaUsage != nil {
+						// Compare the expected total used capacity vs the actual used capacity value in storagePolicyUsage CR
+						patchedStoragePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Used = totalUsedQty
+						currentUsedCapacity := storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Used
+						if !reflect.DeepEqual(currentUsedCapacity.Value(), totalUsedQty.Value()) {
+							log.Infof("storagePolicyUsageCRSync: The used capacity field for StoragepolicyUsage CR: %q in namespace: %q "+
+								"is not matching with the total capacity of all the k8s volumes in Bound state. Current: %v . "+
+								"Expected: %v", storagePolicyUsage.Name, storagePolicyUsage.Namespace,
+								currentUsedCapacity.Value(), totalUsedQty.Value())
+							err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, &storagePolicyUsage, &patchedStoragePolicyUsage)
+							if err != nil {
+								log.Errorf("storagePolicyUsageCRSync: Patching operation failed for StoragePolicyUsage CR: %q in "+
+									"namespace: %q. err: %v", storagePolicyUsage.Name, patchedStoragePolicyUsage.Namespace, err)
+								return
+							}
+							log.Infof("storagePolicyUsageCRSync: Successfully updated the used field from %v to %v for StoragepolicyUsage "+
+								"CR: %q in namespace: %q", currentUsedCapacity.Value(),
+								totalUsedQty.Value(), patchedStoragePolicyUsage.Name, patchedStoragePolicyUsage.Namespace)
+						} else {
+							log.Infof("storagePolicyUsageCRSync: The used capacity field for StoragepolicyUsage CR: %q in namespace: %q "+
+								"field is matching with the total capacity. Used: %v Skipping the Patch operation",
+								storagePolicyUsage.Name, storagePolicyUsage.Namespace,
+								storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Used.Value())
+						}
+					} else {
+						patchedStoragePolicyUsage.Status = storagepolicyv1alpha1.StoragePolicyUsageStatus{
+							ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha1.QuotaUsageDetails{
+								Used: totalUsedQty,
+							},
+						}
 						err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, &storagePolicyUsage, &patchedStoragePolicyUsage)
 						if err != nil {
 							log.Errorf("storagePolicyUsageCRSync: Patching operation failed for StoragePolicyUsage CR: %q in "+
 								"namespace: %q. err: %v", storagePolicyUsage.Name, patchedStoragePolicyUsage.Namespace, err)
 							return
 						}
-						log.Infof("storagePolicyUsageCRSync: Successfully updated the used field from %v to %v for StoragepolicyUsage "+
-							"CR: %q in namespace: %q", currentUsedCapacity.Value(),
-							totalUsedQty.Value(), patchedStoragePolicyUsage.Name, patchedStoragePolicyUsage.Namespace)
-					} else {
-						log.Infof("storagePolicyUsageCRSync: The used capacity field for StoragepolicyUsage CR: %q in namespace: %q "+
-							"field is matching with the total capacity. Used: %v Skipping the Patch operation",
-							storagePolicyUsage.Name, storagePolicyUsage.Namespace,
-							storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Used.Value())
+						log.Infof("storagePolicyUsageCRSync: Successfully updated the used field to %v for StoragepolicyUsage "+
+							"CR: %q in namespace: %q", totalUsedQty.Value(), patchedStoragePolicyUsage.Name,
+							patchedStoragePolicyUsage.Namespace)
 					}
-				} else {
-					patchedStoragePolicyUsage.Status = storagepolicyv1alpha1.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha1.QuotaUsageDetails{
-							Used: totalUsedQty,
-						},
-					}
-					err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, &storagePolicyUsage, &patchedStoragePolicyUsage)
-					if err != nil {
-						log.Errorf("storagePolicyUsageCRSync: Patching operation failed for StoragePolicyUsage CR: %q in "+
-							"namespace: %q. err: %v", storagePolicyUsage.Name, patchedStoragePolicyUsage.Namespace, err)
-						return
-					}
-					log.Infof("storagePolicyUsageCRSync: Successfully updated the used field to %v for StoragepolicyUsage "+
-						"CR: %q in namespace: %q", totalUsedQty.Value(), patchedStoragePolicyUsage.Name,
-						patchedStoragePolicyUsage.Namespace)
 				}
 			}
 		}

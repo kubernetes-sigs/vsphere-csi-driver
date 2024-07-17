@@ -11,6 +11,8 @@ const (
 	CRDSingular = "storagepolicyusage"
 	// NameSuffixForPVC is the suffix used to name instances of StoragePolicyUsage created for PVCs.
 	NameSuffixForPVC = "pvc-usage"
+	// NameSuffixForSnapshot is the suffix used to name instances of StoragePolicyUsage created for VolumeSnapshots.
+	NameSuffixForSnapshot = "snapshot-usage"
 )
 
 // StoragePolicyUsageSpec defines the desired state of StoragePolicyUsage
