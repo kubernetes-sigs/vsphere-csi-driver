@@ -31,15 +31,12 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
@@ -102,16 +99,7 @@ var (
 	// ResourceAPIgroupSnapshot is API group for volume snapshot
 	ResourceAPIgroupSnapshot = "snapshot.storage.k8s.io"
 
-	// availabilityZoneCRGroupName indicates the group name for AvailabilityZone CR
-	availabilityZoneCRGroupName = "topology.tanzu.vmware.com"
-
-	// availabilityZoneCRVersion indicates the version used for AvailabilityZone CR
-	availabilityZoneCRVersion = "v1alpha1"
-
-	// availabilityZoneCRResourceName indicates the resource name of AvailabilityZone CR
-	availabilityZoneCRResourceName = "availabilityzones"
-
-	// isStorageQuotaM2FSSEnabled is true if the Snapshot Storage Quota feature is enabled is enabled, false otherwise.
+	// isStorageQuotaM2FSSEnabled is true if the Snapshot Storage Quota feature is enabled, false otherwise.
 	isStorageQuotaM2FSSEnabled bool
 )
 
@@ -351,35 +339,15 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 
 			isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
-			go func() {
-				if isStorageQuotaM2Enabled {
-					// TODO: Wait for fullSync to create CnsVolumeInfo CRs if necessary
-					cnsVolumeInfoCRInformerErr := startCnsVolumeInfoCRInformer(ctx, k8sConfig, metadataSyncer)
-					if cnsVolumeInfoCRInformerErr != nil {
-						log.Errorf("failed to start informer on %q instances. Error: %v",
-							cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, cnsVolumeInfoCRInformerErr)
-						os.Exit(1)
-					}
+			if isStorageQuotaM2Enabled {
+				// Create informer to watch on update events of CnsVolumeInfo CRs
+				cnsVolumeInfoCRInformerErr := startCnsVolumeInfoCRInformer(ctx, k8sConfig, metadataSyncer)
+				if cnsVolumeInfoCRInformerErr != nil {
+					log.Errorf("failed to start informer on %q instances. Error: %v",
+						cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, cnsVolumeInfoCRInformerErr)
+					os.Exit(1)
 				}
-			}()
-			go func() {
-				if isStorageQuotaM2Enabled {
-					// TODO: Wait for fullSync to update "zones" value on all CnsVolumeInfo CRs
-
-					// Start informer on AvailabilityZone CRs
-					availabilityZoneCRInformerErr := startAvailabilityZoneCRInformer(ctx, k8sConfig)
-					if availabilityZoneCRInformerErr != nil {
-						if availabilityZoneCRInformerErr == common.ErrAvailabilityZoneCRNotRegistered {
-							log.Errorf("failed to start informer on AvailabilityZone CR, as AZ CR is not registered.")
-							os.Exit(1)
-						} else {
-							log.Errorf("failed to start informer on AvailabilityZone CR instances. "+
-								"Error: %v", availabilityZoneCRInformerErr)
-							os.Exit(1)
-						}
-					}
-				}
-			}()
+			}
 		}
 	} else {
 		// code block only applicable to Vanilla
@@ -3283,106 +3251,6 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 	}
 }
 
-// startAvailabilityZoneCRInformer listens on changes to AvailabilityZone CR instances
-func startAvailabilityZoneCRInformer(ctx context.Context, cfg *restclient.Config) error {
-	log := logger.GetLogger(ctx)
-	// Check if AZ CR is registered in the environment.
-	// Create a new AvailabilityZone client.
-	azClient, err := dynamic.NewForConfig(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create AvailabilityZone client using config. Err: %+v", err)
-	}
-	// Get AvailabilityZone list
-	azResource := schema.GroupVersionResource{
-		Group: availabilityZoneCRGroupName, Version: availabilityZoneCRVersion,
-		Resource: availabilityZoneCRResourceName}
-	_, err = azClient.Resource(azResource).List(ctx, metav1.ListOptions{})
-	// Handling the scenario where AvailabilityZone CR is not registered in the
-	// supervisor cluster.
-	if apiMeta.IsNoMatchError(err) {
-		log.Info("AvailabilityZone CR is not registered on the cluster")
-		return common.ErrAvailabilityZoneCRNotRegistered
-	}
-
-	// At this point, we are sure the AZ CR is registered. Create an informer for AvailabilityZone instances.
-	dynInformer, err := k8s.GetDynamicInformer(ctx, availabilityZoneCRGroupName,
-		availabilityZoneCRVersion, availabilityZoneCRResourceName, metav1.NamespaceAll, cfg, true)
-	if err != nil {
-		log.Errorf("failed to create dynamic informer for AvailabilityZone CR. Error: %+v", err)
-		return err
-	}
-	availabilityZoneInformer := dynInformer.Informer()
-	_, err = availabilityZoneInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			availabilityZoneCRAdded(obj)
-		},
-		UpdateFunc: nil,
-		DeleteFunc: func(obj interface{}) {
-			availabilityZoneCRDeleted(obj)
-		},
-	})
-	if err != nil {
-		return logger.LogNewErrorf(log,
-			"failed to add event handler on informer for availabilityzones CR. Error: %v", err)
-	}
-
-	// Start informer.
-	go func() {
-		log.Info("Informer to watch on AvailabilityZone CR starting..")
-		availabilityZoneInformer.Run(make(chan struct{}))
-	}()
-	return nil
-}
-
-// availabilityZoneCRAdded starts watching on add, update and delete events on hosts of clusters belonging
-// to this availability zone
-func availabilityZoneCRAdded(obj interface{}) {
-	_, log := logger.GetNewContextWithLogger()
-	// Retrieve name of CR instance.
-	azName, found, err := unstructured.NestedString(obj.(*unstructured.Unstructured).Object, "metadata", "name")
-	if !found || err != nil {
-		log.Errorf("failed to get `name` from AvailabilityZone instance: %+v, Error: %+v", obj, err)
-		return
-	}
-	// Retrieve clusterMorefs from instance spec.
-	clusterComputeResourceMoIds, found, err := unstructured.NestedStringSlice(obj.(*unstructured.Unstructured).Object,
-		"spec", "clusterComputeResourceMoIDs")
-	if len(clusterComputeResourceMoIds) == 0 || !found || err != nil {
-		log.Errorf("failed to get `clusterComputeResourceMoIds` from AvailabilityZone instance: %+v, "+
-			"Error: %+v", obj, err)
-		return
-	}
-
-	log.Infof("AvailabilityZone CR %s got added, it has clusterComputeResourceMoIDs %v",
-		azName, clusterComputeResourceMoIds)
-
-	// TODO: Create ContainerView PropertyCollector to watch on Add, update and delete events on hosts of this cluster
-}
-
-// availabilityZoneCRDeleted stops watching on events of hosts belonging to clusters of this availability zone
-func availabilityZoneCRDeleted(obj interface{}) {
-	_, log := logger.GetNewContextWithLogger()
-	// Retrieve name of CR instance.
-	azName, found, err := unstructured.NestedString(obj.(*unstructured.Unstructured).Object, "metadata", "name")
-	if !found || err != nil {
-		log.Errorf("failed to get `name` from AvailabilityZone instance: %+v, Error: %+v", obj, err)
-		return
-	}
-	// Retrieve clusterMorefs from instance spec.
-	clusterComputeResourceMoIds, found, err := unstructured.NestedStringSlice(obj.(*unstructured.Unstructured).Object,
-		"spec", "clusterComputeResourceMoIDs")
-	if len(clusterComputeResourceMoIds) == 0 || !found || err != nil {
-		log.Errorf("failed to get `clusterComputeResourceMoIds` from AvailabilityZone instance: %+v, "+
-			"Error: %+v", obj, err)
-		return
-	}
-
-	log.Infof("AvailabilityZone CR %s got deleted, it has clusterComputeResourceMoIDs %v",
-		azName, clusterComputeResourceMoIds)
-
-	// TODO: Stop watching on any host events of this cluster
-}
-
 // startCnsVolumeInfoCRInformer creates and starts an informer for CnsVolumeInfo custom resource.
 func startCnsVolumeInfoCRInformer(ctx context.Context, cfg *restclient.Config,
 	metadataSyncer *metadataSyncInformer) error {
@@ -3413,9 +3281,9 @@ func startCnsVolumeInfoCRInformer(ctx context.Context, cfg *restclient.Config,
 }
 
 // cnsVolumeInfoCRUpdated updates the VolumeSnapshot StoragePolicyUsage "used" capacity. This is used to track
-// snapshot aggregated capacity usage per volume basis
+// snapshot aggregated capacity usage per volume basis.
 func cnsVolumeInfoCRUpdated(oldObj interface{}, newObj interface{}, metadataSyncer *metadataSyncInformer) {
-	_, log := logger.GetNewContextWithLogger()
+	ctx, log := logger.GetNewContextWithLogger()
 	// Verify both objects received.
 	var (
 		oldCnsVolumeInfoObj cnsvolumeinfov1alpha1.CNSVolumeInfo
@@ -3437,5 +3305,97 @@ func cnsVolumeInfoCRUpdated(oldObj interface{}, newObj interface{}, metadataSync
 	}
 	log.Debugf("cnsVolumeInfoCRUpdated: Old CnsVolumeInfo: +%v, Updated CnsVolumeInfo: +%+v",
 		oldCnsVolumeInfoObj, newCnsVolumeInfoObj)
-	// TODO: add logic to update VolumeSnapshot StoragePolicyUsage.
+
+	// Fetch StoragePolicyUsage instance for StorageClass associated with the snapshot.
+	restConfig, err := config.GetConfig()
+	if err != nil {
+		log.Errorf("cnsVolumeInfoCRUpdated: failed to get Kubernetes config. Err: %+v", err)
+		return
+	}
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		log.Errorf("cnsVolumeInfoCRUpdated: Failed to create CnsOperator client. Err: %+v", err)
+		return
+	}
+
+	storagePolicyUsageInstanceName := newCnsVolumeInfoObj.Spec.StorageClassName + "-" +
+		storagepolicyv1alpha1.NameSuffixForSnapshot
+	storagePolicyUsageCR := &storagepolicyv1alpha1.StoragePolicyUsage{}
+	err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
+		Namespace: newCnsVolumeInfoObj.Spec.Namespace,
+		Name:      storagePolicyUsageInstanceName},
+		storagePolicyUsageCR)
+	if err != nil {
+		log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
+			storagepolicyv1alpha1.CRDSingular, storagePolicyUsageInstanceName,
+			newCnsVolumeInfoObj.Spec.Namespace, err)
+		return
+	}
+
+	var aggregatedSnapSizeDifference int64
+	patchedStoragePolicyUsageCR := storagePolicyUsageCR.DeepCopy()
+	if !newCnsVolumeInfoObj.Spec.ValidAggregatedSnapshotSize &&
+		!newCnsVolumeInfoObj.Spec.SnapshotLatestOperationCompleteTime.IsZero() {
+		// If ValidAggregatedSnapshotSize field of new CnsVolumeInfo CR is false and volume has snapshot(s), then add
+		// annotation "csi.vsphere.missing-snapshot-aggregated-capacity: true" on StoragePolicyUsage CR.
+		log.Infof("Couldn't retrieve aggregated snapshot size for volume %q, adding annotation %s on "+
+			"StoragePolicyUsage CR", common.MissingSnapshotAggregatedCapacity, newCnsVolumeInfoObj.Spec.VolumeID)
+		patchAnnotation := common.MergeMaps(newCnsVolumeInfoObj.Annotations,
+			map[string]string{common.MissingSnapshotAggregatedCapacity: "true"})
+		patchedStoragePolicyUsageCR.Annotations = patchAnnotation
+	} else if newCnsVolumeInfoObj.Spec.ValidAggregatedSnapshotSize &&
+		newCnsVolumeInfoObj.Spec.AggregatedSnapshotSize != nil {
+		// Delete annotation "csi.vsphere.missing-snapshot-aggregated-capacity: true" on StoragePolicyUsage CR
+		// if it was present, since ValidAggregatedSnapshotSize is true.
+		delete(patchedStoragePolicyUsageCR.Annotations, common.MissingSnapshotAggregatedCapacity)
+
+		var oldAggregatedSnapshotSize int64
+		if oldCnsVolumeInfoObj.Spec.AggregatedSnapshotSize != nil {
+			oldAggregatedSnapshotSize = oldCnsVolumeInfoObj.Spec.AggregatedSnapshotSize.Value()
+		} else {
+			oldAggregatedSnapshotSize = 0
+		}
+		// Update the StoragePolicyUsage "Used" field based on old and new AggregatedSnapshotSize
+		aggregatedSnapSizeDifference = newCnsVolumeInfoObj.Spec.AggregatedSnapshotSize.Value() -
+			oldAggregatedSnapshotSize
+		if aggregatedSnapSizeDifference == 0 {
+			log.Infof("cnsVolumeInfoCRUpdated: there is no difference in aggregated snapshot size, skipping "+
+				"update of StoragePolicyUsage CR: %q", patchedStoragePolicyUsageCR.Name)
+			return
+		} else {
+			snapSizeDifference := resource.NewQuantity(aggregatedSnapSizeDifference, resource.BinarySI)
+			if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil &&
+				storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used != nil {
+				// Patch StoragePolicyUsage Used field when Status->QuotaUsage->Used are not nil
+				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(*snapSizeDifference)
+			} else {
+				// This is a case where, the StoragePolicyUsage CR does not have Status->QuotaUsage field.
+				// The block is usually executed for the 1st CreateSnapshot call.
+				usedQty := *snapSizeDifference
+				patchedStoragePolicyUsageCR.Status = storagepolicyv1alpha1.StoragePolicyUsageStatus{
+					ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha1.QuotaUsageDetails{
+						Used: &usedQty,
+					},
+				}
+			}
+		}
+	}
+
+	// Patch StoragePolicyUsage CR
+	err = PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
+		patchedStoragePolicyUsageCR)
+	if err != nil {
+		log.Errorf("error occurred while patching StoragePolicyUsage CR %q, err: %v",
+			patchedStoragePolicyUsageCR.Name, err)
+		return
+	}
+	if aggregatedSnapSizeDifference > 0 {
+		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size increased by %v bytes, increased Used "+
+			"field for storagepolicyusage CR: %q", aggregatedSnapSizeDifference,
+			patchedStoragePolicyUsageCR.Name)
+	} else if aggregatedSnapSizeDifference < 0 {
+		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size decreased by %v bytes, decreased Used "+
+			"field for storagepolicyusage CR: %q", aggregatedSnapSizeDifference,
+			patchedStoragePolicyUsageCR.Name)
+	}
 }

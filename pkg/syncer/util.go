@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -46,6 +47,9 @@ const (
 	staticVolumeProvisioningSuccessReason = "static volume provisioning succeeded"
 	// message for successful PV creation for static volumes
 	staticVolumeProvisioningSuccessMessage = "Successfully created container volume"
+
+	// allowedRetriesToPatchStoragePolicyUsage indicates number of retries allowed for patching StoragePolicyUsage CR
+	allowedRetriesToPatchStoragePolicyUsage = 5
 )
 
 // getPVsInBoundAvailableOrReleased return PVs in Bound, Available or Released
@@ -868,7 +872,7 @@ func getPatchData(oldObj, newObj interface{}) ([]byte, error) {
 	return patchBytes, nil
 }
 
-// PatchStoragePolicyUsage patches the StoragePolicyUsage CR based
+// PatchStoragePolicyUsage patches the StoragePolicyUsage CR based on old and new objects
 func PatchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Client,
 	oldObj *storagepolicyusagev1alpha1.StoragePolicyUsage,
 	newObj *storagepolicyusagev1alpha1.StoragePolicyUsage) error {
@@ -884,15 +888,26 @@ func PatchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Clien
 		return err
 	}
 	rawPatch := client.RawPatch(apitypes.MergePatchType, patch)
-	err = cnsOperatorClient.Patch(ctx, oldObj, rawPatch)
-	log.Debugf("Patching the StoragePolicyUsageCR %q on namespace: %q with the quota usage data: %+v",
-		oldObj.Name, oldObj.Namespace, newObj.Status.ResourceTypeLevelQuotaUsage)
-	if err != nil {
-		log.Errorf("failed to patch StoragePolicyUsage instance: %q on namespace: %q. Error: %+v",
-			oldObj.Name, oldObj.Namespace, err)
-		return err
+
+	// Try to patch StoragePolicyUsage CR for allowedRetries times
+	allowedRetries := allowedRetriesToPatchStoragePolicyUsage
+	attempt := 0
+	for {
+		attempt++
+		err = cnsOperatorClient.Patch(ctx, oldObj, rawPatch)
+		if err != nil && attempt >= allowedRetries {
+			log.Errorf("failed to patch StoragePolicyUsage instance %q on namespace %q, Error: %+v",
+				oldObj.Name, oldObj.Namespace, err)
+			return err
+		} else if err == nil {
+			log.Debugf("Successfully patched StoragePolicyUsage instance %q on namespace %q",
+				oldObj.Name, oldObj.Namespace)
+			return nil
+		}
+		log.Warnf("attempt %d, failed to patch StoragePolicyUsage instance %q on namespace %q with error %+v, "+
+			"will retry...", attempt, oldObj.Name, oldObj.Namespace, err)
+		time.Sleep(100 * time.Millisecond)
 	}
-	return nil
 }
 
 // addResourceVersion sets the resource version for the patch obj

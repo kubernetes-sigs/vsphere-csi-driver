@@ -42,7 +42,7 @@ import (
 
 const (
 	defaultK8sCloudOperatorServicePort = 10000
-	missingSnapshotAggregatedCapacity  = "csi.vsphere.missing-snapshot-aggregated-capacity"
+	MissingSnapshotAggregatedCapacity  = "csi.vsphere.missing-snapshot-aggregated-capacity"
 )
 
 var ErrAvailabilityZoneCRNotRegistered = errors.New("AvailabilityZone custom resource not registered")
