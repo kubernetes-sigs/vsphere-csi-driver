@@ -332,7 +332,7 @@ func waitNgetVmsvcVM(ctx context.Context, c ctlrclient.Client, namespace string,
 // waitNgetVmsvcVmIp wait and fetch the primary IP of the vm in give ns
 func waitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace string, name string) (string, error) {
 	ip := ""
-	err := wait.PollUntilContextTimeout(ctx, poll*10, pollTimeout*2, true,
+	err := wait.PollUntilContextTimeout(ctx, poll*10, pollTimeout*4, true,
 		func(ctx context.Context) (bool, error) {
 			vm, err := getVmsvcVM(ctx, c, namespace, name)
 			if err != nil {
@@ -367,6 +367,7 @@ users:
 	}
 	secret, err := client.CoreV1().Secrets(namespace).Create(ctx, &secretSpec, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	fmt.Println(secretSpec)
 	return secret.Name
 }
 
@@ -504,18 +505,25 @@ func waitNverifyPvcsAreAttachedToVmsvcVm(ctx context.Context, vmopC ctlrclient.C
 // permissions under the mount point
 func formatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) string {
 	p := "/dev/disk/by-id/wwn-0x" + strings.ReplaceAll(strings.ToLower(diskUuid), "-", "")
+	fmt.Println(p)
 	results := execSshOnVmThroughGatewayVm(vmIp, []string{"ls -l /dev/disk/by-id/", "ls -l " + p})
+	fmt.Println(results)
 	dev := "/dev/" + strings.TrimSpace(strings.Split(results[1].Stdout, "/")[6])
+	fmt.Println(dev)
 	gomega.Expect(dev).ShouldNot(gomega.Equal("/dev/"))
 	framework.Logf("Found %s dev for disk with uuid %s", dev, diskUuid)
 
 	partitionDev := dev + "1"
-	_ = execSshOnVmThroughGatewayVm(vmIp, []string{"sudo parted --script " + dev + " mklabel gpt",
+	fmt.Println(partitionDev)
+	res := execSshOnVmThroughGatewayVm(vmIp, []string{"sudo parted --script " + dev + " mklabel gpt",
 		"sudo parted --script -a optimal " + dev + " mkpart primary 0% 100%", "lsblk -l",
 		"sudo mkfs.ext4 " + partitionDev})
+	fmt.Println(res)
 
 	volMountPath := "/mnt/volume" + strconv.Itoa(mountIndex)
+	fmt.Println(volMountPath)
 	volFolder := volMountPath + "/data"
+	fmt.Println(volFolder)
 	results = execSshOnVmThroughGatewayVm(vmIp, []string{
 		"sudo mkdir -p " + volMountPath,
 		"sudo mount " + partitionDev + " " + volMountPath,
@@ -525,6 +533,7 @@ func formatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) 
 		"grep -c ext4 " + volFolder + "/fstype",
 		"sync",
 	})
+	fmt.Println(results)
 	gomega.Expect(strings.TrimSpace(results[5].Stdout)).To(gomega.Equal("1"))
 	return volFolder
 }
@@ -542,7 +551,8 @@ func verifyDataIntegrityOnVmDisk(vmIp, volFolder string) {
 // execSshOnVmThroughGatewayVm executes cmd(s) on VM via gateway(bastion) host and returns the result(s)
 func execSshOnVmThroughGatewayVm(vmIp string, cmds []string) []fssh.Result {
 	results := []fssh.Result{}
-
+	fmt.Println(vmIp)
+	fmt.Println(cmds)
 	gatewayClient, sshClient := getSshClientForVmThroughGatewayVm(vmIp)
 	defer sshClient.Close()
 	defer gatewayClient.Close()

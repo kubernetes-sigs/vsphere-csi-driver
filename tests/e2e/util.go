@@ -5719,7 +5719,7 @@ func (o replicaSetsByCreationTimestampDate) Less(i, j int) bool {
 	return o[i].CreationTimestamp.Before(&o[j].CreationTimestamp)
 }
 
-// createKubernetesClientFromConfig creaates a newk8s client from given
+// createKubernetesClientFromConfig creates a newk8s client from given
 // kubeConfig file.
 func createKubernetesClientFromConfig(kubeConfigPath string) (clientset.Interface, error) {
 
