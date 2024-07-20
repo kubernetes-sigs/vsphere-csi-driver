@@ -3143,7 +3143,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 
 	deleteSnapshotInternal := func() (*csi.DeleteSnapshotResponse, error) {
 		csiSnapshotID := req.GetSnapshotId()
-		err := common.DeleteSnapshotUtil(ctx, volumeManager, csiSnapshotID)
+		_, err := common.DeleteSnapshotUtil(ctx, volumeManager, csiSnapshotID, nil)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"Failed to delete snapshot %q. Error: %+v",
