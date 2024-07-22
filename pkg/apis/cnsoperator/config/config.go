@@ -22,6 +22,11 @@ var EmbedCnsRegisterVolumeCRFile embed.FS
 
 const EmbedCnsRegisterVolumeCRFileName = "cnsregistervolume_crd.yaml"
 
+//go:embed cnsunregistervolume_crd.yaml
+var EmbedCnsUnregisterVolumeCRFile embed.FS
+
+const EmbedCnsUnregisterVolumeCRFileName = "cnsunregistervolume_crd.yaml"
+
 //go:embed cns.vmware.com_storagepolicyquotas.yaml
 var EmbedStoragePolicyQuotaCRFile embed.FS
 

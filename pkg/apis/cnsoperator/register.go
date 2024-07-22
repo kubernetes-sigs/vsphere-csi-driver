@@ -51,6 +51,8 @@ var (
 	CnsVolumeMetadataPlural = "cnsvolumemetadatas"
 	// CnsRegisterVolumePlural is plural of CnsRegisterVolume
 	CnsRegisterVolumePlural = "cnsregistervolumes"
+	// CnsUnregisterVolumePlural is plural of CnsUnregisterVolume
+	CnsUnregisterVolumePlural = "cnsunregistervolumes"
 	// CnsFileAccessConfigPlural is plural of CnsFileAccessConfig
 	CnsFileAccessConfigPlural = "cnsfileaccessconfigs"
 	// CnsStoragePolicyUsageSingular is singular of StoragePolicyUsage
