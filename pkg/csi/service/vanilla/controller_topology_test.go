@@ -361,14 +361,14 @@ func getControllerTestWithTopology(t *testing.T) *controllerTestTopology {
 
 		volumeManager, err := cnsvolume.GetManager(ctxtopology, vcenter,
 			fakeOpStore, true, false,
-			false, cnstypes.CnsClusterFlavorVanilla)
+			false, false, cnstypes.CnsClusterFlavorVanilla)
 		if err != nil {
 			t.Fatalf("failed to create an instance of volume manager. err=%v", err)
 		}
 		// GetManager returns a singleton instance of VolumeManager. So, it could be pointing
 		// to old VC instance as part of previous unit test run from same folder.
 		// Call ResetManager to get new VolumeManager instance with current VC configuration.
-		err = volumeManager.ResetManager(ctxtopology, vcenter)
+		err = volumeManager.ResetManager(ctxtopology, vcenter, false)
 		if err != nil {
 			t.Fatalf("failed to reset volume manager with new vcenter. err=%v", err)
 		}
