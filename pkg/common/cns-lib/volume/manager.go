@@ -2390,6 +2390,16 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		if m.idempotencyHandlingEnabled &&
 			volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
 			volumeOperationDetails.OperationDetails.TaskStatus != taskInvocationStatusInProgress {
+			taskStatus := volumeOperationDetails.OperationDetails.TaskStatus
+			if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+				if (taskStatus == taskInvocationStatusSuccess || taskStatus == taskInvocationStatusError) &&
+					volumeOperationDetails.QuotaDetails != nil {
+					volumeOperationDetails.QuotaDetails.Reserved = resource.NewQuantity(0,
+						resource.BinarySI)
+					log.Infof("Setting the reserved field for VolumeOperationDetails instance %s to 0",
+						volumeOperationDetails.Name)
+				}
+			}
 			if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
 				log.Warnf("failed to store CreateSnapshot details with error: %v", err)
 			}
@@ -2465,7 +2475,8 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 					aggregatedSnapshotCapacity := resource.NewQuantity(aggregatedSnapshotCapacityInMb, resource.BinarySI)
 					quotaInfo.AggregatedSnapshotSize = aggregatedSnapshotCapacity
 					quotaInfo.SnapshotLatestOperationCompleteTime.Time = queriedCnsSnapshot.CreateTime
-					log.Infof("Snapshot confirmed to be created, update quotainfo: %+v", *quotaInfo)
+					log.Infof("Snapshot %q for volume %q confirmed to be created, update quotainfo: %+v",
+						queriedCnsSnapshot.SnapshotId.Id, volumeID, *quotaInfo)
 				}
 
 				// Create the volumeOperationDetails object for persistence
@@ -2548,21 +2559,21 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		SnapshotID:                          snapshotCreateResult.Snapshot.SnapshotId.Id,
 		SourceVolumeID:                      snapshotCreateResult.Snapshot.VolumeId.Id,
 		SnapshotDescription:                 snapshotCreateResult.Snapshot.Description,
-		AggregatedSnapshotCapacityInMb:      snapshotCreateResult.AggregatedSnapshotCapacityInMb,
 		SnapshotLatestOperationCompleteTime: *createSnapshotsTaskInfo.CompleteTime,
 	}
-
-	if m.idempotencyHandlingEnabled {
-		// create the volumeOperationDetails object for persistence
+	if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		log.Infof("For volumeID %q new AggregatedSnapshotSize is %d and SnapshotLatestOperationCompleteTime is %q",
 			volumeID, snapshotCreateResult.AggregatedSnapshotCapacityInMb, *createSnapshotsTaskInfo.CompleteTime)
-		if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-			aggregatedSnapshotCapacity := resource.NewQuantity(snapshotCreateResult.AggregatedSnapshotCapacityInMb,
-				resource.BinarySI)
-			quotaInfo.AggregatedSnapshotSize = aggregatedSnapshotCapacity
-			quotaInfo.SnapshotLatestOperationCompleteTime.Time = *createSnapshotsTaskInfo.CompleteTime
-			log.Infof("Update quotainfo on successful snapshot creation: %+v", *quotaInfo)
-		}
+		cnsSnapshotInfo.AggregatedSnapshotCapacityInMb = snapshotCreateResult.AggregatedSnapshotCapacityInMb
+		aggregatedSnapshotCapacity := resource.NewQuantity(snapshotCreateResult.AggregatedSnapshotCapacityInMb,
+			resource.BinarySI)
+		quotaInfo.AggregatedSnapshotSize = aggregatedSnapshotCapacity
+		quotaInfo.SnapshotLatestOperationCompleteTime.Time = *createSnapshotsTaskInfo.CompleteTime
+		log.Infof("Update quotainfo on successful snapshot %q creation for volume %q: %+v",
+			cnsSnapshotInfo.SnapshotID, volumeID, *quotaInfo)
+	}
+	if m.idempotencyHandlingEnabled {
+		// create the volumeOperationDetails object for persistence
 		volumeOperationDetails = createRequestDetails(
 			instanceName, cnsSnapshotInfo.SourceVolumeID, cnsSnapshotInfo.SnapshotID, 0, quotaInfo,
 			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
@@ -3033,7 +3044,6 @@ func (m *defaultManager) getAggregatedSnapshotSize(ctx context.Context, volumeID
 			logger.LogNewErrorf(log, "for volumeID %q QueryVolume did not return volume.", volumeID)
 	}
 	if queryResult != nil && len(queryResult.Volumes) > 0 {
-		log.Infof("Volume BackingObjectDetails %+v", queryResult.Volumes[0].BackingObjectDetails)
 		val, ok := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 		if ok {
 			log.Infof("getAggregatedSnapshotSize: received aggregatedsnapshotsize %d for volumeID %q",
