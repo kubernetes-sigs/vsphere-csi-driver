@@ -242,7 +242,25 @@ func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 	clusterFlavor cnstypes.CnsClusterFlavor) (Manager, error) {
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
-	defer managerInstanceLock.Unlock()
+	defer func() {
+		if isStorageQuotaM2FSSEnabled && managerInstance != nil {
+			log.Infof("use version %s for vCenter client", cnsDevVersion)
+			if managerInstance.virtualCenter.Client != nil {
+				log.Infof("Setting version %s to vCenter: %q vim25 client",
+					cnsDevVersion, managerInstance.virtualCenter.Config.Host)
+				managerInstance.virtualCenter.Client.Version = cnsDevVersion
+			}
+			if managerInstance.virtualCenter.CnsClient != nil {
+				log.Infof("Setting version %s to vCenter: %q cns client",
+					cnsDevVersion, managerInstance.virtualCenter.Config.Host)
+				managerInstance.virtualCenter.CnsClient.Version = cnsDevVersion
+				managerInstance.virtualCenter.CnsClient.Client.Version = cnsDevVersion
+			}
+			log.Infof("using CNS API version %s for vCenters %q client ",
+				cnsDevVersion, managerInstance.virtualCenter.Config.Host)
+		}
+		managerInstanceLock.Unlock()
+	}()
 	if !multivCenterEnabled {
 		if managerInstance != nil {
 			log.Infof("Retrieving existing defaultManager...")
@@ -271,26 +289,9 @@ func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 		}
 		managerInstanceMap[vc.Config.Host] = managerInstance
 	}
-
 	err := managerInstance.initListView(ctx)
 	if err != nil {
 		return nil, err
-	}
-	if isStorageQuotaM2FSSEnabled {
-		log.Infof("use version %s for vCenter client", cnsDevVersion)
-		if managerInstance.virtualCenter.Client != nil {
-			log.Infof("Setting version %s to vCenter: %q vim25 client",
-				cnsDevVersion, managerInstance.virtualCenter.Config.Host)
-			managerInstance.virtualCenter.Client.Version = cnsDevVersion
-		}
-		if managerInstance.virtualCenter.CnsClient != nil {
-			log.Infof("Setting version %s to vCenter: %q cns client",
-				cnsDevVersion, managerInstance.virtualCenter.Config.Host)
-			managerInstance.virtualCenter.CnsClient.Version = cnsDevVersion
-			managerInstance.virtualCenter.CnsClient.Client.Version = cnsDevVersion
-		}
-		log.Infof("using CNS API version %s for vCenters %q client ",
-			cnsDevVersion, managerInstance.virtualCenter.Config.Host)
 	}
 	return managerInstance, nil
 }

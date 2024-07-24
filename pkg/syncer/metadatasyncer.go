@@ -110,6 +110,9 @@ var (
 
 	// availabilityZoneCRResourceName indicates the resource name of AvailabilityZone CR
 	availabilityZoneCRResourceName = "availabilityzones"
+
+	// isStorageQuotaM2FSSEnabled is true if the Snapshot Storage Quota feature is enabled is enabled, false otherwise.
+	isStorageQuotaM2FSSEnabled bool
 )
 
 const (
@@ -210,7 +213,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	metadataSyncer.configInfo = configInfo
 
 	isMultiVCenterFssEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
-	isStorageQuotaM2FSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2)
+	isStorageQuotaM2FSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2)
 	// Create the kubernetes client from config.
 	k8sClient, err := k8s.NewClient(ctx)
 	if err != nil {
@@ -289,6 +292,10 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
 		if err != nil {
 			return err
+		}
+		err = vCenter.ConnectCns(ctx)
+		if err != nil {
+			return logger.LogNewErrorf(log, "error while connecting cns. err=%v", err)
 		}
 		vCenter.Config.ReloadVCConfigForNewClient = true
 		metadataSyncer.host = vCenter.Config.Host
@@ -1434,7 +1441,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 
 	if metadataSyncer.clusterFlavor != cnstypes.CnsClusterFlavorWorkload &&
 		metadataSyncer.clusterFlavor != cnstypes.CnsClusterFlavorGuest {
-		isStorageQuotaM2FSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2)
+		isStorageQuotaM2FSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2)
 		// Vanilla ReloadConfiguration
 		if isMultiVCenterFssEnabled {
 			newVcenterConfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, cfg)
@@ -1512,7 +1519,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to get VirtualCenterConfig. err=%v", err)
 		}
-		isStorageQuotaM2FSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2)
+		isStorageQuotaM2FSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2)
 		if newVCConfig != nil {
 			var vcenter *cnsvsphere.VirtualCenter
 			newVCConfig.ReloadVCConfigForNewClient = true

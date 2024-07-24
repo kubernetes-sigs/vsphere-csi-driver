@@ -442,22 +442,20 @@ func GetValidatedCNSVolumeInfoPatch(ctx context.Context,
 	cnsSnapshotInfo *cnsvolume.CnsSnapshotInfo) (map[string]interface{}, error) {
 	log := logger.GetLogger(ctx)
 	var patch map[string]interface{}
-	if cnsSnapshotInfo == nil || cnsSnapshotInfo.SnapshotID == "" || cnsSnapshotInfo.SourceVolumeID == "" {
-		log.Errorf("SnapshotID %q or VolumeID %q values cannot be empty",
-			cnsSnapshotInfo.SnapshotID, cnsSnapshotInfo.SourceVolumeID)
-		return nil, logger.LogNewErrorf(log, "SnapshotID and VolumeID values cannot be empty")
+	if cnsSnapshotInfo == nil || cnsSnapshotInfo.SourceVolumeID == "" {
+		log.Errorf("VolumeID %q values cannot be empty", cnsSnapshotInfo.SourceVolumeID)
+		return nil, logger.LogNewErrorf(log, "VolumeID values cannot be empty")
 	}
 	if cnsSnapshotInfo.AggregatedSnapshotCapacityInMb == -1 {
-		log.Infof("Couldn't retrieve aggregated snapshot capacity for volume %q and snapshot %q",
-			cnsSnapshotInfo.SourceVolumeID, cnsSnapshotInfo.SnapshotID)
+		log.Infof("Couldn't retrieve aggregated snapshot capacity for volume %q", cnsSnapshotInfo.SourceVolumeID)
 		patch = map[string]interface{}{
 			"spec": map[string]interface{}{
 				"validaggregatedsnapshotsize": false,
 			},
 		}
 	} else {
-		log.Infof("retrieved aggregated snapshot capacity %d for volume %q and snapshot %q",
-			cnsSnapshotInfo.AggregatedSnapshotCapacityInMb, cnsSnapshotInfo.SourceVolumeID, cnsSnapshotInfo.SnapshotID)
+		log.Infof("retrieved aggregated snapshot capacity %d for volume %q",
+			cnsSnapshotInfo.AggregatedSnapshotCapacityInMb, cnsSnapshotInfo.SourceVolumeID)
 		patch = map[string]interface{}{
 			"spec": map[string]interface{}{
 				"validaggregatedsnapshotsize":         true,
