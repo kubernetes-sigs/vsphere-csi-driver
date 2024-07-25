@@ -463,6 +463,7 @@ data:
   "cnsmgr-suspend-create-volume": "true"
   "storage-quota-m2": "false"
   "vdpp-on-stretched-supervisor": "false"
+  "cns-unregister-volume": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

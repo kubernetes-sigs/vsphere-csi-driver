@@ -421,6 +421,8 @@ const (
 	VdppOnStretchedSupervisor = "vdpp-on-stretched-supervisor"
 	// CSIDetachOnSupervisor enables CSI to detach the disk from the podvm in a supervisor environment
 	CSIDetachOnSupervisor = "CSI_Detach_Supported"
+	// CnsUnregisterVolume enables the cretion of CRD and controller for CnsUnregisterVolume API.
+	CnsUnregisterVolume = "cns-unregister-volume"
 )
 
 var WCPFeatureStates = map[string]struct{}{

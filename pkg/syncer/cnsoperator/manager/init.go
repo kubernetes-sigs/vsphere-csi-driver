@@ -164,16 +164,6 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 			}
 			log.Infof("%q CRD is created successfully", cnsoperatorv1alpha1.CnsRegisterVolumePlural)
 
-			// Create CnsUnregisterVolume CRD from manifest.
-			log.Infof("Creating %q CRD", cnsoperatorv1alpha1.CnsUnregisterVolumePlural)
-			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsUnregisterVolumeCRFile,
-				cnsoperatorconfig.EmbedCnsUnregisterVolumeCRFileName)
-			if err != nil {
-				log.Errorf("Failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsUnregisterVolumePlural, err)
-				return err
-			}
-			log.Infof("%q CRD is created successfully", cnsoperatorv1alpha1.CnsUnregisterVolumePlural)
-
 			// Clean up routine to cleanup successful CnsRegisterVolume instances.
 			log.Info("Starting go routine to cleanup successful CnsRegisterVolume instances.")
 			err = watcher(ctx, cnsOperator)
@@ -194,6 +184,18 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 					}
 				}
 			}()
+
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsUnregisterVolume) {
+				// Create CnsUnregisterVolume CRD from manifest.
+				log.Infof("Creating %q CRD", cnsoperatorv1alpha1.CnsUnregisterVolumePlural)
+				err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsUnregisterVolumeCRFile,
+					cnsoperatorconfig.EmbedCnsUnregisterVolumeCRFileName)
+				if err != nil {
+					log.Errorf("Failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsUnregisterVolumePlural, err)
+					return err
+				}
+				log.Infof("%q CRD is created successfully", cnsoperatorv1alpha1.CnsUnregisterVolumePlural)
+			}
 		}
 
 		if !stretchedSupervisor {
