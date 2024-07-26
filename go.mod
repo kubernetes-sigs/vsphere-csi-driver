@@ -12,7 +12,6 @@ require (
 	github.com/golang/protobuf v1.5.4
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-version v1.6.0
-	github.com/kubernetes-csi/csi-lib-utils v0.17.0
 	github.com/kubernetes-csi/csi-proxy/client v1.1.3
 	github.com/kubernetes-csi/external-snapshotter/client/v6 v6.1.0
 	github.com/onsi/ginkgo/v2 v2.11.0
@@ -197,7 +196,6 @@ require (
 replace (
 	github.com/go-logr/logr => github.com/go-logr/logr v1.2.0
 	github.com/googleapis/gnostic => github.com/googleapis/gnostic v0.4.1
-	github.com/kubernetes-csi/csi-lib-utils => github.com/kubernetes-csi/csi-lib-utils v0.11.0
 	k8s.io/api => k8s.io/api v0.27.10
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.27.10
 	k8s.io/apimachinery => k8s.io/apimachinery v0.27.10
