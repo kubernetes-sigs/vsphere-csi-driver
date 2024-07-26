@@ -18,16 +18,19 @@ package cnsunregistervolume
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -38,6 +41,7 @@ import (
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsunregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -48,6 +52,7 @@ import (
 
 const (
 	defaultMaxWorkerThreadsForUnregisterVolume = 40
+	metadata                                   = "VOLUME_METADATA"
 )
 
 var (
@@ -182,7 +187,7 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 	}
 	timeout = backOffDuration[instance.Name]
 	backOffDurationMapMutex.Unlock()
-	// If the CnsRegistereVolume instance is already unregistered, remove the
+	// If the CnsUnregistereVolume instance is already unregistered, remove the
 	// instance from the queue.
 	if instance.Status.Unregistered {
 		backOffDurationMapMutex.Lock()
@@ -193,7 +198,228 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 	log.Infof("Reconciling CnsUnregisterVolume instance %q from namespace %q. timeout %q seconds",
 		instance.Name, request.Namespace, timeout)
 
-	//TODO - Add implementation logic for the reconciler
+	// 1. Perform all the necessary validations.
+	// 2. Fetch the PV corresponding to the volume and set on it the ReclaimPolicy to Retain.
+	// 3. Delete PVC, wait for it to get deleted.
+	// 4. Delete PV.
+	// 5. Invoke CNS DeleteVolume API with deleteDisk set to false.
+	// 6. Set the CnsUnregisterVolumeStatus.Unregistered to true.
 
+	// TODO - Add validations whether the volume is not in use in a TKC or by a VM service VM.
+
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: instance.Spec.VolumeID}},
+	}
+	querySelection := cnstypes.CnsQuerySelection{
+		Names: []string{
+			metadata,
+		},
+	}
+
+	queryResult, err := r.volumeManager.QueryVolumeAsync(ctx, queryFilter, &querySelection)
+	if err != nil {
+		msg := fmt.Sprintf("Unable to query volume %q . Error: %+v", instance.Spec.VolumeID, err)
+		log.Error(msg)
+		setInstanceError(ctx, r, instance, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+	if len(queryResult.Volumes) == 0 {
+		msg := fmt.Sprintf("Volume: %q not found while querying CNS. It may have already been unregistered.",
+			instance.Spec.VolumeID)
+		err = setInstanceSuccess(ctx, r, instance, msg)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to update CnsUnregistered instance with error: %+v", err)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		backOffDurationMapMutex.Lock()
+		delete(backOffDuration, instance.Name)
+		backOffDurationMapMutex.Unlock()
+		log.Info(msg)
+		return reconcile.Result{}, nil
+	}
+
+	cnsVol := queryResult.Volumes[0]
+
+	var pvName, pvcName, pvcNamespace string
+	for _, entity := range cnsVol.Metadata.EntityMetadata {
+		if k8sEntityMetadata, ok := entity.(*cnstypes.CnsKubernetesEntityMetadata); ok {
+			entityType := k8sEntityMetadata.EntityType
+
+			if entityType == string(cnstypes.CnsKubernetesEntityTypePV) {
+				pvName = entity.(*cnstypes.CnsKubernetesEntityMetadata).EntityName
+			}
+
+			if entityType == string(cnstypes.CnsKubernetesEntityTypePVC) {
+				pvcName = entity.(*cnstypes.CnsKubernetesEntityMetadata).EntityName
+				pvcNamespace = entity.(*cnstypes.CnsKubernetesEntityMetadata).Namespace
+			}
+		}
+	}
+
+	k8sclient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("Failed to initialize K8S client when reconciling CnsUnregisterVolume "+
+			"instance: %s on namespace: %s. Error: %+v", instance.Name, instance.Namespace, err)
+		setInstanceError(ctx, r, instance, "Failed to init K8S client for volume unregistration")
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	if pvName != "" {
+		//Change PV ReclaimPolicy to retain so that underlying FCD doesn't get deleted when deleting PV,PVC
+		pv, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				log.Errorf("Unable to get PV %q", pvName)
+				return reconcile.Result{}, err
+			}
+		}
+
+		if pv.Spec.PersistentVolumeReclaimPolicy != v1.PersistentVolumeReclaimRetain {
+			pv.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
+			retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				_, updateErr := k8sclient.CoreV1().PersistentVolumes().Update(context.TODO(), pv, metav1.UpdateOptions{})
+				return updateErr
+			})
+			if retryErr != nil {
+				log.Errorf("Unable to update ReclaimPolicy on PV %q", pvName)
+				return reconcile.Result{}, err
+			}
+			log.Infof("Updated ReclaimPolicy on PV %q to %q", pvName, v1.PersistentVolumeReclaimRetain)
+		}
+	} else {
+		log.Infof("CNS metadata for volume %s has missing pvName."+
+			"PV may have already been deleted. Continuing with other operations..", instance.Spec.VolumeID)
+	}
+
+	// Delete PVC.
+	if pvcName != "" && pvcNamespace != "" {
+		err = k8sclient.CoreV1().PersistentVolumeClaims(pvcNamespace).Delete(ctx,
+			pvcName, *metav1.NewDeleteOptions(0))
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				log.Infof("PVC %q not found in namespace %q. It may have already been deleted."+
+					"Continuing with other operations..", pvcName, pvcNamespace)
+			} else {
+				log.Errorf("Failed to delete PVC %q in namespace %q with error - %s",
+					pvcName, pvcNamespace, err.Error())
+				return reconcile.Result{}, err
+			}
+		} else {
+			log.Infof("Deleted PVC %q in namespace %q", pvcName, pvcNamespace)
+		}
+	} else {
+		log.Infof("CNS metadata for volume %s has missing pvcName or namespace."+
+			"PVC may have already been deleted. Continuing with other operations..", instance.Spec.VolumeID)
+	}
+
+	if pvName != "" {
+		// Delete PV.
+		// Since reclaimPolicy was set to Retain, we need to explicitly delete it.
+		err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pvName, *metav1.NewDeleteOptions(0))
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				log.Infof("PV %q not found. It may have already been deleted."+
+					"Continuing with other operations..", pvName)
+			} else {
+				log.Errorf("Failed to delete PV %q with error %s", pvName, err.Error())
+				return reconcile.Result{}, err
+			}
+		} else {
+			log.Infof("Deleted PV %q", pvName)
+		}
+	}
+
+	// Invoke CNS DeleteVolume API with deleteDisk flag set to false.
+	_, err = r.volumeManager.DeleteVolume(ctx, instance.Spec.VolumeID, false)
+	if err != nil {
+		if cnsvsphere.IsNotFoundError(err) {
+			log.Infof("VolumeID %q not found in CNS. It may have already been deleted."+
+				"Marking the operation as success.", instance.Spec.VolumeID)
+		} else {
+			log.Errorf("Failed to delete volume %q in CNS with error %+v.",
+				instance.Spec.VolumeID, err)
+			return reconcile.Result{}, err
+		}
+	} else {
+		log.Infof("Deleted CNS volume %q with deleteDisk set to false", instance.Spec.VolumeID)
+	}
+
+	// Update the instance to indicate the volume unregistration is successful.
+	msg := fmt.Sprintf("Successfully unregistered the volume on namespace: %s", instance.Namespace)
+	err = setInstanceSuccess(ctx, r, instance, msg)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to update CnsUnregistered instance with error: %+v", err)
+		log.Error(msg)
+		setInstanceError(ctx, r, instance, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+	backOffDurationMapMutex.Lock()
+	delete(backOffDuration, instance.Name)
+	backOffDurationMapMutex.Unlock()
+	log.Info(msg)
 	return reconcile.Result{}, nil
+}
+
+// setInstanceError sets error and records an event on the CnsUnregisterVolume
+// instance.
+func setInstanceError(ctx context.Context, r *ReconcileCnsUnregisterVolume,
+	instance *cnsunregistervolumev1alpha1.CnsUnregisterVolume, errMsg string) {
+	log := logger.GetLogger(ctx)
+	instance.Status.Error = errMsg
+	err := updateCnsUnregisterVolume(ctx, r.client, instance)
+	if err != nil {
+		log.Errorf("updateCnsUnregisterVolume failed. err: %v", err)
+	}
+	recordEvent(ctx, r, instance, v1.EventTypeWarning, errMsg)
+}
+
+// setInstanceSuccess sets instance to success and records an event on the
+// CnsUnregisterVolume instance.
+func setInstanceSuccess(ctx context.Context, r *ReconcileCnsUnregisterVolume,
+	instance *cnsunregistervolumev1alpha1.CnsUnregisterVolume, msg string) error {
+	instance.Status.Unregistered = true
+	instance.Status.Error = ""
+	err := updateCnsUnregisterVolume(ctx, r.client, instance)
+	if err != nil {
+		return err
+	}
+	recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
+	return nil
+}
+
+// recordEvent records the event, sets the backOffDuration for the instance
+// appropriately and logs the message.
+// backOffDuration is reset to 1 second on success and doubled on failure.
+func recordEvent(ctx context.Context, r *ReconcileCnsUnregisterVolume,
+	instance *cnsunregistervolumev1alpha1.CnsUnregisterVolume, eventtype string, msg string) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Event type is %s", eventtype)
+	switch eventtype {
+	case v1.EventTypeWarning:
+		// Double backOff duration.
+		backOffDurationMapMutex.Lock()
+		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		r.recorder.Event(instance, v1.EventTypeWarning, "CnsUnregisterVolumeFailed", msg)
+		backOffDurationMapMutex.Unlock()
+	case v1.EventTypeNormal:
+		// Reset backOff duration to one second.
+		backOffDurationMapMutex.Lock()
+		backOffDuration[instance.Name] = time.Second
+		r.recorder.Event(instance, v1.EventTypeNormal, "CnsUnregisterVolumeSucceeded", msg)
+		backOffDurationMapMutex.Unlock()
+	}
+}
+
+// updateCnsUnregisterVolume updates the CnsUnregisterVolume instance in K8S.
+func updateCnsUnregisterVolume(ctx context.Context, client client.Client,
+	instance *cnsunregistervolumev1alpha1.CnsUnregisterVolume) error {
+	log := logger.GetLogger(ctx)
+	err := client.Update(ctx, instance)
+	if err != nil {
+		log.Errorf("Failed to update CnsUnregisterVolume instance: %q on namespace: %q. Error: %+v",
+			instance.Name, instance.Namespace, err)
+	}
+	return err
 }

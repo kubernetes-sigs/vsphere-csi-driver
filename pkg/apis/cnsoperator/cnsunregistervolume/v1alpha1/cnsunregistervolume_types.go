@@ -23,8 +23,8 @@ import (
 // CnsUnregisterVolumeSpec defines the desired state of CnsUnregisterVolume
 // +k8s:openapi-gen=true
 type CnsUnregisterVolumeSpec struct {
-	// Name of the PVC to be unregistered
-	PvcName string `json:"pvcName"`
+	// VolumeID indicates the volume handle of CNS volume to be unregistered
+	VolumeID string `json:"volumeID"`
 }
 
 // CnsUnregisterVolumeStatus defines the observed state of CnsUnregisterVolume

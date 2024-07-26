@@ -36,12 +36,12 @@ spec:
           spec:
             description: CnsUnregisterVolumeSpec defines the desired state of CnsUnregisterVolume
             properties:
-              pvcName:
-                description: Name of the PVC to be unregistered.
+              volumeID:
+                description: VolumeID indicates the volume handle of CNS volume to be unregistered.
                 type: string
                 pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
             required:
-            - pvcName
+            - volumeID
             type: object
           status:
             description: CnsUnregisterVolumeStatus defines the observed state of CnsUnregisterVolume
