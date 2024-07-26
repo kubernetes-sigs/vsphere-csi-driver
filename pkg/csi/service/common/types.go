@@ -85,7 +85,7 @@ type CreateVolumeSpec struct {
 	// TODO: Move this StorageClassParams
 	AffineToHost            string
 	VolumeType              string
-	VsanDirectDatastoreURL  string // Datastore URL from vSan direct storage pool
+	VsanDatastoreURL        string // Datastore URL used by host local volumes (vSAN Direct/vSAN SNA)
 	ContentSourceSnapshotID string // SnapshotID from VolumeContentSource in CreateVolumeRequest
 }
 
