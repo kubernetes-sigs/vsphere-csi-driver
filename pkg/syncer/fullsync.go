@@ -60,6 +60,12 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			migrationFeatureStateForFullSync = true
 		}
 	}
+	// Attempt to create StoragePolicyUsage CRs.
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if IsPodVMOnStretchSupervisorFSSEnabled {
+			createStoragePolicyUsageCRS(ctx, metadataSyncer)
+		}
+	}
 	// Sync VolumeInfo CRs for the below conditions:
 	// Either it is a Vanilla k8s deployment with Multi-VC configuration or, it's a StretchSupervisor cluster
 	if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 ||
@@ -67,13 +73,14 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		volumeInfoCRFullSync(ctx, metadataSyncer, vc)
 		cleanUpVolumeInfoCrDeletionMap(ctx, metadataSyncer, vc)
 	}
-	// Attempt to create & patch StoragePolicyUsage CRs. For storagePolicyUsageCRSync to work,
+	// Attempt to patch StoragePolicyUsage CRs. For storagePolicyUsageCRSync to work,
 	// we need CNSVolumeInfo CRs to be present for all existing volumes.
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		if IsPodVMOnStretchSupervisorFSSEnabled {
 			storagePolicyUsageCRSync(ctx, metadataSyncer)
 		}
 	}
+
 	defer func() {
 		fullSyncStatus := prometheus.PrometheusPassStatus
 		if err != nil {
@@ -245,22 +252,20 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			log.Errorf("FullSync for VC %s: QueryVolume failed with err=%+v", vc, err.Error())
 			return err
 		}
-
+	}
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && isStorageQuotaM2FSSEnabled {
 		cnsVolumeMap := make(map[string]cnstypes.CnsVolume)
 		for _, vol := range queryAllResult.Volumes {
 			cnsVolumeMap[vol.VolumeId.Id] = vol
 		}
-		if isStorageQuotaM2FSSEnabled {
-			log.Infof("calling validateAndCorrectVolumeInfoSnapshotDetails with %d volumes", len(cnsVolumeMap))
-			err = validateAndCorrectVolumeInfoSnapshotDetails(ctx, cnsVolumeMap)
-			if err != nil {
-				log.Errorf("FullSync for VC %s: Error while sync CNSVolumeinfo snapshot details, failed with err=%+v",
-					vc, err.Error())
-				return err
-			}
+		log.Infof("calling validateAndCorrectVolumeInfoSnapshotDetails with %d volumes", len(cnsVolumeMap))
+		err = validateAndCorrectVolumeInfoSnapshotDetails(ctx, cnsVolumeMap)
+		if err != nil {
+			log.Errorf("FullSync for VC %s: Error while sync CNSVolumeinfo snapshot details, failed with err=%+v",
+				vc, err.Error())
+			return err
 		}
 	}
-
 	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vc]
 	if !vcHostObjFound {
 		log.Errorf("FullSync for VC %s: Failed to get VC host object.", vc)
