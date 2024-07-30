@@ -28,6 +28,7 @@ import (
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25/types"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -458,9 +459,11 @@ func GetValidatedCNSVolumeInfoPatch(ctx context.Context,
 			cnsSnapshotInfo.AggregatedSnapshotCapacityInMb, cnsSnapshotInfo.SourceVolumeID)
 		patch = map[string]interface{}{
 			"spec": map[string]interface{}{
-				"validaggregatedsnapshotsize":         true,
-				"aggregatedsnapshotsize":              cnsSnapshotInfo.AggregatedSnapshotCapacityInMb,
-				"snapshotlatestoperationcompletetime": &metav1.Time{Time: cnsSnapshotInfo.SnapshotLatestOperationCompleteTime},
+				"validaggregatedsnapshotsize": true,
+				"aggregatedsnapshotsize": resource.NewQuantity(
+					cnsSnapshotInfo.AggregatedSnapshotCapacityInMb, resource.BinarySI),
+				"snapshotlatestoperationcompletetime": &metav1.Time{
+					Time: cnsSnapshotInfo.SnapshotLatestOperationCompleteTime},
 			},
 		}
 	}

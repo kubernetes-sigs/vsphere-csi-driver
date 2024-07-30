@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -920,6 +921,26 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 				cnsvolumeoperationrequestObj.Name)
 			return
 		}
+		isSnapshot, err := checkOperationRequestCRForSnapshot(ctx, cnsvolumeoperationrequestObj.Name)
+		if err != nil {
+			log.Errorf("cnsvolumeoperationrequestCRAdded: Unable to verfiy if cnsvolumeoperationrequest CR %q, "+
+				"event is for snapshot or pvc", cnsvolumeoperationrequestObj.Name)
+			return
+		}
+		storagePolicyUsageInstanceName := ""
+		if isSnapshot {
+			// Fetch StoragePolicyUsage instance for storageClass associated with the snapshot.
+			log.Infof("Received a CR added event for snapshot operation with snapshotID %q",
+				cnsvolumeoperationrequestObj.Status.SnapshotID)
+			storagePolicyUsageInstanceName = cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.
+				StorageClassName + "-" + storagepolicyv1alpha1.NameSuffixForSnapshot
+		} else {
+			// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
+			log.Infof("Received a CR added event for pvc operation with volumeID %q",
+				cnsvolumeoperationrequestObj.Status.VolumeID)
+			storagePolicyUsageInstanceName = cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.
+				StorageClassName + "-" + storagepolicyv1alpha1.NameSuffixForPVC
+		}
 		restConfig, err := config.GetConfig()
 		if err != nil {
 			log.Errorf("cnsvolumeoperationrequestCRAdded: failed to get Kubernetes config. Err: %+v", err)
@@ -930,9 +951,7 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 			log.Errorf("cnsvolumeoperationrequestCRAdded: Failed to create CnsOperator client. Err: %+v", err)
 			return
 		}
-		// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
-		storagePolicyUsageInstanceName := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
-			storagepolicyv1alpha1.NameSuffixForPVC
+
 		storagePolicyUsageCR := &storagepolicyv1alpha1.StoragePolicyUsage{}
 		err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
 			Namespace: cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace,
@@ -1014,9 +1033,24 @@ func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
 			log.Errorf("Failed to create CnsOperator client. Err: %+v", err)
 			return
 		}
-		// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
-		storagePolicyUsageInstanceName := cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
-			storagepolicyv1alpha1.NameSuffixForPVC
+		isSnapshot, err := checkOperationRequestCRForSnapshot(ctx, cnsvolumeoperationrequestObj.Name)
+		if err != nil {
+			log.Infof("cnsvolumeoperationrequestCRDeleted: Unable to decide if cnsvolumeoperationrequest CR %q, "+
+				"event is for snapshot or pvc", cnsvolumeoperationrequestObj.Name)
+			return
+		}
+		storagePolicyUsageInstanceName := ""
+		if isSnapshot {
+			// Fetch StoragePolicyUsage instance for storageClass associated with the snapshot.
+			log.Infof("cnsvolumeoperationrequestCRDeleted: Delete event receieved for snapshot operation "+
+				"with snapshoID %q ", cnsvolumeoperationrequestObj.Status.SnapshotID)
+			storagePolicyUsageInstanceName = cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.
+				StorageClassName + "-" + storagepolicyv1alpha1.NameSuffixForSnapshot
+		} else {
+			// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
+			storagePolicyUsageInstanceName = cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
+				storagepolicyv1alpha1.NameSuffixForPVC
+		}
 		storagePolicyUsageCR := &storagepolicyv1alpha1.StoragePolicyUsage{}
 		err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
 			Namespace: cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace,
@@ -1091,9 +1125,27 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			log.Errorf("Failed to create CnsOperator client. Err: %+v", err)
 			return
 		}
-		// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
-		storagePolicyUsageInstanceName := newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
-			storagepolicyv1alpha1.NameSuffixForPVC
+
+		isSnapshot, err := checkOperationRequestCRForSnapshot(ctx, newcnsvolumeoperationrequestObj.Name)
+		if err != nil {
+			log.Infof("cnsvolumeoperationrequestCRUpdated: Unable to decide if cnsvolumeoperationrequest CR %q, "+
+				"event is for snapshot or pvc", newcnsvolumeoperationrequestObj.Name)
+			return
+		}
+		storagePolicyUsageInstanceName := ""
+		if isSnapshot {
+			log.Infof("Update event receieved for snapshot operation with snapshoID %q ",
+				newcnsvolumeoperationrequestObj.Status.SnapshotID)
+			// Fetch StoragePolicyUsage instance for storageClass associated with the snapshot.
+			storagePolicyUsageInstanceName = newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.
+				StorageClassName + "-" + storagepolicyv1alpha1.NameSuffixForSnapshot
+
+		} else {
+			// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
+			storagePolicyUsageInstanceName = newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
+				storagepolicyv1alpha1.NameSuffixForPVC
+		}
+
 		storagePolicyUsageCR := &storagepolicyv1alpha1.StoragePolicyUsage{}
 		err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
 			Namespace: newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace,
@@ -1105,15 +1157,19 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 				newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace, err)
 			return
 		}
+		log.Infof("Fetched storagePolicyUsage CR %s", storagePolicyUsageCR.Name)
 		patchedStoragePolicyUsageCR := storagePolicyUsageCR.DeepCopy()
+		log.Debugf("old cnsvolumeoperationrequestObj %+v and new cnsvolumeoperationrequestObj %+v",
+			oldcnsvolumeoperationrequestObj, newcnsvolumeoperationrequestObj)
 		if newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value() >
 			oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value() {
 			// This is a case where CSI Driver container increases the value of "reserved" field in
-			// CnsVolumeOperationRequest during in-flight CreateVolume operation. And subsequently,
+			// CnsVolumeOperationRequest during in-flight CreateVolume/CreateSnapshot operation. And subsequently,
 			// the "reserved" field in StoragePolicyUsage needs to be increased based on the
 			// CnsVolumeOperationRequest "reserved" field
 			if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil {
 				// Move forward only if StoragePolicyUsage CR has Status.QuotaUsage fields not nil
+				log.Infof("Increase the reserved value in storagePolicyUsage CR %s", storagePolicyUsageCR.Name)
 				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
 					*newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
 				err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
@@ -1133,24 +1189,26 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			// needs to be decreased and the "used" field needs to be increased in StoragePolicyUsage CR.
 			// 2. when the latest CNS task tracked by the CNSVolumeOperationRequest errors out: in this case,
 			// just the "reserved" field in StoragePolicyUsage needs to be decreased.
+			log.Infof("Decrease the reserved value in storagePolicyUsage CR %s", storagePolicyUsageCR.Name)
 			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(
 				*oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
-
-			// Fetch the latest task of the CNSVolumeOperationRequest instance and increment
-			// "used" only when the task is successful.
-			latestOps := newcnsvolumeoperationrequestObj.Status.LatestOperationDetails
-			latestOp := latestOps[len(latestOps)-1]
 			var increaseUsed bool
-			if latestOp.TaskStatus == cnsvolumeoperationrequest.TaskInvocationStatusSuccess {
-				log.Debugf("Latest task %q in %s instance %q succeeded. Incrementing \"used\" "+
-					"field in storagepolicyusage CR", latestOp.TaskID,
-					cnsvolumeoperationrequest.CRDSingular, newcnsvolumeoperationrequestObj.Name)
-
-				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
-					*oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
-				increaseUsed = true
+			log.Info("skip increase `used` capacity, for snapshot operation cnsvolumeinfo informer will increase it")
+			if !isSnapshot {
+				// Fetch the latest task of the CNSVolumeOperationRequest instance and increment
+				// "used" only when the task is successful.
+				latestOps := newcnsvolumeoperationrequestObj.Status.LatestOperationDetails
+				latestOp := latestOps[len(latestOps)-1]
+				log.Infof("Decrease the used value in storagePolicyUsage CR %s", storagePolicyUsageCR.Name)
+				if latestOp.TaskStatus == cnsvolumeoperationrequest.TaskInvocationStatusSuccess {
+					log.Debugf("Latest task %q in %s instance %q succeeded. Incrementing \"used\" "+
+						"field in storagepolicyusage CR", latestOp.TaskID,
+						cnsvolumeoperationrequest.CRDSingular, newcnsvolumeoperationrequestObj.Name)
+					patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
+						*oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
+					increaseUsed = true
+				}
 			}
-
 			err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
@@ -1170,6 +1228,23 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			}
 		}
 	}
+}
+
+// checkOperationRequestCRForSnapshot will verify if the cnsvolumeopeationrequest CR event is generated
+// for snapshot operation
+func checkOperationRequestCRForSnapshot(ctx context.Context, operationReqCRName string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	cnsvolopreqInitial := ""
+	if operationReqCRName != "" {
+		opreqnameArr := strings.Split(operationReqCRName, "-")
+		if len(opreqnameArr) > 0 {
+			cnsvolopreqInitial = opreqnameArr[0]
+			if cnsvolopreqInitial == "snapshot" || cnsvolopreqInitial == "deletesnapshot" {
+				return true, nil
+			}
+		}
+	}
+	return false, logger.LogNewError(log, "error while check operation request type")
 }
 
 // topoCRAdded checks if the CSINodeTopology instance Status is set to Success

@@ -517,16 +517,19 @@ func validateAndCorrectVolumeInfoSnapshotDetails(ctx context.Context,
 				if ok {
 					aggregatedSnapshotCapacity = val.AggregatedSnapshotCapacityInMb
 				}
+				log.Infof("Received aggregatedSnapshotCapacity %d for volume %q",
+					aggregatedSnapshotCapacity, cnsVol.VolumeId.Id)
 				if cnsvolumeinfo.Spec.AggregatedSnapshotSize == nil || aggregatedSnapshotCapacity !=
 					cnsvolumeinfo.Spec.AggregatedSnapshotSize.Value() {
 					// use current time as snapshot completion time is not available in fullsync.
+					log.Infof("Update aggregatedSnapshotCapacity for volume %q", cnsVol.VolumeId.Id)
 					currentTime := time.Now()
 					cnsSnapInfo := &volumes.CnsSnapshotInfo{
 						SourceVolumeID:                      cnsvolumeinfo.Spec.VolumeID,
 						SnapshotLatestOperationCompleteTime: time.Now(),
 						AggregatedSnapshotCapacityInMb:      aggregatedSnapshotCapacity,
 					}
-					log.Infof("unable to get snapshot operation completion time for volumeID %d "+
+					log.Infof("unable to get snapshot operation completion time for volumeID %q "+
 						"will use current time %v instead", cnsvolumeinfo.Spec.VolumeID, currentTime)
 					patch, err := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapInfo)
 					if err != nil {

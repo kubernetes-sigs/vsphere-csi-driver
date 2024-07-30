@@ -1875,7 +1875,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 				&cnsvolume.DeletesnapshotExtraParams{
 					StorageClassName:           cnsVolumeInfo.Spec.StorageClassName,
 					StoragePolicyID:            cnsVolumeInfo.Spec.StoragePolicyID,
-					Capacity:                   cnsVolumeInfo.Spec.Capacity,
+					Capacity:                   resource.NewQuantity(0, resource.BinarySI),
 					Namespace:                  cnsVolumeInfo.Namespace,
 					IsStorageQuotaM2FSSEnabled: isStorageQuotaM2FSSEnabled,
 				})
