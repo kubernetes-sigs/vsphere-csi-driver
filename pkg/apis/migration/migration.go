@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 
 	migrationconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/config"
 
@@ -608,13 +609,8 @@ func (volumeMigration *volumeMigration) cleanupStaleCRDInstances() {
 			continue
 		}
 		log.Debugf("CnsVSphereVolumeMigrationList: %+v", volumeMigrationResourceList)
-		queryFilter := cnstypes.CnsQueryFilter{
-			ContainerClusterIds: []string{
-				volumeMigrationInstance.cnsConfig.Global.ClusterID,
-			},
-		}
-		queryAllResult, err := (*volumeMigrationInstance.volumeManager).QueryAllVolume(ctx,
-			queryFilter, cnstypes.CnsQuerySelection{})
+		queryAllResult, err := utils.QueryAllVolumesForCluster(ctx, *volumeMigrationInstance.volumeManager,
+			volumeMigrationInstance.cnsConfig.Global.ClusterID, cnstypes.CnsQuerySelection{})
 		if err != nil {
 			log.Warnf("failed to queryAllVolume with err %+v", err)
 			continue

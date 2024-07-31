@@ -25,6 +25,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
@@ -35,12 +36,6 @@ func csiGetPVtoBackingDiskObjectIdMapping(ctx context.Context, k8sclient clients
 	log := logger.GetLogger(ctx)
 	log.Debugf("csiGetPVtoBackingDiskObjectIdMapping for %s: start", vc)
 	// Call CNS QueryAll to get container volumes by cluster ID.
-	queryFilter := cnstypes.CnsQueryFilter{
-		ContainerClusterIds: []string{
-			clusterIDforVolumeMetadata,
-		},
-	}
-
 	querySelection := cnstypes.CnsQuerySelection{
 		Names: []string{
 			string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
@@ -53,8 +48,8 @@ func csiGetPVtoBackingDiskObjectIdMapping(ctx context.Context, k8sclient clients
 		log.Errorf("csiGetPVtoBackingDiskObjectIdMapping for %s: Failed to get volume manager. Err: %v", vc, err)
 		return
 	}
-
-	queryAllResult, err := cnsVolumeMgr.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryAllResult, err := utils.QueryAllVolumesForCluster(ctx, cnsVolumeMgr,
+		clusterIDforVolumeMetadata, querySelection)
 	if err != nil {
 		log.Errorf("csiGetPVtoBackingDiskObjectIdMapping for %s: failed to QueryAllVolume with err=%+v", vc, err)
 		return
