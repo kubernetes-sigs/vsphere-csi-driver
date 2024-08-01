@@ -39,8 +39,11 @@ import (
 	cnsunregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 )
 
 const (
@@ -65,6 +68,19 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	ctx, log := logger.GetNewContextWithLogger()
 	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
 		log.Debug("Not initializing the CnsUnregisterVolume Controller as its a non-WCP CSI deployment")
+		return nil
+	}
+
+	var coCommonInterface commonco.COCommonInterface
+	var err error
+	coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx,
+		common.Kubernetes, clusterFlavor, &syncer.COInitParams)
+	if err != nil {
+		log.Errorf("failed to create CO agnostic interface. Err: %v", err)
+		return err
+	}
+	if !coCommonInterface.IsFSSEnabled(ctx, common.CnsUnregisterVolume) {
+		log.Infof("Not initializing the CnsUnregisterVolume Controller as this feature is disabled on the cluster")
 		return nil
 	}
 
