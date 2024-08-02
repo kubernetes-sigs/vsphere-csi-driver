@@ -54,13 +54,14 @@ var (
 	cfg    *config
 	// COInitParams stores the input params required for initiating the
 	// CO agnostic orchestrator in the admission handler package.
-	COInitParams                              *interface{}
-	featureGateCsiMigrationEnabled            bool
-	featureGateBlockVolumeSnapshotEnabled     bool
-	featureGateTKGSHaEnabled                  bool
-	featureGateVolumeHealthEnabled            bool
-	featureGateTopologyAwareFileVolumeEnabled bool
-	featureGateStorageQuotaM2Enabled          bool
+	COInitParams                                    *interface{}
+	featureGateCsiMigrationEnabled                  bool
+	featureGateBlockVolumeSnapshotEnabled           bool
+	featureGateTKGSHaEnabled                        bool
+	featureGateVolumeHealthEnabled                  bool
+	featureGateTopologyAwareFileVolumeEnabled       bool
+	featureGateStorageQuotaM2Enabled                bool
+	featureGateSupervisorBlockVolumeSnapshotEnabled bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
@@ -144,6 +145,8 @@ func StartWebhookServer(ctx context.Context) error {
 		featureGateVolumeHealthEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeHealth)
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		featureGateStorageQuotaM2Enabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2)
+		featureGateSupervisorBlockVolumeSnapshotEnabled =
+			containerOrchestratorUtility.IsFSSEnabled(ctx, common.SupervisorBlockVolumeSnapshots)
 		startCNSCSIWebhookManager(ctx)
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
