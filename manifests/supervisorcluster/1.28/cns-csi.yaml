@@ -82,7 +82,7 @@ rules:
     resources: ["statefulsets"]
     verbs: ["list"]
   - apiGroups: ["topology.tanzu.vmware.com"]
-    resources: ["availabilityzones"]
+    resources: ["availabilityzones", "zones"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshots" ]

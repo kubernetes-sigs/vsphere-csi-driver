@@ -45,7 +45,7 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 		testUnexpectedVmName    = "test-unexpected-vm-name"
 		testNodeIDInSpec        = "test-node-id"
 		testSupervisorNamespace = "test-supervisor-namespace"
-		expectedZoneKey         = corev1.LabelZoneFailureDomainStable
+		expectedZoneKey         = corev1.LabelTopologyZone
 		expectedZoneValue       = "zone-1"
 		testCSINodeTopology     = &csinodetopologyv1alpha1.CSINodeTopology{
 			ObjectMeta: metav1.ObjectMeta{
