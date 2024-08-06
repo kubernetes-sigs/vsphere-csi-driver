@@ -26,6 +26,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -36,19 +37,13 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 	metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
 	log.Infof("csiGetVolumeHealthStatus: start")
-	// Call CNS QueryAll to get container volumes by cluster ID.
-	queryFilter := cnstypes.CnsQueryFilter{
-		ContainerClusterIds: []string{
-			clusterIDforVolumeMetadata,
-		},
-	}
-
 	querySelection := cnstypes.CnsQuerySelection{
 		Names: []string{
 			string(cnstypes.QuerySelectionNameTypeHealthStatus),
 		},
 	}
-	queryAllResult, err := metadataSyncer.volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryAllResult, err := utils.QueryAllVolumesForCluster(ctx, metadataSyncer.volumeManager,
+		clusterIDforVolumeMetadata, querySelection)
 	if err != nil {
 		log.Errorf("csiGetVolumeHealthStatus: failed to QueryAllVolume with err=%+v", err.Error())
 		return

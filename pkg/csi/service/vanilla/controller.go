@@ -2651,11 +2651,6 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			volIDsInK8s = commonco.ContainerOrchestratorUtility.GetAllK8sVolumes()
 			log.Debugf("Number of Volume IDs of PVs from K8s cluster %v, list of volumes %v", len(volIDsInK8s),
 				volIDsInK8s)
-			// Step 2: Get all Volume IDs from CNS QueryAll API
-			// Select only the volume type.
-			queryFilter := cnstypes.CnsQueryFilter{
-				ContainerClusterIds: []string{cfg.Global.ClusterID},
-			}
 			querySelection := cnstypes.CnsQuerySelection{
 				Names: []string{
 					string(cnstypes.QuerySelectionNameTypeVolumeType),
@@ -2666,7 +2661,8 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			if multivCenterCSITopologyEnabled {
 				var cnsVolumes = make([]cnstypes.CnsVolume, 0)
 				for vcHost, volumeManager := range c.managers.VolumeManagers {
-					cnsQueryResult, err := volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+					cnsQueryResult, err := utils.QueryAllVolumesForCluster(ctx, volumeManager,
+						cfg.Global.ClusterID, querySelection)
 					if err != nil {
 						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 							"queryVolume failed on Cluster ID %q for vCenter %s with err = %+v ",
@@ -2676,6 +2672,9 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 				}
 				CNSVolumesforListVolume = cnsVolumes
 			} else {
+				queryFilter := cnstypes.CnsQueryFilter{
+					ContainerClusterIds: []string{cfg.Global.ClusterID},
+				}
 				cnsQueryResult, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,

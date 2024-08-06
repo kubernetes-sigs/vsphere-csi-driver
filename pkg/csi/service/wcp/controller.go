@@ -1571,18 +1571,13 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		// it means the listVolume request is a new one and not part of a previous
 		// request, so fetch the volumes from CNS again
 		if startingIdx == 0 || startingIdx != expectedStartingIndex {
-			queryFilter := cnstypes.CnsQueryFilter{
-				ContainerClusterIds: []string{
-					c.manager.CnsConfig.Global.SupervisorID,
-				},
-			}
 			querySelection := cnstypes.CnsQuerySelection{
 				Names: []string{
 					string(cnstypes.QuerySelectionNameTypeVolumeType),
 				},
 			}
-
-			cnsQueryVolumes, err := c.manager.VolumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
+			cnsQueryVolumes, err := utils.QueryAllVolumesForCluster(ctx, c.manager.VolumeManager,
+				c.manager.CnsConfig.Global.SupervisorID, querySelection)
 			if err != nil {
 				log.Errorf("Error while querying volumes from CNS %v", err)
 				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "Error while querying volumes from CNS")

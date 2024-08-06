@@ -36,6 +36,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -140,18 +141,15 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	}
 	log.Debugf("FullSync for VC %s: pvToPVCMap %v", vc, pvToPVCMap)
 	log.Debugf("FullSyncfor VC %s: pvcToPodMap %v", vc, pvcToPodMap)
-	// Call CNS QueryAll to get container volumes by cluster ID.
-	queryFilter := cnstypes.CnsQueryFilter{
-		ContainerClusterIds: []string{
-			metadataSyncer.configInfo.Cfg.Global.ClusterID,
-		},
-	}
+
 	volManager, err := getVolManagerForVcHost(ctx, vc, metadataSyncer)
 	if err != nil {
 		log.Errorf("FullSync for VC %s: Failed to get volume manager. Err: %v", vc, err)
 		return err
 	}
-	queryAllResult, err := volManager.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
+
+	queryAllResult, err := utils.QueryAllVolumesForCluster(ctx, volManager,
+		metadataSyncer.configInfo.Cfg.Global.ClusterID, cnstypes.CnsQuerySelection{})
 	if err != nil {
 		log.Errorf("FullSync for VC %s: QueryVolume failed with err=%+v", vc, err.Error())
 		return err
@@ -234,12 +232,6 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 				}
 			}
 		}
-		// Call CNS QueryAll to get container volumes by cluster ID.
-		queryFilter = cnstypes.CnsQueryFilter{
-			ContainerClusterIds: []string{
-				metadataSyncer.configInfo.Cfg.Global.SupervisorID,
-			},
-		}
 		querySelection := cnstypes.CnsQuerySelection{
 			Names: []string{
 				string(cnstypes.QuerySelectionNameTypeVolumeType),
@@ -247,7 +239,8 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			},
 		}
 		// get queryAllResult using new Supervisor ID for rest of full sync operations
-		queryAllResult, err = volManager.QueryAllVolume(ctx, queryFilter, querySelection)
+		queryAllResult, err = utils.QueryAllVolumesForCluster(ctx, volManager,
+			metadataSyncer.configInfo.Cfg.Global.SupervisorID, querySelection)
 		if err != nil {
 			log.Errorf("FullSync for VC %s: QueryVolume failed with err=%+v", vc, err.Error())
 			return err
