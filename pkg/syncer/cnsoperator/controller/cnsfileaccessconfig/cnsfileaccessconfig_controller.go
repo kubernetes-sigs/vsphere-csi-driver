@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
+
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -498,6 +499,8 @@ func (r *ReconcileCnsFileAccessConfig) configureVolumeACLs(ctx context.Context,
 }
 
 // getVMExternalIP helps to fetch the external facing IP for a given TKG VM.
+//
+//goland:noinspection GoBoolExpressions
 func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 	vm *vmoperatortypes.VirtualMachine) (string, error) {
 	log := logger.GetLogger(ctx)
@@ -505,20 +508,18 @@ func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 	if err != nil {
 		return "", logger.LogNewErrorf(log, "Failed to identify the network provider. Error: %+v", err)
 	}
-	var nsxConfiguration bool
+
 	if networkProvider == "" {
 		return "", logger.LogNewError(log, "unable to find network provider information")
 	}
-	if networkProvider == cnsoperatorutil.NSXTNetworkProvider {
-		nsxConfiguration = true
-	} else if networkProvider == cnsoperatorutil.VDSNetworkProvider {
-		nsxConfiguration = false
-	} else {
+
+	if networkProvider != cnsoperatorutil.NSXTNetworkProvider && networkProvider != cnsoperatorutil.
+		VDSNetworkProvider && networkProvider != cnsoperatorutil.VPCNetworkProvider {
 		return "", logger.LogNewErrorf(log, "Unknown network provider. Error: %+v", err)
 	}
 
 	tkgVMIP, err := cnsoperatorutil.GetTKGVMIP(ctx, r.vmOperatorClient,
-		r.dynamicClient, vm.Namespace, vm.Name, nsxConfiguration)
+		r.dynamicClient, vm.Namespace, vm.Name, networkProvider)
 	if err != nil {
 		return "", logger.LogNewErrorf(log, "Failed to get external facing IP address for VM %q/%q. Err: %+v",
 			vm.Namespace, vm.Name, err)
