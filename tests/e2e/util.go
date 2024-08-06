@@ -986,7 +986,13 @@ func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath st
 	service, err := manifest.SvcFromManifest(mkpath("service.yaml"))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	service, err = client.CoreV1().Services(namespace).Create(ctx, service, metav1.CreateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			framework.Logf("services 'nginx' already exists")
+		} else {
+			fmt.Errorf("Failed to create nginx service")
+		}
+	}
 	*statefulSet.Spec.Replicas = 1
 	_, err = client.AppsV1().StatefulSets(namespace).Create(ctx, statefulSet, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2274,8 +2280,8 @@ func verifyPodLocation(pod *v1.Pod, nodeList *v1.NodeList, zoneValue string, reg
 func getTopologyFromPod(pod *v1.Pod, nodeList *v1.NodeList) (string, string, error) {
 	for _, node := range nodeList.Items {
 		if pod.Spec.NodeName == node.Name {
-			podRegion := node.Labels[v1.LabelZoneRegion]
-			podZone := node.Labels[v1.LabelZoneFailureDomain]
+			podRegion := node.Labels[regionKey]
+			podZone := node.Labels[zoneKey]
 			return podRegion, podZone, nil
 		}
 	}
