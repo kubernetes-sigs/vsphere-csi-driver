@@ -54,13 +54,10 @@ func SetInitParams(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 			OperationMode: operationMode,
 		}
 	case cnstypes.CnsClusterFlavorVanilla:
-		if strings.TrimSpace(internalFSSName) == "" {
-			log.Infof("Defaulting feature states configmap name to %q", csiconfig.DefaultInternalFSSConfigMapName)
-			internalFSSName = csiconfig.DefaultInternalFSSConfigMapName
-		}
-		if strings.TrimSpace(internalFSSNamespace) == "" {
-			log.Infof("Defaulting feature states configmap namespace to %q", csiconfig.DefaultCSINamespace)
-			internalFSSNamespace = csiconfig.DefaultCSINamespace
+		if strings.TrimSpace(internalFSSName) == "" || strings.TrimSpace(internalFSSNamespace) == "" {
+			log.Infof("Feature state flags are not fully set, disabling any FSS")
+			internalFSSName = ""
+			internalFSSNamespace = ""
 		}
 		*initParams = k8sorchestrator.K8sVanillaInitParams{
 			InternalFeatureStatesConfigInfo: csiconfig.FeatureStatesConfigInfo{
