@@ -446,7 +446,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			// TKGS-HA: validate storageTopologyType.
 			storageTopologyType = req.Parameters[paramName]
 			val := strings.ToLower(storageTopologyType)
-			if val != "zonal" {
+			if val != "zonal" && val != "hostlocal" {
 				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
 					"invalid value found for StorageClass parameter `storagetopologytype`: %q.",
 					storageTopologyType)
