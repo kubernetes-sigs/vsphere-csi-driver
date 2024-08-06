@@ -455,13 +455,14 @@ func GetValidatedCNSVolumeInfoPatch(ctx context.Context,
 			},
 		}
 	} else {
+		aggregatedSnapshotSizeBytes := cnsSnapshotInfo.AggregatedSnapshotCapacityInMb * MbInBytes
 		log.Infof("retrieved aggregated snapshot capacity %d for volume %q",
 			cnsSnapshotInfo.AggregatedSnapshotCapacityInMb, cnsSnapshotInfo.SourceVolumeID)
 		patch = map[string]interface{}{
 			"spec": map[string]interface{}{
 				"validaggregatedsnapshotsize": true,
 				"aggregatedsnapshotsize": resource.NewQuantity(
-					cnsSnapshotInfo.AggregatedSnapshotCapacityInMb, resource.BinarySI),
+					aggregatedSnapshotSizeBytes, resource.BinarySI),
 				"snapshotlatestoperationcompletetime": &metav1.Time{
 					Time: cnsSnapshotInfo.SnapshotLatestOperationCompleteTime},
 			},

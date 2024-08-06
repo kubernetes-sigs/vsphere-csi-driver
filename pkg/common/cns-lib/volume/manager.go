@@ -2473,7 +2473,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 					log.Infof("Fetched aggregated Snapshot Capacity is %d for volume with volumeID %q",
 						aggregatedSnapshotCapacityInMb, volumeID)
 					cnsSnapshotInfo.AggregatedSnapshotCapacityInMb = aggregatedSnapshotCapacityInMb
-					aggregatedSnapshotCapacity := resource.NewQuantity(aggregatedSnapshotCapacityInMb, resource.BinarySI)
+					aggregatedSnapshotCapacity := resource.NewQuantity(aggregatedSnapshotCapacityInMb*MbInBytes, resource.BinarySI)
 					quotaInfo.AggregatedSnapshotSize = aggregatedSnapshotCapacity
 					quotaInfo.SnapshotLatestOperationCompleteTime.Time = queriedCnsSnapshot.CreateTime
 					log.Infof("Snapshot %q for volume %q confirmed to be created, update quotainfo: %+v",
@@ -2566,7 +2566,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		log.Infof("For volumeID %q new AggregatedSnapshotSize is %d and SnapshotLatestOperationCompleteTime is %q",
 			volumeID, snapshotCreateResult.AggregatedSnapshotCapacityInMb, *createSnapshotsTaskInfo.CompleteTime)
 		cnsSnapshotInfo.AggregatedSnapshotCapacityInMb = snapshotCreateResult.AggregatedSnapshotCapacityInMb
-		aggregatedSnapshotCapacity := resource.NewQuantity(snapshotCreateResult.AggregatedSnapshotCapacityInMb,
+		aggregatedSnapshotCapacity := resource.NewQuantity(snapshotCreateResult.AggregatedSnapshotCapacityInMb*MbInBytes,
 			resource.BinarySI)
 		quotaInfo.AggregatedSnapshotSize = aggregatedSnapshotCapacity
 		quotaInfo.SnapshotLatestOperationCompleteTime.Time = *createSnapshotsTaskInfo.CompleteTime
@@ -2748,7 +2748,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 						AggregatedSnapshotCapacityInMb:      aggregatedSnapshotCapacityInMb,
 						SnapshotLatestOperationCompleteTime: currentTime,
 					}
-					aggregatedSnapshotCapacity := resource.NewQuantity(aggregatedSnapshotCapacityInMb, resource.BinarySI)
+					aggregatedSnapshotCapacity := resource.NewQuantity(aggregatedSnapshotCapacityInMb*MbInBytes, resource.BinarySI)
 					quotaInfo.AggregatedSnapshotSize = aggregatedSnapshotCapacity
 					quotaInfo.SnapshotLatestOperationCompleteTime.Time = currentTime
 				}
@@ -2807,7 +2807,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 					}
 					log.Infof("Fetched aggregated Snapshot Capacity is %d for volume with volumeID %q",
 						aggregatedSnapshotCapacityInMb, volumeID)
-					aggregatedSnapshotCapacity := resource.NewQuantity(aggregatedSnapshotCapacityInMb, resource.BinarySI)
+					aggregatedSnapshotCapacity := resource.NewQuantity(aggregatedSnapshotCapacityInMb*MbInBytes, resource.BinarySI)
 					quotaInfo.AggregatedSnapshotSize = aggregatedSnapshotCapacity
 					quotaInfo.SnapshotLatestOperationCompleteTime.Time = currentTime
 					log.Infof("Snapshot %q for volume %q confirmed to be deleted, update quotainfo: %+v",
@@ -2890,7 +2890,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 			SnapshotLatestOperationCompleteTime: *deleteSnapshotsTaskInfo.CompleteTime,
 			AggregatedSnapshotCapacityInMb:      snapshotDeleteResult.AggregatedSnapshotCapacityInMb,
 		}
-		aggregatedSnapshotCapacity := resource.NewQuantity(snapshotDeleteResult.AggregatedSnapshotCapacityInMb,
+		aggregatedSnapshotCapacity := resource.NewQuantity(snapshotDeleteResult.AggregatedSnapshotCapacityInMb*MbInBytes,
 			resource.BinarySI)
 		quotaInfo.AggregatedSnapshotSize = aggregatedSnapshotCapacity
 		quotaInfo.SnapshotLatestOperationCompleteTime.Time = *deleteSnapshotsTaskInfo.CompleteTime

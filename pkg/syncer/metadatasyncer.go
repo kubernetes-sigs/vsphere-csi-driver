@@ -921,12 +921,7 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 				cnsvolumeoperationrequestObj.Name)
 			return
 		}
-		isSnapshot, err := checkOperationRequestCRForSnapshot(ctx, cnsvolumeoperationrequestObj.Name)
-		if err != nil {
-			log.Errorf("cnsvolumeoperationrequestCRAdded: Unable to verfiy if cnsvolumeoperationrequest CR %q, "+
-				"event is for snapshot or pvc", cnsvolumeoperationrequestObj.Name)
-			return
-		}
+		isSnapshot := checkOperationRequestCRForSnapshot(ctx, cnsvolumeoperationrequestObj.Name)
 		storagePolicyUsageInstanceName := ""
 		if isSnapshot {
 			// Fetch StoragePolicyUsage instance for storageClass associated with the snapshot.
@@ -1033,12 +1028,7 @@ func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
 			log.Errorf("Failed to create CnsOperator client. Err: %+v", err)
 			return
 		}
-		isSnapshot, err := checkOperationRequestCRForSnapshot(ctx, cnsvolumeoperationrequestObj.Name)
-		if err != nil {
-			log.Infof("cnsvolumeoperationrequestCRDeleted: Unable to decide if cnsvolumeoperationrequest CR %q, "+
-				"event is for snapshot or pvc", cnsvolumeoperationrequestObj.Name)
-			return
-		}
+		isSnapshot := checkOperationRequestCRForSnapshot(ctx, cnsvolumeoperationrequestObj.Name)
 		storagePolicyUsageInstanceName := ""
 		if isSnapshot {
 			// Fetch StoragePolicyUsage instance for storageClass associated with the snapshot.
@@ -1126,12 +1116,7 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			return
 		}
 
-		isSnapshot, err := checkOperationRequestCRForSnapshot(ctx, newcnsvolumeoperationrequestObj.Name)
-		if err != nil {
-			log.Infof("cnsvolumeoperationrequestCRUpdated: Unable to decide if cnsvolumeoperationrequest CR %q, "+
-				"event is for snapshot or pvc", newcnsvolumeoperationrequestObj.Name)
-			return
-		}
+		isSnapshot := checkOperationRequestCRForSnapshot(ctx, newcnsvolumeoperationrequestObj.Name)
 		storagePolicyUsageInstanceName := ""
 		if isSnapshot {
 			log.Infof("Update event receieved for snapshot operation with snapshoID %q ",
@@ -1232,19 +1217,18 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 
 // checkOperationRequestCRForSnapshot will verify if the cnsvolumeopeationrequest CR event is generated
 // for snapshot operation
-func checkOperationRequestCRForSnapshot(ctx context.Context, operationReqCRName string) (bool, error) {
-	log := logger.GetLogger(ctx)
+func checkOperationRequestCRForSnapshot(ctx context.Context, operationReqCRName string) bool {
 	cnsvolopreqInitial := ""
 	if operationReqCRName != "" {
 		opreqnameArr := strings.Split(operationReqCRName, "-")
 		if len(opreqnameArr) > 0 {
 			cnsvolopreqInitial = opreqnameArr[0]
 			if cnsvolopreqInitial == "snapshot" || cnsvolopreqInitial == "deletesnapshot" {
-				return true, nil
+				return true
 			}
 		}
 	}
-	return false, logger.LogNewError(log, "error while check operation request type")
+	return false
 }
 
 // topoCRAdded checks if the CSINodeTopology instance Status is set to Success
@@ -3449,8 +3433,7 @@ func cnsVolumeInfoCRUpdated(oldObj interface{}, newObj interface{}, metadataSync
 			newCnsVolumeInfoObj.Spec.Namespace, err)
 		return
 	}
-
-	var aggregatedSnapSizeDifference int64
+	var diffSnapshotSize resource.Quantity
 	patchedStoragePolicyUsageCR := storagePolicyUsageCR.DeepCopy()
 	if !newCnsVolumeInfoObj.Spec.ValidAggregatedSnapshotSize &&
 		!newCnsVolumeInfoObj.Spec.SnapshotLatestOperationCompleteTime.IsZero() {
@@ -3467,35 +3450,34 @@ func cnsVolumeInfoCRUpdated(oldObj interface{}, newObj interface{}, metadataSync
 		// if it was present, since ValidAggregatedSnapshotSize is true.
 		delete(patchedStoragePolicyUsageCR.Annotations, common.MissingSnapshotAggregatedCapacity)
 
-		var oldAggregatedSnapshotSize int64
+		var oldAggregatedSnapshotSize resource.Quantity
 		if oldCnsVolumeInfoObj.Spec.AggregatedSnapshotSize != nil {
-			oldAggregatedSnapshotSize = oldCnsVolumeInfoObj.Spec.AggregatedSnapshotSize.Value()
+			oldAggregatedSnapshotSize = *oldCnsVolumeInfoObj.Spec.AggregatedSnapshotSize
 		} else {
-			oldAggregatedSnapshotSize = 0
+			oldAggregatedSnapshotSize = *resource.NewQuantity(0, resource.BinarySI)
 		}
-		// Update the StoragePolicyUsage "Used" field based on old and new AggregatedSnapshotSize
-		aggregatedSnapSizeDifference = newCnsVolumeInfoObj.Spec.AggregatedSnapshotSize.Value() -
-			oldAggregatedSnapshotSize
-		if aggregatedSnapSizeDifference == 0 {
-			log.Infof("cnsVolumeInfoCRUpdated: there is no difference in aggregated snapshot size, skipping "+
-				"update of StoragePolicyUsage CR: %q", patchedStoragePolicyUsageCR.Name)
-			return
-		} else {
-			snapSizeDifference := resource.NewQuantity(aggregatedSnapSizeDifference, resource.BinarySI)
+
+		if oldAggregatedSnapshotSize.Value() != newCnsVolumeInfoObj.Spec.AggregatedSnapshotSize.Value() {
 			if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil &&
 				storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used != nil {
 				// Patch StoragePolicyUsage Used field when Status->QuotaUsage->Used are not nil
-				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(*snapSizeDifference)
+				diffSnapshotSize = *newCnsVolumeInfoObj.Spec.AggregatedSnapshotSize
+				diffSnapshotSize.Sub(oldAggregatedSnapshotSize)
+				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(diffSnapshotSize)
 			} else {
 				// This is a case where, the StoragePolicyUsage CR does not have Status->QuotaUsage field.
 				// The block is usually executed for the 1st CreateSnapshot call.
-				usedQty := *snapSizeDifference
+				usedQty := *newCnsVolumeInfoObj.Spec.AggregatedSnapshotSize
 				patchedStoragePolicyUsageCR.Status = storagepolicyv1alpha1.StoragePolicyUsageStatus{
 					ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha1.QuotaUsageDetails{
 						Used: &usedQty,
 					},
 				}
 			}
+		} else {
+			log.Infof("cnsVolumeInfoCRUpdated: there is no difference in aggregated snapshot size, skipping "+
+				"update of StoragePolicyUsage CR: %q", patchedStoragePolicyUsageCR.Name)
+			return
 		}
 	}
 
@@ -3507,13 +3489,11 @@ func cnsVolumeInfoCRUpdated(oldObj interface{}, newObj interface{}, metadataSync
 			patchedStoragePolicyUsageCR.Name, err)
 		return
 	}
-	if aggregatedSnapSizeDifference > 0 {
-		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size increased by %v bytes, increased Used "+
-			"field for storagepolicyusage CR: %q", aggregatedSnapSizeDifference,
-			patchedStoragePolicyUsageCR.Name)
-	} else if aggregatedSnapSizeDifference < 0 {
-		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size decreased by %v bytes, decreased Used "+
-			"field for storagepolicyusage CR: %q", aggregatedSnapSizeDifference,
-			patchedStoragePolicyUsageCR.Name)
+	if diffSnapshotSize.Value() > 0 {
+		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size increased by %v, increased Used "+
+			"field for storagepolicyusage CR: %q", diffSnapshotSize, patchedStoragePolicyUsageCR.Name)
+	} else if diffSnapshotSize.Value() < 0 {
+		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size decreased by %v, decreased Used "+
+			"field for storagepolicyusage CR: %q", diffSnapshotSize, patchedStoragePolicyUsageCR.Name)
 	}
 }
