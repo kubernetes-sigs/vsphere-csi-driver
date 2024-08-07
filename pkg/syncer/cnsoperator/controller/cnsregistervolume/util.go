@@ -34,7 +34,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
-	cnsstoragepolicyquotasv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
+	cnsstoragepolicyquotasv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -187,7 +187,7 @@ func getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx context.Context
 			"Either storagepolicyId: %s doesn't match any storage class, or the policy is not assigned to namespace: %s",
 			storagePolicyID, namespace)
 	} else {
-		storagePolicyQuotaList := &cnsstoragepolicyquotasv1alpha1.StoragePolicyQuotaList{}
+		storagePolicyQuotaList := &cnsstoragepolicyquotasv1alpha2.StoragePolicyQuotaList{}
 		err := client.List(ctx, storagePolicyQuotaList, &ctrlruntimeclient.ListOptions{
 			Namespace: namespace,
 		})
@@ -197,7 +197,7 @@ func getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx context.Context
 		log.Debugf("Found scName %s which has matching storagePolicyId %s", scName, storagePolicyID)
 		log.Debugf("Fetch storagePolicyQuotaList: %+v  in namespace %s", storagePolicyQuotaList, namespace)
 		foundMatchStoragePolicyQuotaCR := false
-		matchedStoragePolicyQuotaCR := cnsstoragepolicyquotasv1alpha1.StoragePolicyQuota{}
+		matchedStoragePolicyQuotaCR := cnsstoragepolicyquotasv1alpha2.StoragePolicyQuota{}
 		if scName != "" && len(storagePolicyQuotaList.Items) > 0 {
 			for _, storagePolicyQuota := range storagePolicyQuotaList.Items {
 				if storagePolicyQuota.Spec.StoragePolicyId == storagePolicyID {
