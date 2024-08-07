@@ -80,7 +80,8 @@ var (
 	// This will hold mapping for VolumeID to Storage policy info for PodVMOnStretchedSupervisor deployments
 	volumeInfoService cnsvolumeinfo.VolumeInfoService
 	// isPodVMOnStretchSupervisorFSSEnabled is true when PodVMOnStretchedSupervisor FSS is enabled.
-	isPodVMOnStretchSupervisorFSSEnabled bool
+	// workloadDomainIsolationEnabled is the FSS to guard changes being made to confine namespaces to zones.
+	isPodVMOnStretchSupervisorFSSEnabled, workloadDomainIsolationEnabled bool
 )
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
@@ -148,7 +149,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 	isPodVMOnStretchSupervisorFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.PodVMOnStretchedSupervisor)
-
+	workloadDomainIsolationEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.WorkloadDomainIsolation)
 	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CSIVolumeManagerIdempotency)
 	isStorageQuotaM2FSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
@@ -481,7 +483,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		// it's host local volume provisioning on a non-stretched supervisor.
 
 		// If neither zone nor hostname label is present in the request -
-		// it's non-host local volume provisioning on a non-stretched supervisor.
+		// In VC 8.x, it's non-host local volume provisioning on a non-stretched supervisor.
+		// In 9.x, it is not a supported use case. We require all supervisor clusters to use zone
+		// keys as topology requirement during volume provisioning.
 		hostnameLabelPresent, zoneLabelPresent = checkTopologyKeysFromAccessibilityReqs(topologyRequirement)
 		if zoneLabelPresent && hostnameLabelPresent {
 			if isVdppOnStretchedSVEnabled {
@@ -491,9 +495,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					"support for topology requirement with both zone and hostname labels is not yet implemented.")
 			}
 		} else if zoneLabelPresent {
-			if storageTopologyType == "" {
-				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
-					"StorageTopologyType is unset while topology label is present")
+			if !workloadDomainIsolationEnabled {
+				if storageTopologyType == "" {
+					return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
+						"StorageTopologyType is unset while topology label is present")
+				}
 			}
 			// topologyMgr can be nil if the AZ CR was not registered
 			// at the time of controller init. Handling that case in CreateVolume calls.
@@ -512,22 +518,25 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to find shared datastores for given topology requirement. Error: %v", err)
 			}
+		} else if hostnameLabelPresent && isVdppOnStretchedSVEnabled {
+			log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
 		} else {
-			if hostnameLabelPresent && isVdppOnStretchedSVEnabled {
-				log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
-			} else {
-				// zone labels not Present in the topologyRequirement
-				if len(clusterComputeResourceMoIds) > 1 {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-						"stretched supervisor cluster does not support creating volumes "+
-							"without zone keys in the topologyRequirement  . Error: %v", err)
-				}
-				sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc,
-					clusterComputeResourceMoIds[0], true)
-				if err != nil {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"failed finding candidate datastores to place volume. Error: %v", err)
-				}
+			// No topology labels present in the topologyRequirement
+			if workloadDomainIsolationEnabled && isVdppOnStretchedSVEnabled {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+					"volume provisioning request received without topologyRequirement.")
+			}
+
+			if len(clusterComputeResourceMoIds) > 1 {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+					"stretched supervisor cluster does not support creating volumes "+
+						"without zone keys in the topologyRequirement.")
+			}
+			sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc,
+				clusterComputeResourceMoIds[0], true)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed finding candidate datastores to place volume. Error: %v", err)
 			}
 		}
 	} else {
