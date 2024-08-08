@@ -195,6 +195,27 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 					return err
 				}
 				log.Infof("%q CRD is created successfully", cnsoperatorv1alpha1.CnsUnregisterVolumePlural)
+
+				// Clean up routine to cleanup successful CnsUnregisterVolume instances.
+				log.Info("Starting go routine to cleanup successful CnsUnregisterVolume instances.")
+				err = watcher(ctx, cnsOperator)
+				if err != nil {
+					log.Error("Failed to watch on config file for changes to "+
+						"CnsRegisterVolumesCleanupIntervalInMin. Error: %+v", err)
+					return err
+				}
+				go func() {
+					for {
+						ctx, log = logger.GetNewContextWithLogger()
+						log.Infof("Triggering CnsUnregisterVolume cleanup routine")
+						cleanUpCnsUnregisterVolumeInstances(ctx, restConfig,
+							cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin)
+						log.Infof("Completed CnsUnregisterVolume cleanup")
+						for i := 1; i <= cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin; i++ {
+							time.Sleep(time.Duration(1 * time.Minute))
+						}
+					}
+				}()
 			}
 		}
 
