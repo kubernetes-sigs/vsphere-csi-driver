@@ -32,6 +32,7 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
@@ -182,6 +183,72 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvc.Name)}, expectedErrorMsg)
 		gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrorMsg)
 	})
+
+	ginkgo.It("[stretched-svc] Provisioning-volume-exceeding-quota", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By(fmt.Sprintf("Invoking test for SPBM policy: %s", f.Namespace.Name))
+		zonalPolicy := GetAndExpectStringEnvVar(envZonalStoragePolicyName)
+		labels_ns := map[string]string{}
+		labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
+		labels_ns["e2e-framework"] = f.BaseName
+
+		if zonalPolicy == "" {
+			ginkgo.Fail(envZonalStoragePolicyName + " env variable not set")
+		}
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("create resource quota")
+		restConfig := getRestConfigClient()
+		setStoragePolicyQuota(ctx, restConfig, zonalPolicy, namespace, "10Mi")
+		defer func() {
+			setStoragePolicyQuota(ctx, restConfig, zonalPolicy, namespace, rqLimit)
+		}()
+
+		pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", storageclass, nil, "")
+		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvcspec, metav1.CreateOptions{})
+		gomega.Expect(err).To(gomega.HaveOccurred())
+
+		zonalWffcPolicy := GetAndExpectStringEnvVar(envZonalWffcStoragePolicyName)
+		if zonalWffcPolicy == "" {
+			ginkgo.Fail(envZonalWffcStoragePolicyName + " env variable not set")
+		}
+		framework.Logf("zonal policy: %s and zonal wffc policy: %s", zonalPolicy, zonalWffcPolicy)
+
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, zonalWffcPolicy, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		storageClassName := storageclass.Name
+
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+		statefulset := GetStatefulSetFromManifest(namespace)
+		ginkgo.By("Creating statefulset")
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Spec.StorageClassName = &storageClassName
+		_, err = client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
+		gomega.Expect(err).To(gomega.HaveOccurred())
+		errMsg := "denied due to insufficient storage quota"
+		//gomega.Expect(err).To(gomega.ContainSubstring("denied due to insufficient storage quota "))
+		if err != nil && checkForEventWithMessage(client, "", statefulset.Name, errMsg) {
+			framework.Logf("Operation denied due to insufficient storage quota for storage policy")
+		}
+
+		defer func() {
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			framework.Logf("deleting statefulset on namespace: %s", namespace)
+		}()
+
+	})
+
 })
 
 // verifyStoragePolicyBasedVolumeProvisioning helps invokes storage policy related positive e2e tests
