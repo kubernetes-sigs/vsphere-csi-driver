@@ -36,9 +36,9 @@ var (
 	supervisorDynamicInformerInitLock   = &sync.Mutex{}
 )
 
-// newDynamicInformerFactory creates a dynamic informer factory for a given
+// NewDynamicInformerFactory creates a dynamic informer factory for a given
 // namespace if it doesn't exist already.
-func newDynamicInformerFactory(ctx context.Context, cfg *restclient.Config, namespace string,
+func NewDynamicInformerFactory(ctx context.Context, cfg *restclient.Config, namespace string,
 	isInCluster bool) (dynamicinformer.DynamicSharedInformerFactory, error) {
 	log := logger.GetLogger(ctx)
 	var (
@@ -92,7 +92,7 @@ func GetDynamicInformer(ctx context.Context, crdGroup, crdVersion, crdName, name
 	log := logger.GetLogger(ctx)
 	var err error
 
-	dynamicInformerFactory, err := newDynamicInformerFactory(ctx, cfg, namespace, isInCluster)
+	dynamicInformerFactory, err := NewDynamicInformerFactory(ctx, cfg, namespace, isInCluster)
 	if err != nil {
 		log.Errorf("could not retrieve dynamic informer factory for %q namespace. Error: %+v", namespace, err)
 		return nil, err

@@ -141,3 +141,14 @@ const (
 	// resizeWorkers represents the number of running worker threads
 	resizeWorkers = 10
 )
+
+const (
+	// storagePolicyQuotaResyncPeriod represents the interval between two storagePolicyQuota reconciler syncs
+	storagePolicyQuotaResyncPeriod = 10 * time.Minute
+	// storagePolicyQuotaRetryIntervalStart represents the start retry interval of the storagePolicyQuota reconciler
+	storagePolicyQuotaRetryIntervalStart = time.Second
+	// storagePolicyQuotaRetryIntervalMax represents the max retry interval of the storagePolicyQuota reconciler
+	storagePolicyQuotaRetryIntervalMax = 5 * time.Minute
+	// storagePolicyQuotaWorkers represents the number of running worker threads
+	storagePolicyQuotaWorkers = 10
+)
