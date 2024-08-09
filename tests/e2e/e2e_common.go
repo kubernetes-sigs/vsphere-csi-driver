@@ -34,6 +34,7 @@ const (
 	nginxImage                                 = "registry.k8s.io/nginx-slim:0.26"
 	nginxImage4upg                             = "registry.k8s.io/nginx-slim:0.27"
 	retainClaimPolicy                          = "Retain"
+	cloudInitLabel                             = "CloudInit"
 	configSecret                               = "vsphere-config-secret"
 	contollerClusterKubeConfig                 = "CONTROLLER_CLUSTER_KUBECONFIG"
 	controlPlaneLabel                          = "node-role.kubernetes.io/control-plane"
