@@ -18,12 +18,12 @@ package utils
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strconv"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"google.golang.org/grpc/codes"
-
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -244,4 +244,47 @@ func LogoutAllvCenterSessions(ctx context.Context) {
 		log.Infof("Disconnected vCenter client for host %s", vc.Config.Host)
 	}
 	log.Info("Successfully logged out vCenter sessions")
+}
+
+// QueryAllVolumesForCluster API returns QueryResult with all volumes for requested Cluster
+func QueryAllVolumesForCluster(ctx context.Context, m cnsvolume.Manager, clusterID string,
+	querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	log := logger.GetLogger(ctx)
+	var queryVolumeLimit = int64(500)
+	queryFilter := cnstypes.CnsQueryFilter{
+		ContainerClusterIds: []string{clusterID},
+		Cursor: &cnstypes.CnsCursor{
+			Offset: 0,
+			Limit:  queryVolumeLimit,
+		},
+	}
+	var allQueryResults *cnstypes.CnsQueryResult
+	for {
+		log.Debugf("Query volumes with offset: %v and limit: %v", queryFilter.Cursor.Offset, queryFilter.Cursor.Limit)
+		queryResult, err := QueryVolumeUtil(ctx, m, queryFilter, &querySelection, true)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"queryVolumeUtil failed with err=%+v", err.Error())
+		}
+		if queryResult == nil {
+			log.Info("Observed empty queryResult")
+			break
+		}
+		if allQueryResults == nil {
+			allQueryResults = queryResult
+		} else {
+			allQueryResults.Volumes = append(allQueryResults.Volumes, queryResult.Volumes...)
+		}
+		log.Infof("%v more volumes to be queried", queryResult.Cursor.TotalRecords-queryResult.Cursor.Offset)
+		if queryResult.Cursor.Offset == queryResult.Cursor.TotalRecords {
+			log.Info("Retrieved for all requested volumes")
+			allQueryResults.Cursor.Offset = queryResult.Cursor.TotalRecords
+			break
+		}
+		queryFilter.Cursor = &queryResult.Cursor
+	}
+	if allQueryResults == nil {
+		return nil, logger.LogNewError(log, fmt.Sprintf("no volume found for clusterID: %q", clusterID))
+	}
+	return allQueryResults, nil
 }
