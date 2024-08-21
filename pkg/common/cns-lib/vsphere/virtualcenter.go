@@ -146,6 +146,8 @@ type VirtualCenterConfig struct {
 	// when ReloadVCConfigForNewClient is set to true it forces re-read config secret when
 	// new vc client needs to be created
 	ReloadVCConfigForNewClient bool
+	// FileVolumeActivated indicates whether file service has been enabled on any vSAN cluster or not
+	FileVolumeActivated bool
 }
 
 // NewClient creates a new govmomi Client instance.

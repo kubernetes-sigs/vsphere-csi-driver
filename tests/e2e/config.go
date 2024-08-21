@@ -71,6 +71,8 @@ type e2eTestConfig struct {
 		SupervisorID string `gcfg:"supervisor-id"`
 		// targetvSANFileShareClusters
 		TargetVsanFileShareClusters string `gcfg:"targetvSANFileShareClusters"`
+		// fileVolumeActivated
+		FileVolumeActivated bool `gcfg:"fileVolumeActivated"`
 	}
 	// Multiple sets of Net Permissions applied to all file shares
 	// The string can uniquely represent each Net Permissions config

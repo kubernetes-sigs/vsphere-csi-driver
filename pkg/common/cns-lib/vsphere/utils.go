@@ -197,6 +197,7 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 		QueryLimit:                  cfg.Global.QueryLimit,
 		ListVolumeThreshold:         cfg.Global.ListVolumeThreshold,
 		MigrationDataStoreURL:       cfg.VirtualCenter[host].MigrationDataStoreURL,
+		FileVolumeActivated:         cfg.VirtualCenter[host].FileVolumeActivated,
 	}
 
 	log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
@@ -242,6 +243,7 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 			TargetvSANFileShareClusters: targetvSANClustersForFile,
 			QueryLimit:                  cfg.Global.QueryLimit,
 			ListVolumeThreshold:         cfg.Global.ListVolumeThreshold,
+			FileVolumeActivated:         cfg.VirtualCenter[vCenterIP].FileVolumeActivated,
 		}
 		if vcConfig.CAFile == "" {
 			vcConfig.CAFile = cfg.Global.CAFile
