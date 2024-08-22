@@ -1172,3 +1172,129 @@ func checkForEventWithMessage(client clientset.Interface, namespace string,
 	}
 	return eventFound
 }
+
+// makeHostLoseStorageWithOtherHosts causes or removes network fault on a particular host
+func makeHostLoseStorageConnectivityWithOtherHosts(esxHosts []string, hostsToInduceFault []string, causeNetworkFailure bool) {
+	var wg sync.WaitGroup
+	runCmdOnHost := len(hostsToInduceFault)
+	if causeNetworkFailure {
+		framework.Logf("Creating a Network Failure with other hosts")
+		sshCmd := "localcli network firewall set --enabled true;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id cmmds;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id rdt;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id fdm;"
+
+		if runCmdOnHost > 0 {
+			wg.Add(len(hostsToInduceFault))
+			for _, host := range hostsToInduceFault {
+				go runCmdOnHostsInParallel(host, sshCmd, &wg)
+			}
+			wg.Wait()
+		} else {
+			wg.Add(len(esxHosts))
+			for _, host := range esxHosts {
+				go runCmdOnHostsInParallel(host, sshCmd, &wg)
+			}
+			wg.Wait()
+		}
+
+		if runCmdOnHost > 0 {
+			sshCmd = ""
+
+			for i, _ := range hostsToInduceFault {
+				sshCmd = ""
+				for _, host := range esxHosts {
+					sshCmd = fmt.Sprintf("localcli network firewall ruleset allowedip add -i %s -r rdt;", host)
+					sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip add -i %s -r cmmds;", host)
+					sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip add -i %s -r fdm;", host)
+				}
+				runCommandOnESX(rootUser, hostsToInduceFault[i], sshCmd)
+			}
+		} else {
+			for i, _ := range esxHosts {
+				sshCmd = ""
+				remainingHosts := append(esxHosts[:i], esxHosts[i+1:]...)
+				for _, host := range remainingHosts {
+					sshCmd = fmt.Sprintf("localcli network firewall ruleset allowedip add -i %s -r rdt;", host)
+					sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip add -i %s -r cmmds;", host)
+					sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip add -i %s -r fdm;", host)
+				}
+				runCommandOnESX(rootUser, esxHosts[i], sshCmd)
+			}
+
+		}
+		sshCmd = "vsish -e set /vmkModules/esxfw/globaloptions 1 0 0 0 1"
+		if runCmdOnHost > 0 {
+			wg.Add(len(hostsToInduceFault))
+			for _, host := range hostsToInduceFault {
+				go runCmdOnHostsInParallel(host, sshCmd, &wg)
+			}
+			wg.Wait()
+		} else {
+			wg.Add(len(esxHosts))
+			for _, host := range esxHosts {
+				go runCmdOnHostsInParallel(host, sshCmd, &wg)
+			}
+			wg.Wait()
+		}
+
+	} else {
+		framework.Logf("Removing network Failure with other hosts")
+		sshCmd := "localcli network firewall set --enabled false;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id cmmds;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id rdt;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id fdm;"
+
+		if runCmdOnHost > 0 {
+			wg.Add(len(hostsToInduceFault))
+			for _, host := range hostsToInduceFault {
+				go runCmdOnHostsInParallel(host, sshCmd, &wg)
+			}
+			wg.Wait()
+		} else {
+			wg.Add(len(esxHosts))
+			for _, host := range esxHosts {
+				go runCmdOnHostsInParallel(host, sshCmd, &wg)
+			}
+			wg.Wait()
+		}
+
+		if runCmdOnHost > 0 {
+			for i, _ := range hostsToInduceFault {
+				sshCmd = ""
+				for _, host := range esxHosts {
+					sshCmd = fmt.Sprintf("localcli network firewall ruleset allowedip remove -i %s -r rdt;", host)
+					sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip remove -i %s -r cmmds;", host)
+					sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip remove -i %s -r fdm;", host)
+				}
+				runCommandOnESX(rootUser, hostsToInduceFault[i], sshCmd)
+			}
+
+		} else {
+			for i, _ := range esxHosts {
+				sshCmd = ""
+				remainingHosts := append(esxHosts[:i], esxHosts[i+1:]...)
+				for _, host := range remainingHosts {
+					sshCmd = fmt.Sprintf("localcli network firewall ruleset allowedip remove -i %s -r rdt;", host)
+					sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip remove -i %s -r cmmds;", host)
+					sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip remove -i %s -r fdm;", host)
+				}
+				runCommandOnESX(rootUser, esxHosts[i], sshCmd)
+			}
+		}
+		sshCmd = "vsish -e set /vmkModules/esxfw/globaloptions 1 1 0 1 1"
+		if runCmdOnHost > 0 {
+			wg.Add(len(hostsToInduceFault))
+			for _, host := range hostsToInduceFault {
+				go runCmdOnHostsInParallel(host, sshCmd, &wg)
+			}
+			wg.Wait()
+		} else {
+			wg.Add(len(esxHosts))
+			for _, host := range esxHosts {
+				go runCmdOnHostsInParallel(host, sshCmd, &wg)
+			}
+			wg.Wait()
+		}
+	}
+}
