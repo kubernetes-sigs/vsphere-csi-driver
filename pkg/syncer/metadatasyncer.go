@@ -333,12 +333,6 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				return logger.LogNewErrorf(log, "failed to start CnsVolumeOperationRequest informer on %q instances. Error: %v",
 					cnsvolumeoperationrequest.CRDSingular, err)
 			}
-			err = startStoragePolicyQuotaCRInformer(ctx, k8sConfig, metadataSyncer)
-			if err != nil {
-				return logger.LogNewErrorf(log, "failed to start informer on %q instances. Error: %v",
-					cnsoperatorv1alpha1.CnsStoragePolicyQuotaSingular, err)
-			}
-
 			isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
 			if isStorageQuotaM2Enabled {
 				// Create informer to watch on update events of CnsVolumeInfo CRs
@@ -752,6 +746,23 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				}
 			}
 		}()
+		if IsPodVMOnStretchSupervisorFSSEnabled {
+			// Trigger StoragePolicyQuota reconciler to handle add/delete event on StoragePolicyQuota.
+			storageQuotaEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
+			defer storageQuotaEnablementTicker.Stop()
+			go func() {
+				for ; true; <-storageQuotaEnablementTicker.C {
+					ctx, log = logger.GetNewContextWithLogger()
+					if err := initStoragePolicyQuotaReconciler(ctx, metadataSyncer); err != nil {
+						log.Warnf("Error while initializing StoragePolicyQuota reconciler. Err:%+v. "+
+							"Retry will be triggered at %v",
+							err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
+						continue
+					}
+					break
+				}
+			}()
+		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		volumeHealthEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
@@ -2854,6 +2865,24 @@ func initResizeReconciler(ctx context.Context, tkgClient clientset.Interface,
 	return nil
 }
 
+func initStoragePolicyQuotaReconciler(ctx context.Context, metadataSyncInformer *metadataSyncInformer) error {
+	log := logger.GetLogger(ctx)
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	log.Infof("initStoragePolicyQuotaReconciler is triggered")
+	// TODO: Refactor the code to use existing NewInformer function to get informerFactory
+	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/585
+	rc, err := newStoragePolicyQuotaReconciler(ctx, metadataSyncInformer,
+		workqueue.NewItemExponentialFailureRateLimiter(storagePolicyQuotaRetryIntervalStart,
+			storagePolicyQuotaRetryIntervalMax), stopCh)
+	if err != nil {
+		log.Errorf("initStoragePolicyQuotaReconciler: err received %v", err)
+		return err
+	}
+	rc.Run(ctx, storagePolicyQuotaWorkers)
+	return nil
+}
+
 // createStoragePolicyUsageCR creates StoragePolicyUsage CR with given parameters
 func createStoragePolicyUsageCR(ctx context.Context, quotaClient client.Client, name, namespace,
 	storagePolicyId, storageClassName, resourceKind, resourceApiGroup,
@@ -2889,44 +2918,36 @@ func createStoragePolicyUsageCR(ctx context.Context, quotaClient client.Client, 
 	return &newUsageInstance, nil
 }
 
-// policyQuotaCRAdded, on creation of StoragePolicyQuota object, creates StoragePolicyUsage object
-// for the Storage Policy Id and storage classes asspociated, in given same namespace as of StoragePolicyQuota object.
-func policyQuotaCRAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, log := logger.GetNewContextWithLogger()
-	// Verify object received.
-	var policyQuotaObj storagepolicyv1alpha1.StoragePolicyQuota
+// getOrCreateStoragePolicyUsageCR creates StoragePolicyUsage CR for given storagePolicyID & namespace,
+// if not found already.
+func getOrCreateStoragePolicyUsageCR(ctx context.Context, storagePolicyId string,
+	namespace string, metadataSyncer *metadataSyncInformer) (*storagepolicyv1alpha1.StoragePolicyUsage,
+	error) {
 	var foundPvcUsageInstance, foundSnapUsageInstance bool
-	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object,
-		&policyQuotaObj)
-	if err != nil {
-		log.Errorf("policyQuotaCRAdded: failed to cast object %+v to %s. Error: %v", obj,
-			cnsoperatorv1alpha1.CnsStoragePolicyQuotaSingular, err)
-		return
-	}
-	namespace := policyQuotaObj.Namespace
-	storagePolicyId := policyQuotaObj.Spec.StoragePolicyId
+	log := logger.GetLogger(ctx)
 	// Get storage classes associated with storage policy id of StoragePolicyQuota CR added
 	config, err := k8s.GetKubeConfig(ctx)
 	if err != nil {
-		log.Errorf("policyQuotaCRAdded: Failed to get KubeConfig. err: %v", err)
-		return
+		log.Errorf("getOrCreateStoragePolicyUsageCR: Failed to get KubeConfig. err: %v", err)
+		return nil, err
 	}
 	k8sClient, err := clientset.NewForConfig(config)
 	if err != nil {
-		log.Errorf("policyQuotaCRAdded: Failed to create kubernetes client. Err: %+v", err)
-		return
+		log.Errorf("getOrCreateStoragePolicyUsageCR: Failed to create kubernetes client. Err: %+v", err)
+		return nil, err
 	}
 	storageQuotaClient, err := k8s.NewClientForGroup(ctx, config, cnsoperatorv1alpha1.GroupName)
 	if err != nil {
-		log.Errorf("policyQuotaCRAdded: Failed to create CnsOperator client. Err: %+v", err)
-		return
+		log.Errorf("getOrCreateStoragePolicyUsageCR: Failed to create CnsOperator client. Err: %+v", err)
+		return nil, err
 	}
 	storageClassList, err := k8sClient.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		log.Errorf("policyQuotaCRAdded: Failed to list storageclasses. Err: %+v", err)
-		return
+		log.Errorf("getOrCreateStoragePolicyUsageCR: Failed to list storageclasses. Err: %+v", err)
+		return nil, err
 	}
 	isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
+	usageCR := &storagepolicyv1alpha1.StoragePolicyUsage{}
 	// For each storage class associated with storage policy id of StoragePolicyQuota CR,
 	// check if StoragePolicyUsage CR with resource type PVC or Snapshot exists.
 	// If not, create one with all parameters specified.
@@ -2937,9 +2958,9 @@ func policyQuotaCRAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
 				Namespace: namespace,
 			})
 			if err != nil {
-				log.Errorf("policyQuotaCRAdded: Failed to list %v CRs associated in namespace %v. Err: %+v",
+				log.Errorf("getOrCreateStoragePolicyUsageCR: Failed to list %v CRs in namespace %v. Err: %+v",
 					cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular, namespace, err)
-				return
+				return nil, err
 			}
 			foundPvcUsageInstance = false
 			foundSnapUsageInstance = false
@@ -2956,66 +2977,60 @@ func policyQuotaCRAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
 			}
 			if !foundPvcUsageInstance {
 				pvcQuotaUsageInstanceName := sc.Name + "-" + storagepolicyv1alpha1.NameSuffixForPVC
-				_, err := createStoragePolicyUsageCR(ctx, storageQuotaClient, pvcQuotaUsageInstanceName, namespace,
-					storagePolicyId, sc.Name, ResourceKindPVC, ResourceAPIgroupPVC, PVCQuotaExtensionServiceName)
+				usageCR, err = createStoragePolicyUsageCR(ctx, storageQuotaClient, pvcQuotaUsageInstanceName,
+					namespace, storagePolicyId, sc.Name, ResourceKindPVC, ResourceAPIgroupPVC,
+					PVCQuotaExtensionServiceName)
 				if err != nil {
-					log.Errorf("policyQuotaCRAdded: Failed to create %v CR for %v kind. Err: %+v",
+					log.Errorf("getOrCreateStoragePolicyUsageCR: Failed to create %v CR for %v kind. Err: %+v",
 						cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular, ResourceKindPVC, err)
-					return
+					return nil, err
 				}
-				log.Infof("policyQuotaCRAdded: Created %v for policy %v storageclass %v resourceKind %v",
-					cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular, storagePolicyId, sc.Name, ResourceKindPVC)
+				log.Infof("getOrCreateStoragePolicyUsageCR: Created %v in namespace %v for policy %v "+
+					"storageclass %v resourceKind %v", cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular,
+					namespace, storagePolicyId, sc.Name, ResourceKindPVC)
 			}
 			if isStorageQuotaM2Enabled && !foundSnapUsageInstance {
 				snapQuotaUsageInstanceName := sc.Name + "-" + storagepolicyv1alpha1.NameSuffixForSnapshot
-				_, err := createStoragePolicyUsageCR(ctx, storageQuotaClient, snapQuotaUsageInstanceName, namespace,
-					storagePolicyId, sc.Name, ResourceKindSnapshot, ResourceAPIgroupSnapshot, SnapQuotaExtensionServiceName)
+				usageCR, err = createStoragePolicyUsageCR(ctx, storageQuotaClient, snapQuotaUsageInstanceName,
+					namespace, storagePolicyId, sc.Name, ResourceKindSnapshot, ResourceAPIgroupSnapshot,
+					SnapQuotaExtensionServiceName)
 				if err != nil {
-					log.Errorf("policyQuotaCRAdded: Failed to create %v CR for %v kind. Err: %+v",
+					log.Errorf("getOrCreateStoragePolicyUsageCR: Failed to create %v CR for %v kind. Err: %+v",
 						cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular, ResourceKindSnapshot, err)
-					return
+					return nil, err
 				}
-				log.Infof("policyQuotaCRAdded: Created %v for policy %v storageclass %v resourceKind %v",
-					cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular, storagePolicyId, sc.Name, ResourceKindSnapshot)
+				log.Infof("getOrCreateStoragePolicyUsageCR: Created %v in namespace %vfor policy %v "+
+					"storageclass %v resourceKind %v", cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular,
+					namespace, storagePolicyId, sc.Name, ResourceKindSnapshot)
 			}
 		}
 	}
+	return usageCR, nil
 }
 
-// policyQuotaCRDeleted, on deletion of StoragePolicyQuota object, deletes StoragePolicyUsage object
-// for the Storage Policy Id and storage classes asspociated, in given same namespace as of StoragePolicyQuota object.
-func policyQuotaCRDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, log := logger.GetNewContextWithLogger()
-	// Verify object received.
-	var policyQuotaObj storagepolicyv1alpha1.StoragePolicyQuota
-	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object,
-		&policyQuotaObj)
-	if err != nil {
-		log.Errorf("policyQuotaCRDeleted: failed to cast object %+v to %s. Error: %v", obj,
-			cnsoperatorv1alpha1.CnsStoragePolicyQuotaSingular, err)
-		return
-	}
-	namespace := policyQuotaObj.Namespace
-	storagePolicyId := policyQuotaObj.Spec.StoragePolicyId
+// deleteStoragePolicyUsageCR deletes StoragePolicyUsage CR for given storagePolicyId and namespace
+func deleteStoragePolicyUsageCR(ctx context.Context, storagePolicyId string,
+	namespace string, metadataSyncer *metadataSyncInformer) error {
+	log := logger.GetLogger(ctx)
 	// Get storage classes associated with storage policy id of StoragePolicyQuota CR added
 	config, err := k8s.GetKubeConfig(ctx)
 	if err != nil {
-		log.Errorf("policyQuotaCRDeleted: Failed to get KubeConfig. err: %v", err)
-		return
+		log.Errorf("deleteStoragePolicyUsageCR: Failed to get KubeConfig. err: %v", err)
+		return err
 	}
 	storageQuotaClient, err := k8s.NewClientForGroup(ctx, config, cnsoperatorv1alpha1.GroupName)
 	if err != nil {
-		log.Errorf("policyQuotaCRDeleted: Failed to create CnsOperator client. Err: %+v", err)
-		return
+		log.Errorf("deleteStoragePolicyUsageCR: Failed to create CnsOperator client. Err: %+v", err)
+		return err
 	}
 	policyUsageList := &storagepolicyv1alpha1.StoragePolicyUsageList{}
 	err = storageQuotaClient.List(ctx, policyUsageList, &client.ListOptions{
 		Namespace: namespace,
 	})
 	if err != nil {
-		log.Errorf("policyQuotaCRDeleted: Failed to list %v CRs associated in namespace %v. Err: %+v",
+		log.Errorf("deleteStoragePolicyUsageCR: Failed to list %v CRs associated in namespace %v. Err: %+v",
 			cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular, namespace, err)
-		return
+		return err
 	}
 	isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
 	// For each storagepolicyusage matching with the storage policy id, delete the usage CR.
@@ -3032,77 +3047,43 @@ func policyQuotaCRDeleted(obj interface{}, metadataSyncer *metadataSyncInformer)
 			err := storageQuotaClient.Delete(ctx, &policyUsageCR)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
-					log.Infof("policyQuotaCRDeleted: StoragePolicyUsageCR instance %q/%q already deleted. "+
-						"Returning success for the delete operation", namespace, usage.Name)
+					log.Infof("deleteStoragePolicyUsageCR: StoragePolicyUsageCR instance %q/%q already "+
+						"deleted. Returning success for the delete operation", namespace, usage.Name)
 					continue
 				}
-				log.Errorf("policyQuotaCRDeleted: Failed to delete StoragePolicyUsageCR for policyID %v "+
-					"storageclass %v resourceKind %v. Err: %+v",
+				log.Errorf("deleteStoragePolicyUsageCR: Failed to delete StoragePolicyUsageCR for "+
+					"policyID %v storageclass %v resourceKind %v. Err: %+v",
 					storagePolicyId, usage.Spec.StorageClassName, ResourceAPIgroupPVC, err)
 				continue
 			}
-			log.Infof("policyQuotaCRDeleted: StoragePolicyUsageCR instance %q/%q successfully deleted.",
+			log.Infof("deleteStoragePolicyUsageCR: StoragePolicyUsageCR instance %q/%q successfully deleted.",
 				namespace, usage.Name)
 			continue
 		}
-		log.Infof("policyQuotaCRDeleted: StoragePolicyUsageCR instance %q/%q does not have the matching "+
+		log.Infof("deleteStoragePolicyUsageCR: StoragePolicyUsageCR instance %q/%q does not have matching "+
 			"storagepolicyid %v with quota object getting deleted or has invalid resourceKind %s associated."+
 			"Ignoring this usage CR object.", namespace, usage.Name, storagePolicyId, usage.Spec.ResourceKind)
 	}
-}
-
-// startStoragePolicyQuotaCRInformer creates and starts an informer for StoragePolicyQuota custom resource.
-func startStoragePolicyQuotaCRInformer(ctx context.Context, cfg *restclient.Config,
-	metadataSyncer *metadataSyncInformer) error {
-	log := logger.GetLogger(ctx)
-	// Create an informer for StoragePolicyQuota instances.
-	dynInformer, err := k8s.GetDynamicInformer(ctx, cnsoperatorv1alpha1.GroupName,
-		cnsoperatorv1alpha1.Version, cnsoperatorv1alpha1.CnsStoragePolicyQuotaPlural, metav1.NamespaceAll, cfg, true)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to create dynamic informer for %s CR. Error: %+v",
-			cnsoperatorv1alpha1.CnsStoragePolicyQuotaSingular, err)
-	}
-	policyQuotaInformer := dynInformer.Informer()
-	_, err = policyQuotaInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			policyQuotaCRAdded(obj, metadataSyncer)
-		},
-		DeleteFunc: func(obj interface{}) {
-			policyQuotaCRDeleted(obj, metadataSyncer)
-		},
-	})
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to add event handler on informer for %q CR. Error: %v",
-			cnsoperatorv1alpha1.CnsStoragePolicyQuotaSingular, err)
-	}
-	// Start informer.
-	go func() {
-		log.Infof("Informer to watch on %s CR starting..", cnsoperatorv1alpha1.CnsStoragePolicyQuotaSingular)
-		policyQuotaInformer.Run(make(chan struct{}))
-	}()
 	return nil
 }
 
-// storagePolicyUsageCRSync patches StoragePolicyUsage CRs for k8s PVs in Bound state.
-// This method also creates StoragePolicyUsage CRs when the CR is not found for PVCs in Pending state.
 func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
-	log.Infof("storagePolicyUsageCRSync: Starting storage policy usage CR sync")
 
 	// Prepare map of storagepolicyID to storageclassnames.
 	k8sconfig, err := k8s.GetKubeConfig(ctx)
 	if err != nil {
-		log.Errorf("storagePolicyUsageCRSync: Failed to get KubeConfig. err: %v", err)
+		log.Errorf("createStoragePolicyUsageCRS: Failed to get KubeConfig. err: %v", err)
 		return
 	}
 	k8sClient, err := clientset.NewForConfig(k8sconfig)
 	if err != nil {
-		log.Errorf("storagePolicyUsageCRSync: Failed to create kubernetes client. Err: %+v", err)
+		log.Errorf("createStoragePolicyUsageCRS: Failed to create kubernetes client. Err: %+v", err)
 		return
 	}
 	storageClassList, err := k8sClient.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		log.Errorf("storagePolicyUsageCRSync: Failed to list storageclasses. Err: %+v", err)
+		log.Errorf("createStoragePolicyUsageCRS: Failed to list storageclasses. Err: %+v", err)
 		return
 	}
 	scPolicyIdToNameMap := make(map[string][]string)
@@ -3114,12 +3095,12 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 	// Prepare Config and NewClientForGroup for cnsOperatorClient
 	restConfig, err := config.GetConfig()
 	if err != nil {
-		log.Errorf("storagePolicyUsageCRSync: Failed to get Kubernetes k8sconfig. Err: %+v", err)
+		log.Errorf("createStoragePolicyUsageCRS: Failed to get Kubernetes k8sconfig. Err: %+v", err)
 		return
 	}
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
 	if err != nil {
-		log.Errorf("storagePolicyUsageCRSync: Failed to create CnsOperator client. Err: %+v", err)
+		log.Errorf("createStoragePolicyUsageCRS: Failed to create CnsOperator client. Err: %+v", err)
 		return
 	}
 
@@ -3127,7 +3108,7 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 	spqList := &storagepolicyv1alpha1.StoragePolicyQuotaList{}
 	err = cnsOperatorClient.List(ctx, spqList)
 	if err != nil {
-		log.Errorf("storagePolicyUsageCRSync: failed to list %q CR from all "+
+		log.Errorf("createStoragePolicyUsageCRS: failed to list %q CR from all "+
 			"supervisor namespaces. Error: %+v", cnsoperatorv1alpha1.CnsStoragePolicyQuotaSingular, err)
 		return
 	}
@@ -3135,7 +3116,7 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 	for _, spq := range spqList.Items {
 		// Make sure storagePolicyQuota instance is not getting deleted.
 		if spq.DeletionTimestamp != nil {
-			log.Infof("storagePolicyUsageCRSync: Deletion timestamp set on StoragePolicyQuota %q in "+
+			log.Infof("createStoragePolicyUsageCRS: Deletion timestamp set on StoragePolicyQuota %q in "+
 				"namespace %q. Ignoring creation of StoragePolicyUsage for this instance.", spq.Name, spq.Namespace)
 			continue
 		}
@@ -3151,7 +3132,7 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 				storagePolicyUsageCR)
 			if err == nil {
 				// Found storagePolicyUsageCR for PVC kind. Check for storagePolicyUsageCR for snapshot kind next.
-				log.Debugf("storagePolicyUsageCRSync: Found storagePolicyUsage CR %q for "+
+				log.Debugf("createStoragePolicyUsageCRS: Found storagePolicyUsage CR %q for "+
 					"StoragePolicyQuota %q in namespace %q", storagePolicyUsageInstanceName, spq.Name, spq.Namespace)
 			} else {
 				if apierrors.IsNotFound(err) {
@@ -3159,15 +3140,15 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 						spq.Namespace, policyID, scName, ResourceKindPVC, ResourceAPIgroupPVC,
 						PVCQuotaExtensionServiceName)
 					if err != nil {
-						log.Errorf("storagePolicyUsageCRSync: Failed to create %q CR with name %q in "+
+						log.Errorf("createStoragePolicyUsageCRS: Failed to create %q CR with name %q in "+
 							"namespace %q for %q kind. Err: %+v", cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular,
 							storagePolicyUsageInstanceName, spq.Namespace, ResourceKindPVC, err)
 					} else {
-						log.Infof("storagePolicyUsageCRSync: Successfully created the storagePolicyUsage CR %q "+
+						log.Infof("createStoragePolicyUsageCRS: Successfully created the storagePolicyUsage CR %q "+
 							"in namespace %q", storagePolicyUsageInstanceName, spq.Namespace)
 					}
 				} else {
-					log.Errorf("storagePolicyUsageCRSync: Failed to fetch storagePolicyUsage CR %q for "+
+					log.Errorf("createStoragePolicyUsageCRS: Failed to fetch storagePolicyUsage CR %q for "+
 						"StoragePolicyQuota %q in namespace %q. Error: %+v", storagePolicyUsageInstanceName, spq.Name,
 						spq.Namespace, err)
 				}
@@ -3182,7 +3163,7 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 					storagePolicyUsageCR)
 				if err == nil {
 					// Found storagePolicyUsageCR for snapshot kind. Move to the next SC.
-					log.Debugf("storagePolicyUsageCRSync: Found storagePolicyUsage CR %q for "+
+					log.Debugf("createStoragePolicyUsageCRS: Found storagePolicyUsage CR %q for "+
 						"StoragePolicyQuota %q in namespace %q", storagePolicyUsageInstanceName, spq.Name, spq.Namespace)
 					continue
 				} else {
@@ -3191,15 +3172,15 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 							spq.Namespace, policyID, scName, ResourceKindSnapshot, ResourceAPIgroupSnapshot,
 							SnapQuotaExtensionServiceName)
 						if err != nil {
-							log.Errorf("storagePolicyUsageCRSync: Failed to create %q CR with name %q in "+
+							log.Errorf("createStoragePolicyUsageCRS: Failed to create %q CR with name %q in "+
 								"namespace %q for %q kind. Err: %+v", cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular,
 								storagePolicyUsageInstanceName, spq.Namespace, ResourceKindSnapshot, err)
 							continue
 						}
-						log.Infof("storagePolicyUsageCRSync: Successfully created the storagePolicyUsage CR %q "+
+						log.Infof("createStoragePolicyUsageCRS: Successfully created the storagePolicyUsage CR %q "+
 							"in namespace %q", storagePolicyUsageInstanceName, spq.Namespace)
 					} else {
-						log.Errorf("storagePolicyUsageCRSync: Failed to fetch storagePolicyUsage CR %q for "+
+						log.Errorf("createStoragePolicyUsageCRS: Failed to fetch storagePolicyUsage CR %q for "+
 							"StoragePolicyQuota %q in namespace %q. Error: %+v", storagePolicyUsageInstanceName, spq.Name,
 							spq.Namespace, err)
 						continue
@@ -3210,6 +3191,8 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 	}
 }
 
+// storagePolicyUsageCRSync patches StoragePolicyUsage CRs for k8s PVs in Bound state.
+// This method also creates StoragePolicyUsage CRs when the CR is not found for PVCs in Pending state.
 func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
 	log.Infof("storagePolicyUsageCRSync: Starting storage policy usage CR sync")
