@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/view"
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
@@ -135,15 +136,41 @@ func getListViewWaitFilter(listView *view.ListView) *property.WaitFilter {
 	return filter
 }
 
+func (l *ListViewImpl) isSessionValid(ctx context.Context) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	log := logger.GetLogger(ctx)
+	if l.virtualCenter.Client == nil || l.virtualCenter.Client.Client == nil {
+		return false
+	}
+	// If session hasn't expired, nothing to do.
+	sessionMgr := session.NewManager(l.virtualCenter.Client.Client)
+	// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's
+	// CurrentSession field. Nil is returned if the session is not
+	// authenticated or timed out.
+	if userSession, err := sessionMgr.UserSession(ctx); err != nil {
+		log.Errorf("failed to obtain user session with err: %v", err)
+		return false
+	} else if userSession != nil {
+		return true
+	}
+	return false
+}
+
 // AddTask adds task to listView and the internal map
 func (l *ListViewImpl) AddTask(ctx context.Context, taskMoRef types.ManagedObjectReference, ch chan TaskResult) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("AddTask called for %+v", taskMoRef)
 
-	if err := l.virtualCenter.Connect(ctx); err != nil {
-		return fmt.Errorf("%w. task: %v, err: %v", ErrListViewTaskAddition, taskMoRef, err)
-	} else {
-		log.Debugf("connection to vc successful")
+	if !l.isSessionValid(ctx) {
+		log.Infof("current session is not valid")
+		if err := l.virtualCenter.Connect(ctx); err != nil {
+			return fmt.Errorf("%w. task: %v, err: %v", ErrListViewTaskAddition, taskMoRef, err)
+		}
+		log.Info("cancelling ongoing listView context to re-create listview object")
+		if l.waitForUpdatesCancelFunc != nil {
+			l.waitForUpdatesCancelFunc()
+		}
 	}
 
 	l.taskMap.Upsert(taskMoRef, TaskDetails{
@@ -181,13 +208,27 @@ func (l *ListViewImpl) AddTask(ctx context.Context, taskMoRef types.ManagedObjec
 // RemoveTask removes task from listview and the internal map
 func (l *ListViewImpl) RemoveTask(ctx context.Context, taskMoRef types.ManagedObjectReference) error {
 	log := logger.GetLogger(ctx)
+	// the op context has a timeout of 5 mins.
+	// if CNS doesn't respond within that time, the context deadline is exceeded.
+	// in that case, we need to use the context used my ListViewImpl which is init from controller or syncer main
+	deadline, ok := ctx.Deadline()
+	if !ok || time.Now().After(deadline) {
+		log.Infof("op timeout. context deadline exceeded. using listview context without a timeout")
+		ctx = l.ctx
+	}
 	if l.listView == nil {
 		return logger.LogNewErrorf(log, "failed to remove task from listView: listView not initialized")
 	}
-	if err := l.virtualCenter.Connect(ctx); err != nil {
-		return logger.LogNewErrorf(log, "failed to remove task %v from ListView. error: %+v", taskMoRef, err)
-	} else {
-		log.Debugf("connection to vc successful")
+
+	if !l.isSessionValid(ctx) {
+		log.Infof("current session is not valid")
+		if err := l.virtualCenter.Connect(ctx); err != nil {
+			return fmt.Errorf("%w. task: %v, err: %v", ErrListViewTaskAddition, taskMoRef, err)
+		}
+		log.Info("cancelling ongoing listView context to re-create listview object")
+		if l.waitForUpdatesCancelFunc != nil {
+			l.waitForUpdatesCancelFunc()
+		}
 	}
 	log.Infof("client is valid. trying to remove task from listview object")
 	_, err := l.listView.Remove(l.ctx, []types.ManagedObjectReference{taskMoRef})
