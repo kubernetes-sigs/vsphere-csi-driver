@@ -1096,7 +1096,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		15. Query the snapshot from CNS side - should return 0 entries
 		16. Cleanup: Delete PVC, SC (validate they are removed)
 	*/
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot] Verify snapshot dynamic provisioning workflow with "+
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot] TC17Verify snapshot dynamic provisioning workflow with "+
 		"raw block volume", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1315,7 +1315,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		ginkgo.By("Delete dyanmic volume snapshot")
 		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
-			volumeSnapshot, pandoraSyncWaitTime, volumeID, snapshotId)
+			volumeSnapshot, pandoraSyncWaitTime, volumeID, snapshotId, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })

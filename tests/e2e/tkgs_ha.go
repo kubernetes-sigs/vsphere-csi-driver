@@ -319,7 +319,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		ginkgo.By("Delete dynamic volume snapshot")
 		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
-			volumeSnapshot, pandoraSyncWaitTime, volHandle, dynamicSnapshotId)
+			volumeSnapshot, pandoraSyncWaitTime, volHandle, dynamicSnapshotId, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -928,7 +928,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		ginkgo.By("Delete dynamic volume snapshot")
 		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
-			volumeSnapshot, pandoraSyncWaitTime, volumeID, dynamicSnapshotId)
+			volumeSnapshot, pandoraSyncWaitTime, volumeID, dynamicSnapshotId, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -1128,7 +1128,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		ginkgo.By("Delete pre-provisioned snapshot")
 		staticSnapshotCreated, staticSnapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
-			staticSnapshot, pandoraSyncWaitTime, volHandle, snapshotId)
+			staticSnapshot, pandoraSyncWaitTime, volHandle, snapshotId, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -1435,7 +1435,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 			ginkgo.By("Delete pre-provisioned snapshot")
 			staticSnapshotCreated, staticSnapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
-				staticSnapshot, pandoraSyncWaitTime, volHandle, snapshotId)
+				staticSnapshot, pandoraSyncWaitTime, volHandle, snapshotId, true)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		})

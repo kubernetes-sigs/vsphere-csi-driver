@@ -301,7 +301,7 @@ func getRestConfigClientForGuestCluster(guestClusterRestConfig *rest.Config) *re
 // deleteVolumeSnapshot deletes volume snapshot from K8s side and CNS side
 func deleteVolumeSnapshot(ctx context.Context, snapc *snapclient.Clientset, namespace string,
 	volumeSnapshot *snapV1.VolumeSnapshot, pandoraSyncWaitTime int,
-	volHandle string, snapshotID string) (bool, bool, error) {
+	volHandle string, snapshotID string, performCnsQueryVolumeSnapshot bool) (bool, bool, error) {
 	var err error
 
 	framework.Logf("Delete volume snapshot and verify the snapshot content is deleted")
