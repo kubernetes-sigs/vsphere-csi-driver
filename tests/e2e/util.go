@@ -3176,6 +3176,9 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			config.Global.SupervisorID = value
 		case "targetvSANFileShareClusters":
 			config.Global.TargetVsanFileShareClusters = value
+		case "fileVolumeActivated":
+			config.Global.FileVolumeActivated, strconvErr = strconv.ParseBool(value)
+			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "ips":
 			netPerm.Ips = value
 		case "permissions":
