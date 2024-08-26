@@ -18,6 +18,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+exit 0
 # Change directories to the parent directory of the one in which this
 # script is located.
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
