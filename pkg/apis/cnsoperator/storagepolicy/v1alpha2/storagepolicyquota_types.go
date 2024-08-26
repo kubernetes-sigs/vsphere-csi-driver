@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha2
 
 import (
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -83,6 +83,7 @@ type StoragePolicyQuotaStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:storageversion
 
 // StoragePolicyQuota is the Schema for the storagepolicyquotas API
 type StoragePolicyQuota struct {

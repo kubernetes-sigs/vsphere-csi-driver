@@ -10,7 +10,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
@@ -23,10 +22,9 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
-
-	storagepolicyusagev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
+	storagepolicyusagev1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -34,6 +32,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 const (
@@ -874,27 +873,21 @@ func getPatchData(oldObj, newObj interface{}) ([]byte, error) {
 
 // PatchStoragePolicyUsage patches the StoragePolicyUsage CR based on old and new objects
 func PatchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Client,
-	oldObj *storagepolicyusagev1alpha1.StoragePolicyUsage,
-	newObj *storagepolicyusagev1alpha1.StoragePolicyUsage) error {
+	oldObj *storagepolicyusagev1alpha2.StoragePolicyUsage,
+	newObj *storagepolicyusagev1alpha2.StoragePolicyUsage) error {
 	log := logger.GetLogger(ctx)
 	patch, err := getPatchData(oldObj, newObj)
 	if err != nil {
 		log.Errorf("error fetching PatchData StoragePolicyUsage CR. err: %v", err)
 		return err
 	}
-	patch, err = addResourceVersion(patch, oldObj.ResourceVersion)
-	if err != nil {
-		log.Errorf("applying ResourceVersion to patch data failed: %v", err)
-		return err
-	}
 	rawPatch := client.RawPatch(apitypes.MergePatchType, patch)
-
 	// Try to patch StoragePolicyUsage CR for allowedRetries times
 	allowedRetries := allowedRetriesToPatchStoragePolicyUsage
 	attempt := 0
 	for {
 		attempt++
-		err = cnsOperatorClient.Patch(ctx, oldObj, rawPatch)
+		err = cnsOperatorClient.Status().Patch(ctx, oldObj, rawPatch)
 		if err != nil && attempt >= allowedRetries {
 			log.Errorf("failed to patch StoragePolicyUsage instance %q on namespace %q, Error: %+v",
 				oldObj.Name, oldObj.Namespace, err)

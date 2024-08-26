@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,6 +65,13 @@ type StoragePolicyUsageSpec struct {
 
 	// Name of service extension for given storage resource type
 	ResourceExtensionName string `json:"resourceExtensionName"`
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="ResourceExtensionNamespace is immutable"
+
+	// Namespace of service extension for given storage resource type
+	// +optional
+	ResourceExtensionNamespace string `json:"resourceExtensionNamespace,omitempty"`
 }
 
 // StoragePolicyUsageStatus defines the observed state of StoragePolicyUsage
@@ -74,9 +81,9 @@ type StoragePolicyUsageStatus struct {
 	ResourceTypeLevelQuotaUsage *QuotaUsageDetails `json:"quotaUsage"`
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +kubebuilder:subresource:status
 // StoragePolicyUsage is the Schema for the storagepolicyusages API
 type StoragePolicyUsage struct {
 	metav1.TypeMeta   `json:",inline"`

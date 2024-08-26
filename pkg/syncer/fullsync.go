@@ -394,17 +394,17 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 		}
 		config, err := k8s.GetKubeConfig(ctx)
 		if err != nil {
-			log.Errorf("storagePolicyUsageCRSync: Failed to get KubeConfig. err: %v", err)
+			log.Errorf("volumeInfoCRFullSync: Failed to get KubeConfig. err: %v", err)
 			return
 		}
 		k8sClient, err := clientset.NewForConfig(config)
 		if err != nil {
-			log.Errorf("storagePolicyUsageCRSync: Failed to create kubernetes client. Err: %+v", err)
+			log.Errorf("volumeInfoCRFullSync: Failed to create kubernetes client. Err: %+v", err)
 			return
 		}
 		storageClassList, err := k8sClient.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
 		if err != nil {
-			log.Errorf("storagePolicyUsageCRSync: Failed to list storageclasses. Err: %+v", err)
+			log.Errorf("volumeInfoCRFullSync: Failed to list storageclasses. Err: %+v", err)
 			return
 		}
 		// Create scNameToPolicyIdMap map for easy lookup of PolicyIds for a given storageclass name
