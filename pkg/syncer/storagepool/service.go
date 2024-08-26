@@ -189,6 +189,24 @@ func ResetVC(ctx context.Context, vc *cnsvsphere.VirtualCenter) {
 		log.Errorf("Failed to connect to SPBM service. Err: %+v", err)
 		return
 	}
+	// TODO remove code to add version to CNS API, once CNS releases the next version.
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2) {
+		cnsDevVersion := "dev.version"
+		log.Infof("use version %s for vCenter client", cnsDevVersion)
+		if vc.Client != nil {
+			log.Infof("Setting version %s to vCenter: %q vim25 client",
+				cnsDevVersion, vc.Config.Host)
+			vc.Client.Version = cnsDevVersion
+		}
+		if vc.CnsClient != nil {
+			log.Infof("Setting version %s to vCenter: %q cns client",
+				cnsDevVersion, vc.Config.Host)
+			vc.CnsClient.Version = cnsDevVersion
+			vc.CnsClient.Client.Version = cnsDevVersion
+		}
+		log.Infof("using CNS API version %s for vCenters %q client ",
+			cnsDevVersion, vc.Config.Host)
+	}
 	log.Info("Resetting VC connection in StoragePool service")
 	defaultStoragePoolServiceLock.Lock()
 	defer defaultStoragePoolServiceLock.Unlock()
