@@ -277,9 +277,10 @@ func (or *operationRequestStore) StoreRequestDetails(
 		}
 	}
 
-	// Modify FirstOperationDetails only if TaskID's match.
+	// Modify FirstOperationDetails only if TaskID's match or the initial TaskID is empty.
 	firstOp := instance.Status.FirstOperationDetails
-	if firstOp.TaskStatus == TaskInvocationStatusInProgress && firstOp.TaskID == operationToStore.OperationDetails.TaskID {
+	if firstOp.TaskStatus == TaskInvocationStatusInProgress &&
+		(firstOp.TaskID == operationToStore.OperationDetails.TaskID || firstOp.TaskID == "") {
 		updatedInstance.Status.FirstOperationDetails = *operationDetailsToStore
 	}
 
@@ -289,7 +290,7 @@ func (or *operationRequestStore) StoreRequestDetails(
 	for index := len(instance.Status.LatestOperationDetails) - 1; index >= 0; index-- {
 		operationDetail := instance.Status.LatestOperationDetails[index]
 		if operationDetail.TaskStatus == TaskInvocationStatusInProgress &&
-			operationDetailsToStore.TaskID == operationDetail.TaskID {
+			(operationDetailsToStore.TaskID == operationDetail.TaskID || operationDetail.TaskID == "") {
 			updatedInstance.Status.LatestOperationDetails[index] = *operationDetailsToStore
 			operationExistsInList = true
 			break
