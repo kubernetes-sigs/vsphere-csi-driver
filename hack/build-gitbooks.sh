@@ -23,11 +23,7 @@ set -o pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 pushd docs/book/
-npm install -g n
-n latest
-npm install -g npm
-hash -d npm
-npm i
+npm install npm@latest
 npm install gitbook-cli -g
 npm install phantomjs-prebuilt
 gitbook install
