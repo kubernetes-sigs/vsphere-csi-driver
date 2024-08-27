@@ -114,22 +114,35 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		// reading storage profile id of "wcpglobal_storage_profile"
 		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 
-		// creating/reading content library "https://wp-content-pstg.broadcom.com/vmsvc/lib.json"
+		/* creating/reading content library
+		   "https://wp-content-pstg.broadcom.com/vmsvc/lib.json" */
 		contentLibId := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
 			dsRef.Value, GetAndExpectStringEnvVar(envContentLibraryUrlSslThumbprint))
 
-		// creating test wcp namespace
-		framework.Logf("Create a WCP namespace for the test")
+		/*
+		   [ ~ ]# kubectl get vmclass -n csi-vmsvcns-2227
+		   NAME                CPU   MEMORY
+		   best-effort-small   2     4Gi
 
-		// reading vm class required for vm creation
+		   [ ~ ]# kubectl get vmclass best-effort-small -n csi-vmsvcns-2227 -o jsonpath='{.spec}' | jq
+		*/
 		vmClass = os.Getenv(envVMClass)
 		if vmClass == "" {
 			vmClass = vmClassBestEffortSmall
 		}
 
+		framework.Logf("Create a WCP namespace for the test")
 		// creating wcp test namespace and setting vmclass, contlib, storage class fields in test ns
 		namespace = createTestWcpNs(
 			vcRestSessionId, storageProfileId, vmClass, contentLibId, getSvcId(vcRestSessionId))
+
+		// Get snapshot client using the rest config
+		restConfig = getRestConfigClient()
+		snapc, err = snapclient.NewForConfig(restConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// setting resource quota for storage policy tagged to supervisor namespace
+		//setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimitScaleTest)
 
 		// creating vm schema
 		vmopScheme := runtime.NewScheme()
@@ -142,19 +155,19 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		cnsopC, err = ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: cnsOpScheme})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// reading vm image name "ubuntu-2004-cloud-init-21.4-kube-v1.20.10"
-		vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
+		/*
+		   *** reading vm image name "ubuntu-2004-cloud-init-21.4-kube-v1.20.10" ***
 
-		// listing the vm images available and added in test ns
+		   [ ~ ]# kubectl get vmimage -o wide -n csi-vmsvcns-2227 | grep ubuntu-2004-cloud-init-21.4-kube-v1.20.10
+		   vmi-819319608e5ba43d1   ubuntu-2004-cloud-init-21.4-kube-v1.20.10     OVF    kube-v1.20.10   ubuntu64Guest
+
+		   [ ~ ]# kubectl get vmimage vmi-819319608e5ba43d1 -n csi-vmsvcns-2227 -o jsonpath='{.spec}' | jq
+		*/
+		vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
 		framework.Logf("Waiting for virtual machine image list to be available in namespace '%s' for image '%s'",
 			namespace, vmImageName)
 		vmi = waitNGetVmiForImageName(ctx, vmopC, namespace, vmImageName)
 		gomega.Expect(vmi).NotTo(gomega.BeEmpty())
-
-		// Get snapshot client using the rest config
-		restConfig = getRestConfigClient()
-		snapc, err = snapclient.NewForConfig(restConfig)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// reading full sync wait time
 		if os.Getenv(envPandoraSyncWaitTime) != "" {
@@ -167,7 +180,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		//setting map values
 		labelsMap = make(map[string]string)
 		labelsMap["app"] = "test"
-
 	})
 
 	ginkgo.AfterEach(func() {
@@ -188,20 +200,20 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	})
 
 	/*
-		Testcase-1
-			Dynamic PVC → VM → Snapshot
-			Steps:
-			1. Create a PVC using the storage class (storage policy) tagged to the supervisor namespace
-			2. Wait for PVC to reach the Bound state.
-			3. Create a VM service VM using the PVC created in step #1
-			4. Wait for the VM service to be up and in the powered-on state.
-			5. Once the VM is up, verify that the volume is accessible inside the VM
-			6. Write some data into the volume.
-			7. Get VolumeSnapshotClass "volumesnapshotclass-delete" from supervisor cluster
-			8. Create a volume snapshot for the PVC created in step #1.
-			9. Snapshot Verification: Execute and verify the steps mentioned in the Create snapshot mandatory checks
-			10. Verify CNS metadata for a PVC
-			11. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
+	   Testcase-1
+	   Dynamic PVC → VM → Snapshot
+	   Steps:
+	   1. Create a PVC using the storage class (storage policy) tagged to the supervisor namespace
+	   2. Wait for PVC to reach the Bound state.
+	   3. Create a VM service VM using the PVC created in step #1
+	   4. Wait for the VM service to be up and in the powered-on state.
+	   5. Once the VM is up, verify that the volume is accessible inside the VM
+	   6. Write some data into the volume.
+	   7. Get VolumeSnapshotClass "volumesnapshotclass-delete" from supervisor cluster
+	   8. Create a volume snapshot for the PVC created in step #1.
+	   9. Snapshot Verification: Execute and verify the steps mentioned in the Create snapshot mandatory checks
+	   10. Verify CNS metadata for a PVC
+	   11. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
 	ginkgo.It("VM1", func() {
@@ -213,6 +225,11 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create a PVC")
+		/*
+		   [ ~ ]# kubectl get pvc -n csi-vmsvcns-2227
+		   NAME        STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS                VOLUMEATTRIBUTESCLASS   AGE
+		   pvc-tjhmx   Bound    pvc-7b3a0044-13c9-4b07-a233-6bdc81103abf   2Gi        RWO            wcpglobal-storage-profile   <unset>                 70s
+		*/
 		pvc, err := createPVC(ctx, client, namespace, labelsMap, diskSize, storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Waiting for all claims to be in bound state")
@@ -232,7 +249,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		}()
 
 		ginkgo.By("Creating VM bootstrap data")
-		// creating a secret for vm credentials
+		/*
+		   [ ~ ]# kubectl get secret -n csi-vmsvcns-2227
+		   NAME                TYPE     DATA   AGE
+		   vm-bootstrap-data   Opaque   1      72s
+
+		   [ ~ ]# kubectl get secret -n csi-vmsvcns-2227 -o yaml
+		*/
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
 		defer func() {
 			ginkgo.By("Deleting VM bootstrap data")
@@ -241,6 +264,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		}()
 
 		ginkgo.By("Creating VM")
+		/*
+		   [ ~ ]# kubectl get vm -o wide -n csi-vmsvcns-2227
+		   NAME               POWER-STATE   CLASS               IMAGE                   PRIMARY-IP4   AGE
+		   csi-test-vm-2668   PoweredOn     best-effort-small   vmi-819319608e5ba43d1                 94s
+
+		   [ ~ ]# kubectl describe vm -n csi-vmsvcns-2227
+		*/
 		vm := createVmServiceVmWithPvcs(
 			ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi, storageClassName, secretName)
 		defer func() {
@@ -253,6 +283,28 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
+		/*
+		   [ ~ ]# kubectl get network -n csi-vmsvcns-2227
+		   NAME      AGE
+		   primary   21m
+
+		   [ ~ ]# kubectl get network -n csi-vmsvcns-2227 -o jsonpath='{.items[0].spec}' | jq
+
+		   [ ~ ]# kubectl get vmservice -n csi-vmsvcns-2227
+		   NAME                   TYPE           AGE
+		   csi-test-vm-2668-svc   LoadBalancer   2m17s
+		   root@4203ec75780f15c3cd295b6bad330232 [ ~ ]#
+
+		   [ ~ ]# kubectl get svc -n csi-vmsvcns-2227
+		   NAME                   TYPE           CLUSTER-IP       EXTERNAL-IP     PORT(S)   AGE
+		   csi-test-vm-2668-svc   LoadBalancer   172.24.176.180   192.168.130.7   22/TCP    2m32s
+		   root@4203ec75780f15c3cd295b6bad330232 [ ~ ]#
+
+		   [ ~ ]# kubectl get endpoints -n csi-vmsvcns-2227
+		   NAME                   ENDPOINTS   AGE
+		   csi-test-vm-2668-svc   <none>      2m40s
+		   root@4203ec75780f15c3cd295b6bad330232 [ ~ ]#
+		*/
 		vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
 		defer func() {
 			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
@@ -272,6 +324,9 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
+		/*
+		   [ ~ ]# kubectl get cnsnodevmattachment -n csi-vmsvcns-2227  -o yaml
+		*/
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -320,21 +375,21 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	})
 
 	/*
-		Testcase-2
-				Static PVC → VM → Snapshot
-				Steps:
-				1. Create FCD
-				2. Create a static PV and PVC using cns register volume API
-				3. Wait for PV and PVC to reach the Bound state.
-				4. Create a VM service VM using the PVC created in step #2
-				5. Wait for the VM service to be up and in the powered-on state.
-				6. Once the VM is up, verify that the volume is accessible inside the VM
-				7. Write some data into the volume.
-				8. Get VolumeSnapshotClass "volumesnapshotclass-delete" from supervisor cluster
-				9. Create a volume snapshot for the PVC created in step #1.
-				10. Snapshot Verification: Execute and verify the steps mentioned in the Create snapshot mandatory checks
-				11. Verify CNS metadata for a PVC
-				12. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
+	   Testcase-2
+	   Static PVC → VM → Snapshot
+	   Steps:
+	   1. Create FCD
+	   2. Create a static PV and PVC using cns register volume API
+	   3. Wait for PV and PVC to reach the Bound state.
+	   4. Create a VM service VM using the PVC created in step #2
+	   5. Wait for the VM service to be up and in the powered-on state.
+	   6. Once the VM is up, verify that the volume is accessible inside the VM
+	   7. Write some data into the volume.
+	   8. Get VolumeSnapshotClass "volumesnapshotclass-delete" from supervisor cluster
+	   9. Create a volume snapshot for the PVC created in step #1.
+	   10. Snapshot Verification: Execute and verify the steps mentioned in the Create snapshot mandatory checks
+	   11. Verify CNS metadata for a PVC
+	   12. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
 	ginkgo.It("VM2", func() {
@@ -453,26 +508,26 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	})
 
 	/*
-		Testcase-3
-			Dynamic PVC  → VM → Snapshot → RestoreVol → VM
-			Steps:
-			1. Create a dynamic PVC using the storage class (storage policy) tagged to the supervisor namespace
-			2. Wait for dynamic PVC to reach the Bound state.
-			3. Create a VM service VM using dynamic PVC.
-			4. Wait for the VM service to be up and in the powered-on state.
-			5. Once the VM is up, verify that the volume is accessible inside the VM
-			6. Write some IO to the CSI volumes, read it back from them and verify the data integrity
-			7. Get VolumeSnapshotClass "volumesnapshotclass-delete" from supervisor cluster
-			8. Create a volume snapshot for the dynamic PVC created in step #1
-			9. Snapshot Verification: Execute and verify the steps mentioned in the Create snapshot mandatory checks
-			10. Verify CNS metadata for a PVC
-			11. Create a new PVC from the snapshot created in step #11.
-			12. Wait for PVC to reach the Bound state.
-			13. Create a VM service VM using the PVC created in step #14
-			Wait for the VM service to be up and in the powered-on state.
-			Once the VM is up, verify that the volume is accessible inside the VM
-			Verify reading/writing data in the volume.
-			Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
+	   Testcase-3
+	   Dynamic PVC  → VM → Snapshot → RestoreVol → VM
+	   Steps:
+	   1. Create a dynamic PVC using the storage class (storage policy) tagged to the supervisor namespace
+	   2. Wait for dynamic PVC to reach the Bound state.
+	   3. Create a VM service VM using dynamic PVC.
+	   4. Wait for the VM service to be up and in the powered-on state.
+	   5. Once the VM is up, verify that the volume is accessible inside the VM
+	   6. Write some IO to the CSI volumes, read it back from them and verify the data integrity
+	   7. Get VolumeSnapshotClass "volumesnapshotclass-delete" from supervisor cluster
+	   8. Create a volume snapshot for the dynamic PVC created in step #1
+	   9. Snapshot Verification: Execute and verify the steps mentioned in the Create snapshot mandatory checks
+	   10. Verify CNS metadata for a PVC
+	   11. Create a new PVC from the snapshot created in step #11.
+	   12. Wait for PVC to reach the Bound state.
+	   13. Create a VM service VM using the PVC created in step #14
+	   Wait for the VM service to be up and in the powered-on state.
+	   Once the VM is up, verify that the volume is accessible inside the VM
+	   Verify reading/writing data in the volume.
+	   Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
 	ginkgo.It("VM3", func() {
@@ -675,7 +730,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		}()
 
 		ginkgo.By("Creating VM bootstrap data")
-		// creating a secret for vm credentials
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
 		defer func() {
 			ginkgo.By("Deleting VM bootstrap data")
