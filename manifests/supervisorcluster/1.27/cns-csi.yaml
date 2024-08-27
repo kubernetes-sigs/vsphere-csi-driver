@@ -413,7 +413,7 @@ spec:
             - mountPath: /etc/vmware/wcp/tls/
               name: host-vmca
         - name: csi-snapshotter
-          image: localhost:5000/vmware.io/csi-snapshotter:v6.1.0_vmware.6
+          image: localhost:5000/vmware.io/csi-snapshotter:v6.1.0_vmware.7
           args:
             - "--v=4"
             - "--timeout=300s"
