@@ -50,6 +50,11 @@ func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnsty
 	var err error
 	if useQueryVolumeAsync {
 		// AsyncQueryVolume feature switch is enabled.
+		if queryFilter.Cursor != nil {
+			log.Debugf("Calling QueryVolumeAsync with queryFilter limit: %v and offset: %v "+
+				"for ContainerClusterIds %v", queryFilter.Cursor.Limit,
+				queryFilter.Cursor.Offset, queryFilter.ContainerClusterIds)
+		}
 		queryResult, err = m.QueryVolumeAsync(ctx, queryFilter, querySelection)
 		if err != nil {
 			if err.Error() == cnsvsphere.ErrNotSupported.Error() {
@@ -57,7 +62,8 @@ func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnsty
 				queryAsyncNotSupported = true
 			} else { // Return for any other failures.
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"queryVolumeAsync failed for queryFilter: %v. Err=%+v", queryFilter, err.Error())
+					"queryVolumeAsync failed for queryFilter cursor: %+v and ContainerClusterIds: %+v "+
+						"Err=%+v", queryFilter.Cursor, queryFilter.ContainerClusterIds, err.Error())
 			}
 		}
 	}
@@ -275,13 +281,14 @@ func QueryAllVolumesForCluster(ctx context.Context, m cnsvolume.Manager, cluster
 		} else {
 			allQueryResults.Volumes = append(allQueryResults.Volumes, queryResult.Volumes...)
 		}
+		log.Debugf("Query result offset: %v", queryFilter.Cursor.Offset)
 		log.Infof("%v more volumes to be queried", queryResult.Cursor.TotalRecords-queryResult.Cursor.Offset)
 		if queryResult.Cursor.Offset == queryResult.Cursor.TotalRecords {
 			log.Info("Retrieved for all requested volumes")
 			allQueryResults.Cursor.Offset = queryResult.Cursor.TotalRecords
 			break
 		}
-		queryFilter.Cursor = &queryResult.Cursor
+		queryFilter.Cursor.Offset = queryResult.Cursor.Offset
 	}
 	if allQueryResults == nil {
 		return nil, logger.LogNewError(log, fmt.Sprintf("no volume found for clusterID: %q", clusterID))

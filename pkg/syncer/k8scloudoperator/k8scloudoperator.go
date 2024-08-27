@@ -24,6 +24,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -36,8 +37,8 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
+	corelisters "k8s.io/client-go/listers/core/v1"
 	api "k8s.io/kubernetes/pkg/apis/core"
-
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
@@ -59,7 +60,40 @@ const (
 )
 
 type k8sCloudOperator struct {
-	k8sClient clientset.Interface
+	k8sClient        clientset.Interface
+	k8sInformer      *k8s.InformerManager
+	pvLister         corelisters.PersistentVolumeLister
+	volumeIDToPVName *volumeIDToPVNameMap
+}
+
+// Map of volume handles to the PV
+// Key is the volume handle ID and value is name of the PV
+// The methods to add, remove and get entries from the map in a thread safe
+// manner are defined.
+type volumeIDToPVNameMap struct {
+	*sync.RWMutex
+	items map[string]string
+}
+
+// Adds an entry to volumeIDToPVNameMap in a thread safe manner.
+func (m *volumeIDToPVNameMap) add(volumeHandle, pvName string) {
+	m.Lock()
+	defer m.Unlock()
+	m.items[volumeHandle] = pvName
+}
+
+// Removes a volume handle from volumeIDToPVNameMap in a thread safe manner.
+func (m *volumeIDToPVNameMap) remove(volumeHandle string) {
+	m.Lock()
+	defer m.Unlock()
+	delete(m.items, volumeHandle)
+}
+
+// Returns the pv name corresponding to volumeHandle.
+func (m *volumeIDToPVNameMap) get(volumeHandle string) string {
+	m.RLock()
+	defer m.RUnlock()
+	return m.items[volumeHandle]
 }
 
 // initK8sCloudOperatorType initializes the k8sCloudOperator struct.
@@ -74,6 +108,48 @@ func initK8sCloudOperatorType(ctx context.Context) (*k8sCloudOperator, error) {
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return nil, err
 	}
+	k8sCloudOperator.k8sInformer = k8s.NewInformer(ctx, k8sCloudOperator.k8sClient, true)
+	k8sCloudOperator.volumeIDToPVName = &volumeIDToPVNameMap{
+		RWMutex: &sync.RWMutex{},
+		items:   make(map[string]string),
+	}
+	err = k8sCloudOperator.k8sInformer.AddPVListener(
+		ctx,
+		func(obj interface{}) { // Add.
+			_, log := logger.GetNewContextWithLogger()
+			pv, ok := obj.(*v1.PersistentVolume)
+			if pv == nil || !ok {
+				log.Warnf("pvAdded: unrecognized object %+v", obj)
+				return
+			}
+
+			if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
+				k8sCloudOperator.volumeIDToPVName.add(pv.Spec.CSI.VolumeHandle, pv.Name)
+				log.Debugf("VolumeHandle: %q and PV name: %q is added to volumeIDToPVName",
+					pv.Spec.CSI.VolumeHandle, pv.Name)
+			}
+		},
+		nil,
+		func(obj interface{}) { // Delete.
+			_, log := logger.GetNewContextWithLogger()
+			pv, ok := obj.(*v1.PersistentVolume)
+			if pv == nil || !ok {
+				log.Warnf("PVDeleted: unrecognized object %+v", obj)
+				return
+			}
+			log.Debugf("PV: %s deleted. Removing entry from volumeIDToPvcMap", pv.Name)
+
+			if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
+				k8sCloudOperator.volumeIDToPVName.remove(pv.Spec.CSI.VolumeHandle)
+				log.Debugf("VolumeHandle: %q and PV name: %q is removed from volumeIDToPVName",
+					pv.Spec.CSI.VolumeHandle, pv.Name)
+			}
+		})
+	if err != nil {
+		log.Errorf("failed to create PV Listener. Err: %v", err)
+		return nil, err
+	}
+	k8sCloudOperator.pvLister = k8sCloudOperator.k8sInformer.GetPVLister()
 	return &k8sCloudOperator, nil
 }
 
@@ -240,18 +316,16 @@ func getPodPollIntervalInSecs(ctx context.Context) int {
 func (k8sCloudOperator *k8sCloudOperator) getPVWithVolumeID(ctx context.Context,
 	volumeID string) (*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
-	allPVs, err := k8sCloudOperator.k8sClient.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		log.Errorf("failed to retrieve all PVs from API server")
-		return nil, err
-	}
-	for _, pv := range allPVs.Items {
-		// Verify if it is vsphere block driver and volumehandle matches the
-		// volume ID.
-		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name && pv.Spec.CSI.VolumeHandle == volumeID {
-			log.Debugf("Found PV: %+v referring to volume ID: %s", pv, volumeID)
-			return &pv, nil
+	pvName := k8sCloudOperator.volumeIDToPVName.get(volumeID)
+	if pvName != "" {
+		log.Infof("found PV Name: %q for VolumeID: %q from cache", pvName, volumeID)
+		pv, err := k8sCloudOperator.pvLister.Get(pvName)
+		if err != nil {
+			log.Errorf("failed to retrieve PV with volume ID: %q from API server. err: %v", volumeID, err)
+			return nil, err
 		}
+		log.Debugf("Found PV: %+v referring to volume ID: %s", pv, volumeID)
+		return pv, nil
 	}
 	return nil, logger.LogNewErrorf(log, "failed to find PV referring to volume ID: %s", volumeID)
 }
