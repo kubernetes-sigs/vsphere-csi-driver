@@ -449,7 +449,7 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	vc *vsphere.VirtualCenter, volumeManager cnsvolume.Manager, cnsConfig *config.Config, spec *CreateVolumeSpec,
 	datastores []*vsphere.DatastoreInfo, filterSuspendedDatastores, useSupervisorId bool, extraParams interface{}) (
-	string, string, error) {
+	*cnsvolume.CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	var err error
 	if spec.ScParams.StoragePolicyName != "" {
@@ -460,7 +460,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 				spec.ScParams.StoragePolicyName, err)
 			// TODO: need to extract fault from err returned by GetStoragePolicyIDByName.
 			// Currently, just return csi.fault.Internal.
-			return "", csifault.CSIInternalFault, err
+			return nil, csifault.CSIInternalFault, err
 		}
 	}
 
@@ -468,7 +468,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		datastores, err = vsphere.FilterSuspendedDatastores(ctx, datastores)
 		if err != nil {
 			log.Errorf("Error occurred while filter suspended datastores, err: %+v", err)
-			return "", csifault.CSIInternalFault, err
+			return nil, csifault.CSIInternalFault, err
 		}
 	}
 
@@ -490,7 +490,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		if !isFound {
 			// TODO: Need to figure out which fault need to be returned when datastoreURL is not specified in
 			// storage class. Currently, just return csi.fault.Internal.
-			return "", csifault.CSIInternalFault, logger.LogNewErrorf(log,
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
 				"datastore %q not found in candidate list for volume provisioning.",
 				spec.ScParams.DatastoreURL)
 		}
@@ -502,7 +502,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	}
 	fault, err := isDataStoreCompatible(ctx, vc, spec, dataStoreList, nil)
 	if err != nil {
-		return "", fault, err
+		return nil, fault, err
 	}
 
 	// Retrieve net permissions from CnsConfig of manager and convert to required
@@ -556,9 +556,9 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	volumeInfo, faultType, err := volumeManager.CreateVolume(ctx, createSpec, extraParams)
 	if err != nil {
 		log.Errorf("failed to create file volume %q with error %+v faultType %q", spec.Name, err, faultType)
-		return "", faultType, err
+		return nil, faultType, err
 	}
-	return volumeInfo.VolumeID.Id, "", nil
+	return volumeInfo, "", nil
 }
 
 // getHostVsanUUID returns the config.clusterInfo.nodeUuid of the ESX host's

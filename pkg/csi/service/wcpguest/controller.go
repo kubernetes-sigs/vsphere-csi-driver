@@ -302,8 +302,10 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			if errors.IsNotFound(err) {
 				diskSize := strconv.FormatInt(volSizeMB, 10) + "Mi"
 				var annotations map[string]string
-				if !isFileVolumeRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
-					req.AccessibilityRequirements != nil {
+				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
+					req.AccessibilityRequirements != nil &&
+					(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) ||
+						!isFileVolumeRequest) {
 					// Generate volume topology requirement annotation.
 					annotations = make(map[string]string)
 					topologyAnnotation, err := generateGuestClusterRequestedTopologyJSON(req.AccessibilityRequirements.Preferred)
@@ -396,8 +398,10 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 		// Calculate node affinity terms for topology aware provisioning.
 		var accessibleTopologies []map[string]string
-		if !isFileVolumeRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
-			req.AccessibilityRequirements != nil {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
+			req.AccessibilityRequirements != nil &&
+			(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) ||
+				!isFileVolumeRequest) {
 			// Retrieve the latest version of the PVC
 			pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
 				ctx, supervisorPVCName, metav1.GetOptions{})
