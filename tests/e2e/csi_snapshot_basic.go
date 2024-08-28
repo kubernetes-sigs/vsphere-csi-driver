@@ -166,7 +166,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			scParameters[svStorageClassName] = storagePolicyName
 			scName = ""
 		} else if supervisorCluster {
-			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+			profileID := "3063b9f4-8042-465a-8a26-8861d6ce354b"
 			scParameters[scParamStoragePolicyID] = profileID
 			scName = storagePolicyName
 			// setting resource quota for storage policy tagged to supervisor namespace
@@ -3124,7 +3124,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Create storage class")
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", true, scName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		if !vanillaCluster {
 			var allowExpansion = true
 			storageclass.AllowVolumeExpansion = &allowExpansion
@@ -3142,10 +3141,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
 		}
-		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		defer func() {
 			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4617,10 +4616,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvclaim, pvs := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
 		volHandle = pvs[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
 		}
-		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

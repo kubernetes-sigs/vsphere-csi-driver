@@ -5570,7 +5570,7 @@ Also it verifies that a pod is scheduled on a node that belongs to the topology 
 is provisioned.
 */
 func verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx context.Context,
-	client clientset.Interface, pod *v1.Pod, namespace string,
+	client clientset.Interface, pod *v1.Pod,
 	allowedTopologies []v1.TopologySelectorLabelRequirement) error {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	for _, volumespec := range pod.Spec.Volumes {

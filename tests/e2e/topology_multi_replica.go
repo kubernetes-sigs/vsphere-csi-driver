@@ -956,7 +956,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(podList); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, podList[i],
-					namespace, allowedTopologies)
+					allowedTopologies)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		})
@@ -1164,7 +1164,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(podList); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, podList[i],
-					namespace, allowedTopologies)
+					allowedTopologies)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		})
@@ -1673,7 +1673,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(podList); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, podList[i],
-					namespace, allowedTopologies)
+					allowedTopologies)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		})
@@ -1915,7 +1915,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 			for i := 0; i < len(podList); i++ {
 				err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, podList[i],
-					namespace, allowedTopologies)
+					allowedTopologies)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		})
@@ -2083,7 +2083,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 				"appropriate node as specified in the allowed topologies of SC")
 			for i := 0; i < len(podList); i++ {
-				err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, podList[i], namespace,
+				err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, podList[i],
 					allowedTopologies)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}

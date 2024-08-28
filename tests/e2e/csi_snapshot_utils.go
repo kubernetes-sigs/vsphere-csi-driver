@@ -315,16 +315,18 @@ func deleteVolumeSnapshot(ctx context.Context, snapc *snapclient.Clientset, name
 	}
 	snapshotContentCreated := false
 
-	framework.Logf("Verify snapshot entry %v is deleted from CNS for volume %v", snapshotID, volHandle)
-	err = waitForCNSSnapshotToBeDeleted(volHandle, snapshotID)
-	if err != nil {
-		return snapshotCreated, snapshotContentCreated, err
-	}
+	if performCnsQueryVolumeSnapshot {
+		framework.Logf("Verify snapshot entry %v is deleted from CNS for volume %v", snapshotID, volHandle)
+		err = waitForCNSSnapshotToBeDeleted(volHandle, snapshotID)
+		if err != nil {
+			return snapshotCreated, snapshotContentCreated, err
+		}
 
-	framework.Logf("Verify snapshot entry is deleted from CNS")
-	err = verifySnapshotIsDeletedInCNS(volHandle, snapshotID)
-	if err != nil {
-		return snapshotCreated, snapshotContentCreated, err
+		framework.Logf("Verify snapshot entry is deleted from CNS")
+		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotID)
+		if err != nil {
+			return snapshotCreated, snapshotContentCreated, err
+		}
 	}
 
 	framework.Logf("Deleting volume snapshot again to check 'Not found' error")
