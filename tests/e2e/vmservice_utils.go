@@ -812,3 +812,33 @@ func wait4Pvc2Detach(
 		})
 	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
 }
+
+// updateVmWithNewPvc updates an existing VM by attaching a new PVC and updating the VM spec
+func updateVmWithNewPvc(ctx context.Context, vmopC                      ctlrclient.Client, vmName string, namespace string, newPvc *v1.PersistentVolumeClaim) error {
+	// Fetch the existing VM
+	vm := &vmopv1.VirtualMachine{}
+	err := vmopC.Get(ctx, ctlrclient.ObjectKey{Name: vmName, Namespace: namespace}, vm)
+	if err != nil {
+		return fmt.Errorf("failed to get VM: %v", err)
+	}
+
+	// Attach the new PVC to the VM
+	newVolume := vmopv1.VirtualMachineVolume{
+		Name: newPvc.Name,
+		PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
+			PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+				ClaimName: newPvc.Name,
+			},
+		},
+	}
+	vm.Spec.Volumes = append(vm.Spec.Volumes, newVolume)
+
+	// Update the VM spec in the Kubernetes cluster
+	err = vmopC.Update(ctx, vm)
+	if err != nil {
+		return fmt.Errorf("failed to update VM: %v", err)
+	}
+
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return nil
+}

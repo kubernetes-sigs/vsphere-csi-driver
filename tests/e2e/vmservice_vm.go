@@ -1334,5 +1334,4 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		_ = formatNVerifyPvcIsAccessible(vm.Status.Volumes[0].DiskUuid, 1, vmIp)
 	})
-
 })
