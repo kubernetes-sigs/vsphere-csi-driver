@@ -49,6 +49,8 @@ const (
 
 	// allowedRetriesToPatchStoragePolicyUsage indicates number of retries allowed for patching StoragePolicyUsage CR
 	allowedRetriesToPatchStoragePolicyUsage = 5
+	// volumdIDLimitPerQuery is set to 1000
+	volumdIDLimitPerQuery = 1000
 )
 
 // getPVsInBoundAvailableOrReleased return PVs in Bound, Available or Released
@@ -185,37 +187,37 @@ func IsValidVolume(ctx context.Context, volume v1.Volume, pod *v1.Pod,
 func fullSyncGetQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolumeId, clusterID string,
 	volumeManager volumes.Manager, metadataSyncer *metadataSyncInformer) ([]*cnstypes.CnsQueryResult, error) {
 	log := logger.GetLogger(ctx)
-	log.Debugf("FullSync: fullSyncGetQueryResults is called with volumeIds %v for clusterID %s", volumeIds, clusterID)
-	queryFilter := cnstypes.CnsQueryFilter{
-		VolumeIds: volumeIds,
-		Cursor: &cnstypes.CnsCursor{
-			Offset: 0,
-			Limit:  queryVolumeLimit,
-		},
+	log.Debugf("FullSync: fullSyncGetQueryResults is called with volumeIds %v for clusterID %s",
+		volumeIds, clusterID)
+	useQueryVolumeAsync := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume)
+	var volumeIdsBatchesToFilter [][]cnstypes.CnsVolumeId
+	for i := 0; i < len(volumeIds); i += volumdIDLimitPerQuery {
+		end := i + volumdIDLimitPerQuery
+		if end > len(volumeIds) {
+			end = len(volumeIds)
+		}
+		volumeIdsBatchesToFilter = append(volumeIdsBatchesToFilter, volumeIds[i:end])
 	}
-	if clusterID != "" {
-		queryFilter.ContainerClusterIds = []string{clusterID}
-	}
+
 	var allQueryResults []*cnstypes.CnsQueryResult
-	for {
-		log.Debugf("Query volumes with offset: %v and limit: %v", queryFilter.Cursor.Offset, queryFilter.Cursor.Limit)
+	for _, volumeIdsBatch := range volumeIdsBatchesToFilter {
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: volumeIdsBatch,
+		}
+		if clusterID != "" {
+			queryFilter.ContainerClusterIds = []string{clusterID}
+		}
 		queryResult, err := utils.QueryVolumeUtil(ctx, volumeManager, queryFilter, nil,
-			metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+			useQueryVolumeAsync)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"queryVolumeUtil failed with err=%+v", err.Error())
 		}
 		if queryResult == nil {
 			log.Info("Observed empty queryResult")
-			break
+			continue
 		}
 		allQueryResults = append(allQueryResults, queryResult)
-		log.Infof("%v more volumes to be queried", queryResult.Cursor.TotalRecords-queryResult.Cursor.Offset)
-		if queryResult.Cursor.Offset == queryResult.Cursor.TotalRecords {
-			log.Info("Metadata retrieved for all requested volumes")
-			break
-		}
-		queryFilter.Cursor = &queryResult.Cursor
 	}
 	return allQueryResults, nil
 }

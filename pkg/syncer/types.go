@@ -38,10 +38,6 @@ const (
 	// default interval for csi full sync, used unless overridden by user in csi-controller YAML
 	defaultFullSyncIntervalInMin = 30
 
-	// queryVolumeLimit is the page size, which should be set in the cursor when syncer container need to
-	// query many volumes using QueryVolume API
-	queryVolumeLimit = int64(500)
-
 	// key for HealthStatus annotation on PVC
 	annVolumeHealth = "volumehealth.storage.kubernetes.io/health"
 
