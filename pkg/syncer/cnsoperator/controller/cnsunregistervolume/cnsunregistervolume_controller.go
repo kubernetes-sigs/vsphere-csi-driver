@@ -22,16 +22,19 @@ import (
 	"sync"
 	"time"
 
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -266,6 +269,13 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
+	err = validateVolumeNotInUse(ctx, cnsVol, pvcName, pvcNamespace, k8sclient)
+	if err != nil {
+		log.Error(err)
+		setInstanceError(ctx, r, instance, err.Error())
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
 	if pvName != "" {
 		//Change PV ReclaimPolicy to retain so that underlying FCD doesn't get deleted when deleting PV,PVC
 		pv, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
@@ -360,6 +370,86 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 	backOffDurationMapMutex.Unlock()
 	log.Info(msg)
 	return reconcile.Result{}, nil
+}
+
+// validateVolumeNotInUse validates whether the volume to be unregistered is not in use by
+// either PodVM, TKG cluster or Volume service VM.
+func validateVolumeNotInUse(ctx context.Context, cnsVol cnstypes.CnsVolume, pvcName string,
+	pvcNamespace string, k8sClient clientset.Interface) error {
+
+	log := logger.GetLogger(ctx)
+
+	// Check if the Supervisor volume is not in use by any pods (PodVMs) in the namespace.
+	pods, err := k8sClient.CoreV1().Pods(pvcNamespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("Failed to list pods in namespace %s with error - %s",
+			pvcNamespace, err.Error())
+		return err
+	}
+
+	for _, pod := range pods.Items {
+		for _, podVol := range pod.Spec.Volumes {
+			if podVol.PersistentVolumeClaim != nil &&
+				podVol.PersistentVolumeClaim.ClaimName == pvcName {
+				log.Debugf("Volume %s is in use by pod %s in namespace %s", cnsVol.VolumeId.Id,
+					pod.Name, pvcNamespace)
+				return fmt.Errorf("cannot unregister the volume %s as it's in use by pod %s in namespace %s",
+					cnsVol.VolumeId.Id, pod.Name, pvcNamespace)
+			}
+		}
+	}
+
+	// Check if the Supervisor volume is not used in any TKGs cluster.
+	// For volumes created from TKGs Cluster, CNS metadata will have two entries for containerClusterArray.
+	// One for clusterFlavor: "WORKLOAD" & clusterDistribution "SupervisorCluster",
+	// another for clusterFlavor: "GUEST_CLUSTER" & clusterDistribution: "TKGService".
+	for _, containerCluster := range cnsVol.Metadata.ContainerClusterArray {
+		if containerCluster.ClusterFlavor == "GUEST_CLUSTER" {
+			log.Debugf("Volume %s is in use by guest cluster with CNS clusterId %s", cnsVol.VolumeId.Id,
+				containerCluster.ClusterId)
+			return fmt.Errorf("cannot unregister the volume %s as it's in use by guest cluster with CNS clusterId %s",
+				cnsVol.VolumeId.Id, containerCluster.ClusterId)
+		}
+	}
+
+	// Check if the Supervisor volume is not used by a volume service VM.
+	// If the volume is specified in the VirtualMachine's spec, then it intends
+	// to be attached to the VM. We will check for the presence of volume in VM's spec.
+	restClientConfig, err := k8s.GetKubeConfig(ctx)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to initialize rest clientconfig. Error: %+v", err)
+		log.Error(msg)
+		return err
+	}
+
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
+		log.Error(msg)
+		return err
+	}
+
+	vmList := &vmoperatortypes.VirtualMachineList{}
+	err = vmOperatorClient.List(ctx, vmList, client.InNamespace(pvcNamespace))
+	if err != nil {
+		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
+		log.Error(msg)
+		return err
+	}
+
+	for _, vmInstance := range vmList.Items {
+		for _, vmVol := range vmInstance.Spec.Volumes {
+			if vmVol.PersistentVolumeClaim != nil &&
+				vmVol.PersistentVolumeClaim.ClaimName == pvcName {
+				log.Debugf("Volume %s is in use by VirtualMachine %s in namespace %s", cnsVol.VolumeId.Id,
+					vmInstance.Name, pvcNamespace)
+				return fmt.Errorf("cannot unregister the volume %s as it's in use by VirtualMachine %s in namespace %s",
+					cnsVol.VolumeId.Id, vmInstance.Name, pvcNamespace)
+			}
+		}
+	}
+
+	return nil
 }
 
 // setInstanceError sets error and records an event on the CnsUnregisterVolume
