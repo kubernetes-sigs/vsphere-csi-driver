@@ -421,11 +421,15 @@ const (
 	VdppOnStretchedSupervisor = "vdpp-on-stretched-supervisor"
 	// CSIDetachOnSupervisor enables CSI to detach the disk from the podvm in a supervisor environment
 	CSIDetachOnSupervisor = "CSI_Detach_Supported"
-	// CnsUnregisterVolume enables the cretion of CRD and controller for CnsUnregisterVolume API.
+	// CnsUnregisterVolume enables the creation of CRD and controller for CnsUnregisterVolume API.
 	CnsUnregisterVolume = "cns-unregister-volume"
+	// WorkloadDomainIsolation is the name of the WCP capability which determines if
+	// workload domain isolation feature is available on a supervisor cluster.
+	WorkloadDomainIsolation = "Workload_Domain_Isolation_Supported"
 )
 
 var WCPFeatureStates = map[string]struct{}{
 	PodVMOnStretchedSupervisor: {},
 	CSIDetachOnSupervisor:      {},
+	WorkloadDomainIsolation:    {},
 }

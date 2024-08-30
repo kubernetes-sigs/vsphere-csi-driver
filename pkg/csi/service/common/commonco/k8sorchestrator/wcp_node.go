@@ -73,12 +73,18 @@ func (c *K8sOrchestrator) createCSINode(obj interface{}) {
 	}
 
 	var topologyKeysList []string
-	if len(clusterComputeResourceMoIds) > 1 {
-		// Publish zone and host standard topology keys for stretch supervisor.
+	if c.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) {
+		// Publish zone and host standard topology keys for all types of supervisor clusters.
 		topologyKeysList = append(topologyKeysList, corev1.LabelTopologyZone, corev1.LabelHostname)
 	} else {
-		topologyKeysList = append(topologyKeysList, corev1.LabelHostname)
+		if len(clusterComputeResourceMoIds) > 1 {
+			// Publish zone and host standard topology keys for stretch supervisor.
+			topologyKeysList = append(topologyKeysList, corev1.LabelTopologyZone, corev1.LabelHostname)
+		} else {
+			topologyKeysList = append(topologyKeysList, corev1.LabelHostname)
+		}
 	}
+
 	// NOTE: As this is a WCP node, we can safely assume that only vSphere CSI driver will be run on it.
 	// If spherelet is not creating the CSINodes, we will create them and ignore the error if it is already present.
 	csiNodeSpec := &storagev1.CSINode{

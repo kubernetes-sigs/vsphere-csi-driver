@@ -1617,7 +1617,8 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 		if params.TopologyRequirement == nil {
 			// This case is for static volume provisioning using CNSRegisterVolume API
 			if !isPodVMOnStretchedSupervisorEnabled {
-				return nil, logger.LogNewErrorf(log, "topology requirement should not be nil. invalid params: %v", params)
+				return nil, logger.LogNewErrorf(log, "topology requirement should not be nil. invalid "+
+					"params: %v", params)
 			} else {
 				// If the topology requirement received is nil, then identify topology of the datastore by looking into
 				// azClustersMap
@@ -1656,8 +1657,7 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 			topologySegments = append(topologySegments, params.TopologyRequirement.GetPreferred()[0].GetSegments())
 		} else {
 			// If multiple zones are provided as input in the topology requirement, find the zone
-			// to which the selected datastore is associated with. If this search results in multiple zones,
-			// randomly choose one as node affinity.
+			// to which the selected datastore is associated with.
 			var selectedSegments []map[string]string
 			for _, topology := range params.TopologyRequirement.GetPreferred() {
 				for label, value := range topology.GetSegments() {
@@ -1687,6 +1687,35 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 				topologySegments = selectedSegments
 			}
 		}
+	// In VC 9.0, if StorageTopologyType is not set, all the zones the selected datastore
+	// is accessible from will be added as node affinity terms on the PV even if the zones
+	// are not associated with the namespace of the PVC.
+	case "":
+		// This code block runs for static as well as dynamic volume provisioning case.
+		var selectedSegments []map[string]string
+		for zone, clusters := range azClustersMap {
+			if _, exists := params.TopoSegToDatastoresMap[zone]; !exists {
+				sharedDatastoresForClusters, err := getSharedDatastoresInClusters(ctx, clusters, params.Vc)
+				if err != nil {
+					return nil, logger.LogNewErrorf(log, "failed to get shared datastores for clusters: %v, "+
+						"err: %v", clusters, err)
+				}
+				params.TopoSegToDatastoresMap[zone] = sharedDatastoresForClusters
+			}
+		}
+		for zone, datastores := range params.TopoSegToDatastoresMap {
+			for _, ds := range datastores {
+				if ds.Info.Url == params.DatastoreURL {
+					selectedSegments = append(selectedSegments, map[string]string{v1.LabelTopologyZone: zone})
+					break
+				}
+			}
+		}
+		if len(selectedSegments) == 0 {
+			return nil, logger.LogNewErrorf(log,
+				"could not find the topology of the volume provisioned on datastore %q", params.DatastoreURL)
+		}
+		topologySegments = selectedSegments
 	default:
 		// This is considered a configuration error.
 		return nil, &common.InvalidTopologyProvisioningError{ErrMsg: fmt.Sprintf("unrecognised "+
