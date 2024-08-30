@@ -1,7 +1,8 @@
 # Netlify build
 [build]
-    command = "./hack/build-gitbooks.sh"
-    publish = "docs/book/_book"
+    ignore = "exit 0"
+#   command = "./hack/build-gitbooks.sh"
+#   publish = "docs/book/_book" 
 
 # Netlify redirects
 [[redirects]]
