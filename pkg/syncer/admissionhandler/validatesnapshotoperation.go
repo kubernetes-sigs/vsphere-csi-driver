@@ -38,8 +38,9 @@ func validateSnapshotOperationSupervisorRequest(ctx context.Context, request adm
 	if request.Operation == admissionv1.Create {
 		// NOTE: Change to allow snapshot creation from supervisor directly with StorageQuotaM2 FSS enabled
 		//        is temporary & will be reverted before release
-		if featureGateStorageQuotaM2Enabled {
-			log.Debugf("validateSnapshotOperationSupervisorRequest Allow %v since StorageQuotaM2 FSS enabled", request)
+		if featureGateStorageQuotaM2Enabled || featureGateSupervisorBlockVolumeSnapshotEnabled {
+			log.Debugf("validateSnapshotOperationSupervisorRequest Allow %v since "+
+				"StorageQuotaM2 or supervisor-block-volume-snapshot FSS enabled", request)
 			return admission.Allowed("")
 		}
 		if _, annotationFound := newVS.Annotations[common.SupervisorVolumeSnapshotAnnotationKey]; !annotationFound {

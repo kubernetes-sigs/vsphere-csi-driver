@@ -423,6 +423,8 @@ const (
 	CSIDetachOnSupervisor = "CSI_Detach_Supported"
 	// CnsUnregisterVolume enables the cretion of CRD and controller for CnsUnregisterVolume API.
 	CnsUnregisterVolume = "cns-unregister-volume"
+	// SupervisorBlockVolumeSnapshots enables the creation of CSI snapshots on supervisor directly.
+	SupervisorBlockVolumeSnapshots = "supervisor-block-volume-snapshot"
 )
 
 var WCPFeatureStates = map[string]struct{}{
