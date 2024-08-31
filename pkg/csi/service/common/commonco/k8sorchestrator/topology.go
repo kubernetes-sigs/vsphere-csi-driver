@@ -1690,8 +1690,12 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 	// In VC 9.0, if StorageTopologyType is not set, all the zones the selected datastore
 	// is accessible from will be added as node affinity terms on the PV even if the zones
 	// are not associated with the namespace of the PVC.
+	// This code block runs for static as well as dynamic volume provisioning case.
 	case "":
-		// This code block runs for static as well as dynamic volume provisioning case.
+		// TopoSegToDatastoresMap will be nil in case of static volume provisioning.
+		if params.TopoSegToDatastoresMap == nil {
+			params.TopoSegToDatastoresMap = make(map[string][]*cnsvsphere.DatastoreInfo)
+		}
 		var selectedSegments []map[string]string
 		for zone, clusters := range azClustersMap {
 			if _, exists := params.TopoSegToDatastoresMap[zone]; !exists {
