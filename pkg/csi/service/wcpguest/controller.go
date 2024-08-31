@@ -301,11 +301,11 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		if err != nil {
 			if errors.IsNotFound(err) {
 				diskSize := strconv.FormatInt(volSizeMB, 10) + "Mi"
-				var annotations map[string]string
+				annotations := make(map[string]string)
+				annotations[common.AnnTanzuGuestClusterOwner] = c.tanzukubernetesClusterUID
 				if !isFileVolumeRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 					req.AccessibilityRequirements != nil {
 					// Generate volume topology requirement annotation.
-					annotations = make(map[string]string)
 					topologyAnnotation, err := generateGuestClusterRequestedTopologyJSON(req.AccessibilityRequirements.Preferred)
 					if err != nil {
 						msg := fmt.Sprintf("failed to generate accessibility topology for pvc with name: %s "+

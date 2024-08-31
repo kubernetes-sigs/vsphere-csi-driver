@@ -18,12 +18,15 @@ package syncer
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -138,6 +141,14 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 		}
 	}
 
+	// Set csi.vsphere.tanzu-kubernetes-cluster annotation on the Supervisor PVC which is
+	// requested from TKC Cluster
+	err = setTanzuClusterIDOnSupervisorPVC(ctx, metadataSyncer, supervisorNamespace)
+	if err != nil {
+		log.Errorf("FullSync: Failed to create CnsVolumeMetadataList from guest cluster. Err: %v", err)
+		return err
+	}
+
 	log.Infof("FullSync: End")
 	return nil
 }
@@ -228,6 +239,42 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 				volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pod.UID), pod.Name,
 				cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD, nil, pod.Namespace, entityReferences)
 			returnList.Items = append(returnList.Items, *podObject)
+		}
+	}
+	return nil
+}
+
+func setTanzuClusterIDOnSupervisorPVC(ctx context.Context, metadataSyncer *metadataSyncInformer,
+	supervisorNamespace string) error {
+	log := logger.GetLogger(ctx)
+	log.Debugf("FullSync: Querying guest cluster API server for all PV objects.")
+	pvList, err := getPVsInBoundAvailableOrReleased(ctx, metadataSyncer)
+	if err != nil {
+		log.Errorf("FullSync: Failed to get PVs from guest cluster. Err: %v", err)
+		return err
+	}
+	for _, pv := range pvList {
+		if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound {
+			svPVC, err := metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).
+				Get(ctx, pv.Spec.CSI.VolumeHandle, metav1.GetOptions{})
+			if err != nil {
+				msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v",
+					pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
+				log.Error(msg)
+				continue
+			}
+			if svPVC.Annotations[common.AnnTanzuGuestClusterOwner] != "" {
+
+				svPVC.Annotations[common.AnnTanzuGuestClusterOwner] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+				_, err = metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).Update(
+					ctx, svPVC, metav1.UpdateOptions{})
+				if err != nil {
+					msg := fmt.Sprintf("failed to update supervisor PVC: %q with annoation %q in %q namespace. Error: %+v",
+						pv.Spec.CSI.VolumeHandle, common.AnnTanzuGuestClusterOwner, supervisorNamespace, err)
+					log.Error(msg)
+					continue
+				}
+			}
 		}
 	}
 	return nil

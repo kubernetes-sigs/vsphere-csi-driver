@@ -296,6 +296,10 @@ const (
 	//AnnVolumeAccessibleTopology is the annotation set by the supervisor cluster on PVC
 	AnnVolumeAccessibleTopology = "csi.vsphere.volume-accessible-topology"
 
+	// AnnTanzuGuestClusterOwner is the annotation key to set TanzuClusterID as value
+	// on the PVC in supervisor cluster
+	AnnTanzuGuestClusterOwner = "csi.vsphere.tanzu-kubernetes-cluster"
+
 	// PVtoBackingDiskObjectIdSupportedVCenterMajor is the minimum major version of vCenter
 	// on which PV to BackingDiskObjectId mapping feature is supported.
 	PVtoBackingDiskObjectIdSupportedVCenterMajor int = 7
