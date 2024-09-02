@@ -29,6 +29,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -254,7 +255,7 @@ func invokeVCRestAPIDeleteRequest(vcRestSessionId string, url string) ([]byte, i
 }
 
 // waitNGetVmiForImageName waits and fetches VM image CR for given image name in the specified namespace
-func waitNGetVmiForImageName(ctx context.Context, c ctlrclient.Client, namespace string, imageName string) string {
+func waitNGetVmiForImageName(ctx context.Context, c ctlrclient.Client, imageName string) string {
 	vmi := ""
 	err := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
 		func(ctx context.Context) (bool, error) {
@@ -436,7 +437,7 @@ func waitNgetVmsvcVM(ctx context.Context, c ctlrclient.Client, namespace string,
 // waitNgetVmsvcVmIp wait and fetch the primary IP of the vm in give ns
 func waitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace string, name string) (string, error) {
 	ip := ""
-	err := wait.PollUntilContextTimeout(ctx, poll*10, pollTimeout*2, true,
+	err := wait.PollUntilContextTimeout(ctx, poll*10, pollTimeout*4, true,
 		func(ctx context.Context) (bool, error) {
 			vm, err := getVmsvcVM(ctx, c, namespace, name)
 			if err != nil {
@@ -794,6 +795,7 @@ func copyFileFromVm(vmIp string, vmFilePath string, localFilePath string) {
 
 // getSshClientForVmThroughGatewayVm return a ssh client via gateway host for the given VM
 func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
+	framework.Logf("gateway pwd: %s", GetAndExpectStringEnvVar(envGatewayVmPasswd))
 	gatewayConfig := &ssh.ClientConfig{
 		User: GetAndExpectStringEnvVar(envGatewayVmUser),
 		Auth: []ssh.AuthMethod{
@@ -812,6 +814,7 @@ func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
 	gatewayClient, err := ssh.Dial("tcp", GetAndExpectStringEnvVar(envGatewayVmIp)+":22", gatewayConfig)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	framework.Logf("VM IP: %s", vmIp)
 	conn, err := gatewayClient.Dial("tcp", vmIp+":22")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1007,6 +1010,60 @@ func createVMServiceVmWithMultiplePvcs(ctx context.Context, c ctlrclient.Client,
 	return vms
 }
 
+// createVMServiceVmInParallel creates VMService VM concurrently
+// for a given namespace with 1:1 mapping between PVC and the VMServiceVM
+func createVMServiceVmInParallel(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
+	pvcs []*v1.PersistentVolumeClaim, vmi string, storageClassName string, secretName string,
+	vmCount int, ch chan *vmopv1.VirtualMachine, wg *sync.WaitGroup, lock *sync.Mutex) {
+	defer wg.Done()
+	for i := 0; i < vmCount; i++ {
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		vols := []vmopv1.VirtualMachineVolume{}
+		vmName := fmt.Sprintf("csi-test-vm-%d", r.Intn(10000))
+
+		vols = append(vols, vmopv1.VirtualMachineVolume{
+			Name: pvcs[i].Name,
+			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
+				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvcs[i].Name},
+			},
+		})
+
+		vm := vmopv1.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: namespace},
+			Spec: vmopv1.VirtualMachineSpec{
+				PowerState:   vmopv1.VirtualMachinePoweredOn,
+				ImageName:    vmi,
+				ClassName:    vmClass,
+				StorageClass: storageClassName,
+				Volumes:      vols,
+				VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
+			},
+		}
+		err := c.Create(ctx, &vm)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		lock.Lock()
+		ch <- &vm
+		lock.Unlock()
+		framework.Logf("Created VMServiceVM: %s", vmName)
+	}
+}
+
+// deleteVMServiceVmInParallel deletes the VMService VMs concurrently from a given namespace
+func deleteVMServiceVmInParallel(ctx context.Context, c ctlrclient.Client,
+	vms []*vmopv1.VirtualMachine, namespace string,
+	wg *sync.WaitGroup) {
+
+	defer wg.Done()
+	for _, vm := range vms {
+		err := c.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
+			Name:      vm.Name,
+			Namespace: namespace,
+		}})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
 // performVolumeLifecycleActionForVmServiceVM creates pvc and attaches a VMService VM to it
 // and waits for the workloads to be in healthy state and then deletes them
 func performVolumeLifecycleActionForVmServiceVM(ctx context.Context, client clientset.Interface,
@@ -1092,4 +1149,47 @@ func updateVmWithNewPvc(ctx context.Context, vmopC ctlrclient.Client, vmName str
 		return fmt.Errorf("failed to update VM: %v", err)
 	}
 	return nil
+}
+
+// createVMServiceandWaitForVMtoGetIP creates a loadbalancing service for ssh with each VM
+// and waits for VM IP to come up to come up and verify PVCs are accessible in the VM
+func createVMServiceandWaitForVMtoGetIP(ctx context.Context, vmopC ctlrclient.Client,
+	cnsopC ctlrclient.Client, namespace string, vms []*vmopv1.VirtualMachine,
+	pvclaimsList []*v1.PersistentVolumeClaim, doCreateVmSvc bool, waitForVmIp bool) {
+
+	if doCreateVmSvc {
+		ginkgo.By("Creating loadbalancing service for ssh with the VM")
+		for _, vm := range vms {
+			vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
+			defer func() {
+				ginkgo.By("Deleting loadbalancing service for ssh with the VM")
+				err := vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
+					Name:      vmlbsvc.Name,
+					Namespace: namespace,
+				}})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		}
+	}
+
+	if waitForVmIp {
+		ginkgo.By("Wait for VM to come up and get an IP")
+		for j, vm := range vms {
+			vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Wait and verify PVCs are attached to the VM")
+			gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
+				[]*v1.PersistentVolumeClaim{pvclaimsList[j]})).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Verify PVCs are accessible to the VM")
+			ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
+			vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for i, vol := range vm.Status.Volumes {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+				verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+			}
+		}
+	}
 }

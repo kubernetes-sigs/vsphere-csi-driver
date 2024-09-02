@@ -125,7 +125,7 @@ func powerOffHostParallel(ctx context.Context, hostsToPowerOff []string) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	for _, host := range hostsToPowerOff {
-		err = waitForHostToBeDown(ctx, host)
+		_ = waitForHostToBeDown(ctx, host)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -154,7 +154,7 @@ func powerOnHostParallel(hostsToPowerOn []string) {
 	err := vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, hostlist, true)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for _, host := range hostsToPowerOn {
-		err = waitForHostToBeUp(host, time.Minute*40)
+		_ = waitForHostToBeUp(host, time.Minute*40)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -287,8 +287,7 @@ func waitForAllNodes2BeReady(ctx context.Context, c clientset.Interface, timeout
 }
 
 // wait4AllK8sNodesToBeUp wait for all k8s nodes to be reachable
-func wait4AllK8sNodesToBeUp(
-	ctx context.Context, client clientset.Interface, k8sNodes *v1.NodeList) {
+func wait4AllK8sNodesToBeUp(k8sNodes *v1.NodeList) {
 	var nodeIp string
 	for _, node := range k8sNodes.Items {
 		addrs := node.Status.Addresses
@@ -513,15 +512,11 @@ func getMasterIpOnSite(ctx context.Context, client clientset.Interface, primaryS
 	}
 
 	allMasterIps := getK8sMasterIPs(ctx, client)
-	vcAddress := e2eVSphere.Config.Global.VCenterHostname
-	vcAdminPwd := GetAndExpectStringEnvVar(vcUIPwd)
 	// Assuming atleast one master is on that site
 	waitErr := wait.PollUntilContextTimeout(ctx, healthStatusPollInterval, pollTimeout*2,
 		true, func(ctx context.Context) (bool, error) {
 			for _, masterIp := range allMasterIps {
-				govcCmd := "export GOVC_INSECURE=1;"
-				govcCmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:%s@%s';",
-					vcAdminPwd, vcAddress)
+				govcCmd := govcLoginCmd()
 				govcCmd += fmt.Sprintf("govc vm.info --vm.ip=%s;", masterIp)
 
 				result, err := exec.Command("/bin/bash", "-c", govcCmd).Output()
@@ -588,7 +583,7 @@ func changeLeaderOfContainerToComeUpOnMaster(ctx context.Context, client clients
 			// Pause and kill container of csi container on other master nodes
 			if masterIp == masterIpOnSite {
 				leaderFoundOnsite = true
-				err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(csipods.Size()),
+				err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, len(csipods.Items),
 					time.Duration(pollTimeout))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer ginkgo.GinkgoRecover()
@@ -654,25 +649,15 @@ func toggleWitnessPowerState(ctx context.Context, witnessHostDown bool) {
 
 // checkVmStorageCompliance checks VM and storage compliance of a storage policy
 // using govmomi
-func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) bool {
-	ctx, cancel := context.WithCancel(context.Background())
+func checkVmStorageCompliance(storagePolicy string) bool {
+	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	masterIp := getK8sMasterIPs(ctx, client)
-	vcAddress := e2eVSphere.Config.Global.VCenterHostname
-	nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
-	vcAdminPwd := GetAndExpectStringEnvVar(vcUIPwd)
-	sshClientConfig := &ssh.ClientConfig{
-		User: "root",
-		Auth: []ssh.AuthMethod{
-			ssh.Password(nimbusGeneratedK8sVmPwd),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-	cmd := "export GOVC_INSECURE=1;"
-	cmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:%s@%s';",
-		vcAdminPwd, vcAddress)
+
+	cmd := govcLoginCmd()
 	cmd += fmt.Sprintf("govc storage.policy.info -c -s %s;", storagePolicy)
-	_, err := sshExec(sshClientConfig, masterIp[0], cmd)
+	framework.Logf("Running command: %s", cmd)
+	result, err := exec.Command("/bin/bash", "-c", cmd).Output()
+	framework.Logf("res is: %v", result)
 	return strings.Contains(err.Error(), "object references is empty")
 }
 
@@ -1085,7 +1070,7 @@ func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interf
 
 // deleteCsiPodInParallel deletes csi pod present in csi namespace in parallel
 func deleteCsiPodInParallel(ctx context.Context, client clientset.Interface, pod *v1.Pod,
-	namespace string, wg *sync.WaitGroup) {
+	wg *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	framework.Logf("Deleting the pod: %s", pod.Name)
@@ -1112,7 +1097,7 @@ func deleteCsiControllerPodOnOtherMasters(ctx context.Context, client clientset.
 	var wg sync.WaitGroup
 	wg.Add(len(otherCsiControllerPods))
 	for _, csiPod := range otherCsiControllerPods {
-		go deleteCsiPodInParallel(ctx, client, csiPod, csiSystemNamespace, &wg)
+		go deleteCsiPodInParallel(ctx, client, csiPod, &wg)
 	}
 	wg.Wait()
 }
@@ -1283,4 +1268,54 @@ func checkForEventWithMessage(client clientset.Interface, namespace string,
 		}
 	}
 	return eventFound
+}
+
+// psodHostsOnSite executes PSOD operation on the hosts of the given site
+func psodHostsOnSite(primarySite bool, psodTimeout string) {
+	hosts := fds.secondarySiteHosts
+	if primarySite {
+		hosts = fds.primarySiteHosts
+	}
+
+	for _, host := range hosts {
+		err := psodHost(host, psodTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+// psodHostsInParallel is a rapper method for psodHostsOnSite method
+// which performs PSOD operation on the hosts of the given fault domain concurrently
+func psodHostsInParallel(primarySite bool, psodTimeout string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	psodHostsOnSite(primarySite, psodTimeout)
+}
+
+// createStaticPvAndPvcInGuestClusterInParallel creates PV and PVC in a guest cluster
+// from a volume created in supervisor cluster concurrently
+func createStaticPvAndPvcInGuestClusterInParallel(client clientset.Interface, ctx context.Context,
+	namespace string, svcPVCNames []string, storageClassName string,
+	ch chan *v1.PersistentVolumeClaim, lock *sync.Mutex, wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wg.Done()
+	for _, svcPVCName := range svcPVCNames {
+		framework.Logf("Volume Handle :%s", svcPVCName)
+
+		ginkgo.By("Creating PV in guest cluster")
+		gcPV := getPersistentVolumeSpecWithStorageclass(svcPVCName,
+			v1.PersistentVolumeReclaimRetain, storageClassName, nil, diskSize)
+		gcPV, err := client.CoreV1().PersistentVolumes().Create(ctx, gcPV, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gcPVName := gcPV.GetName()
+		time.Sleep(time.Duration(10) * time.Second)
+		framework.Logf("PV name in GC : %s", gcPVName)
+
+		ginkgo.By("Creating PVC in guest cluster")
+		gcPVC := getPVCSpecWithPVandStorageClass(svcPVCName, namespace, nil, gcPVName, storageClassName, diskSize)
+		gcPVC, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, gcPVC, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		lock.Lock()
+		ch <- gcPVC
+		lock.Unlock()
+	}
 }

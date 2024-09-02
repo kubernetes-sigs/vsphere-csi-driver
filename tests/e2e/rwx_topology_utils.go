@@ -886,7 +886,7 @@ func verifyK8sNodeStatusAfterSiteRecovery(client clientset.Interface, ctx contex
 	time.Sleep(pollTimeoutShort)
 
 	ginkgo.By("Wait for k8s cluster to be healthy")
-	wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+	wait4AllK8sNodesToBeUp(nodeList)
 	err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 	if err != nil {
 		return fmt.Errorf("error waiting for all nodes to be ready: %w", err)
@@ -895,18 +895,24 @@ func verifyK8sNodeStatusAfterSiteRecovery(client clientset.Interface, ctx contex
 }
 
 /* This util will perform psod operation on a host */
-func psodHost(hostIP string) error {
+func psodHost(hostIP string, psodTimeOut string) error {
 	ginkgo.By("PSOD")
-	sshCmd := fmt.Sprintf("vsish -e set /config/Misc/intOpts/BlueScreenTimeout %s", psodTime)
-	op, err := runCommandOnESX("root", hostIP, sshCmd)
+	var timeout string
+	if psodTimeOut != "" {
+		timeout = psodTimeOut
+	} else {
+		timeout = psodTime
+	}
+	sshCmd := fmt.Sprintf("vsish -e set /config/Misc/intOpts/BlueScreenTimeout %s", timeout)
+	op, err := runCommandOnESX(rootUser, hostIP, sshCmd)
 	framework.Logf(op)
 	if err != nil {
 		return fmt.Errorf("failed to set BlueScreenTimeout: %w", err)
 	}
 
 	ginkgo.By("Injecting PSOD")
-	psodCmd := "vsish -e set /reliability/crashMe/Panic 1"
-	op, err = runCommandOnESX("root", hostIP, psodCmd)
+	psodCmd := "vsish -e set /reliability/crashMe/Panic 1; exit"
+	op, err = runCommandOnESX(rootUser, hostIP, psodCmd)
 	framework.Logf(op)
 	if err != nil {
 		return fmt.Errorf("failed to inject PSOD: %w", err)
