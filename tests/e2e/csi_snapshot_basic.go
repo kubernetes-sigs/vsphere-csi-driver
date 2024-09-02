@@ -265,8 +265,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle = persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -1331,8 +1332,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		// }
 
 		ginkgo.By("Create PVC")
-		pvclaim, pvs := createPVCAndQueryVolumeInCNS(ctx, client, namespace,
+		pvclaim, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace,
 			labelsMap, "", diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -1528,8 +1530,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -1697,8 +1700,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, newNamespaceName, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, newNamespaceName, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -1944,9 +1948,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create pvc")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
 		}
@@ -2027,9 +2032,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
 		}
@@ -2142,8 +2148,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -2477,8 +2484,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentvolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentvolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -2572,8 +2580,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace,
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace,
 			labelsMap, "", diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -2987,8 +2996,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -3138,8 +3148,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		if guestCluster {
@@ -3315,8 +3326,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, pvs := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -3540,8 +3552,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle = persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -3910,8 +3923,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle = persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -4147,8 +4161,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -4613,8 +4628,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, pvs := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
+		pvclaim, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle = pvs[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		if guestCluster {
@@ -4998,8 +5014,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -5114,8 +5131,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -5300,8 +5318,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -5429,8 +5448,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -5602,8 +5622,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, pvs := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -5794,8 +5815,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -5939,8 +5961,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -6056,8 +6079,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		if guestCluster {
@@ -6193,8 +6217,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim1, pvs1 := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim1, pvs1, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle1 := pvs1[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle1 = getVolumeIDFromSupervisorCluster(volHandle1)
@@ -6377,8 +6402,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, pvs := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -6935,8 +6961,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, v1.ReadWriteOnce,
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, v1.ReadWriteOnce,
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle = persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -7024,8 +7051,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		ginkgo.By("Create PVC on GC1")
-		pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace1.Name, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace1.Name, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -7218,8 +7246,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create PVC")
-		pvclaim, pvs := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle = pvs[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -7568,8 +7597,9 @@ func invokeSnapshotOperationsOnSharedDatastore(client clientset.Interface, ctx c
 		}
 	}
 	ginkgo.By("Create PVC")
-	pvclaim, persistentVolumes := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
+	pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
 		diskSize, storageclass, true)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
 	if guestCluster {
 		volHandle = getVolumeIDFromSupervisorCluster(volHandle)

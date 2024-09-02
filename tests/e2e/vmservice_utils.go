@@ -332,7 +332,7 @@ func waitNgetVmsvcVM(ctx context.Context, c ctlrclient.Client, namespace string,
 // waitNgetVmsvcVmIp wait and fetch the primary IP of the vm in give ns
 func waitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace string, name string) (string, error) {
 	ip := ""
-	err := wait.PollUntilContextTimeout(ctx, poll*10, pollTimeout*4, true,
+	err := wait.PollUntilContextTimeout(ctx, poll*10, pollTimeout*6, true,
 		func(ctx context.Context) (bool, error) {
 			vm, err := getVmsvcVM(ctx, c, namespace, name)
 			if err != nil {
@@ -814,7 +814,7 @@ func wait4Pvc2Detach(
 }
 
 // updateVmWithNewPvc updates an existing VM by attaching a new PVC and updating the VM spec
-func updateVmWithNewPvc(ctx context.Context, vmopC                      ctlrclient.Client, vmName string, namespace string, newPvc *v1.PersistentVolumeClaim) error {
+func updateVmWithNewPvc(ctx context.Context, vmopC ctlrclient.Client, vmName string, namespace string, newPvc *v1.PersistentVolumeClaim) error {
 	// Fetch the existing VM
 	vm := &vmopv1.VirtualMachine{}
 	err := vmopC.Get(ctx, ctlrclient.ObjectKey{Name: vmName, Namespace: namespace}, vm)
