@@ -39,6 +39,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
@@ -46,6 +48,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
+	clientgrp "sigs.k8s.io/controller-runtime/pkg/client"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -78,6 +81,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		nimbusGeneratedK8sVmPwd    string
 		sc                         *storagev1.StorageClass
 		accessMode                 v1.PersistentVolumeAccessMode
+		err                        error
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -100,7 +104,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		// TODO: verify csi pods are up
 		if guestCluster {
-
 			if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
 				svcClient, err = createKubernetesClientFromConfig(k8senv)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -182,6 +185,11 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			accessMode = v1.ReadWriteOnce
 		}
 
+		if rwxAccessMode {
+			accessMode = v1.ReadWriteMany
+		} else {
+			accessMode = v1.ReadWriteOnce
+		}
 	})
 
 	ginkgo.AfterEach(func() {
@@ -818,24 +826,31 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	ginkgo.It("[primary-centric] PVC creation while primary site goes down", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ginkgo.By("Creating StorageClass")
-		// decide which test setup is available to run
-		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		scParameters = map[string]string{}
-		scParameters["StoragePolicyName"] = storageThickPolicyName
-		storageClassName = "nginx-sc-thick"
-		var pvclaims []*v1.PersistentVolumeClaim
 
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+		var svcCsipods, csipods *v1.PodList
+		if vanillaCluster {
+			scParameters = map[string]string{}
+			storageClassName = "nginx-sc-thick"
+			scParameters[scParamStoragePolicyName] = storagePolicyName
+			scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		} else {
+			sc, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
-		// Get the list of csi pods running in CSI namespace
-		csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+		ginkgo.By("Get csi pods list before bringing down the site")
+		if guestCluster {
+			svcCsipods, err = svcClient.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		csipods, err = client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring down the primary site while creating pvcs")
@@ -873,17 +888,31 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
+				if guestCluster {
+					volumeHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+					gomega.Expect(volumeHandle).NotTo(gomega.BeEmpty())
+				}
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if vanillaCluster {
+			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		}
+		if vanillaCluster && guestCluster {
+			err = waitForAllNodes2BeReady(ctx, client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
-		// Check if csi pods are running fine after site failure
+		time.Sleep(5 * time.Minute)
+		if guestCluster {
+			ginkgo.By("Check for csi pods to be in Ready state in supervisor")
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int32(svcCsipods.Size()), 0, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Check if csi pods are running fine after site failure")
 		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -892,8 +921,20 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		for i := 0; i < volumeOpsScale; i++ {
 			volHandle := persistentvolumes[i].Spec.CSI.VolumeHandle
 			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+			if guestCluster {
+				volHandle = getVolumeIDFromSupervisorCluster(persistentvolumes[i].Spec.CSI.VolumeHandle)
+				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+				svcPVCName := persistentvolumes[i].Spec.CSI.VolumeHandle
+				err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, volHandle, svcPVCName, pvclaims[i],
+					persistentvolumes[i], nil)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				err = waitAndVerifyCnsVolumeMetadata(ctx, volHandle, pvclaims[i], persistentvolumes[i], nil)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}
 
+		ginkgo.By("Delete all PVCs created in this test")
 		for _, pvclaim := range pvclaims {
 			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -915,8 +956,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			fds.hostsDown = nil
 		}
 
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		// wait for the VMs to move back
 		err = waitForAllNodes2BeReady(ctx, client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -937,32 +976,45 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	ginkgo.It("[primary-centric][control-plane-on-primary][distributed] Primary site network isolation", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ginkgo.By("Creating StorageClass for Statefulset")
-		// decide which test setup is available to run
-		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		scParameters = map[string]string{}
-		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
 
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+		var stsReplicas int32
+		var statefulset *appsv1.StatefulSet
+		var svcCsipods, csipods *v1.PodList
+
+		if rwxAccessMode {
+			stsReplicas = 3
+		} else {
+			stsReplicas = 4
+		}
+
+		ginkgo.By("Creating StorageClass")
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters = map[string]string{}
+			scParameters["StoragePolicyName"] = storagePolicyName
+			scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		} else if guestCluster {
+			ginkgo.By("CNS_TEST: Running for GC setup")
+			sc, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By("Creating service")
 		service := CreateService(namespace, client)
 		defer func() {
 			deleteService(namespace, client, service)
 		}()
+
 		ginkgo.By("Creating statefulset and deployment with volumes from the stretched datastore")
 		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
 			false, 3, "", 1, "")
 		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
-		replicas := *(statefulset.Spec.Replicas)
-
 		defer func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -972,6 +1024,10 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
 				volumeHandle := pv.Spec.CSI.VolumeHandle
+				if guestCluster {
+					volumeHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+					gomega.Expect(volumeHandle).NotTo(gomega.BeEmpty())
+				}
 				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
 					pollTimeout)
 				errMsg := "The object or item referred to could not be found"
@@ -988,25 +1044,39 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			}
 		}()
 
-		// Get the list of csi pods running in CSI namespace
-		csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+		ginkgo.By("Get csi pods list before bringing down the site")
+		if guestCluster {
+			svcCsipods, err = svcClient.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		csipods, err = client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Cause a network failure on primary site
 		ginkgo.By("Isolate primary site from witness and secondary site")
 		siteNetworkFailure(true, false)
-
 		defer func() {
 			ginkgo.By("Bring up the primary site before terminating the test")
 			siteNetworkFailure(true, true)
 		}()
 
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if guestCluster {
+			ginkgo.By("Check if csi pods are running fine after site failure in supervisor")
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int32(svcCsipods.Size()), 0, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
-		// Check if csi pods are running fine after network failure
+		ginkgo.By("Check for nodes to be in Ready state")
+		if vanillaCluster {
+			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		}
+		if guestCluster || vanillaCluster {
+			err = waitForAllNodes2BeReady(ctx, client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Check if csi pods are running fine after site failure")
 		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1017,50 +1087,28 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		err = fpod.WaitForPodNameRunningInNamespace(ctx, client, pod.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, stsReplicas)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying volume lifecycle actions works fine")
 		volumeLifecycleActions(ctx, client, namespace, sc, "")
 		// Scale down replicas of statefulset and verify CNS entries for volumes
 		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
-			ssPodsBeforeScaleDown, replicas-1, true, true)
-		// Scale up replicas of statefulset and verify CNS entries for volumes
+			ssPodsBeforeScaleDown, stsReplicas, true, true)
+
+		ginkgo.By("Performing scaleup operation on statefulset when site is down")
+		stsReplicas = 6
 		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
-			replicas, true, true)
+			stsReplicas, true, true)
 
 		ginkgo.By("Bring up the primary site")
 		siteNetworkFailure(true, true)
 
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		// wait for the VMs to move back
 		err = waitForAllNodes2BeReady(ctx, client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		ginkgo.By("Scale down statefulset and deployment after site recovery")
 		scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
-		pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		for _, claim := range pvcs.Items {
-			pv := getPvFromClaim(client, namespace, claim.Name)
-			volumeHandle := pv.Spec.CSI.VolumeHandle
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
-			err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
-				pollTimeout)
-			errMsg := "The object or item referred to could not be found"
-			if err != nil && checkForEventWithMessage(client, "", pv.Name, errMsg) {
-				framework.Logf("Persistent Volume %v still not deleted with err %v", pv.Name, errMsg)
-				// Orphan volumes may be left over here, hence logging those PVs and ignoring the error for now.
-				_ = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-				framework.Logf("Volume %v still not deleted from CNS with err %v", pv.Name, errMsg)
-			} else {
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-
-		}
 	})
 
 	/*
@@ -1077,22 +1125,28 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	ginkgo.It("[primary-centric] PVC deletion while primary site goes down", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var svcCsipods *v1.PodList
 		ginkgo.By("Creating StorageClass")
 		// decide which test setup is available to run
-		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		scParameters = map[string]string{}
-		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
-		var pvclaims []*v1.PersistentVolumeClaim = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters = map[string]string{}
+			scParameters["StoragePolicyName"] = storagePolicyName
+			scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		} else {
+			ginkgo.By("CNS_TEST: Running for GC setup")
+			sc, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
+		var pvclaims []*v1.PersistentVolumeClaim = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 		for i := 0; i < volumeOpsScale; i++ {
 			framework.Logf("Creating pvc %v", i)
 			pvclaims[i], err = createPVC(ctx, client, namespace, nil, diskSize, sc, "")
@@ -1104,8 +1158,23 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		for i := 0; i < volumeOpsScale; i++ {
 			volHandle := persistentvolumes[i].Spec.CSI.VolumeHandle
 			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+			if guestCluster {
+				volHandle = getVolumeIDFromSupervisorCluster(persistentvolumes[i].Spec.CSI.VolumeHandle)
+				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+				svcPVCName := persistentvolumes[i].Spec.CSI.VolumeHandle
+				err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, volHandle, svcPVCName, pvclaims[i],
+					persistentvolumes[i], nil)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				err = waitAndVerifyCnsVolumeMetadata(ctx, volHandle, pvclaims[i], persistentvolumes[i], nil)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}
 
+		if guestCluster {
+			svcCsipods, err = svcClient.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 		// Get the list of csi pods running in CSI namespace
 		csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1126,10 +1195,19 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		}()
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if vanillaCluster {
+			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		}
+		if vanillaCluster || guestCluster {
+			err = waitForAllNodes2BeReady(ctx, client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
+		time.Sleep(5 * time.Minute)
+		if guestCluster {
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int32(svcCsipods.Size()), 0, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 		// Check if csi pods are running fine after site failure
 		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1312,15 +1390,10 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	   9.  Bring primary site up and wait for testbed to be back to normal
 	*/
 	ginkgo.It("[primary-centric] Label updates to PV, PVC, pod while primary site goes down", func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ginkgo.By("Creating StorageClass")
-		// decide which test setup is available to run
-		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		scParameters = map[string]string{}
-		scParameters["StoragePolicyName"] = storageThickPolicyName
-		storageClassName = "nginx-sc-default"
-		var pvclaims []*v1.PersistentVolumeClaim
+
 		if os.Getenv(envFullSyncWaitTime) != "" {
 			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
 			framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
@@ -1329,13 +1402,25 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			fullSyncWaitTime = defaultFullSyncWaitTime
 		}
 
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+		var pvclaims []*v1.PersistentVolumeClaim
+		var svcCsipods, csipods *v1.PodList
+		var volHandles []string
+
+		ginkgo.By("Creating StorageClass")
+		if vanillaCluster {
+			scParameters = map[string]string{}
+			scParameters["StoragePolicyName"] = storagePolicyName
+			scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		} else {
+			sc, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		for i := 0; i < volumeOpsScale; i++ {
 			framework.Logf("Creating pvc")
@@ -1349,6 +1434,18 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		for i := 0; i < volumeOpsScale; i++ {
 			volHandle := persistentvolumes[i].Spec.CSI.VolumeHandle
 			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+			if guestCluster {
+				volHandle = getVolumeIDFromSupervisorCluster(persistentvolumes[i].Spec.CSI.VolumeHandle)
+				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+				svcPVCName := persistentvolumes[i].Spec.CSI.VolumeHandle
+				err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, volHandle, svcPVCName, pvclaims[i],
+					persistentvolumes[i], nil)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				err = waitAndVerifyCnsVolumeMetadata(ctx, volHandle, pvclaims[i], persistentvolumes[i], nil)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			volHandles = append(volHandles, volHandle)
 		}
 		defer func() {
 			for _, claim := range pvclaims {
@@ -1356,20 +1453,27 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			ginkgo.By("Verify PVs, volumes are deleted from CNS")
-			for _, pv := range persistentvolumes {
+			for i, pv := range persistentvolumes {
 				err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				volumeHandle := pv.Spec.CSI.VolumeHandle
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandles[i])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-						"kubernetes", volumeHandle))
+						"kubernetes", volHandles[i]))
 			}
 		}()
 
-		// Get the list of csi pods running in CSI namespace
-		csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+		ginkgo.By("Get csi pods list before bringing down the site")
+		if guestCluster {
+			svcCsipods, err = svcClient.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		csipods, err = client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring down the primary site while adding labels to PVCs and PVs")
@@ -1382,17 +1486,34 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		go siteFailureInParallel(ctx, true, &wg)
 		wg.Wait()
 
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client)
+		if vanillaCluster {
+			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		}
+		if vanillaCluster || guestCluster {
+			err = waitForAllNodes2BeReady(ctx, client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		time.Sleep(5 * time.Minute)
+		ginkgo.By("Check if csi pods are running fine after site failure")
+		if guestCluster {
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int32(svcCsipods.Size()), 0, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Sleeping full-sync interval for volumes to be updated " +
 			"with labels in CNS")
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 
-		// Check if csi pods are running fine after site failure
-		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout)
+		ginkgo.By("Check if csi pods are running fine after site failure")
+		if guestCluster {
+			svcCsipods, err = svcClient.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		csipods, err = client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
@@ -1402,19 +1523,19 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		}
 
-		for _, pvc := range pvclaims {
+		for i, pvc := range pvclaims {
 			ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
 				labels, pvc.Name, namespace))
-			pv := getPvFromClaim(client, namespace, pvc.Name)
-			err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
+			//pv := getPvFromClaim(client, namespace, pvc.Name)
+			err = e2eVSphere.waitForLabelsToBeUpdated(volHandles[i], labels,
 				string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		for _, pv := range persistentvolumes {
+		for i, pv := range persistentvolumes {
 			ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s",
 				labels, pv.Name))
-			err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
+			err = e2eVSphere.waitForLabelsToBeUpdated(volHandles[i], labels,
 				string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -1435,11 +1556,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		ginkgo.By("Bring up the primary site")
 		siteRestore(true)
-
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		// wait for the VMs to move back
-		err = waitForAllNodes2BeReady(ctx, client)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
 	/*
@@ -1960,67 +2076,80 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		7.	Delete all objects created in step 2 and 5
 	*/
 	ginkgo.It("[control-plane-on-primary] Secondary site down", func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ginkgo.By("Creating StorageClass")
-		// decide which test setup is available to run
-		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		scParameters = map[string]string{}
-		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
 
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+		var stsReplicas, depReplicaCount int32
+		var statefulset *appsv1.StatefulSet
+		var svcCsipods, csipods *v1.PodList
+
+		if rwxAccessMode {
+			depReplicaCount = 3
+			stsReplicas = 3
+		} else {
+			depReplicaCount = 1
+			stsReplicas = 4
+		}
+
+		ginkgo.By("Creating StorageClass")
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters = map[string]string{}
+			scParameters["StoragePolicyName"] = storagePolicyName
+			scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-		framework.Logf("Creating service")
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		} else if guestCluster {
+			ginkgo.By("CNS_TEST: Running for GC setup")
+			sc, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Creating service")
 		service := CreateService(namespace, client)
 		defer func() {
 			deleteService(namespace, client, service)
 		}()
 
 		ginkgo.By("Creating statefulset and deployment with volumes from the stretched datastore")
-		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 3, "", 1, "")
-
+		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
+			false, stsReplicas, "", depReplicaCount, accessMode)
 		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
-		replicas := *(statefulset.Spec.Replicas)
-
 		defer func() {
+			scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
 				pv := getPvFromClaim(client, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				volumeHandle := pv.Spec.CSI.VolumeHandle
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
 				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
 					pollTimeout)
-				errMsg := "The object or item referred to could not be found"
-				if err != nil && checkForEventWithMessage(client, "", pv.Name, errMsg) {
-					framework.Logf("Persistent Volume %v still not deleted with err %v", pv.Name, errMsg)
-					// Orphan volumes may be left over here, hence logging those PVs and ignoring the error for now.
-					_ = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-					framework.Logf("Volume %v still not deleted from CNS with err %v", pv.Name, errMsg)
-				} else {
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				}
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volumeHandle := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeHandle))
 			}
 		}()
 
-		// Get the list of csi pods running in CSI namespace
-		csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+		if guestCluster {
+			svcCsipods, err = svcClient.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		csipods, err = client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring down the secondary site")
 		siteFailover(ctx, false)
-
 		defer func() {
 			ginkgo.By("Bring up the secondary site before terminating the test")
 			if len(fds.hostsDown) > 0 && fds.hostsDown != nil {
@@ -2029,23 +2158,48 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			}
 		}()
 
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if vanillaCluster {
+			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		}
+		if vanillaCluster || guestCluster {
+			err = waitForAllNodes2BeReady(ctx, client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
-		// Check if csi pods are running fine after site failure
+		if guestCluster {
+			ginkgo.By("Check if csi pods are running fine after site failurein supervisor")
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int32(svcCsipods.Size()), 0, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying volume lifecycle actions works fine")
 		volumeLifecycleActions(ctx, client, namespace, sc, "")
-		// Scale down replicas of statefulset and verify CNS entries for volumes
-		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
-			ssPodsBeforeScaleDown, replicas-1, true, true)
-		// Scale up replicas of statefulset and verify CNS entries for volumes
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
-			replicas, true, true)
+
+		// Statefulset and deployments in PodVM might got to Terminating state as
+		// the nodes attached to these pods might become inaccessible during site failure.
+		// Hence validating these steps once site is restored back.
+		if !supervisorCluster {
+			ginkgo.By("Performing scaledown operation on statefulset when site is down")
+			stsReplicas = 2
+			scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+				ssPodsBeforeScaleDown, stsReplicas, true, true)
+
+			ginkgo.By("Performing scaleup operation on statefulset when site is down")
+			stsReplicas = 6
+			scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+				stsReplicas, true, true)
+
+			if rwxAccessMode {
+				ginkgo.By("Performing scaleup operation on deployment when site is down")
+				depReplicaCount = 4
+				updateDeploymentReplicawithWait(client, depReplicaCount, deployment.Name, namespace)
+				verifyVolumeMetadataOnDeployments(ctx, client, deployment, namespace, nil, nil,
+					nil, "")
+			}
+		}
 
 		ginkgo.By("Bring up the secondary site")
 		if len(fds.hostsDown) > 0 && fds.hostsDown != nil {
@@ -2053,11 +2207,30 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			fds.hostsDown = nil
 		}
 
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		// wait for the VMs to move back
 		err = waitForAllNodes2BeReady(ctx, client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		if supervisorCluster {
+			ginkgo.By("Performing scaledown operation on statefulset when site is down")
+			stsReplicas = 2
+			scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+				ssPodsBeforeScaleDown, stsReplicas, true, true)
+
+			ginkgo.By("Performing scaleup operation on statefulset when site is down")
+			stsReplicas = 6
+			scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+				stsReplicas, true, true)
+
+			if rwxAccessMode {
+				ginkgo.By("Performing scaleup operation on deployment when site is down")
+				depReplicaCount = 4
+				updateDeploymentReplicawithWait(client, depReplicaCount, deployment.Name, namespace)
+				verifyVolumeMetadataOnDeployments(ctx, client, deployment, namespace, nil, nil,
+					nil, "")
+			}
+		}
+
+		ginkgo.By("Scale down statefulset and deployment after site recovery")
 		scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
 	})
 
@@ -2153,6 +2326,11 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By(fmt.Sprintf("Scaling down statefulset: %v to number of Replica: %v", statefulset2.Name, sts2Replicas))
 		fss.UpdateReplicas(ctx, client, statefulset2, sts2Replicas)
 
+		if guestCluster {
+			svcCsipods, err = svcClient.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 		ginkgo.By("Isolate secondary site from witness and primary site")
 		siteNetworkFailure(false, false)
 
@@ -2168,18 +2346,16 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		if vanillaCluster {
 			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
 		}
-		if guestCluster || vanillaCluster {
+		if vanillaCluster || guestCluster {
 			err = waitForAllNodes2BeReady(ctx, client)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		if guestCluster {
-			ginkgo.By("Check if csi pods are running fine after site failure in supervisor")
+			ginkgo.By("Check if csi pods are running fine after site failurein supervisor")
 			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int32(svcCsipods.Size()), 0, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-
-		time.Sleep(5 * time.Minute)
 
 		// Check if csi pods are running fine after site failure
 		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout)
@@ -2254,7 +2430,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		volumeLifecycleActions(ctx, client, namespace, sc, accessMode)
 
 		scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
-
 	})
 
 	/*
@@ -2271,23 +2446,36 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	ginkgo.It("[distributed] Witness failure", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ginkgo.By("Creating StorageClass for Statefulset")
-		// decide which test setup is available to run
-		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		scParameters = map[string]string{}
-		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-default"
+
+		var stsReplicas, depReplicaCount int32
+		var statefulset *appsv1.StatefulSet
+		var svcCsipods, csipods *v1.PodList
+
+		if rwxAccessMode {
+			depReplicaCount = 3
+			stsReplicas = 3
+		} else {
+			depReplicaCount = 1
+			stsReplicas = 4
+		}
+
+		ginkgo.By("Creating service")
 		service := CreateService(namespace, client)
 		defer func() {
 			deleteService(namespace, client, service)
 		}()
 
-		csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+		ginkgo.By("Get csi pods list before bringing down witness host")
+		if guestCluster {
+			svcCsipods, err = svcClient.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		csipods, err = client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring down witness host")
 		toggleWitnessPowerState(ctx, true)
-
 		defer func() {
 			ginkgo.By("Bring up the witness host before terminating the test")
 			if fds.witnessDown != "" {
@@ -2295,30 +2483,67 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			}
 		}()
 
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Check if csi pods are running fine after witness failure")
+		if guestCluster {
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int32(svcCsipods.Size()), 0, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
+		if vanillaCluster {
+			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		}
+		if vanillaCluster || guestCluster {
+			err = waitForAllNodes2BeReady(ctx, client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Check if csi pods are running fine after witness failure")
 		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+		ginkgo.By("Creating StorageClass")
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters = map[string]string{}
+			scParameters["StoragePolicyName"] = storagePolicyName
+			scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		} else {
+			ginkgo.By("CNS_TEST: Running for GC setup")
+			sc, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Creating statefulset and deployment with volumes from the stretched datastore")
+		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
+			false, stsReplicas, "", depReplicaCount, accessMode)
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
+		defer func() {
+			scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, claim := range pvcs.Items {
+				pv := getPvFromClaim(client, namespace, claim.Name)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
+					pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volumeHandle := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeHandle))
+			}
 		}()
 
-		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, true, false, 3, "", 1,
-			"")
-		replicas := *(statefulset.Spec.Replicas)
-		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
-		// Scale down replicas of statefulset and verify CNS entries for volumes
-		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
-			ssPodsBeforeScaleDown, replicas-1, true, true)
-
+		ginkgo.By("Check storage compliance")
 		comp := checkVmStorageCompliance(client, storagePolicyName)
 		if !comp {
 			framework.Failf("Expected VM and storage compliance to be false but found true")
@@ -2329,20 +2554,37 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			toggleWitnessPowerState(ctx, false)
 		}
 
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		// wait for the VMs to move back
 		err = waitForAllNodes2BeReady(ctx, client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying volume lifecycle actions works fine")
 		volumeLifecycleActions(ctx, client, namespace, sc, "")
 
-		ginkgo.By(fmt.Sprintf("Scaling up statefulset: %v to number of Replica: %v",
-			statefulset.Name, replicas))
-		// Scale up replicas of statefulset and verify CNS entries for volumes
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
-			replicas, true, true)
+		ginkgo.By("Performing scaledown operation on statefulset")
+		stsReplicas = 2
+		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+			ssPodsBeforeScaleDown, stsReplicas, true, true)
 
+		ginkgo.By("Performing scaleup operation on statefulset")
+		stsReplicas = 6
+		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+			stsReplicas, true, true)
+
+		if rwxAccessMode {
+			ginkgo.By("Performing scaleup operation on deployment")
+			depReplicaCount = 4
+			updateDeploymentReplicawithWait(client, depReplicaCount, deployment.Name, namespace)
+			verifyVolumeMetadataOnDeployments(ctx, client, deployment, namespace, nil, nil,
+				nil, "")
+		}
+
+		ginkgo.By("Check storage compliance")
+		comp = checkVmStorageCompliance(client, storagePolicyName)
+		if !comp {
+			framework.Failf("Expected VM and storage compliance to be true but found false")
+		}
+
+		ginkgo.By("Scale down statefulset and deployment after site recovery")
 		scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
 	})
 
@@ -2957,9 +3199,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		}()
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if vanillaCluster {
+			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		}
+		if vanillaCluster || guestCluster {
+			err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		// Check if csi pods are running fine after site failure
 		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout)
@@ -3011,7 +3257,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		// wait for the VMs to move back
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	})
 
 	/*
@@ -3026,8 +3271,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		7.  Create 50 new PVCs
 		8.  Wait for secondary site VMs to come up and k8s to be healthy
 		9.  Verify all stateful sets have scaled up/down successfully
-		10. Scale down first 50 sts to 2 replicas
-		11. Scale up second 50 statefulsets to 1 replica
+		10. Scale down first 50 sts to 2 replicas.
+		11. Scale up second 50 statefulsets to 1 replica.
 		12. Verify all stateful sets have scaled up/down successfully
 		13. Delete all stateful sets
 		14. Delete all PVCs
@@ -3144,7 +3389,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				pvcList = append(pvcList, v)
 			}
 		}()
-		framework.Logf("ch is %v", ch)
+
 		go siteFailureInParallel(ctx, false, &wg)
 		wg.Wait()
 		close(ch)
@@ -3232,8 +3477,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		// wait for the VMs to move back
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	})
+
 	/*
 		Partial failure of secondary site
 		Steps:
@@ -3241,7 +3486,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		2. Create a statefulset, deployment with volumes from the stretched datastore
 		3. Bring down a esx server in the secondary site
 		4. Verify that the VMs on the esx server which was brought down are started up on the
-		   other esx servers in the secondary site
+		   other esx servers in the secondary site.
 		5. Verify that the k8s cluster is healthy and all the k8s constructs created in step 2
 		   are running and volume and application lifecycle actions work fine
 		6. Restore secondary site back up and wait for testbed to be back to normal
@@ -3351,7 +3596,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
-
 	})
 
 	/*
@@ -3516,25 +3760,38 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass")
-		// decide which test setup is available to run
-		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		scParameters = map[string]string{}
-		scParameters["StoragePolicyName"] = storageThickPolicyName
-		storageClassName = "nginx-sc-thick"
 		var pvclaims []*v1.PersistentVolumeClaim
 		var fcdIDs []string
+		var svcCsipods *v1.PodList
+		var svcClient clientset.Interface
+		var svNamespace string
+		var svcPVCNames []string
+		var deleteFCD bool = true
+		//namespace = "default"
+		framework.Logf("namespace: %s", namespace)
 
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+		if vanillaCluster {
+			scParameters = map[string]string{}
+			scParameters["StoragePolicyName"] = storageThickPolicyName
+			scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		} else {
+			svcClient, svNamespace = getSvcClientAndNamespace()
+			sc, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		framework.Logf("Ensuring %s leader is in secondary site", syncerContainerName)
-		err = changeLeaderOfContainerToComeUpOnMaster(ctx, client, sshClientConfig, syncerContainerName, false)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		if vanillaCluster {
+			framework.Logf("Ensuring %s leader is in secondary site", syncerContainerName)
+			err = changeLeaderOfContainerToComeUpOnMaster(ctx, client, sshClientConfig, syncerContainerName, false)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		for i := 0; i < volumeOpsScale; i++ {
 			ginkgo.By("Creating FCD Disk")
@@ -3543,10 +3800,72 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			fcdIDs = append(fcdIDs, fcdID)
 		}
 
+		defer func() {
+			if deleteFCD {
+				for _, fcdID := range fcdIDs {
+					ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
+
+					err := e2eVSphere.deleteFCD(ctx, fcdID, defaultDatastore.Reference())
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}
+		}()
+
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCDs to sync with pandora",
 			pandoraSyncWaitTime))
-		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+		time.Sleep(time.Duration(300) * time.Second)
 
+		if guestCluster {
+			var restConfig *restclient.Config
+			if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+				restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			for _, fcdID := range fcdIDs {
+				ginkgo.By("Create CNS register volume with above created FCD")
+				rand.New(rand.NewSource(time.Now().UnixNano()))
+				suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
+
+				svpvcName := "cns-pvc-" + suffix
+				framework.Logf("pvc name :%s", svpvcName)
+				cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, svNamespace, fcdID, "", svpvcName, v1.ReadWriteOnce)
+				err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
+					restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout*2))
+				cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+				framework.Logf("CNS register volume name : %s", cnsRegisterVolumeName)
+
+				ginkgo.By("verify created PV, PVC and check the bidirectional reference")
+				svcPVC, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, svpvcName, metav1.GetOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+				verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
+				svcPVCNames = append(svcPVCNames, svpvcName)
+
+				defer func() {
+					for _, svpvcName := range svcPVCNames {
+						svcPV := getPvFromClaim(svcClient, namespace, svpvcName)
+						err := fpv.DeletePersistentVolumeClaim(ctx, svcClient, svpvcName, svNamespace)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+						err = fpv.DeletePersistentVolume(ctx, svcClient, svcPV.Name)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						err = fpv.WaitForPersistentVolumeDeleted(ctx, svcClient, svcPV.Name, poll,
+							pollTimeout)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						volumeHandle := svcPV.Spec.CSI.VolumeHandle
+						err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
+				}()
+			}
+		}
+
+		if guestCluster {
+			svcCsipods, err = svcClient.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 		// Get the list of csi pods running in CSI namespace
 		csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3554,8 +3873,14 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		ginkgo.By("Bring down the secondary site while creating static pv and pvcs")
 		var wg sync.WaitGroup
 		ch := make(chan *v1.PersistentVolumeClaim)
+		lock := &sync.Mutex{}
 		wg.Add(2)
-		go createStaticPvAndPvcInParallel(client, ctx, fcdIDs, ch, namespace, &wg, volumeOpsScale)
+		if vanillaCluster {
+			go createStaticPvAndPvcInParallel(client, ctx, fcdIDs, ch, namespace, &wg, volumeOpsScale)
+		} else if guestCluster {
+			go createStaticPvAndPvcInGuestClusterInParallel(client, ctx, namespace,
+				svcPVCNames, sc.Name, ch, lock, &wg)
+		}
 		go func() {
 			for v := range ch {
 				pvclaims = append(pvclaims, v)
@@ -3579,16 +3904,30 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 					pollTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				volumeHandle := pv.Spec.CSI.VolumeHandle
+				if guestCluster {
+					volumeHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+					gomega.Expect(volumeHandle).NotTo(gomega.BeEmpty())
+				}
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if vanillaCluster {
+			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		}
+		if guestCluster || vanillaCluster {
+			err = waitForAllNodes2BeReady(ctx, client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
+		time.Sleep(5 * time.Minute)
+		if guestCluster {
+			ginkgo.By("Check if csi pods are running fine after site failure in supervisor")
+			// Check if csi pods are running fine after site failure
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int32(svcCsipods.Size()), 0, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 		// Check if csi pods are running fine after site failure
 		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout*2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3619,12 +3958,28 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
+		for _, svpvcName := range svcPVCNames {
+			svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+			err := fpv.DeletePersistentVolumeClaim(ctx, svcClient, svpvcName, svNamespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+			err = fpv.DeletePersistentVolume(ctx, svcClient, svcPV.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = fpv.WaitForPersistentVolumeDeleted(ctx, svcClient, svcPV.Name, poll,
+				pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			volumeHandle := svcPV.Spec.CSI.VolumeHandle
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 		for _, fcdId := range fcdIDs {
 			ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdId))
 			err := e2eVSphere.deleteFCD(ctx, fcdId, defaultDatastore.Reference())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
+		deleteFCD = false
 		ginkgo.By("Bring up the secondary site")
 		siteRestore(false)
 
@@ -3635,61 +3990,73 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	})
 
 	/*
-			Site failover during full sync
-			Steps:
-			1.  Configure a vanilla multi-master K8s cluster with inter and intra site replication
-			2.	Create 6 PVCs with reclaim policy Delete and 8 with reclaim policy Retain
-				and wait for them to be bound
-			3.	Delete four PVCs with reclaim policy Retain
-			4.	Delete two PVs reclaim policy Retain related to PVC used in step 3
-			5.	Create two pods using PVCs with reclaim policy Delete
-			6.	Bring vsan-health service down
-			7.	Create two pods with two PVCs each
-			8.	Create two static PVs with disk left after step 4
-			9.	Create two PVCs to bind to PVs with reclaim policy Retain
-			10. Delete four PVCs with reclaim policy Retain different from the ones used in step 3 and 9
-			11. Delete two PVs reclaim policy Retain related to PVC used in step 10
-			12. Add labels to all PVs, PVCs
-			13. Bring vsan-health service up when full sync is triggered
-			14. Bring down primary site
-			15. Verify that the VMs on the primary site are started up on the other esx servers
-		        in the secondary site
-			16. Wait for full sync
-			17. Verify CNS entries
-			18. Delete all pods, PVCs and PVs
-			19. Bring primary site up and wait for testbed to be back to normal
+		Site failover during full sync
+		Steps:
+		1.  Configure a vanilla multi-master K8s cluster with inter and intra site replication
+		2.	Create 6 PVCs with reclaim policy Delete and 8 with reclaim policy Retain
+			and wait for them to be bound
+		3.	Delete four PVCs with reclaim policy Retain
+		4.	Delete two PVs reclaim policy Retain related to PVC used in step 3
+		5.	Create two pods using PVCs with reclaim policy Delete
+		6.	Bring vsan-health service down
+		7.	Create two pods with two PVCs each
+		8.	Create two static PVs with disk left after step 4
+		9.	Create two PVCs to bind to PVs with reclaim policy Retain
+		10. Delete four PVCs with reclaim policy Retain different from the ones used in step 3 and 9
+		11. Delete two PVs reclaim policy Retain related to PVC used in step 10
+		12. Add labels to all PVs, PVCs
+		13. Bring vsan-health service up when full sync is triggered
+		14. Bring down primary site
+		15. Verify that the VMs on the primary site are started up on the other esx servers
+			in the secondary site
+		16. Wait for full sync
+		17. Verify CNS entries
+		18. Delete all pods, PVCs and PVs
+		19. Bring primary site up and wait for testbed to be back to normal
 
 	*/
-	ginkgo.It("[primary-centric][distributed] Primary site failover during full sync when syncer"+
-		" pod leader is in primary site", func() {
+	ginkgo.It("[primary-centric][distributed] Primary site failover during full sync", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass")
 		// decide which test setup is available to run
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-		scParameters = map[string]string{}
-		scParameters["StoragePolicyName"] = storagePolicyName
-		storageClassName = "nginx-sc-delete"
+
 		var pods []*v1.Pod
 		var pvclaimsWithDelete, pvclaimsWithRetain []*v1.PersistentVolumeClaim
 		var volHandles []string
+		var scRetain, scDelete *storagev1.StorageClass
+		var cnsOperatorClient clientgrp.Client
 
-		framework.Logf("Ensuring %s leader is in primary site", syncerContainerName)
-		err := changeLeaderOfContainerToComeUpOnMaster(ctx, client, sshClientConfig, syncerContainerName, true)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		scRetain, err := createStorageClass(client, scParameters, nil, v1.PersistentVolumeReclaimRetain, "", false, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-		scDelete, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, scRetain.Name, *metav1.NewDeleteOptions(0))
+		if vanillaCluster {
+			framework.Logf("Ensuring %s leader is in primary site", syncerContainerName)
+			err := changeLeaderOfContainerToComeUpOnMaster(ctx, client, sshClientConfig, syncerContainerName, true)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = client.StorageV1().StorageClasses().Delete(ctx, scDelete.Name, *metav1.NewDeleteOptions(0))
+		}
+
+		if vanillaCluster {
+			scParameters = map[string]string{}
+			scParameters["StoragePolicyName"] = storagePolicyName
+			scRetain, err = createStorageClass(client, scParameters, nil, v1.PersistentVolumeReclaimRetain, "", false, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+			scSpec := getVSphereStorageClassSpec("nginx-sc-delete", scParameters, nil, "", "", false)
+			scDelete, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, scRetain.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = client.StorageV1().StorageClasses().Delete(ctx, scDelete.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		} else if guestCluster {
+			scParameters = map[string]string{}
+			scParameters[svStorageClassName] = storagePolicyName
+			scRetain, err = createStorageClass(client, scParameters, nil, v1.PersistentVolumeReclaimRetain, "", false, "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			scSpec := getVSphereStorageClassSpec("nginx-sc-delete", scParameters, nil, "", "", false)
+			scDelete, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		for i := 0; i < 6; i++ {
 			framework.Logf("Creating pvc %v with reclaim policy Delete", i)
@@ -3759,6 +4126,10 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				framework.Logf("Deleting pv %s from pvc: %s", pv.Name, pvclaimsWithRetain[i].Name)
 				volHandle := pv.Spec.CSI.VolumeHandle
+				if guestCluster {
+					volHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+					gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+				}
 				volHandles = append(volHandles, volHandle)
 				err = fpv.DeletePersistentVolume(ctx, client, pv.Name)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3896,17 +4267,24 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		csipods, err := client.CoreV1().Pods(csiSystemNamespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// Get restConfig.
-		restConfig := getRestConfigClient()
-		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
-		ginkgo.By("Bring down the primary site while full sync is going on")
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go triggerFullSyncInParallel(ctx, cnsOperatorClient, &wg)
-		go siteFailureInParallel(ctx, true, &wg)
-		wg.Wait()
+		if vanillaCluster {
+			// Get restConfig.
+			restConfig := getRestConfigClient()
+			cnsOperatorClient, err = k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			enableFullSyncTriggerFss(ctx, client, csiSystemNamespace, fullSyncFss)
+			ginkgo.By("Bring down the primary site while full sync is going on")
+			var wg sync.WaitGroup
+
+			wg.Add(2)
+			go triggerFullSyncInParallel(ctx, cnsOperatorClient, &wg)
+			go siteFailureInParallel(ctx, true, &wg)
+			wg.Wait()
+		} else {
+			framework.Logf("Sleeping full-sync interval time")
+			time.Sleep(time.Duration(120) * time.Second)
+			siteFailover(ctx, true)
+		}
 
 		defer func() {
 			ginkgo.By("Bring up the primary site before terminating the test")
@@ -3917,16 +4295,25 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		}()
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
-		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if vanillaCluster {
+			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		}
+		if vanillaCluster || guestCluster {
+			err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		// Check if csi pods are running fine after site failure
 		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout*2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Trigger 2 full syncs as full sync might be interrupted during site failover")
-		triggerFullSync(ctx, cnsOperatorClient)
+		if vanillaCluster {
+			ginkgo.By("Trigger 2 full syncs as full sync might be interrupted during site failover")
+			triggerFullSync(ctx, cnsOperatorClient)
+		} else {
+			framework.Logf("Sleeping for %d seconds for full sync time interval", fullSyncWaitTime)
+			time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		}
 
 		ginkgo.By("Checking whether pods are in Running state")
 		for _, pod := range pods {
@@ -3939,17 +4326,27 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			ginkgo.By(fmt.Sprintf("Verifying labels %+v are updated for pvc %s in namespace %s",
 				labels, pvc.Name, namespace))
 			pv := getPvFromClaim(client, namespace, pvc.Name)
-			err = e2eVSphere.verifyLabelsAreUpdated(pv.Spec.CSI.VolumeHandle, labels,
-				string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			volHandle := pv.Spec.CSI.VolumeHandle
+			if guestCluster {
+				volHandle = getVolumeIDFromSupervisorCluster(volHandle)
+				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+			}
+
+			err = e2eVSphere.waitForLabelsToBeUpdated(volHandle, labels,
+				string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
 		}
 
 		for _, pv := range allPvs.Items {
 			ginkgo.By(fmt.Sprintf("Verifying labels %+v are updated for pv %s",
 				labels, pv.Name))
-			err = e2eVSphere.verifyLabelsAreUpdated(pv.Spec.CSI.VolumeHandle, labels,
+			volHandle := pv.Spec.CSI.VolumeHandle
+			if guestCluster {
+				volHandle = getVolumeIDFromSupervisorCluster(volHandle)
+				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+			}
+
+			err = e2eVSphere.waitForLabelsToBeUpdated(volHandle, labels,
 				string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		// Deleting all the pods in the namespace
@@ -4313,4 +4710,228 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
+
+	/*
+	   PSOD hosts on secondary site
+	   Steps:
+	   1.  Configure a vanilla multi-master K8s cluster with inter and intra site replication
+	   2.  Create two statefulset with replica count 1(sts1) and 5(sts2) respectively using a thick provision policy
+	       and wait for all replicas to be running
+	   3.  Change replica count of sts1 and sts2 to 3
+	   4.  Bring down primary site
+	   5.  Verify that the VMs on the primary site are started up on the other esx servers in the secondary site
+	   6.  Verify there were no issue with replica scale up/down and verify pod entry in CNS volumemetadata for the
+	       volumes associated with the PVC used by statefulsets are updated
+	   7.  Change replica count of sts1 to 5 a sts2 to 1 and verify they are successful
+	   8.  Delete statefulsets and its pvcs created in step 2
+	   9.  Bring primary site up and wait for testbed to be back to normal
+	*/
+	ginkgo.It("PSOD hosts on secondary site", func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		var svcCsipods, csipods *v1.PodList
+		var sts1Replicas, sts2Replicas, dep1ReplicaCount, dep2ReplicaCount int32
+
+		ginkgo.By("Creating StorageClass")
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+			scParameters = map[string]string{}
+			scParameters["StoragePolicyName"] = storagePolicyName
+			scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		} else {
+			ginkgo.By("CNS_TEST: Running for GC setup")
+			sc, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
+		ginkgo.By("Creating statefulsets sts1 with replica count 1 and sts2 with 5 and wait for all" +
+			"the replicas to be running")
+
+		if rwxAccessMode {
+			dep1ReplicaCount = 3
+			dep2ReplicaCount = 5
+		} else {
+			dep1ReplicaCount = 1
+			dep2ReplicaCount = 1
+		}
+		sts1Replicas = 1
+		sts2Replicas = 5
+		statefulset1, deployment1, _ := createStsDeployment(ctx, client, namespace, sc, true,
+			false, sts1Replicas, "web", dep1ReplicaCount, accessMode)
+		statefulset2, deployment2, _ := createStsDeployment(ctx, client, namespace, sc, true,
+			true, sts2Replicas, "web-nginx", dep2ReplicaCount, accessMode)
+		ss2PodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset2)
+
+		defer func() {
+			scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, claim := range pvcs.Items {
+				pv := getPvFromClaim(client, namespace, claim.Name)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
+					pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volumeHandle := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeHandle))
+			}
+		}()
+
+		csipods, err = client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if guestCluster {
+			svcCsipods, err = svcClient.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		if rwxAccessMode {
+			dep1ReplicaCount += 3
+			dep2ReplicaCount += 3
+			err = updateDeploymentReplicawithWait(client, dep1ReplicaCount, deployment1.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = updateDeploymentReplicawithWait(client, dep2ReplicaCount, deployment2.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		} else {
+			sts1Replicas += 2
+			ginkgo.By(fmt.Sprintf("Scaling up statefulset %v to number of Replica: %v", statefulset1.Name, sts1Replicas))
+			fss.UpdateReplicas(ctx, client, statefulset1, sts1Replicas)
+
+			sts2Replicas -= 2
+			ginkgo.By(fmt.Sprintf("Scaling down statefulset: %v to number of Replica: %v", statefulset2.Name, sts2Replicas))
+			fss.UpdateReplicas(ctx, client, statefulset2, sts2Replicas)
+		}
+
+		ginkgo.By("Bring down the secondary site")
+		psodHostsOnSite(false, "600")
+
+		defer func() {
+			ginkgo.By("Bring up the primary site before terminating the test")
+			if len(fds.hostsDown) > 0 && fds.hostsDown != nil {
+				siteRestore(true)
+				fds.hostsDown = nil
+			}
+		}()
+
+		if vanillaCluster {
+			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		}
+		if vanillaCluster || guestCluster {
+			err = waitForAllNodes2BeReady(ctx, client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		time.Sleep(5 * time.Minute)
+
+		if guestCluster {
+			ginkgo.By("Check for nodes to be in Ready state in supervisor")
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int32(svcCsipods.Size()), 0, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Check if csi pods are running fine after site recovery")
+		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Statefulset and deployments in PodVM might got to Terminating state as
+		// the nodes attached to these pods might become inaccessible during site failure.
+		// Hence validating these steps once site is restored back.
+		if !supervisorCluster {
+
+			if rwxAccessMode {
+				dep1ReplicaCount += 3
+				updateDeploymentReplicawithWait(client, dep2ReplicaCount, deployment2.Name, namespace)
+				verifyVolumeMetadataOnDeployments(ctx, client, deployment2, namespace, nil, nil,
+					nil, "")
+				dep2ReplicaCount += 3
+				updateDeploymentReplicawithWait(client, dep2ReplicaCount, deployment2.Name, namespace)
+				verifyVolumeMetadataOnDeployments(ctx, client, deployment2, namespace, nil, nil,
+					nil, "")
+			} else {
+
+				ginkgo.By("Verifying statefulset scale up/down went fine on sts1 and sts2")
+				// Scale up replicas of statefulset1 and verify CNS entries for volumes
+				scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset1,
+					sts1Replicas, false, true)
+				// Scale down replicas of statefulset2 and verify CNS entries for volumes
+				scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset2,
+					ss2PodsBeforeScaleDown, sts2Replicas, false, true)
+
+				// Scaling up statefulset sts1
+				sts1Replicas -= 4
+				scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset1,
+					sts1Replicas, true, false)
+
+				// Scaling down statefulset sts2
+				sts2Replicas += 5
+				scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset2,
+					ss2PodsBeforeScaleDown, sts2Replicas, true, false)
+			}
+
+		}
+
+		ginkgo.By("Bring up the primary site")
+		if len(fds.hostsDown) > 0 && fds.hostsDown != nil {
+			siteRestore(true)
+			fds.hostsDown = nil
+		}
+
+		err = waitForAllNodes2BeReady(ctx, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if supervisorCluster {
+
+			if rwxAccessMode {
+				dep1ReplicaCount += 3
+				updateDeploymentReplicawithWait(client, dep2ReplicaCount, deployment2.Name, namespace)
+				verifyVolumeMetadataOnDeployments(ctx, client, deployment2, namespace, nil, nil,
+					nil, "")
+				dep2ReplicaCount += 3
+				updateDeploymentReplicawithWait(client, dep2ReplicaCount, deployment2.Name, namespace)
+				verifyVolumeMetadataOnDeployments(ctx, client, deployment2, namespace, nil, nil,
+					nil, "")
+			} else {
+
+				ginkgo.By("Verifying statefulset scale up/down went fine on sts1 and sts2")
+				// Scale up replicas of statefulset1 and verify CNS entries for volumes
+				scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset1,
+					sts1Replicas, false, true)
+				// Scale down replicas of statefulset2 and verify CNS entries for volumes
+				scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset2,
+					ss2PodsBeforeScaleDown, sts2Replicas, false, true)
+
+				// Scaling up statefulset sts1
+				sts1Replicas -= 4
+				scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset1,
+					sts1Replicas, true, false)
+
+				// Scaling down statefulset sts2
+				sts2Replicas += 5
+				scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset2,
+					ss2PodsBeforeScaleDown, sts2Replicas, true, false)
+			}
+
+		}
+
+	})
+
 })

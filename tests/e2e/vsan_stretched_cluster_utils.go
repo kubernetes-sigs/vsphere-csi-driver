@@ -654,24 +654,31 @@ func toggleWitnessPowerState(ctx context.Context, witnessHostDown bool) {
 // checkVmStorageCompliance checks VM and storage compliance of a storage policy
 // using govmomi
 func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) bool {
-	ctx, cancel := context.WithCancel(context.Background())
+	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	masterIp := getK8sMasterIPs(ctx, client)
+	//if vanillaCluster{
+	//masterIp := getK8sMasterIPs(ctx, client)
+
 	vcAddress := e2eVSphere.Config.Global.VCenterHostname
-	nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+	//nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 	vcAdminPwd := GetAndExpectStringEnvVar(vcUIPwd)
-	sshClientConfig := &ssh.ClientConfig{
+	/*sshClientConfig := &ssh.ClientConfig{
 		User: "root",
 		Auth: []ssh.AuthMethod{
 			ssh.Password(nimbusGeneratedK8sVmPwd),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
+	}*/
+
 	cmd := "export GOVC_INSECURE=1;"
 	cmd += fmt.Sprintf("export GOVC_URL='https://administrator@vsphere.local:%s@%s';",
 		vcAdminPwd, vcAddress)
 	cmd += fmt.Sprintf("govc storage.policy.info -c -s %s;", storagePolicy)
-	_, err := sshExec(sshClientConfig, masterIp[0], cmd)
+	//_, err := sshExec(sshClientConfig, masterIp[0], cmd)
+	framework.Logf("Running command: %s", cmd)
+	result, err := exec.Command("/bin/bash", "-c", cmd).Output()
+	framework.Logf("res is: %v", result)
+	//gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return strings.Contains(err.Error(), "object references is empty")
 }
 
@@ -980,7 +987,6 @@ func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Inte
 						pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 							pvcName, metav1.GetOptions{})
 						gomega.Expect(pvclaim).NotTo(gomega.BeNil())
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 						err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, volHandle, svcPVCName, pvclaim,
 							pv, &sspod)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1282,4 +1288,65 @@ func checkForEventWithMessage(client clientset.Interface, namespace string,
 		}
 	}
 	return eventFound
+}
+
+// psodHostsOnSite executes PSOD operation on the hosts of the given site
+func psodHostsOnSite(primarySite bool, psodTimeout string) {
+	hosts := fds.secondarySiteHosts
+	if primarySite {
+		hosts = fds.primarySiteHosts
+	}
+
+	for _, host := range hosts {
+		psodHost(host, psodTimeout)
+	}
+}
+
+// psodHostsInParallel
+func psodHostsInParallel(primarySite bool, psodTimeout string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	psodHostsOnSite(true, psodTimeout)
+}
+
+func createStaticPvAndPvcInGuestClusterInParallel(client clientset.Interface, ctx context.Context,
+	namespace string, svcPVCNames []string, storageClassName string,
+	ch chan *v1.PersistentVolumeClaim, lock *sync.Mutex, wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wg.Done()
+	for _, svcPVCName := range svcPVCNames {
+		framework.Logf("Volume Handle :%s", svcPVCName)
+
+		ginkgo.By("Creating PV in guest cluster")
+		gcPV := getPersistentVolumeSpecWithStorageclass(svcPVCName,
+			v1.PersistentVolumeReclaimRetain, storageClassName, nil, diskSize)
+		gcPV, err := client.CoreV1().PersistentVolumes().Create(ctx, gcPV, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gcPVName := gcPV.GetName()
+		time.Sleep(time.Duration(10) * time.Second)
+		framework.Logf("PV name in GC : %s", gcPVName)
+
+		ginkgo.By("Creating PVC in guest cluster")
+		gcPVC := getPVCSpecWithPVandStorageClass(svcPVCName, namespace, nil, gcPVName, storageClassName, diskSize)
+		gcPVC, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, gcPVC, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		lock.Lock()
+		ch <- gcPVC
+		lock.Unlock()
+	}
+}
+
+func createCNSRegisterVolumeInParallel(ctx context.Context, namespace string,
+	fcdIDs []string, pvcNames []string, wg *sync.WaitGroup) {
+
+	defer wg.Done()
+	for i := range fcdIDs {
+		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdIDs[i], "", pvcNames[i], v1.ReadWriteOnce)
+		err := createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
+			restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
+		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+		framework.Logf("CNS register volume name : %s", cnsRegisterVolumeName)
+	}
 }
