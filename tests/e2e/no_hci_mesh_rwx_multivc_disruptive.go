@@ -292,7 +292,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 			}
 
 			ginkgo.By("Wait for k8s cluster to be healthy")
-			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+			wait4AllK8sNodesToBeUp(nodeList)
 			err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -517,7 +517,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 			}
 
 			ginkgo.By("Wait for k8s cluster to be healthy")
-			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+			wait4AllK8sNodesToBeUp(nodeList)
 			err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -787,7 +787,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 			}
 
 			ginkgo.By("Wait for k8s cluster to be healthy")
-			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+			wait4AllK8sNodesToBeUp(nodeList)
 			err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
@@ -824,7 +824,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 			}
 
 			ginkgo.By("Wait for k8s cluster to be healthy")
-			wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+			wait4AllK8sNodesToBeUp(nodeList)
 			err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
