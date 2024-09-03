@@ -28,11 +28,11 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/google/uuid"
-	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/pbm"
 	"github.com/vmware/govmomi/simulator"
 	v1 "k8s.io/api/core/v1"
 
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -126,8 +126,14 @@ func getControllerTest(t *testing.T) *controllerTest {
 			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 		}
 
+		topologyMgr, err := commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
+		if err != nil {
+			t.Fatalf("failed to initialize topology service. Error: %+v", err)
+		}
+
 		c := &controller{
-			manager: manager,
+			manager:     manager,
+			topologyMgr: topologyMgr,
 		}
 
 		controllerTestInstance = &controllerTest{
@@ -306,6 +312,194 @@ func TestWCPCreateVolumeWithZonalLabelPresentButNoStorageTopoType(t *testing.T) 
 
 	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
 	if err != nil && strings.Contains(err.Error(), "InvalidArgument") {
+		t.Logf("expected error is thrown: %v", err)
+	} else {
+		defer func() {
+			if respCreate == nil {
+				t.Log("Skip cleaning up the volume as it might never been successfully created")
+				return
+			}
+
+			volID := respCreate.Volume.VolumeId
+			// Delete volume.
+			reqDelete := &csi.DeleteVolumeRequest{
+				VolumeId: volID,
+			}
+			_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Verify the volume has been deleted.
+			queryFilter := cnstypes.CnsQueryFilter{
+				VolumeIds: []cnstypes.CnsVolumeId{
+					{
+						Id: volID,
+					},
+				},
+			}
+			queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(queryResult.Volumes) != 0 {
+				t.Fatalf("volume should not exist after deletion with ID: %s", volID)
+			}
+		}()
+		t.Fatal("expected error is not thrown")
+	}
+}
+
+// TestWCPCreateVolumeWithoutZoneLabelPresentForFileVolume creates file volume without zone label present
+// It is a negative case and is executed with vsphere config secret set to
+// default value of FileVolumeActivated as "true".
+func TestWCPCreateVolumeWithoutZoneLabelPresentForFileVolume(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+
+	profileID := os.Getenv("VSPHERE_STORAGE_POLICY_ID")
+	if profileID == "" {
+		storagePolicyName := os.Getenv("VSPHERE_STORAGE_POLICY_NAME")
+		if storagePolicyName == "" {
+			// PBM simulator defaults.
+			storagePolicyName = "vSAN Default Storage Policy"
+		}
+
+		// Verify the volume has been create with corresponding storage policy ID.
+		pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		profileID, err = pc.ProfileIDByName(ctx, storagePolicyName)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	params[common.AttributeStoragePolicyID] = profileID
+
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+			},
+		},
+	}
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Requisite: []*csi.Topology{},
+			Preferred: []*csi.Topology{},
+		},
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil && strings.Contains(err.Error(), "FailedPrecondition") {
+		t.Logf("expected error is thrown: %v", err)
+	} else {
+		defer func() {
+			if respCreate == nil {
+				t.Log("Skip cleaning up the volume as it might never been successfully created")
+				return
+			}
+
+			volID := respCreate.Volume.VolumeId
+			// Delete volume.
+			reqDelete := &csi.DeleteVolumeRequest{
+				VolumeId: volID,
+			}
+			_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Verify the volume has been deleted.
+			queryFilter := cnstypes.CnsQueryFilter{
+				VolumeIds: []cnstypes.CnsVolumeId{
+					{
+						Id: volID,
+					},
+				},
+			}
+			queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, queryFilter)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(queryResult.Volumes) != 0 {
+				t.Fatalf("volume should not exist after deletion with ID: %s", volID)
+			}
+		}()
+		t.Fatal("expected error is not thrown")
+	}
+}
+
+// TestWCPCreateVolumeWithHostLabelPresentForFileVolume creates file volume with host label present
+// It is a negative case and is executed with vsphere config secret set to
+// default value of FileVolumeActivated as "true".
+func TestWCPCreateVolumeWithHostLabelPresentForFileVolume(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// Create.
+	params := make(map[string]string)
+
+	profileID := os.Getenv("VSPHERE_STORAGE_POLICY_ID")
+	if profileID == "" {
+		storagePolicyName := os.Getenv("VSPHERE_STORAGE_POLICY_NAME")
+		if storagePolicyName == "" {
+			// PBM simulator defaults.
+			storagePolicyName = "vSAN Default Storage Policy"
+		}
+
+		// Verify the volume has been create with corresponding storage policy ID.
+		pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		profileID, err = pc.ProfileIDByName(ctx, storagePolicyName)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	params[common.AttributeStoragePolicyID] = profileID
+
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+			},
+		},
+	}
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Requisite: []*csi.Topology{},
+			Preferred: []*csi.Topology{
+				{
+					Segments: map[string]string{
+						v1.LabelHostname: "host1",
+					},
+				},
+			},
+		},
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil && strings.Contains(err.Error(), "Unimplemented") {
 		t.Logf("expected error is thrown: %v", err)
 	} else {
 		defer func() {

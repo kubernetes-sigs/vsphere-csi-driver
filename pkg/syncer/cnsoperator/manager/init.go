@@ -219,7 +219,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 			}
 		}
 
-		if !stretchedSupervisor {
+		if !stretchedSupervisor || (stretchedSupervisor && syncer.IsWorkloadDomainIsolationSupported) {
 			if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.FileVolume) {
 				// Create CnsFileAccessConfig CRD from manifest if file volume feature
 				// is enabled.

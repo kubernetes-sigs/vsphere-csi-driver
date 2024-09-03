@@ -72,6 +72,8 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"multi-vcenter-csi-topology":        "true",
 				"listview-tasks":                    "true",
 				"storage-quota-m2":                  "false",
+				// Adding FSS from `wcp-cluster-capabilities` configmap in supervisor here for simplicity.
+				"Workload_Domain_Isolation_Supported": "true",
 			},
 		}
 		return fakeCO, nil
@@ -420,11 +422,12 @@ func configFromVCSimWithTLS(tlsConfig *tls.Config, vcsimParams VcsimParams, inse
 
 	cfg.VirtualCenter = make(map[string]*config.VirtualCenterConfig)
 	cfg.VirtualCenter[s.URL.Hostname()] = &config.VirtualCenterConfig{
-		User:         cfg.Global.User,
-		Password:     cfg.Global.Password,
-		VCenterPort:  cfg.Global.VCenterPort,
-		InsecureFlag: cfg.Global.InsecureFlag,
-		Datacenters:  cfg.Global.Datacenters,
+		User:                cfg.Global.User,
+		Password:            cfg.Global.Password,
+		VCenterPort:         cfg.Global.VCenterPort,
+		InsecureFlag:        cfg.Global.InsecureFlag,
+		Datacenters:         cfg.Global.Datacenters,
+		FileVolumeActivated: true, // Set FileVolumeActivated to true to test Workload_Domain_Isolation support
 	}
 
 	// set up the default global maximum of number of snapshots if unset

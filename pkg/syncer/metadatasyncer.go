@@ -105,6 +105,9 @@ var (
 
 	// isStorageQuotaM2FSSEnabled is true if the Snapshot Storage Quota feature is enabled, false otherwise.
 	isStorageQuotaM2FSSEnabled bool
+
+	// IsWorkloadDomainIsolationSupported is true when Workload_Domain_Isolation_Supported FSS is enabled.
+	IsWorkloadDomainIsolationSupported bool
 )
 
 const (
@@ -209,6 +212,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		IsMigrationEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
 	}
 	isStorageQuotaM2FSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2)
+	IsWorkloadDomainIsolationSupported = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.WorkloadDomainIsolation)
 	// Create the kubernetes client from config.
 	k8sClient, err := k8s.NewClient(ctx)
 	if err != nil {

@@ -86,7 +86,8 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
 				return err
 			}
-			if len(clusterComputeResourceMoIds) > 1 {
+			if len(clusterComputeResourceMoIds) > 1 &&
+				!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) {
 				log.Infof("Not initializing the CnsFileAccessConfig Controller as stretched supervisor is detected.")
 				return nil
 			}
