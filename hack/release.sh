@@ -229,7 +229,7 @@ function push_manifest_driver() {
   do 
     osv=$(lcase "${OSVERSION}")
     BASEIMAGE=mcr.microsoft.com/windows/nanoserver:${OSVERSION}; 
-    full_version=$(docker manifest inspect "${BASEIMAGE}" | jq -r '.manifests[0].platform["os.version"]'); 
+    full_version=$(docker manifest inspect "${BASEIMAGE}" | grep '"os.version"' | sed 's/.*"os.version": "\(.*\)".*/\1/')
     echo "fullversion for ${BASEIMAGE} : ${full_version}"
     echo "annotating ${IMAGE_TAG} for ${OSVERSION}"
     docker manifest annotate --os windows --arch "$ARCH" --os-version "${full_version}" "${IMAGE_TAG}" "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}";
@@ -246,7 +246,7 @@ function push_manifest_driver() {
     do 
       osv=$(lcase "${OSVERSION}")
       BASEIMAGE=mcr.microsoft.com/windows/nanoserver:${OSVERSION}; 
-      full_version=$(docker manifest inspect "${BASEIMAGE}" | jq -r '.manifests[0].platform["os.version"]'); 
+      full_version=$(docker manifest inspect "${BASEIMAGE}" | grep '"os.version"' | sed 's/.*"os.version": "\(.*\)".*/\1/')
       echo "fullversion for ${BASEIMAGE} : ${full_version}"      
       echo "annotating ${IMAGE_TAG_LATEST} for ${OSVERSION}"
       docker manifest annotate --os windows --arch "$ARCH" --os-version "${full_version}" "${IMAGE_TAG_LATEST}" "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}";
