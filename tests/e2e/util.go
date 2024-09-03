@@ -6319,6 +6319,29 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 }
 
 // createVcSession4RestApis generates session ID for VC to use in rest API calls
+// func createVcSession4RestApis(ctx context.Context) string {
+// 	vcIp := e2eVSphere.Config.Global.VCenterHostname
+// 	vcAddress := vcIp + ":" + sshdPort
+// 	nimbusGeneratedVcPwd := GetAndExpectStringEnvVar(vcUIPwd)
+// 	curlCmd := fmt.Sprintf("curl -k -X POST https://%s/rest/com/vmware/cis/session"+
+// 		" -u 'Administrator@vsphere.local:%s'", vcIp, nimbusGeneratedVcPwd)
+// 	framework.Logf("Running command: %s", curlCmd)
+// 	result, err := fssh.SSH(ctx, curlCmd, vcAddress, framework.TestContext.Provider)
+// 	fssh.LogResult(result)
+// 	if err != nil || result.Code != 0 {
+// 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+// 			"couldn't execute command: %v due to err %v", curlCmd, err)
+// 	}
+
+// 	var session map[string]interface{}
+// 	res := []byte(result.Stdout)
+// 	err = json.Unmarshal(res, &session)
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// 	sessionId := session["value"].(string)
+// 	framework.Logf("sessionID is: %v", sessionId)
+// 	return sessionId
+// }
+
 func createVcSession4RestApis(ctx context.Context) string {
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
 	vcAddress := vcIp + ":" + sshdPort
@@ -6337,7 +6360,13 @@ func createVcSession4RestApis(ctx context.Context) string {
 	res := []byte(result.Stdout)
 	err = json.Unmarshal(res, &session)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	sessionId := session["value"].(string)
+
+	// Check if the value is a string, and if not, handle accordingly
+	sessionId, ok := session["value"].(string)
+	if !ok {
+		framework.Failf("expected session ID to be a string, got: %v", session["value"])
+	}
+
 	framework.Logf("sessionID is: %v", sessionId)
 	return sessionId
 }
