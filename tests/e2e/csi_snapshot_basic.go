@@ -77,7 +77,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		labelsMap                  map[string]string
 		scName                     string
 		volHandle                  string
-		//deleteFCDRequired          bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -5652,10 +5651,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Create storage class")
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", true, scName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		// defer func() {
+		// 	err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// }()
 
 		ginkgo.By("Create PVC")
 		pvclaim, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
@@ -6556,7 +6555,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
 			"staticfcd"+curtimestring, profileID, diskSizeInMb, defaultDatastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		//deleteFCDRequired = false
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
 			pandoraSyncWaitTime, fcdID))
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
@@ -7400,20 +7398,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvcName := "cns-pvc-" + curtimestring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
-		framework.Logf("Storage class : ", storageclass.Name)
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
 
 		ginkgo.By("Creating FCD (CNS Volume)")
 		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx, "staticfcd"+curtimestring, profileID, diskSizeInMb, defaultDatastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		//deleteFCDRequired = true
-		// defer func() {
-		// 	if deleteFCDRequired {
-		// 		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		// 		err := e2eVSphere.deleteFCD(ctx, fcdID, defaultDatastore.Reference())
-		// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// 	}
-		// }()
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
 			pandoraSyncWaitTime, fcdID))
@@ -7436,7 +7425,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
-		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podName := pod.GetName
 		framework.Logf("podName : %s", podName)
@@ -7459,13 +7448,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Create volume snapshot class")
 		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			if vanillaCluster {
-				err = snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name,
-					metav1.DeleteOptions{})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
 
 		ginkgo.By("Create a dynamic volume snapshot")
 		volumeSnapshot, snapshotContent, snapshotCreated,
@@ -7505,7 +7487,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Delete dynamic volume snapshot")
 		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
-			volumeSnapshot, pandoraSyncWaitTime, volHandle, snapshotId, true)
+			volumeSnapshot, pandoraSyncWaitTime, volHandle, snapshotId, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })
