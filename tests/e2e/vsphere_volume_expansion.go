@@ -307,7 +307,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		10.  Make sure file system has increased
 
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor]  [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify online "+
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify online "+
 		"volume expansion on dynamic volume", ginkgo.Label(p0, block, vanilla, wcp, core), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2865,7 +2865,7 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(ctx context.Context, f *framew
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		restConfig = getRestConfigClient()
-		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, defaultrqLimit)
+		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 
 		pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
