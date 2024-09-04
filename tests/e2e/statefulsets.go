@@ -68,19 +68,20 @@ var _ = ginkgo.Describe("statefulset", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		namespace            string
-		client               clientset.Interface
-		storagePolicyName    string
-		scParameters         map[string]string
-		storageClassName     string
-		zonalPolicy          string
-		zonalWffcPolicy      string
-		categories           []string
-		labels_ns            map[string]string
-		allowedTopologyHAMap map[string][]string
-		nodeList             *v1.NodeList
-		stsReplicas          int32
-		allowedTopologies    []v1.TopologySelectorLabelRequirement
+		namespace                string
+		client                   clientset.Interface
+		storagePolicyName        string
+		scParameters             map[string]string
+		storageClassName         string
+		zonalPolicy              string
+		zonalWffcPolicy          string
+		categories               []string
+		labels_ns                map[string]string
+		allowedTopologyHAMap     map[string][]string
+		nodeList                 *v1.NodeList
+		stsReplicas              int32
+		allowedTopologies        []v1.TopologySelectorLabelRequirement
+		isStorageQuotaFSSEnabled bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -128,6 +129,11 @@ var _ = ginkgo.Describe("statefulset", func() {
 			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
 			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		}
+
+		// vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		// isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+		isStorageQuotaFSSEnabled = true
+
 	})
 
 	ginkgo.AfterEach(func() {
@@ -164,6 +170,9 @@ var _ = ginkgo.Describe("statefulset", func() {
 
 	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] [stretched-svc] Statefulset "+
 		"testing with default podManagementPolicy", ginkgo.Label(p0, vanilla, block, wcp, core), func() {
+		var totalquota_used_before, storagepolicyquota_pvc_before, storagepolicy_usage_pvc_before, totalquota_used_after *resource.Quantity
+		var storagepolicyquota_pvc_after, storagepolicy_usage_pvc_after *resource.Quantity
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -177,7 +186,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
-				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}()
 		} else {
@@ -185,6 +194,20 @@ var _ = ginkgo.Describe("statefulset", func() {
 			ginkgo.By("Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
+		}
+
+		restConfig := getRestConfigClient()
+		if supervisorCluster && isStorageQuotaFSSEnabled {
+			totalquota_used_before, _ = getTotalQuotaConsumedByStoragePolicy(ctx, restConfig, storagePolicyName, namespace)
+			framework.Logf("totalUsedQuota_Before :%v", totalquota_used_before)
+
+			storagepolicyquota_pvc_before, _ = getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				storagePolicyName, namespace, volExtensionName)
+			framework.Logf("volume ********** storagepolicyquota_pvc_before :%v ", storagepolicyquota_pvc_before)
+
+			storagepolicy_usage_pvc_before, _ = getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				storagePolicyName, namespace, pvcUsage)
+			framework.Logf("volume ********** storagepolicy_usage_pvc_before :%v", storagepolicy_usage_pvc_before)
 		}
 
 		ginkgo.By("Creating service")
@@ -219,6 +242,30 @@ var _ = ginkgo.Describe("statefulset", func() {
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
+
+		if supervisorCluster && isStorageQuotaFSSEnabled {
+			totalquota_used_after, _ = getTotalQuotaConsumedByStoragePolicy(ctx, restConfig, storagePolicyName, namespace)
+			framework.Logf("totalquota_used_after :%v", totalquota_used_after)
+
+			storagepolicyquota_pvc_after, _ = getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				storagePolicyName, namespace, volExtensionName)
+			framework.Logf("********** storagepolicyquota_pvc_after :%v", storagepolicyquota_pvc_after)
+
+			storagepolicy_usage_pvc_after, _ = getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				storagePolicyName, namespace, pvcUsage)
+			framework.Logf("********** pvc_Usage_Quota_After :%v", storagepolicy_usage_pvc_after)
+
+			quotavalidationStatus := validate_totalStoragequota(ctx, diskSize1Gi*3, totalquota_used_before, totalquota_used_after)
+			gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
+			framework.Logf("********** quotavalidationStatus :%v", quotavalidationStatus)
+			quotavalidationStatus = validate_totalStoragequota(ctx, diskSize1Gi*3, storagepolicyquota_pvc_before, storagepolicyquota_pvc_after)
+			gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
+			framework.Logf("********** pvc_Usage_Quota_After :%v", quotavalidationStatus)
+			quotavalidationStatus = validate_totalStoragequota(ctx, diskSize1Gi*3, storagepolicy_usage_pvc_before, storagepolicy_usage_pvc_after)
+			framework.Logf("quotavalidationStatus :%v", quotavalidationStatus)
+			gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
+
+		}
 
 		// Get the list of Volumes attached to Pods before scale down
 		var volumesBeforeScaleDown []string
