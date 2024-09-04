@@ -374,6 +374,7 @@ func getVolumeSnapshotIdFromSnapshotHandle(ctx context.Context,
 	var snapshotID string
 	var snapshotHandle string
 	var err error
+
 	if vanillaCluster || supervisorCluster {
 		snapshotHandle = *snapshotContent.Status.SnapshotHandle
 		snapshotID = strings.Split(snapshotHandle, "+")[1]
@@ -491,6 +492,7 @@ func createDynamicVolumeSnapshot(ctx context.Context, namespace string,
 		ginkgo.By("Query CNS and check the volume snapshot entry")
 		err = waitForCNSSnapshotToBeCreated(volHandle, snapshotId)
 		if err != nil {
+			framework.Logf("no error")
 			return volumeSnapshot, snapshotContent, false, false, snapshotId, "", err
 		}
 	}
