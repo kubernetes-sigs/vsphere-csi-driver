@@ -19,13 +19,13 @@ package k8sorchestrator
 import (
 	"context"
 	"os"
+	"slices"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
@@ -73,7 +73,8 @@ func (c *K8sOrchestrator) createCSINode(obj interface{}) {
 	}
 
 	var topologyKeysList []string
-	if c.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) {
+	isWorkloadDomainIsolationEnabled := c.IsFSSEnabled(ctx, common.WorkloadDomainIsolation)
+	if isWorkloadDomainIsolationEnabled {
 		// Publish zone and host standard topology keys for all types of supervisor clusters.
 		topologyKeysList = append(topologyKeysList, corev1.LabelTopologyZone, corev1.LabelHostname)
 	} else {
@@ -109,14 +110,46 @@ func (c *K8sOrchestrator) createCSINode(obj interface{}) {
 			},
 		},
 	}
-	csinode, err := c.k8sClient.StorageV1().CSINodes().Create(ctx, csiNodeSpec, metav1.CreateOptions{})
+	csinode, err := c.k8sClient.StorageV1().CSINodes().Get(ctx, node.Name, metav1.GetOptions{})
 	if err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			log.Warnf("CSINode object for node %q already exists.", node.Name)
-			return
+		if apierrors.IsNotFound(err) {
+			_, err = c.k8sClient.StorageV1().CSINodes().Create(ctx, csiNodeSpec, metav1.CreateOptions{})
+			if err != nil {
+				if apierrors.IsAlreadyExists(err) {
+					log.Warnf("CSINode object for node %q already exists.", node.Name)
+					return
+				}
+				log.Errorf("failed to create CSINode object %+v. Error: %v", csiNodeSpec, err)
+				os.Exit(1)
+			} else {
+				log.Infof("Created CSINode object %+v for node %q", csinode, node.Name)
+				return
+			}
+		} else {
+			log.Errorf("failed to get CSINode object %+v. Error: %v", csiNodeSpec, err)
+			os.Exit(1)
 		}
-		log.Errorf("failed to create CSINode object %+v. Error: %v", csiNodeSpec, err)
-		os.Exit(1)
+	} else {
+		// If CSINode object is present, re-create CSINode object if zone topology key is not present on it
+		if isWorkloadDomainIsolationEnabled {
+			if !slices.Contains(csinode.Spec.Drivers[0].TopologyKeys, corev1.LabelTopologyZone) {
+				log.Infof("topology key: %q not present on CSINodes object for node: %q. Re-creating CSINodes object.",
+					corev1.LabelTopologyZone, node.Name)
+				err = c.k8sClient.StorageV1().CSINodes().Delete(ctx, csiNodeSpec.Name, metav1.DeleteOptions{})
+				if err != nil {
+					log.Errorf("failed to delete CSINode object for node: %q. Error: %v", csiNodeSpec.Name, err)
+					os.Exit(1)
+				}
+				_, err = c.k8sClient.StorageV1().CSINodes().Create(ctx, csiNodeSpec, metav1.CreateOptions{})
+				if err == nil {
+					log.Infof("re-created CSINodes object %+v for the node: %q with zonal topology keys",
+						csinode, csiNodeSpec.Name)
+					return
+				} else {
+					log.Errorf("failed to create CSINode object %+v. Error: %v", csiNodeSpec, err)
+					os.Exit(1)
+				}
+			}
+		}
 	}
-	log.Infof("Created CSINode object %+v for node %q", csinode, node.Name)
 }
