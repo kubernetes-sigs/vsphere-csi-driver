@@ -18,6 +18,7 @@ package cnsregistervolume
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -72,18 +73,30 @@ func isDatastoreAccessibleToAZClusters(ctx context.Context, vc *vsphere.VirtualC
 	azClustersMap map[string][]string, datastoreURL string) bool {
 	log := logger.GetLogger(ctx)
 	for _, clusterIDs := range azClustersMap {
+		var found bool
 		for _, clusterID := range clusterIDs {
 			sharedDatastores, _, err := vsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterID, false)
 			if err != nil {
 				log.Warnf("Failed to get candidate datastores for cluster: %s with err: %+v", clusterID, err)
 				continue
 			}
+			found = false
 			for _, ds := range sharedDatastores {
 				if ds.Info.Url == datastoreURL {
 					log.Infof("Found datastoreUrl: %s is accessible to cluster: %s", datastoreURL, clusterID)
-					return true
+					found = true
 				}
 			}
+			// If datastoreURL was found in the list of datastores accessible to the
+			// cluster with clusterID, continue checking for the rest of the clusters
+			// in AZ. Otherwise, break and check the next AZ in azClustersMap.
+			if !found {
+				break
+			}
+		}
+		// datastoreURL was found in all the clusters with clusterIDs.
+		if found {
+			return true
 		}
 	}
 	return false
@@ -264,13 +277,33 @@ func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 
 // getPersistentVolumeClaimSpec return the PersistentVolumeClaim spec with
 // specified storage class.
-func getPersistentVolumeClaimSpec(name string, namespace string, capacity int64,
-	storageClassName string, accessMode v1.PersistentVolumeAccessMode, pvName string) *v1.PersistentVolumeClaim {
+func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace string, capacity int64,
+	storageClassName string, accessMode v1.PersistentVolumeAccessMode, pvName string,
+	datastoreAccessibleTopology []map[string]string) (*v1.PersistentVolumeClaim, error) {
+
+	log := logger.GetLogger(ctx)
 	capacityInMb := strconv.FormatInt(capacity, 10) + "Mi"
+	var (
+		segmentsArray  []string
+		topoAnnotation = make(map[string]string)
+	)
+	if datastoreAccessibleTopology != nil {
+		for _, topologyTerm := range datastoreAccessibleTopology {
+			jsonSegment, err := json.Marshal(topologyTerm)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log,
+					"failed to marshal topology segment: %+v to json. Error: %+v", topologyTerm, err)
+			}
+			segmentsArray = append(segmentsArray, string(jsonSegment))
+		}
+		topoAnnotation[common.AnnVolumeAccessibleTopology] = "[" + strings.Join(segmentsArray, ",") + "]"
+	}
+
 	claim := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
+			Name:        name,
+			Namespace:   namespace,
+			Annotations: topoAnnotation,
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
 			AccessModes: []v1.PersistentVolumeAccessMode{
@@ -285,7 +318,7 @@ func getPersistentVolumeClaimSpec(name string, namespace string, capacity int64,
 			VolumeName:       pvName,
 		},
 	}
-	return claim
+	return claim, nil
 }
 
 // isPVCBound return true if the PVC is bound before timeout.
