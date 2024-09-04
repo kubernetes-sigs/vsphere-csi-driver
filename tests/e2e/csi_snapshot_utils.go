@@ -667,7 +667,7 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"echo 'Hello message from test into Pod1' > /mnt/volume1/Pod1.html"}
+			"echo 'Hello message from test into Pod1' >> /mnt/volume1/Pod1.html"}
 		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
 		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())

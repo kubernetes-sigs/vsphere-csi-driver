@@ -3425,12 +3425,12 @@ func writeDataOnFileFromPod(namespace string, podName string, filePath string, d
 		cmdArg = "-c"
 	}
 	wrtiecmd := []string{"exec", podName, "--namespace=" + namespace, "--", shellExec, cmdArg,
-		fmt.Sprintf(" echo '%s' >  %s ", data, filePath)}
+		fmt.Sprintf(" echo '%s' >>  %s ", data, filePath)}
 	e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
 
 	data2 := "fsync"
 	wrtiecmd2 := []string{"exec", podName, "--namespace=" + namespace, "--", shellExec, cmdArg,
-		fmt.Sprintf(" echo '%s' >  %s ", data2, filePath)}
+		fmt.Sprintf(" echo '%s' >>  %s ", data2, filePath)}
 	e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd2...)
 }
 

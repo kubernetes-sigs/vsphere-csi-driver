@@ -6228,20 +6228,16 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Create storage class")
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, scName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Create PVC")
 		pvclaim1, pvs1, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle1 := pvs1[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle1).NotTo(gomega.BeEmpty())
 		if guestCluster {
 			volHandle1 = getVolumeIDFromSupervisorCluster(volHandle1)
 		}
-		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim1.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6251,7 +6247,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Create Pod")
 		pod1, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false,
-			execRWXCommandPod)
+			execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod1.Name, namespace))
@@ -6279,27 +6275,16 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		cmd := []string{"exec", pod1.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"cat /mnt/volume1/Pod.html "}
-		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(output, "Hello message from Pod")).NotTo(gomega.BeFalse())
+		output := readFileFromPod(namespace, pod1.Name, filePathPod1)
+		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
-		wrtiecmd := []string{"exec", pod1.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"echo 'Hello message from test into Pod' > /mnt/volume1/Pod.html"}
-		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
-		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(output, "Hello message from test into Pod")).NotTo(gomega.BeFalse())
+		writeDataOnFileFromPod(namespace, pod1.Name, filePathPod1, "Hello message from test into Pod1")
+		output = readFileFromPod(namespace, pod1.Name, filePathPod1)
+		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Create volume snapshot class")
 		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			if vanillaCluster {
-				err = snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name,
-					metav1.DeleteOptions{})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
 
 		ginkgo.By("Create a dynamic volume snapshot")
 		volumeSnapshot1, snapshotContent1, snapshotCreated1,
@@ -6327,10 +6312,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvclaim2, pvs2, pod2 := verifyVolumeRestoreOperation(ctx, client,
 			namespace, storageclass, volumeSnapshot1, diskSize, true)
 		volHandle2 := pvs2[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 		if guestCluster {
 			volHandle2 = getVolumeIDFromSupervisorCluster(volHandle2)
 		}
-		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
 			err = fpod.DeletePodWithWait(ctx, client, pod2)
@@ -6368,10 +6353,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvclaim3, pvs3, pod3 := verifyVolumeRestoreOperation(ctx, client,
 			namespace, storageclass, volumeSnapshot2, diskSize, true)
 		volHandle3 := pvs3[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle3).NotTo(gomega.BeEmpty())
 		if guestCluster {
 			volHandle3 = getVolumeIDFromSupervisorCluster(volHandle3)
 		}
-		gomega.Expect(volHandle3).NotTo(gomega.BeEmpty())
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod3.Name, namespace))
 			err = fpod.DeletePodWithWait(ctx, client, pod3)
