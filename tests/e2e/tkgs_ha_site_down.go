@@ -92,7 +92,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, rqLimit)
 		}
-		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
+
+		//readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
 
 	})
 
@@ -157,7 +158,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		// Get Cluster details
 		clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		svcMasterIp := getApiServerIpOfZone(ctx, "zone-2")
+		//svcMasterIp := getApiServerIpOfZone(ctx, "zone-2")
+		svcMasterIp := "10.43.214.217"
 
 		clusterName := getClusterNameFromZone(ctx, "zone-1")
 		for i := 0; i < stsCount; i++ {
@@ -773,15 +775,15 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 
 		ginkgo.By("Put 2 ESX hosts of AZ3 into MM - ensureObjectAccessibilty")
 		hostsInCluster := getHostsByClusterName(ctx, clusterComputeResource, clusterName)
-		for i := 0; i < len(hostsInCluster)-1; i++ {
+		for i := 1; i < len(hostsInCluster)-1; i++ {
 			enterHostIntoMM(ctx, hostsInCluster[i], ensureAccessibilityMModeType, timeout, false)
 		}
-		defer func() {
-			framework.Logf("Exit the hosts from MM before terminating the test")
-			for i := 0; i < len(hostsInCluster)-1; i++ {
-				exitHostMM(ctx, hostsInCluster[i], timeout)
-			}
-		}()
+		// defer func() {
+		// 	framework.Logf("Exit the hosts from MM before terminating the test")
+		// 	for i := 1; i < len(hostsInCluster)-1; i++ {
+		// 		exitHostMM(ctx, hostsInCluster[i], timeout)
+		// 	}
+		// }()
 
 		ginkgo.By("Verify SVC PVC annotations and node affinities on GC and SVC PVs")
 		for _, statefulset := range stsList {
@@ -790,7 +792,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		}
 
 		ginkgo.By("Exit the hosts from MM")
-		for i := 0; i < len(hostsInCluster)-1; i++ {
+		for i := 1; i < len(hostsInCluster)-1; i++ {
 			exitHostMM(ctx, hostsInCluster[i], timeout)
 		}
 

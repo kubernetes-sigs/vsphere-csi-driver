@@ -5724,6 +5724,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			scParameters[svStorageClassName] = zonalPolicy
 			storagePolicyName = zonalPolicy
 		}
+		// Get supvervisor cluster client.
+		svcClient, _ := getSvcClientAndNamespace()
 
 		storageclass, err := svcClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -7484,6 +7486,157 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			volumeSnapshot, pandoraSyncWaitTime, volHandle, dynamicSnapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
+
+	/*
+		Export PVC having snapshots in TKG/WCP if supported and qualified
+
+		Running test in TKG Context
+		Create SPBM Policy and Assign to Namespace:
+		Create a SPBM policy and assign it to the test namespace with sufficient quota.
+
+		Create PVC:
+		Create a PersistentVolumeClaim (PVC) named pvc1 in the test namespace.
+		Verify CNS Metadata
+
+		Create and Verify Snapshots:
+		Create a couple of snapshots for pvc1.
+		Verify that the snapshots are in the "ready" state.
+
+		Verify Storage Quota:
+		Confirm that the storage quota in the test namespace accurately reflects the space occupied by pvc1 and its snapshots.
+
+		Create and Apply CnsUnregisterVolume CR:
+		Create a CnsUnregisterVolume Custom Resource (CR) with the volumeID of pvc1 and apply it to the test namespace.
+
+		Check CnsUnregisterVolume Status:
+		Verify that the status.Unregistered field in the CnsUnregisterVolume CR is set to false.
+
+		Check Webhook Behavior:
+		Since the PVC has live CNS snapshots, confirm that webhooks deny the deletion of PVC/PV.
+
+		Verify PV/PVC Not Deleted:
+		Ensure that the PersistentVolume (PV) and PVC are not deleted from the Supervisor cluster.
+
+		Delete Volume Snapshots:
+		Delete the volume snapshots for pvc1 and wait for the snapshots to be cleaned up.
+
+		Reapply CnsUnregisterVolume CR:
+		Create and apply a new CnsUnregisterVolume CR with the volumeID of pvc1 to the test namespace.
+
+		Check Updated CnsUnregisterVolume Status:
+		Verify that the status.Unregistered field in the CnsUnregisterVolume CR is set to true.
+
+		Check PV/PVC Deletion:
+		Confirm that the PV and PVC are deleted from the Supervisor cluster.
+		Verify CNS Metadata
+
+		Verify Storage Quota Freed:
+		Verify that the storage quota has been freed following the deletion of PV/PVC.
+
+		Verify FCD Status:
+		Invoke the FCD API RetrieveVStorageObject from vCenter MOB and verify that the FCD is not deleted.
+
+		Cleanup:
+		Delete the FCD, the test namespace, and the SPBM policy.
+	*/
+	ginkgo.It("[csi-unregister-volume] Export PVC having snapshots in TKG",
+		ginkgo.Label(p0, block, tkg, vanilla, snapshot, stable), func() {
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			var volHandle string
+			if vanillaCluster {
+				scParameters[scParamDatastoreURL] = datastoreURL
+			} else if guestCluster {
+				scParameters[svStorageClassName] = storagePolicyName
+			}
+
+			ginkgo.By("Creating a PVC")
+			storageclasspvc, pvclaim, err := createPVCAndStorageClass(ctx, client,
+				namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteOnce)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			defer func() {
+				err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+
+			ginkgo.By("Expect claim to provision volume successfully")
+			persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+				[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
+
+			volHandle = persistentvolumes[0].Spec.CSI.VolumeHandle
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+			volumeID := getVolumeIDFromSupervisorCluster(volHandle)
+			gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+
+			defer func() {
+				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+
+			ginkgo.By("Create volume snapshot class")
+			volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				if vanillaCluster {
+					err = snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name,
+						metav1.DeleteOptions{})
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}()
+
+			ginkgo.By("Create a dynamic volume snapshot")
+			volumeSnapshot, snapshotContent, snapshotCreated,
+				snapshotContentCreated, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
+				pvclaim, volHandle, diskSize, true)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				if snapshotContentCreated {
+					err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+
+				if snapshotCreated {
+					framework.Logf("Deleting volume snapshot")
+					deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
+
+					framework.Logf("Wait till the volume snapshot is deleted")
+					err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc,
+						*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}()
+
+			// Get a config to talk to the apiserver
+			restConfig := getRestConfigClient()
+
+			ginkgo.By("Create CNS unregister volume with above created FCD " + volHandle)
+
+			cnsUnRegisterVolume := getCNSUnregisterVolumeSpec(svcNamespace, volHandle)
+
+			cnsRegisterVolumeName := cnsUnRegisterVolume.GetName()
+			framework.Logf("CNS unregister volume name : %s", cnsRegisterVolumeName)
+
+			err = createCNSUnRegisterVolume(ctx, restConfig, cnsUnRegisterVolume)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			defer func() {
+				ginkgo.By("Delete CNS unregister volume CR by name " + cnsRegisterVolumeName)
+				err = deleteCNSUnRegisterVolume(ctx, restConfig, cnsUnRegisterVolume)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+
+			ginkgo.By("Waiting for  CNS unregister volume to be unregistered")
+			gomega.Expect(waitForCNSUnRegisterVolumeToGetUnregistered(ctx,
+				restConfig, cnsUnRegisterVolume, poll,
+				supervisorClusterOperationsTimeout)).To(gomega.HaveOccurred())
+		})
+
 })
 
 // invokeSnapshotOperationsOnSharedDatastore is a wrapper method which invokes creation of volume snapshot
