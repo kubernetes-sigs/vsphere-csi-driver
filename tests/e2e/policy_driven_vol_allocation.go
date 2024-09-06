@@ -79,10 +79,9 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
 		bootstrap()
-		if guestCluster {
-			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, rqLimitScaleTest)
-		}
+		/*if guestCluster {
+			_, svNamespace := getSvcClientAndNamespace()
+		}*/
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -268,9 +267,17 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		if supervisorCluster {
 			assignPolicyToWcpNamespace(client, ctx, namespace, policyNames, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			for _, policyName := range policyNames {
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
+			}
 		} else if guestCluster {
 			_, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, policyNames, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			for _, policyName := range policyNames {
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
+			}
 		}
 
 		for i, policyName := range policyNames {
@@ -285,7 +292,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			} else if supervisorCluster {
 				ginkgo.By("CNS_TEST: Running for WCP setup")
 				// create resource quota
-				createResourceQuota(client, namespace, rqLimit, policyName)
+				//createResourceQuota(client, namespace, rqLimit, policyName)
 				if wcpVsanDirectCluster {
 					storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -302,7 +309,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				}
 			} else {
 				ginkgo.By("CNS_TEST: Running for GC setup")
-				createResourceQuota(client, namespace, rqLimit, policyName)
+				//createResourceQuota(client, namespace, rqLimit, policyName)
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -509,9 +516,17 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		if supervisorCluster {
 			assignPolicyToWcpNamespace(client, ctx, namespace, policyNames, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			for _, policyName := range policyNames {
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
+			}
 		} else if guestCluster {
 			_, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, policyNames, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			for _, policyName := range policyNames {
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
+			}
 		}
 
 		for i, policyName := range policyNames {
@@ -526,7 +541,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			} else if supervisorCluster {
 				ginkgo.By("CNS_TEST: Running for WCP setup")
 				// create resource quota
-				createResourceQuota(client, namespace, rqLimit, policyName)
 				if wcpVsanDirectCluster {
 					storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -543,7 +557,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				}
 			} else {
 				ginkgo.By("CNS_TEST: Running for GC setup")
-				createResourceQuota(client, namespace, rqLimit, policyName)
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				pvclaim, err = createPVC(ctx, client, namespace, nil, largeSize, storageclass, "")
@@ -730,9 +743,13 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		if supervisorCluster {
 			assignPolicyToWcpNamespace(client, ctx, namespace, []string{policyName}, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
 		} else if guestCluster {
 			_, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, []string{policyName}, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
 		}
 
 		setVpxdTaskTimeout(ctx, vpxdReducedTaskTimeoutSecsInt)
@@ -751,7 +768,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, policyName)
 			if wcpVsanDirectCluster {
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -766,7 +782,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
-			createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaim, err = createPVC(ctx, client, namespace, nil, largeSize, storageclass, "")
@@ -934,9 +949,15 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		if supervisorCluster {
 			assignPolicyToWcpNamespace(client, ctx, namespace, []string{policyName}, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
+
 		} else if guestCluster {
 			_, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, []string{policyName}, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
+
 		}
 
 		setVpxdTaskTimeout(ctx, vpxdReducedTaskTimeoutSecsInt)
@@ -955,7 +976,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, policyName)
 			if wcpVsanDirectCluster {
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -970,7 +990,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
-			createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -1222,9 +1241,17 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		if supervisorCluster {
 			assignPolicyToWcpNamespace(client, ctx, namespace, policyNames, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			for _, policyName := range policyNames {
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
+			}
 		} else if guestCluster {
 			_, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, policyNames, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			for _, policyName := range policyNames {
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
+			}
 		}
 
 		for i, policyName := range policyNames {
@@ -1239,7 +1266,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			} else if supervisorCluster {
 				ginkgo.By("CNS_TEST: Running for WCP setup")
 				// create resource quota
-				createResourceQuota(client, namespace, rqLimit, policyName)
 				if wcpVsanDirectCluster {
 					storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1256,7 +1282,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				}
 			} else {
 				ginkgo.By("CNS_TEST: Running for GC setup")
-				createResourceQuota(client, namespace, rqLimit, policyName)
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -1541,9 +1566,17 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		if supervisorCluster {
 			assignPolicyToWcpNamespace(client, ctx, namespace, policyNames, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			for _, policyName := range policyNames {
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
+			}
 		} else if guestCluster {
 			_, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, policyNames, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			for _, policyName := range policyNames {
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
+			}
 		}
 
 		if vanillaCluster {
@@ -1554,12 +1587,10 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
-			createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
-			createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -1821,9 +1852,15 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		if supervisorCluster {
 			assignPolicyToWcpNamespace(client, ctx, namespace, []string{policyName}, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
+
 		} else if guestCluster {
 			_, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, []string{policyName}, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
+
 		}
 
 		ginkgo.By("Create SC using policy created in step 1")
@@ -1838,7 +1875,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, policyName)
 			if wcpVsanDirectCluster {
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1853,7 +1889,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
-			createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -2405,7 +2440,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		} else if supervisorCluster {
 			assignPolicyToWcpNamespace(client, ctx, namespace, policyNames, resourceQuotaLimit)
 			for _, policyName := range policyNames {
-				createResourceQuota(client, namespace, rqLimit, policyName)
+				restClientConfig := getRestConfigClient()
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
 				storageclass, err := client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				scs = append(scs, storageclass)
@@ -2414,7 +2450,9 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(svcClient, ctx, svNamespace, policyNames, resourceQuotaLimit)
 			for _, policyName := range policyNames {
-				createResourceQuota(svcClient, svNamespace, rqLimit, policyName)
+				restClientConfig := getRestConfigClient()
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
+
 				storageclass, err := svcClient.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				scs = append(scs, storageclass)
@@ -2622,7 +2660,9 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		policyNames = append(policyNames, policyName)
 
 		assignPolicyToWcpNamespace(client, ctx, namespace, policyNames, resourceQuotaLimit)
-		createResourceQuota(client, namespace, rqLimit, policyName)
+		restClientConfig := getRestConfigClient()
+		setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
+
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = createVsanDPvcAndPod(sshWcpConfig, svcMasterIp, svcNamespace,
