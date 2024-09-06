@@ -535,6 +535,7 @@ data:
   "block-volume-snapshot": "true"
   "tkgs-ha": "true"
   "cnsmgr-suspend-create-volume": "true"
+  "workload-domain-isolation": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

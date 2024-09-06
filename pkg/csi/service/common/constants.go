@@ -426,6 +426,9 @@ const (
 	// WorkloadDomainIsolation is the name of the WCP capability which determines if
 	// workload domain isolation feature is available on a supervisor cluster.
 	WorkloadDomainIsolation = "Workload_Domain_Isolation_Supported"
+	// WorkloadDomainIsolationFSS is FSS for Workload Domain isolation feature
+	// Used in PVCSI
+	WorkloadDomainIsolationFSS = "workload-domain-isolation"
 )
 
 var WCPFeatureStates = map[string]struct{}{
