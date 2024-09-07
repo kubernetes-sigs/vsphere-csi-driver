@@ -19,6 +19,7 @@ package wcpguest
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -28,6 +29,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
+	"github.com/golang/protobuf/ptypes/wrappers"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
@@ -66,6 +68,7 @@ var (
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
 		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
+		csi.ControllerServiceCapability_RPC_GET_CAPACITY,
 	}
 )
 
@@ -124,6 +127,13 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 	if err != nil {
 		log.Errorf("failed to create vmWatcher. Error: %+v", err)
 		return err
+	}
+
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
+		err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, c.restClientConfig, c.supervisorNamespace)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to listen on zones CR. Error: %v", err)
+		}
 	}
 
 	pvcsiConfigPath := commonconfig.GetConfigPath(ctx)
@@ -1345,11 +1355,31 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (
 	*csi.GetCapacityResponse, error) {
-
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("GetCapacity: called with args %+v", *req)
-	return nil, status.Error(codes.Unimplemented, "")
+
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
+		var totalcapacity, maxvolumesize int64
+		zonesMap := commonco.ContainerOrchestratorUtility.GetZonesForNamespace(c.supervisorNamespace)
+		if req.AccessibleTopology != nil {
+			segments := req.AccessibleTopology.GetSegments()
+			if _, exists := zonesMap[segments["topology.kubernetes.io/zone"]]; !exists {
+				totalcapacity = 0
+				maxvolumesize = 0
+			} else {
+				totalcapacity = math.MaxInt64
+				maxvolumesize = math.MaxInt64
+			}
+		}
+		resp := &csi.GetCapacityResponse{
+			AvailableCapacity: totalcapacity,
+			MaximumVolumeSize: &wrappers.Int64Value{Value: maxvolumesize},
+		}
+		return resp, nil
+	} else {
+		return nil, status.Error(codes.Unimplemented, "")
+	}
 }
 
 func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (
