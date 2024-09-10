@@ -9,7 +9,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
@@ -22,34 +21,6 @@ const (
 	SnapshotFeatureNotEnabled = "CSI Snapshot feature is not supported for vSphere driver on either " +
 		"Supervisor cluster or Guest cluster. Please upgrade the appropriate cluster to get support for CSI snapshot feature."
 )
-
-// Disallow any opertion on volume snapshot initiated by user directly on the supervisor cluster.
-// Currently we only allow snapshot operation initiated from the guest cluster.
-func validateSnapshotOperationSupervisorRequest(ctx context.Context, request admission.Request) admission.Response {
-	log := logger.GetLogger(ctx)
-	log.Debugf("validateSnapshotOperationSupervisorRequest called with the request %v", request)
-	newVS := snap.VolumeSnapshot{}
-	if err := json.Unmarshal(request.Object.Raw, &newVS); err != nil {
-		reason := "Failed to deserialize VolumeSnapshot from new request object"
-		log.Warn(reason)
-		return admission.Denied(reason)
-	}
-
-	if request.Operation == admissionv1.Create {
-		// NOTE: Change to allow snapshot creation from supervisor directly with StorageQuotaM2 FSS enabled
-		//        is temporary & will be reverted before release
-		if featureGateStorageQuotaM2Enabled {
-			log.Debugf("validateSnapshotOperationSupervisorRequest Allow %v since StorageQuotaM2 FSS enabled", request)
-			return admission.Allowed("")
-		}
-		if _, annotationFound := newVS.Annotations[common.SupervisorVolumeSnapshotAnnotationKey]; !annotationFound {
-			return admission.Denied(SnapshotOperationNotAllowed)
-		}
-	}
-
-	log.Debugf("validateSnapshotOperationSupervisorRequest completed for the request %v", request)
-	return admission.Allowed("")
-}
 
 // Validate snapshot operations initiated on guest cluster and disallow if CSI snapshot feature is disabled
 // on either of supervisor or guest cluster.

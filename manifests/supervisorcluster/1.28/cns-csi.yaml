@@ -556,11 +556,6 @@ webhooks:
         operations:  ["CREATE", "UPDATE", "DELETE"]
         resources:   ["persistentvolumeclaims"]
         scope: "Namespaced"
-      - apiGroups:   ["snapshot.storage.k8s.io"]
-        apiVersions: ["v1"]
-        operations:  ["CREATE"]
-        resources:   ["volumesnapshots"]
-        scope:       "Namespaced"
     sideEffects: None
     admissionReviewVersions: ["v1"]
     failurePolicy: Fail
