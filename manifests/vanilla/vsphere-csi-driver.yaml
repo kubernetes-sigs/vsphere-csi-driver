@@ -279,7 +279,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-csi-controller
-          image: gcr.io/cloud-provider-vsphere/csi/ci/driver:latest
+          image: us-central1-docker.pkg.dev/k8s-staging-images/csi-vsphere/ci/driver:latest
           args:
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
             - "--fss-namespace=$(CSI_NAMESPACE)"
@@ -339,7 +339,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: vsphere-syncer
-          image: gcr.io/cloud-provider-vsphere/csi/ci/syncer:latest
+          image: us-central1-docker.pkg.dev/k8s-staging-images/csi-vsphere/ci/syncer:latest
           args:
             - "--leader-election"
             - "--leader-election-lease-duration=30s"
@@ -472,7 +472,7 @@ spec:
               - --mode=kubelet-registration-probe
             initialDelaySeconds: 3
         - name: vsphere-csi-node
-          image: gcr.io/cloud-provider-vsphere/csi/ci/driver:latest
+          image: us-central1-docker.pkg.dev/k8s-staging-images/csi-vsphere/ci/driver:latest
           args:
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
             - "--fss-namespace=$(CSI_NAMESPACE)"
@@ -617,7 +617,7 @@ spec:
               - --mode=kubelet-registration-probe
             initialDelaySeconds: 3
         - name: vsphere-csi-node
-          image: gcr.io/cloud-provider-vsphere/csi/ci/driver:latest
+          image: us-central1-docker.pkg.dev/k8s-staging-images/csi-vsphere/ci/driver:latest
           args:
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
             - "--fss-namespace=$(CSI_NAMESPACE)"
