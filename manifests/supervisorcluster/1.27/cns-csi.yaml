@@ -468,6 +468,7 @@ data:
   "storage-quota-m2": "false"
   "vdpp-on-stretched-supervisor": "false"
   "cns-unregister-volume": "false"
+  "workload-domain-isolation": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
