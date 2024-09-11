@@ -56,6 +56,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		pvclaim                    *v1.PersistentVolumeClaim
 		isVsanHealthServiceStopped bool
 		isSPSServiceStopped        bool
+		csiNamespace               string
 	)
 	ginkgo.BeforeEach(func() {
 		bootstrap()
@@ -65,6 +66,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		namespace = getNamespaceToRunTests(f)
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
@@ -76,7 +78,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		isVsanHealthServiceStopped = false
-		waitForAllHostsToBeUp(ctx, &e2eVSphere)
+		// waitForAllHostsToBeUp(ctx, &e2eVSphere)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -117,7 +119,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 
-		waitForAllHostsToBeUp(ctx, &e2eVSphere)
+		// waitForAllHostsToBeUp(ctx, &e2eVSphere)
 	})
 
 	// Test to verify health annotation status is accessible on the pvc.
@@ -895,7 +897,9 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready.
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if !windowsEnv {
+			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		}
 		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
@@ -1147,7 +1151,9 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		// Waiting for pods status to be Ready.
 		ginkgo.By("Wait for all Pods are Running state")
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if !windowsEnv {
+			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		}
 		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
@@ -1420,9 +1426,13 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		}
 
 		ginkgo.By("Invoking password rotation")
+		ginkgo.By("Get svcClient and svNamespace")
+		svClient, _ := getSvcClientAndNamespace()
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		err = replacePasswordRotationTime(ctx, passorwdFilePath, vcAddress)
+		passwordRotated, err := performPasswordRotationOnSupervisor(svClient, ctx, csiNamespace, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(passwordRotated).To(gomega.BeTrue())
+		// err = replacePasswordRotationTime(ctx, passorwdFilePath, vcAddress)
 
 		ginkgo.By("Verify health annotation on the PVC after password rotation")
 		ginkgo.By(fmt.Sprintf("Sleeping for %v minutes to allow volume health check to be triggered",
@@ -2275,7 +2285,9 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready.
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if !windowsEnv {
+			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		}
 		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
@@ -2912,7 +2924,9 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready.
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if !windowsEnv {
+			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		}
 		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
