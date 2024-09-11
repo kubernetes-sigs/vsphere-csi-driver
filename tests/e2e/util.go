@@ -1928,6 +1928,7 @@ func getWCPSessionId(hostname string, username string, password string) string {
 // getWindowsFileSystemSize finds the windowsWorkerIp and returns the size of the volume
 func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, error) {
 	var err error
+	var output fssh.Result
 	var windowsWorkerIP, size string
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1940,17 +1941,33 @@ func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, e
 			break
 		}
 	}
-	nimbusGeneratedWindowsVmPwd := GetAndExpectStringEnvVar(envWindowsPwd)
-	windowsUser := GetAndExpectStringEnvVar(envWindowsUser)
-	sshClientConfig := &ssh.ClientConfig{
-		User: windowsUser,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(nimbusGeneratedWindowsVmPwd),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
 	cmd := "Get-Disk | Format-List -Property Manufacturer,Size"
-	output, err := sshExec(sshClientConfig, windowsWorkerIP, cmd)
+	if guestCluster {
+		svcMasterIp := GetAndExpectStringEnvVar(svcMasterIP)
+		svcMasterPwd := GetAndExpectStringEnvVar(svcMasterPassword)
+		svcNamespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+		sshWcpConfig := &ssh.ClientConfig{
+			User: rootUser,
+			Auth: []ssh.AuthMethod{
+				ssh.Password(svcMasterPwd),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		}
+		output, err = execCommandOnGcWorker(sshWcpConfig, svcMasterIp, windowsWorkerIP,
+			svcNamespace, cmd)
+	} else {
+		nimbusGeneratedWindowsVmPwd := GetAndExpectStringEnvVar(envWindowsPwd)
+		windowsUser := GetAndExpectStringEnvVar(envWindowsUser)
+		sshClientConfig := &ssh.ClientConfig{
+			User: windowsUser,
+			Auth: []ssh.AuthMethod{
+				ssh.Password(nimbusGeneratedWindowsVmPwd),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		}
+		output, err = sshExec(sshClientConfig, windowsWorkerIP, cmd)
+	}
+
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	fullStr := strings.Split(strings.TrimSuffix(string(output.Stdout), "\n"), "\n")
 	var originalSizeInbytes int64
@@ -1962,8 +1979,14 @@ func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, e
 			if err != nil {
 				return -1, fmt.Errorf("failed to parse size %s into int size", size)
 			}
-			if originalSizeInbytes < 96636764160 {
-				break
+			if guestCluster {
+				if originalSizeInbytes < 42949672960 {
+					break
+				}
+			} else {
+				if originalSizeInbytes < 96636764160 {
+					break
+				}
 			}
 		}
 	}
@@ -7025,4 +7048,47 @@ func removeStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Quota after removing:  %s", spq.Spec.Limit)
 
+}
+
+// execCommandOnGcWorker logs into gc worker node using ssh private key and executes command
+func execCommandOnGcWorker(sshClientConfig *ssh.ClientConfig, svcMasterIP string, gcWorkerIp string,
+	svcNamespace string, cmd string) (fssh.Result, error) {
+	result := fssh.Result{Host: gcWorkerIp, Cmd: cmd}
+	// get the cluster ssh key
+	sshSecretName := GetAndExpectStringEnvVar(sshSecretName)
+	cmdToGetPrivateKey := fmt.Sprintf("kubectl get secret %s -n %s -o"+
+		"jsonpath={'.data.ssh-privatekey'} | base64 -d > key", sshSecretName, svcNamespace)
+	framework.Logf("Invoking command '%v' on host %v", cmdToGetPrivateKey,
+		svcMasterIP)
+	cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
+		cmdToGetPrivateKey)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmdToGetPrivateKey, svcMasterIP, err)
+	}
+
+	enablePermissionCmd := "chmod 600 key"
+	framework.Logf("Invoking command '%v' on host %v", enablePermissionCmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		enablePermissionCmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			enablePermissionCmd, svcMasterIP, err)
+	}
+
+	cmdToGetContainerInfo := fmt.Sprintf("ssh -i key %s@%s "+
+		"'%s'", gcNodeUser, gcWorkerIp, cmd)
+	framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerInfo,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmdToGetContainerInfo)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmdToGetContainerInfo, svcMasterIP, err)
+	}
+	return cmdResult, nil
 }
