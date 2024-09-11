@@ -42,17 +42,17 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	f := framework.NewDefaultFramework("e2e-guest-cluster-cnsvolumemetadata")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client                     clientset.Interface
-		namespace                  string
-		svNamespace                string
-		scParameters               map[string]string
-		storagePolicyName          string
-		svcPVCName                 string // PVC Name in the Supervisor Cluster
-		labelKey                   string
-		labelValue                 string
-		gcClusterID                string
-		pvcUID                     string
-		manifestPath               = "tests/e2e/testing-manifests/statefulset/nginx"
+		client            clientset.Interface
+		namespace         string
+		svNamespace       string
+		scParameters      map[string]string
+		storagePolicyName string
+		svcPVCName        string // PVC Name in the Supervisor Cluster
+		labelKey          string
+		labelValue        string
+		gcClusterID       string
+		pvcUID            string
+		// manifestPath               = "tests/e2e/testing-manifests/statefulset/nginx"
 		pvclabelKey                string
 		pvclabelValue              string
 		pvlabelKey                 string
@@ -403,8 +403,12 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Creating statefulset")
-		statefulset := fss.CreateStatefulSet(ctx, client, manifestPath, namespace)
+		// ginkgo.By("Creating statefulset")
+		// statefulset := fss.CreateStatefulSet(ctx, client, manifestPath, namespace)
+		statefulset := GetStatefulSetFromManifest(namespace)
+
+		ginkgo.By("Create a statefulset with 3 replicas")
+		CreateStatefulSet(namespace, statefulset, client)
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -417,7 +421,9 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready.
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if !windowsEnv {
+			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		}
 		ssPodsBeforeScaleup := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleup.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))

@@ -22,7 +22,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/hashicorp/go-version"
 	"github.com/onsi/ginkgo/v2"
@@ -35,7 +34,6 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
-	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 
@@ -1062,7 +1060,14 @@ func createMultiplePods(ctx context.Context, client clientset.Interface,
 	for _, pvcs := range pvclaims2d {
 		if len(pvcs) != 0 {
 			pod := fpod.MakePod(pvcs[0].Namespace, nil, pvcs, admissionapi.LevelBaseline, execCommand)
-			pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+			if windowsEnv {
+				commands := []string{"Powershell.exe", "-Command ", windowsExecCmd}
+				pod.Spec.Containers[0].Image = windowsImageOnMcr
+				pod.Spec.Containers[0].Command = commands
+				pod.Spec.Containers[0].VolumeMounts[0].MountPath = pod.Spec.Containers[0].VolumeMounts[0].MountPath + "/"
+			} else {
+				pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+			}
 			pod, err := client.CoreV1().Pods(pvcs[0].Namespace).Create(ctx, pod, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pods = append(pods, pod)
@@ -1120,9 +1125,10 @@ func verifyVolMountsInPods(ctx context.Context, client clientset.Interface, pods
 			gomega.Expect(isDiskAttached).To(gomega.BeTrue(),
 				"Volume is not attached to the node volHandle: %s, vmUUID: %s", volHandle, vmUUID)
 			ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-			_, err = e2eoutput.LookForStringInPodExec(pvc.Namespace, pod.Name,
-				[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			verifyFsTypeOnVsphereVolume(pvc.Namespace, pod.Name, ext4FSType, filePathFsType)
+			// _, err = e2eoutput.LookForStringInPodExec(pvc.Namespace, pod.Name,
+			// 	[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}
 }

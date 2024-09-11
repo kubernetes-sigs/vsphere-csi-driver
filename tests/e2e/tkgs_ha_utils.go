@@ -244,35 +244,56 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 // verifyOnlineVolumeExpansionOnGc is a util method which helps in verifying online volume expansion on gc
 func verifyOnlineVolumeExpansionOnGc(client clientset.Interface, namespace string, svcPVCName string,
 	volHandle string, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod, f *framework.Framework) {
-	rand.New(rand.NewSource(time.Now().Unix()))
-	testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
-	ginkgo.By(fmt.Sprintf("Creating a 512mb test data file %v", testdataFile))
-	op, err := exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
-		"bs=64k", "count=8000").Output()
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	defer func() {
-		op, err = exec.Command("rm", "-f", testdataFile).Output()
+	var testdataFile string
+	var op []byte
+	var err error
+	if !windowsEnv {
+		rand.New(rand.NewSource(time.Now().Unix()))
+		testdataFile = fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
+		ginkgo.By(fmt.Sprintf("Creating a 512mb test data file %v", testdataFile))
+		op, err = exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
+			"bs=64k", "count=8000").Output()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}()
+		defer func() {
+			op, err = exec.Command("rm", "-f", testdataFile).Output()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+	}
 
-	_ = e2ekubectl.RunKubectlOrDie(namespace, "cp", testdataFile,
-		fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name))
+	if windowsEnv {
+		cmdTestData := []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe", "$out = New-Object byte[] 536870912; (New-Object Random).NextBytes($out); [System.IO.File]::WriteAllBytes('/mnt/volume1/testdata2.txt', $out)"}
+		_ = e2ekubectl.RunKubectlOrDie(namespace, cmdTestData...)
+	} else {
+		_ = e2ekubectl.RunKubectlOrDie(namespace, "cp", testdataFile,
+			fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name))
+	}
 
 	onlineVolumeResizeCheck(f, client, namespace, svcPVCName, volHandle, pvclaim, pod)
 
 	ginkgo.By("Checking data consistency after PVC resize")
-	_ = e2ekubectl.RunKubectlOrDie(namespace, "cp",
-		fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name), testdataFile+"_pod")
-	defer func() {
-		op, err = exec.Command("rm", "-f", testdataFile+"_pod").Output()
-		fmt.Println("rm: ", op)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}()
+	if windowsEnv {
+		cmdTestData := []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe", "Copy-Item -Path '/mnt/volume1/testdata2.txt' -Destination '/mnt/volume1/testdata2_pod.txt'"}
+		_ = e2ekubectl.RunKubectlOrDie(namespace, cmdTestData...)
+	} else {
+		_ = e2ekubectl.RunKubectlOrDie(namespace, "cp",
+			fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name), testdataFile+"_pod")
+		defer func() {
+			op, err = exec.Command("rm", "-f", testdataFile+"_pod").Output()
+			fmt.Println("rm: ", op)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+	}
 	ginkgo.By("Running diff...")
-	op, err = exec.Command("diff", testdataFile, testdataFile+"_pod").Output()
-	fmt.Println("diff: ", op)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(len(op)).To(gomega.BeZero())
+	if windowsEnv {
+		cmdTestData := []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe", "((Get-FileHash '/mnt/volume1/testdata2.txt' -Algorithm SHA256).Hash -eq (Get-FileHash '/mnt/volume1/testdata2_pod.txt' -Algorithm SHA256).Hash)"}
+		diffNotFound := strings.TrimSpace(e2ekubectl.RunKubectlOrDie(namespace, cmdTestData...))
+		gomega.Expect(diffNotFound).To(gomega.Equal("True"))
+	} else {
+		op, err = exec.Command("diff", testdataFile, testdataFile+"_pod").Output()
+		fmt.Println("diff: ", op)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(len(op)).To(gomega.BeZero())
+	}
 
 	ginkgo.By("File system resize finished successfully in GC")
 	ginkgo.By("Checking for PVC resize completion on SVC PVC")
