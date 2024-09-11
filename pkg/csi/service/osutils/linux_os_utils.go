@@ -661,7 +661,7 @@ func (osUtils *OsUtils) RescanDevice(ctx context.Context, dev *Device) error {
 	if err != nil {
 		msg := fmt.Sprintf("error rescanning block device %q. %v", dev.RealDev, err)
 		log.Error(msg)
-		return fmt.Errorf(msg)
+		return fmt.Errorf("%s", msg)
 	}
 	return nil
 }

@@ -535,7 +535,7 @@ func (state *intendedState) getStoragePoolError() *v1alpha1.StoragePoolError {
 	if state.allHostsInMM {
 		return v1alpha1.SpErrors[v1alpha1.ErrStateAllHostsInMM]
 	}
-	if state.nodes == nil || len(state.nodes) == 0 {
+	if len(state.nodes) == 0 {
 		return v1alpha1.SpErrors[v1alpha1.ErrStateNoAccessibleHosts]
 	}
 	return nil
