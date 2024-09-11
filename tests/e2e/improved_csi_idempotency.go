@@ -678,7 +678,11 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		}
 		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		scParameters[svStorageClassName] = thickProvPolicy
-		scParameters[scParamFsType] = ext4FSType
+		if windowsEnv {
+			scParameters[scParamFsType] = ntfsFSType
+		} else {
+			scParameters[scParamFsType] = ext4FSType
+		}
 		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, thickProvPolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

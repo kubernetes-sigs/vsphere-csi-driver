@@ -136,11 +136,12 @@ const (
 	fullSyncFss                               = "trigger-csi-fullsync"
 	gcNodeUser                                = "vmware-system-user"
 	gcKubeConfigPath                          = "GC_KUBE_CONFIG"
+	gcSshKey                                  = "TEST-CLUSTER-SSH-KEY"
 	healthGreen                               = "green"
 	healthRed                                 = "red"
 	healthStatusAccessible                    = "accessible"
 	healthStatusInAccessible                  = "inaccessible"
-	healthStatusWaitTime                      = 2 * time.Minute
+	healthStatusWaitTime                      = 3 * time.Minute
 	hostdServiceName                          = "hostd"
 	invalidFSType                             = "ext10"
 	k8sPodTerminationTimeOut                  = 7 * time.Minute
