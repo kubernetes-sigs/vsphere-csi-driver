@@ -117,8 +117,8 @@ func (f *FakeNodeManager) GetSharedDatastoresInK8SCluster(ctx context.Context) (
 
 	if len(nodeVMs) == 0 {
 		errMsg := "empty List of Node VMs received from nodeManager"
-		t.Errorf(errMsg)
-		return nil, fmt.Errorf(errMsg)
+		t.Errorf("%s", errMsg)
+		return nil, fmt.Errorf("%s", errMsg)
 	}
 
 	sharedDatastores, err := cnsvsphere.GetSharedDatastoresForVMs(ctx, nodeVMs)

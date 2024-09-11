@@ -746,7 +746,7 @@ func (vc *VirtualCenter) GetAllVirtualMachines(ctx context.Context,
 	if len(hostObjList) < 1 {
 		msg := "host object list is empty"
 		log.Errorf(msg+": %v", hostObjList)
-		return nil, fmt.Errorf(msg)
+		return nil, fmt.Errorf("%s", msg)
 	}
 
 	properties := []string{"vm"}
