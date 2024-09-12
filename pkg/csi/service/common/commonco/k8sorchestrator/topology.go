@@ -119,6 +119,11 @@ var (
 	// csiNodeTopologyInformer refers to a shared K8s informer listening on CSINodeTopology instances
 	// in the cluster.
 	csiNodeTopologyInformer *cache.SharedIndexInformer
+	// namespaceToZoneMap keeps a mapping of the zones associated with each namespace in a supervisor cluster.
+	// if zone is marked for removal or removed from namespace then zone will be removed from namespaceToZoneMap map
+	namespaceToZoneMap = make(map[string]map[string]struct{})
+	// namespaceToZoneMapInstanceLock guards reads & writes to the namespaceToZoneMap variable.
+	namespaceToZoneMapInstanceLock = &sync.RWMutex{}
 )
 
 // nodeVolumeTopology implements the commoncotypes.NodeTopologyService interface. It stores
@@ -1765,4 +1770,86 @@ func getSharedDatastoresInClusters(ctx context.Context, clusterMorefs []string,
 		}
 	}
 	return sharedDatastoresForclusterMorefs, nil
+}
+
+// StartZonesInformer listens on changes to Zone instances.
+func (c *K8sOrchestrator) StartZonesInformer(ctx context.Context,
+	restClientConfig *restclient.Config, namespace string) error {
+	log := logger.GetLogger(ctx)
+
+	// Create an informer for Zone instances.
+	dynInformer, err := k8s.GetDynamicInformer(ctx, "topology.tanzu.vmware.com",
+		"v1alpha1", "zones", namespace, restClientConfig, false)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to create dynamic informer for Zones CR. Error: %+v", err)
+	}
+	zoneInformer := dynInformer.Informer()
+	_, err = zoneInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			zoneObj := obj.(*unstructured.Unstructured)
+			name := zoneObj.GetName()
+			ns := zoneObj.GetNamespace()
+			zoneCRAdded(name, ns)
+		},
+		UpdateFunc: func(oldObj interface{}, newObj interface{}) {
+			oldZoneObj := oldObj.(*unstructured.Unstructured)
+			newZoneObj := newObj.(*unstructured.Unstructured)
+			name := newZoneObj.GetName()
+			ns := newZoneObj.GetNamespace()
+			if oldZoneObj.GetDeletionTimestamp() == nil && newZoneObj.GetDeletionTimestamp() != nil {
+				zoneCRDeleted(name, ns)
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			zoneObj := obj.(*unstructured.Unstructured)
+			name := zoneObj.GetName()
+			ns := zoneObj.GetNamespace()
+			zoneCRDeleted(name, ns)
+		},
+	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on informer for zones CR. Error: %v", err)
+	}
+
+	// Start informer.
+	go func() {
+		log.Info("Informer to watch on Zones CR starting..")
+		zoneInformer.Run(make(chan struct{}))
+	}()
+	return nil
+}
+
+// ZoneCRAdded updates the NamespaceToZoneMap variable.
+func zoneCRAdded(name, ns string) {
+	log := logger.GetLoggerWithNoContext()
+
+	namespaceToZoneMapInstanceLock.Lock()
+	defer namespaceToZoneMapInstanceLock.Unlock()
+	if _, exists := namespaceToZoneMap[ns]; !exists {
+		namespaceToZoneMap[ns] = map[string]struct{}{name: {}}
+	} else {
+		namespaceToZoneMap[ns][name] = struct{}{}
+	}
+	log.Infof("Zone %q added to namespace %q", name, ns)
+}
+
+// ZoneCRDeleted updates the NamespaceToZoneMap variable.
+func zoneCRDeleted(name, ns string) {
+	log := logger.GetLoggerWithNoContext()
+
+	namespaceToZoneMapInstanceLock.Lock()
+	defer namespaceToZoneMapInstanceLock.Unlock()
+	if _, exists := namespaceToZoneMap[ns]; exists {
+		delete(namespaceToZoneMap[ns], name)
+		log.Infof("Zone %q removed from namespace %q", name, ns)
+	} else {
+		log.Infof("Zone %q not present in namespace %q", name, ns)
+	}
+}
+
+// GetZonesForNamespace fetches the zones associated with a namespace.
+func (c *K8sOrchestrator) GetZonesForNamespace(ns string) map[string]struct{} {
+	namespaceToZoneMapInstanceLock.RLock()
+	defer namespaceToZoneMapInstanceLock.RUnlock()
+	return namespaceToZoneMap[ns]
 }

@@ -30,6 +30,7 @@ import (
 	"google.golang.org/grpc/codes"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	restclient "k8s.io/client-go/rest"
 
 	cnssim "github.com/vmware/govmomi/cns/simulator"
 	pbmsim "github.com/vmware/govmomi/pbm/simulator"
@@ -327,6 +328,19 @@ func (c *FakeK8SOrchestrator) GetPVNameFromCSIVolumeID(volumeID string) (string,
 
 // InitializeCSINodes creates CSINode instances for each K8s node with the appropriate topology keys.
 func (c *FakeK8SOrchestrator) InitializeCSINodes(ctx context.Context) error {
+	return nil
+}
+
+// StartZonesInformer starts a dynamic informer which listens on Zones CR in
+// topology.tanzu.vmware.com/v1alpha1 API group.
+func (c *FakeK8SOrchestrator) StartZonesInformer(ctx context.Context, restClientConfig *restclient.Config,
+	namespace string) error {
+	return nil
+}
+
+// GetZonesForNamespace fetches the zones associated with a namespace when
+// WorkloadDomainIsolation is supported in supervisor.
+func (c *FakeK8SOrchestrator) GetZonesForNamespace(ns string) map[string]struct{} {
 	return nil
 }
 

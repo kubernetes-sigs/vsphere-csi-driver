@@ -74,6 +74,9 @@ rules:
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshotcontents/status" ]
     verbs: [ "update", "patch" ]
+  - apiGroups: [ "storage.k8s.io" ]
+    resources: [ "csistoragecapacities" ]
+    verbs: [ "create", "get", "list", "watch", "update", "delete", "patch" ]
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -318,10 +321,17 @@ spec:
             - "--leader-election-lease-duration=120s"
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
+            - "--enable-capacity=true"
+            - "--capacity-ownerref-level=-1"
           imagePullPolicy: "IfNotPresent"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
@@ -380,6 +390,7 @@ metadata:
 spec:
   attachRequired: true
   podInfoOnMount: false
+  storageCapacity: true
 ---
 kind: DaemonSet
 apiVersion: apps/v1

@@ -22,9 +22,9 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	storagev1 "k8s.io/api/storage/v1"
+	restclient "k8s.io/client-go/rest"
 
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
-
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
@@ -86,6 +86,12 @@ type COCommonInterface interface {
 	GetPVNameFromCSIVolumeID(volumeID string) (string, bool)
 	// InitializeCSINodes creates CSINode instances for each K8s node with the appropriate topology keys.
 	InitializeCSINodes(ctx context.Context) error
+	// StartZonesInformer starts a dynamic informer which listens on Zones CR in
+	// topology.tanzu.vmware.com/v1alpha1 API group.
+	StartZonesInformer(ctx context.Context, restClientConfig *restclient.Config, namespace string) error
+	// GetZonesForNamespace fetches the zones associated with a namespace when
+	// WorkloadDomainIsolation is supported in supervisor.
+	GetZonesForNamespace(ns string) map[string]struct{}
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given
