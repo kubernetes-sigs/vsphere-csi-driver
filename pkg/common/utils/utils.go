@@ -36,7 +36,7 @@ const (
 	DefaultQuerySnapshotLimit = int64(128)
 	// queryVolumeLimit is the page size, which should be set in the cursor when driver needs to
 	// query many volumes using QueryVolume API
-	queryVolumeLimit = int64(1000)
+	queryVolumeLimit = int64(10000)
 )
 
 // QueryVolumeUtil helps to invoke query volume API based on the feature
