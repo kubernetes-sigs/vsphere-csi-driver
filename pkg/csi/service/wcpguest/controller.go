@@ -30,7 +30,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
 	"github.com/golang/protobuf/ptypes/wrappers"
-	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	"google.golang.org/grpc/codes"

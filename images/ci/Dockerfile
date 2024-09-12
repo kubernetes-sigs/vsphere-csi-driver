@@ -1,4 +1,4 @@
-# Copyright 2019 The Kubernetes Authors.
+# Copyright 2024 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 ################################################################################
 # The golang image is used to create the project's module and build caches
 # and is also the image on which this image is based.
-ARG GOLANG_IMAGE=golang:1.21
+ARG GOLANG_IMAGE=golang:1.23
 
 ################################################################################
 ##                            GO MOD CACHE STAGE                              ##
