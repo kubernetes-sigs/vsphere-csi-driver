@@ -870,7 +870,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		zoneLabelPresent     bool
 		err                  error
 		volumeInfo           *cnsvolume.CnsVolumeInfo
-		volumeID             string
 		faultType            string
 	)
 
@@ -1036,12 +1035,17 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			"failed to create volume. Error: %+v", err)
 	}
 
+	if volumeInfo == nil {
+		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+			"nil response for volumeInfo")
+	}
+
 	attributes := make(map[string]string)
 	attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
 
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
-			VolumeId:      volumeID,
+			VolumeId:      volumeInfo.VolumeID.Id,
 			CapacityBytes: int64(units.FileSize(volSizeMB * common.MbInBytes)),
 			VolumeContext: attributes,
 		},
