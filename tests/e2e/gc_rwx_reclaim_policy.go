@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+pvcNameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		}()
 
@@ -216,7 +216,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod1")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+pvcNameInSV,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
@@ -242,7 +242,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod1")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+pvcNameInSV,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 
 		ginkgo.By("Deleting the PVC")
@@ -325,7 +325,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod2")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+pvcNameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod2.Spec.NodeName+"-"+pvcNameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		}()
 
@@ -350,7 +350,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 			crdVersion, crdGroup, true, pv2.Spec.CSI.VolumeHandle, false, nil, false)
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod2")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod2.Spec.NodeName+"-"+pvcNameInSV,
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod2.Spec.NodeName+"-"+pvcNameInSV,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible from pod2")
@@ -471,7 +471,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+pvcNameInSV,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 
 		defer func() {
@@ -628,7 +628,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+pvcNameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		}()
 
@@ -653,7 +653,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 			crdVersion, crdGroup, true, pv2.Spec.CSI.VolumeHandle, false, nil, false)
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod")
-		verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
+		verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+pvcNameInSV,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
