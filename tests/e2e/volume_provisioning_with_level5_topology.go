@@ -906,7 +906,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 		specified in the allowed topologies of SC */
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
-		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, namespace,
+		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, 
 			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
@@ -995,7 +995,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 		specified in the allowed topologies of SC */
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
-		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, namespace,
+		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, 
 			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
@@ -1126,7 +1126,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 		as specified in the allowed topologies of SC */
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
-		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, namespace,
+		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, 
 			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1272,7 +1272,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 		specified in the allowed topologies of SC */
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
-		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, namespace,
+		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, 
 			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1339,7 +1339,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 		specified in the allowed topologies of SC */
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
-		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, namespace,
+		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, 
 			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

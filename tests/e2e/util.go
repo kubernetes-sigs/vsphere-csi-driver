@@ -3428,8 +3428,13 @@ func writeDataOnFileFromPod(namespace string, podName string, filePath string, d
 		cmdArg = "-c"
 	}
 	wrtiecmd := []string{"exec", podName, "--namespace=" + namespace, "--", shellExec, cmdArg,
-		fmt.Sprintf(" echo '%s' >  %s ", data, filePath)}
+		fmt.Sprintf(" echo '%s' >>  %s ", data, filePath)}
 	e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
+
+	data2 := "fsync"
+	wrtiecmd2 := []string{"exec", podName, "--namespace=" + namespace, "--", shellExec, cmdArg,
+		fmt.Sprintf(" echo '%s' >>  %s ", data2, filePath)}
+	e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd2...)
 }
 
 // readFileFromPod read data from given Pod and the given file.
@@ -5568,7 +5573,7 @@ Also it verifies that a pod is scheduled on a node that belongs to the topology 
 is provisioned.
 */
 func verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx context.Context,
-	client clientset.Interface, pod *v1.Pod, namespace string,
+	client clientset.Interface, pod *v1.Pod,
 	allowedTopologies []v1.TopologySelectorLabelRequirement) error {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	for _, volumespec := range pod.Spec.Volumes {
@@ -5722,7 +5727,7 @@ func (o replicaSetsByCreationTimestampDate) Less(i, j int) bool {
 	return o[i].CreationTimestamp.Before(&o[j].CreationTimestamp)
 }
 
-// createKubernetesClientFromConfig creaates a newk8s client from given
+// createKubernetesClientFromConfig creates a newk8s client from given
 // kubeConfig file.
 func createKubernetesClientFromConfig(kubeConfigPath string) (clientset.Interface, error) {
 
@@ -6317,6 +6322,29 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 }
 
 // createVcSession4RestApis generates session ID for VC to use in rest API calls
+// func createVcSession4RestApis(ctx context.Context) string {
+// 	vcIp := e2eVSphere.Config.Global.VCenterHostname
+// 	vcAddress := vcIp + ":" + sshdPort
+// 	nimbusGeneratedVcPwd := GetAndExpectStringEnvVar(vcUIPwd)
+// 	curlCmd := fmt.Sprintf("curl -k -X POST https://%s/rest/com/vmware/cis/session"+
+// 		" -u 'Administrator@vsphere.local:%s'", vcIp, nimbusGeneratedVcPwd)
+// 	framework.Logf("Running command: %s", curlCmd)
+// 	result, err := fssh.SSH(ctx, curlCmd, vcAddress, framework.TestContext.Provider)
+// 	fssh.LogResult(result)
+// 	if err != nil || result.Code != 0 {
+// 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+// 			"couldn't execute command: %v due to err %v", curlCmd, err)
+// 	}
+
+// 	var session map[string]interface{}
+// 	res := []byte(result.Stdout)
+// 	err = json.Unmarshal(res, &session)
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// 	sessionId := session["value"].(string)
+// 	framework.Logf("sessionID is: %v", sessionId)
+// 	return sessionId
+// }
+
 func createVcSession4RestApis(ctx context.Context) string {
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
 	vcAddress := vcIp + ":" + sshdPort
@@ -6335,7 +6363,13 @@ func createVcSession4RestApis(ctx context.Context) string {
 	res := []byte(result.Stdout)
 	err = json.Unmarshal(res, &session)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	sessionId := session["value"].(string)
+
+	// Check if the value is a string, and if not, handle accordingly
+	sessionId, ok := session["value"].(string)
+	if !ok {
+		framework.Failf("expected session ID to be a string, got: %v", session["value"])
+	}
+
 	framework.Logf("sessionID is: %v", sessionId)
 	return sessionId
 }

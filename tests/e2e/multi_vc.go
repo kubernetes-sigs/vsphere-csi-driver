@@ -937,7 +937,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		for i := 0; i < len(podList); i++ {
 			err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, podList[i],
-				namespace, allowedTopologies)
+				allowedTopologies)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -1373,7 +1373,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		ginkgo.By("Verify PV node affinity and that the PODS are running " +
 			"on appropriate node as specified in the allowed topologies of SC")
 		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod,
-			namespace, allowedTopologies)
+			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -1983,7 +1983,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 
 		ginkgo.By("Verify pv and pod node affinity")
 		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod,
-			namespace, allowedTopologies)
+			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
