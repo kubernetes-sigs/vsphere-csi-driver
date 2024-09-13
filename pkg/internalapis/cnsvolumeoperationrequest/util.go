@@ -53,6 +53,7 @@ type VolumeOperationRequestDetails struct {
 // QuotaDetails stores information required to interact with the custom
 // storage policy quota CRs during create volume operations.
 type QuotaDetails struct {
+	ReservationId                       string
 	Reserved                            *resource.Quantity
 	StoragePolicyId                     string
 	StorageClassName                    string

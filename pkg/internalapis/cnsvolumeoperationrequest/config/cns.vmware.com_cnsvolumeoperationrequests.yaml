@@ -63,6 +63,9 @@ spec:
                 description: StorageQuotaDetails stores the details required by the
                   CSI driver and syncer to access the quota custom resources.
                 properties:
+                  reservationId:
+                    description: ReservationId is the unique ID added as annotation on the resource by storage quota webhook.
+                    type: string
                   reserved:
                     anyOf:
                     - type: integer

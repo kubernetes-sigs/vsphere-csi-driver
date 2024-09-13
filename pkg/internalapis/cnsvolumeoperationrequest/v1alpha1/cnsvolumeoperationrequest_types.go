@@ -54,6 +54,9 @@ type CnsVolumeOperationRequestStatus struct {
 	LatestOperationDetails []OperationDetails `json:"latestOperationDetails,omitempty"`
 }
 type QuotaDetails struct {
+	// ReservationId is the unique ID added as annotation on the resource by storage quota webhook.
+	// +optional
+	ReservationId string `json:"reservationId,omitempty"`
 	// Reserved keeps a track of the quantity that should be reserved in
 	// storage quota during a create volume/snapshot operation.
 	// +optional
