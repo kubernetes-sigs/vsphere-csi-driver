@@ -18,7 +18,6 @@ package utils
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"strconv"
 
@@ -34,9 +33,6 @@ const (
 	// However, using that constant creates an import cycle.
 	// TODO: Refactor to move all the constants into a top level directory.
 	DefaultQuerySnapshotLimit = int64(128)
-	// queryVolumeLimit is the page size, which should be set in the cursor when driver needs to
-	// query many volumes using QueryVolume API
-	queryVolumeLimit = int64(1000)
 )
 
 // QueryVolumeUtil helps to invoke query volume API based on the feature
@@ -261,39 +257,11 @@ func QueryAllVolumesForCluster(ctx context.Context, m cnsvolume.Manager, cluster
 	log := logger.GetLogger(ctx)
 	queryFilter := cnstypes.CnsQueryFilter{
 		ContainerClusterIds: []string{clusterID},
-		Cursor: &cnstypes.CnsCursor{
-			Offset: 0,
-			Limit:  queryVolumeLimit,
-		},
 	}
-	var allQueryResults *cnstypes.CnsQueryResult
-	for {
-		log.Debugf("Query volumes with offset: %v and limit: %v", queryFilter.Cursor.Offset, queryFilter.Cursor.Limit)
-		queryResult, err := QueryVolumeUtil(ctx, m, queryFilter, &querySelection, true)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"queryVolumeUtil failed with err=%+v", err.Error())
-		}
-		if queryResult == nil {
-			log.Info("Observed empty queryResult")
-			break
-		}
-		if allQueryResults == nil {
-			allQueryResults = queryResult
-		} else {
-			allQueryResults.Volumes = append(allQueryResults.Volumes, queryResult.Volumes...)
-		}
-		log.Debugf("Query result offset: %v", queryFilter.Cursor.Offset)
-		log.Infof("%v more volumes to be queried", queryResult.Cursor.TotalRecords-queryResult.Cursor.Offset)
-		if queryResult.Cursor.Offset == queryResult.Cursor.TotalRecords {
-			log.Info("Retrieved for all requested volumes")
-			allQueryResults.Cursor.Offset = queryResult.Cursor.TotalRecords
-			break
-		}
-		queryFilter.Cursor.Offset = queryResult.Cursor.Offset
+	queryAllResult, err := m.QueryAllVolume(ctx, queryFilter, querySelection)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"QueryAllVolume failed with err=%+v", err.Error())
 	}
-	if allQueryResults == nil {
-		return nil, logger.LogNewError(log, fmt.Sprintf("no volume found for clusterID: %q", clusterID))
-	}
-	return allQueryResults, nil
+	return queryAllResult, nil
 }
