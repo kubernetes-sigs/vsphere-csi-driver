@@ -17,6 +17,7 @@ limitations under the License.
 package kubernetes
 
 import (
+	volumesnapshotinformers "github.com/kubernetes-csi/external-snapshotter/client/v6/informers/externalversions/volumesnapshot/v1"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -50,6 +51,8 @@ type InformerManager struct {
 	client clientset.Interface
 	// main shared informer factory
 	informerFactory informers.SharedInformerFactory
+
+	snapInformerFactory volumesnapshotinformers.Interface
 	// main signal
 	stopCh (<-chan struct{})
 
@@ -70,6 +73,11 @@ type InformerManager struct {
 	pvcInformer cache.SharedInformer
 	// Function to determine if pvcInformer has been synced
 	pvcSynced cache.InformerSynced
+
+	// VolumeSnapshot informer
+	snapshotInformer cache.SharedInformer
+	// Function to determine if snapshotInformer has been synced
+	snapshotSynced cache.InformerSynced
 
 	// namespaceInformer informer
 	namespaceInformer cache.SharedInformer

@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	snap "github.com/kubernetes-csi/external-snapshotter/client/v6/apis/volumesnapshot/v1"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
@@ -573,7 +574,22 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to listen on pods. Error: %v", err)
 	}
-
+	// Set up kubernetes resource listeners for metadata syncer.
+	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sClient, true)
+	err = metadataSyncer.k8sInformerManager.AddSnapshotListener(
+		ctx,
+		func(obj interface{}) { // Add.
+			snapshotAdded(obj, metadataSyncer)
+		},
+		func(oldObj interface{}, newObj interface{}) { // Update.
+			snapshotUpdated(oldObj, newObj, metadataSyncer)
+		},
+		func(obj interface{}) { // Delete.
+			snapshotDeleted(obj, metadataSyncer)
+		})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to listen on VolumeSnapshots. Error: %v", err)
+	}
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
 	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
 	metadataSyncer.podLister = metadataSyncer.k8sInformerManager.GetPodLister()
@@ -1799,6 +1815,53 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		pvcsiVolumeDeleted(ctx, string(pvc.GetUID()), metadataSyncer)
 	} else {
 		csiPVCDeleted(ctx, pvc, pv, metadataSyncer)
+	}
+}
+
+// snapshotAdded
+func snapshotAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
+	_, log := logger.GetNewContextWithLogger()
+	log.Info("VolumeSnapshotAdded: Volume Snapshot Updated")
+	volSnap, ok := obj.(*snap.VolumeSnapshot)
+	if volSnap == nil || !ok {
+		return
+	}
+	log.Infof("Volume Sansphot Added: %+v", volSnap)
+}
+
+// snapshotUpdated
+func snapshotUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
+	_, log := logger.GetNewContextWithLogger()
+	log.Info("VolumeSnapshotUpdated: Volume Snapshot Updated")
+	// Get old and new pvc objects.
+	oldSnap, ok := oldObj.(*snap.VolumeSnapshot)
+	if oldSnap == nil || !ok {
+		return
+	}
+	newSnap, ok := newObj.(*snap.VolumeSnapshot)
+	if newSnap == nil || !ok {
+		return
+	}
+	log.Infof("VolumeSnapshotUpdated: Volume Snapshot Updated from %+v to %+v", oldSnap, newSnap)
+	if *newSnap.Status.ReadyToUse {
+		log.Infof("PVCUpdated: New PVC not in Bound phase")
+		return
+	}
+	log.Infof("Sansphot Updated: %+v", newSnap)
+}
+
+// snapshotDeleted
+func snapshotDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
+	_, log := logger.GetNewContextWithLogger()
+	log.Info("VolumeSnapshotDeleted: Volume Snapshot Deleted")
+	volSnap, ok := obj.(*snap.VolumeSnapshot)
+	if volSnap == nil || !ok {
+		log.Warnf("VolumeSnapshotDeleted: unrecognized object %+v", obj)
+		return
+	}
+	log.Debugf("VolumeSnapshotDeleted: %+v", volSnap)
+	if *volSnap.Status.ReadyToUse {
+		return
 	}
 }
 

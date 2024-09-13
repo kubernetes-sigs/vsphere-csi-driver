@@ -151,6 +151,25 @@ func (im *InformerManager) AddPVCListener(ctx context.Context, add func(obj inte
 	return nil
 }
 
+// AddSnapshotListener hooks up add, update, delete callbacks.
+func (im *InformerManager) AddSnapshotListener(ctx context.Context, add func(obj interface{}),
+	update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
+	log := logger.GetLogger(ctx)
+	if im.snapshotInformer == nil {
+		im.snapshotInformer = im.snapInformerFactory.VolumeSnapshots().Informer()
+	}
+	im.snapshotSynced = im.snapshotInformer.HasSynced
+	_, err := im.snapshotInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    add,
+		UpdateFunc: update,
+		DeleteFunc: remove,
+	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on Snapshot listener. Error: %v", err)
+	}
+	return nil
+}
+
 // AddPVListener hooks up add, update, delete callbacks.
 func (im *InformerManager) AddPVListener(ctx context.Context, add func(obj interface{}),
 	update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
