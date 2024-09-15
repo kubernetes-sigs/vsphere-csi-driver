@@ -7033,6 +7033,33 @@ func removeStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config
 
 }
 
+func createMultipleDeployments(ctx context.Context, client clientset.Interface, namespace string,
+	depCount int, pvcList []*v1.PersistentVolumeClaim) []*appsv1.Deployment {
+
+	framework.Logf("Creating Deployment")
+	var deploymentList []*appsv1.Deployment
+	for i := 0; i < depCount; i++ {
+		labelsMap := make(map[string]string)
+		labelsMap["app"] = "test"
+		deployment, err := createDeployment(
+			ctx, client, 1, labelsMap, nil, namespace, []*v1.PersistentVolumeClaim{pvcList[i]}, "", false, busyBoxImageOnGcr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		deployment, err = client.AppsV1().Deployments(namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		pods, err := fdep.GetPodsForDeployment(ctx, client, deployment)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pod := pods.Items[0]
+		err = fpod.WaitForPodNameRunningInNamespace(ctx, client, pod.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		deploymentList = append(deploymentList, deployment)
+
+	}
+	return deploymentList
+
+}
+
 // ToRef returns a pointer to t.
 func ToRef[T any](t T) *T {
 	return &t
