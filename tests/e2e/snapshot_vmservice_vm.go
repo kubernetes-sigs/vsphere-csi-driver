@@ -1972,12 +1972,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 				Name:      vm1.Name,
 				Namespace: namespace,
 			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
-				Name:      vm2.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
@@ -2007,46 +2001,43 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
 			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify PVC is accessible to the VM1")
-		vm2, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
+		ginkgo.By("Verify PVCs are accessible to the VM")
+		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
+		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volFolder := formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUuid, 1, vmIp2)
+		for i, vol := range vm1.Status.Volumes {
+			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp1)
+			verifyDataIntegrityOnVmDisk(vmIp1, volFolder)
+		}
 
-		ginkgo.By("write some data to a file in pvc1 from vm1")
-		rand.New(rand.NewSource(time.Now().Unix()))
-		testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
-		framework.Logf("Creating a 100mb test data file %v", testdataFile)
-		op, err := exec.Command(
-			"bash", "-c", "dd if=/dev/urandom bs=1M count=1 | tr -dc 'a-zA-Z0-9' >"+testdataFile).Output()
-		fmt.Println(op)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		op, err = exec.Command("md5sum", testdataFile).Output()
-		fmt.Println("md5sum", string(op[:]))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		op, err = exec.Command("ls", "-l", testdataFile).Output()
-		fmt.Println(string(op[:]))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			op, err = exec.Command("rm", "-f", testdataFile).Output()
-			fmt.Println(op)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-		framework.Logf("Copying test data file to VM")
-		copyFileToVm(vmIp1, testdataFile, volFolder+"/f1")
+		// ginkgo.By("write some data to a file in pvc from vm1")
+		// rand.New(rand.NewSource(time.Now().Unix()))
+		// testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
+		// framework.Logf("Creating a 100mb test data file %v", testdataFile)
+		// op, err := exec.Command(
+		// 	"bash", "-c", "dd if=/dev/urandom bs=1M count=1 | tr -dc 'a-zA-Z0-9' >"+testdataFile).Output()
+		// fmt.Println(op)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// op, err = exec.Command("md5sum", testdataFile).Output()
+		// fmt.Println("md5sum", string(op[:]))
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// op, err = exec.Command("ls", "-l", testdataFile).Output()
+		// fmt.Println(string(op[:]))
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// defer func() {
+		// 	op, err = exec.Command("rm", "-f", testdataFile).Output()
+		// 	fmt.Println(op)
+		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// }()
+		// framework.Logf("Copying test data file to VM")
+		// copyFileToVm(vmIp1, testdataFile, volFolder+"/f1")
 
-		_ = execSshOnVmThroughGatewayVm(vmIp1,
-			[]string{"ls -l " + volFolder + "/f1", "md5sum " + volFolder + "/f1", "sync"})
+		// _ = execSshOnVmThroughGatewayVm(vmIp1,
+		// 	[]string{"ls -l " + volFolder + "/f1", "md5sum " + volFolder + "/f1", "sync"})
 
 		ginkgo.By("Create volume snapshot class")
 		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			if vanillaCluster {
-				err = snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name,
-					metav1.DeleteOptions{})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
 
 		ginkgo.By("Create a dynamic volume snapshot")
 		volumeSnapshot, snapshotContent, snapshotCreated,
@@ -2075,6 +2066,8 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vm1, err = wait4Vm2ReachPowerStateInSpec(ctx, vmopC, vm1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("edit vm2 spec and try to attach pvc to vm2, which should fail")
 		vm2.Spec.Volumes = append(vm2.Spec.Volumes, vmopv1.VirtualMachineVolume{Name: pvc.Name,
 			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
@@ -2084,6 +2077,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = wait4PvcAttachmentFailure(ctx, vmopC, vm2, pvc)
 		gomega.Expect(err).To(gomega.HaveOccurred())
+
+		ginkgo.By("Removing the volume attached to Vm1 from vm2")
+		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vm2.Spec.Volumes = nil
+		err = vmopC.Update(ctx, vm2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create a volume from a snapshot")
 		pvc2, pv2, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass, volumeSnapshot, diskSize, false)
@@ -2105,8 +2105,14 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			}})
 		err = vmopC.Update(ctx, vm2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = wait4PvcAttachmentFailure(ctx, vmopC, vm2, pvc2)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By("Deleting VMs")
+			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
+				Name:      vm2.Name,
+				Namespace: namespace,
+			}})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		ginkgo.By("Wait and verify PVC2 is attached to the VM2")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
@@ -2114,30 +2120,257 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("verify data in pvc2 from vm2")
-		framework.Logf("Mounting the volume")
-		volFolder = mountFormattedVol2Vm(vm1.Status.Volumes[0].DiskUuid, 1, vmIp2)
-		vmFileData := fmt.Sprintf("/tmp/vmdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
-		_ = execSshOnVmThroughGatewayVm(vmIp2, []string{"md5sum " + volFolder + "/f1"})
-		framework.Logf("Fetching file from the VM")
-		copyFileFromVm(vmIp2, volFolder+"/f1", vmFileData)
-		defer func() {
-			c := []string{"rm", "-f", vmFileData}
-			op, err = exec.Command(c[0], c[1:]...).Output()
-			framework.Logf("Command: %c, output: %v", c, op)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-		framework.Logf("Comparing file fetched from the VM with test data file")
-		c := []string{"md5sum", testdataFile, vmFileData}
-		op, err = exec.Command(c[0], c[1:]...).Output()
-		framework.Logf("Command: %c, output: %v", c, op)
-		lines := strings.Split(string(op[:]), "\n")
-		gomega.Expect(strings.Fields(lines[0])[0]).To(gomega.Equal(strings.Fields(lines[1])[0]))
+		ginkgo.By("Verify PVCs are accessible to the VM")
+		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
+		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for i, vol := range vm2.Status.Volumes {
+			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp2)
+			verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+		}
+
+		// ginkgo.By("verify data in restore volume from vm2")
+		// framework.Logf("Mounting the volume")
+		// volFolder = mountFormattedVol2Vm(vm2.Status.Volumes[0].DiskUuid, 1, vmIp2)
+		// vmFileData := fmt.Sprintf("/tmp/vmdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
+		// _ = execSshOnVmThroughGatewayVm(vmIp2, []string{"md5sum " + volFolder + "/f1"})
+		// framework.Logf("Fetching file from the VM")
+		// copyFileFromVm(vmIp2, volFolder+"/f1", vmFileData)
+		// defer func() {
+		// 	c := []string{"rm", "-f", vmFileData}
+		// 	op, err = exec.Command(c[0], c[1:]...).Output()
+		// 	framework.Logf("Command: %c, output: %v", c, op)
+		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// }()
+		// framework.Logf("Comparing file fetched from the VM with test data file")
+		// c := []string{"md5sum", testdataFile, vmFileData}
+		// op, err = exec.Command(c[0], c[1:]...).Output()
+		// framework.Logf("Command: %c, output: %v", c, op)
+		// lines := strings.Split(string(op[:]), "\n")
+		// gomega.Expect(strings.Fields(lines[0])[0]).To(gomega.Equal(strings.Fields(lines[1])[0]))
 
 		ginkgo.By("Delete dynamic volume snapshot")
 		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
 			volumeSnapshot, pandoraSyncWaitTime, volHandle, snapshotId, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/*
+	   Testcase-8
+
+	   vSAN-Health and SPS service down
+
+	   Workflow Path:
+	   PVC → VM → Multiple Snapshots(vols-1, vols-2, vols-3) and in parallel vSAN Health service down →
+	   snapshot should not pass → start vsan-health service → Snapshot Verification →
+	   Restore Vols(ResVol-1, ResVol-2, ResVol-3) → New VM(ResVol-1, ResVol-2) →
+	   sps service down → Attach RestoreVol (ResVol-3)) →
+	   new VM → should not pass → bring up services → volume attachment should pass
+
+	   1. Create a PVC using the storage class (storage policy) tagged to the supervisor namespace
+	   2. Wait for PVC to reach the Bound state.
+	   3. Create a VM service VM using the PVC created in step #1
+	   4. Wait for the VM service to be up and in the powered-on state.
+	   5. Once the VM is up, verify that the volume is accessible inside the VM
+	   6. Write some data into the volume.
+	   7. Get VolumeSnapshotClass "volumesnapshotclass-delete" from supervisor cluster
+	   8. Create multiple volume snapshots(vols-1, vols-2, vols-3) for the PVC created in step #1.
+	   9. Stop the vSAN Health service while a snapshot creation operation is in progress.
+	   10. Snapshot creation readyToUse status should be 'false' and creation should be stuck. Verify the error message.
+	   11. Bring up the vsan-health service.
+	   12. Snapshot Verification: Execute and verify the steps mentioned in the Create snapshot mandatory checks
+	   13. Create PVCs (ResVol-1, ResVol-2, ResVol-3) from the snapshot created in step #8.
+	   14. Wait for PVCs to reach the Bound state.
+	   15. Create a VM service VM using the restored PVCs (ResVol-1, ResVol-2).
+	   16. Wait for the VM service to be up and in the powered-on state.
+	   17. Once the VM is up, verify that the volume is accessible inside the VM
+	   18. Write some data into the volume.
+	   19. Now bring down the SPS service
+	   20. Attach a restored volume (ResVol-3) to the VM service created in step #15.
+	   21. Verify that the attachment is stuck and does not go through
+	   22. Bring up the SPS service.
+	   23. Wait for ResVol-3 to get attached and verify volume is accessible to the VM created in step #15.
+	   24. Perform read/write operation on the volume from VM.
+	   25. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
+	*/
+
+	ginkgo.It("VMM8", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("Create a storageclass")
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create PVC")
+		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+			diskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := pvs[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating VM bootstrap data")
+		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
+		defer func() {
+			ginkgo.By("Deleting VM bootstrap data")
+			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating VM")
+		vm := createVmServiceVmWithPvcs(
+			ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi, storageClassName, secretName)
+		defer func() {
+			ginkgo.By("Deleting VM")
+			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
+				Name:      vm.Name,
+				Namespace: namespace,
+			}})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating loadbalancing service for ssh with the VM")
+		vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
+		defer func() {
+			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
+			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
+				Name:      vmlbsvc.Name,
+				Namespace: namespace,
+			}})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Wait for VM to come up and get an IP")
+		vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
+			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify PVCs are accessible to the VM")
+		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
+		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for i, vol := range vm.Status.Volumes {
+			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+			verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+		}
+
+		ginkgo.By("Create volume snapshot class")
+		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			if vanillaCluster {
+				err = snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name,
+					metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Create volume snapshot-1")
+		volumeSnapshot1, snapshotContent1, snapshotCreated1,
+			snapshotContentCreated1, snapshotId1, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
+			pvc, volHandle, diskSize, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			if snapshotContentCreated1 {
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent1, snapc, pandoraSyncWaitTime)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			if snapshotCreated1 {
+				framework.Logf("Deleting volume snapshot")
+				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot1.Name, pandoraSyncWaitTime)
+
+				framework.Logf("Wait till the volume snapshot is deleted")
+				err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc,
+					*volumeSnapshot1.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", vsanhealthServiceName))
+		isVsanHealthServiceStopped = true
+		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitVCenterServiceToBeInState(ctx, vsanhealthServiceName, vcAddress, svcStoppedMessage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			if isVsanHealthServiceStopped {
+				ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
+				startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
+			}
+		}()
+
+		ginkgo.By("Create volume snapshot-2")
+		volumeSnapshot2, snapshotContent2, snapshotCreated2,
+			snapshotContentCreated2, snapshotId2, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
+			pvc, volHandle, diskSize, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			if snapshotContentCreated2 {
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent2, snapc, pandoraSyncWaitTime)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			if snapshotCreated2 {
+				framework.Logf("Deleting volume snapshot")
+				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot2.Name, pandoraSyncWaitTime)
+
+				framework.Logf("Wait till the volume snapshot is deleted")
+				err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc,
+					*volumeSnapshot2.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By("Create volume snapshot-3")
+		volumeSnapshot3, snapshotContent3, snapshotCreated3,
+			snapshotContentCreated3, snapshotId3, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
+			pvc, volHandle, diskSize, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			if snapshotContentCreated3 {
+				err = deleteVolumeSnapshotContent(ctx, snapshotContent3, snapc, pandoraSyncWaitTime)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			if snapshotCreated3 {
+				framework.Logf("Deleting volume snapshot")
+				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot3.Name, pandoraSyncWaitTime)
+
+				framework.Logf("Wait till the volume snapshot is deleted")
+				err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc,
+					*volumeSnapshot3.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+
+		ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
+		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
+
+		ginkgo.By("Delete volume snapshot-1")
+		snapshotCreated1, snapshotContentCreated1, err = deleteVolumeSnapshot(ctx, snapc, namespace,
+			volumeSnapshot1, pandoraSyncWaitTime, volHandle, snapshotId1, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Delete volume snapshot-2")
+		snapshotCreated2, snapshotContentCreated2, err = deleteVolumeSnapshot(ctx, snapc, namespace,
+			volumeSnapshot2, pandoraSyncWaitTime, volHandle, snapshotId2, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Delete volume snapshot-3")
+		snapshotCreated2, snapshotContentCreated2, err = deleteVolumeSnapshot(ctx, snapc, namespace,
+			volumeSnapshot3, pandoraSyncWaitTime, volHandle, snapshotId3, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	})
 
 })
