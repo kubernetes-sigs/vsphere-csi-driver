@@ -2083,6 +2083,8 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vm2.Spec.Volumes = nil
 		err = vmopC.Update(ctx, vm2)
+		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create a volume from a snapshot")
@@ -2370,7 +2372,34 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		snapshotCreated2, snapshotContentCreated2, err = deleteVolumeSnapshot(ctx, snapc, namespace,
 			volumeSnapshot3, pandoraSyncWaitTime, volHandle, snapshotId3, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	})
+
+	/*
+	   vMotion volume from one DS to another
+
+	   Workflow Path:
+	   PVC-1, PVC-2 → VM-1(PVC-1), VM-2(PVC-2) → Snapshot (volS-1,volS-2) → Relocate PVC-1 → Snapshot of relocated PVC-1 →  RestoreVol (volS-1)  → new VM
+
+	   1. Create 2 PVCs (PVC-1, PVC-2) using the storage class (storage policy) tagged to the supervisor namespace
+	   2. Wait for PVCs to reach the Bound state.
+	   3. Create 2 VM service VMs. Attach VM-1 to PVC-1, VM-2 to PVC-2.
+	   4. Wait until the VM service is up and in a powered-on state
+	   5. Once the VM is up, verify that the volume is accessible inside the VM
+	   6. Write some data into the volume.
+	   7. Get VolumeSnapshotClass "volumesnapshotclass-delete" from supervisor cluster
+	   8. Take snapshots (vols-1, vols-2) of the PVCs created in step #1.
+	   9. Snapshot Verification: Execute and verify the steps mentioned in the Create snapshot mandatory checks
+	   10. Relocate PVC-1 to a different datastore.
+	   11. Verify that PVC-1 is still accessible.
+	   12. Take a snapshot of relocated PVC-1.
+	   13. Snapshot Verification: Execute and verify the steps mentioned in the Create snapshot mandatory checks
+	   14. Create a new PVC from the volume snapshot created in step #12
+	   15. Wait for PVC to reach Bound state.
+	   16. Create a new VM and attach it to the restored volume.
+	   17. Wait until the VM service is up and in a powered-on state
+	   18. Once the VM is up, verify that the volume is accessible inside the VM
+	   19. Perform read write operation in the volume.
+	   Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
+	*/
 
 })
