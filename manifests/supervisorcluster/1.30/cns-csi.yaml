@@ -102,6 +102,9 @@ rules:
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsvolumeinfoes"]
     verbs: ["create", "get", "list", "watch", "delete", "patch"]
+  - apiGroups: ["crd.nsx.vmware.com"]
+    resources: ["networkinfos"]
+    verbs: ["get", "watch", "list"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
