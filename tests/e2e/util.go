@@ -7079,7 +7079,7 @@ func execCommandOnGcWorker(sshClientConfig *ssh.ClientConfig, svcMasterIP string
 			enablePermissionCmd, svcMasterIP, err)
 	}
 
-	cmdToGetContainerInfo := fmt.Sprintf("ssh -i key %s@%s "+
+	cmdToGetContainerInfo := fmt.Sprintf("ssh -o StrictHostKeyChecking=no -i key %s@%s "+
 		"'%s'", gcNodeUser, gcWorkerIp, cmd)
 	framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerInfo,
 		svcMasterIP)
