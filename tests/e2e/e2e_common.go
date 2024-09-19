@@ -430,9 +430,9 @@ var (
 	envNfsDatastoreName                 = "NFS_DATASTORE_NAME"
 	envNfsDatastoreIP                   = "NFS_DATASTORE_IP"
 	pwdRotationTimeout                  = 10 * time.Minute
-	roleCnsDatastore                    = "CNS-Datastore"
-	roleCnsSearchAndSpbm                = "CNS-SEARCH-AND-SPBM"
-	roleCnsHostConfigStorageAndCnsVm    = "CNS-HOST-CONFIG-STORAGE-AND-CNS-VM"
+	roleCnsDatastore                    = "CNS-SUPERVISOR-DATASTORE"
+	roleCnsSearchAndSpbm                = "CNS-SUPERVISOR-SEARCH-AND-SPBM"
+	roleCnsHostConfigStorageAndCnsVm    = "CNS-SUPERVISOR-HOST-CONFIG-STORAGE-AND-CNS-VM"
 )
 
 // For rwx
