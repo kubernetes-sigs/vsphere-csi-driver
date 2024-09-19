@@ -1846,7 +1846,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				}
 				// TODO: Few errors encountered in CreateFileVolumeUtil can be retried instead of
 				// moving unto next VC. Need to throw a custom error for such scenarios.
-				volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
+				volumeInfo, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
 					vcenter, c.managers.VolumeManagers[vcHost], c.managers.CnsConfig, &createVolumeSpec,
 					fsEnabledCandidateDatastores, filterSuspendedDatastores, false, nil)
 				if err != nil {
@@ -1854,6 +1854,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 					combinedErrMssgs = append(combinedErrMssgs, err.Error())
 					continue
 				}
+				volumeID = volumeInfo.VolumeID.Id
 				log.Infof("volume %q created in vCenter %q.", volumeID, vcHost)
 
 				// In case task was successful from previous run but the CR was not created.
@@ -1903,26 +1904,28 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to get vCenter instance for host %q. Error: %+v", vcHost, err)
 				}
-				volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
+				volumeInfo, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
 					vcenter, c.managers.VolumeManagers[vcHost], c.managers.CnsConfig, &createVolumeSpec,
 					filteredDatastores, filterSuspendedDatastores, false, nil)
 				if err != nil {
 					return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to create volume. Error: %+v", err)
 				}
+				volumeID = volumeInfo.VolumeID.Id
 			} else {
 				vcenter, err = c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
 				if err != nil {
 					return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to get vCenter. Error: %+v", err)
 				}
-				volumeID, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
+				volumeInfo, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
 					vcenter, c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec,
 					filteredDatastores, filterSuspendedDatastores, false, nil)
 				if err != nil {
 					return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to create volume. Error: %+v", err)
 				}
+				volumeID = volumeInfo.VolumeID.Id
 			}
 		}
 	}

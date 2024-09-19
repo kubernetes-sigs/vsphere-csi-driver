@@ -26,7 +26,7 @@ rules:
     verbs: ["get", "list", "watch", "patch"]
   - apiGroups: ["storage.k8s.io"]
     resources: ["csinodes"]
-    verbs: ["get", "list", "watch", "create"]
+    verbs: ["get", "list", "watch", "create", "delete"]
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["list", "watch", "create", "update", "patch"]
@@ -102,6 +102,9 @@ rules:
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsvolumeinfoes"]
     verbs: ["create", "get", "list", "watch", "delete", "patch"]
+  - apiGroups: ["crd.nsx.vmware.com"]
+    resources: ["networkinfos"]
+    verbs: ["get", "watch", "list"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -225,7 +228,7 @@ spec:
       priorityClassName: system-node-critical
       containers:
         - name: csi-provisioner
-          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v4.0.0_vmware.5
+          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v5.0.2_vmware.1
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -273,7 +276,6 @@ spec:
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
             - "--worker-threads=100"
-            - "--reconcile-sync=10m"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -468,6 +470,7 @@ data:
   "storage-quota-m2": "false"
   "vdpp-on-stretched-supervisor": "false"
   "cns-unregister-volume": "false"
+  "workload-domain-isolation": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
@@ -555,11 +558,6 @@ webhooks:
         operations:  ["CREATE", "UPDATE", "DELETE"]
         resources:   ["persistentvolumeclaims"]
         scope: "Namespaced"
-      - apiGroups:   ["snapshot.storage.k8s.io"]
-        apiVersions: ["v1"]
-        operations:  ["CREATE"]
-        resources:   ["volumesnapshots"]
-        scope:       "Namespaced"
     sideEffects: None
     admissionReviewVersions: ["v1"]
     failurePolicy: Fail

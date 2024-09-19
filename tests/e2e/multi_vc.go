@@ -2045,7 +2045,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		}()
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
 		statefulset, deployment, volumesBeforeScaleUp := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", "")
+			false, 3, "", 1, "")
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
 		err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,

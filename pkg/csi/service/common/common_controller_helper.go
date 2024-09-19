@@ -354,7 +354,7 @@ func IsVolumeSnapshotReady(ctx context.Context, client snapshotterClientSet.Inte
 		if waitErr != nil {
 			msg += fmt.Sprintf(": message: %v", waitErr.Error())
 		}
-		return false, nil, fmt.Errorf(msg)
+		return false, nil, fmt.Errorf("%s", msg)
 	}
 
 	return true, svs, nil

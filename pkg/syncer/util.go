@@ -49,8 +49,8 @@ const (
 
 	// allowedRetriesToPatchStoragePolicyUsage indicates number of retries allowed for patching StoragePolicyUsage CR
 	allowedRetriesToPatchStoragePolicyUsage = 5
-	// volumdIDLimitPerQuery is set to 1000
-	volumdIDLimitPerQuery = 1000
+	// volumdIDLimitPerQuery is set to 10000
+	volumdIDLimitPerQuery = 10000
 )
 
 // getPVsInBoundAvailableOrReleased return PVs in Bound, Available or Released
@@ -942,4 +942,23 @@ func hasClusterDistributionSet(ctx context.Context, volume cnstypes.CnsVolume,
 		}
 	}
 	return false
+}
+
+// generateVolumeAccessibleTopologyFromPVCAnnotation returns accessible topologies generated using
+// PVC annotation "csi.vsphere.volume-accessible-topology".
+func generateVolumeAccessibleTopologyFromPVCAnnotation(claim *v1.PersistentVolumeClaim) (
+	[]map[string]string, error) {
+	volumeAccessibleTopology := claim.Annotations[common.AnnVolumeAccessibleTopology]
+	if volumeAccessibleTopology == "" {
+		return nil, fmt.Errorf("annotation %q is not set for the claim: %q, namespace: %q",
+			common.AnnVolumeAccessibleTopology, claim.Name, claim.Namespace)
+	}
+	volumeAccessibleTopologyArray := make([]map[string]string, 0)
+	err := json.Unmarshal([]byte(volumeAccessibleTopology), &volumeAccessibleTopologyArray)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse annotation: %q value %v from the claim: %q, namespace: %q. "+
+			"err: %v", common.AnnVolumeAccessibleTopology, volumeAccessibleTopology,
+			claim.Name, claim.Namespace, err)
+	}
+	return volumeAccessibleTopologyArray, nil
 }

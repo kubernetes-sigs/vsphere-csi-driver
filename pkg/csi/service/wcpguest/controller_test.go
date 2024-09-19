@@ -320,6 +320,116 @@ func TestGuestClusterControllerFlowForTkgsHA(t *testing.T) {
 	}
 }
 
+// TestGuestClusterControllerFlowForWorkloadDomainIsolation creates file volume with topology.
+func TestGuestClusterControllerFlowForWorkloadDomainIsolation(t *testing.T) {
+	ct := getControllerTest(t)
+	// Create.
+	params := make(map[string]string)
+
+	params[common.AttributeSupervisorStorageClass] = testStorageClass
+	if v := os.Getenv("SUPERVISOR_STORAGE_CLASS"); v != "" {
+		params[common.AttributeSupervisorStorageClass] = v
+	}
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+			},
+		},
+	}
+
+	topologyRequirement := createTestTopologyRequirement()
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName,
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:                params,
+		VolumeCapabilities:        capabilities,
+		AccessibilityRequirements: topologyRequirement,
+	}
+
+	var respCreate *csi.CreateVolumeResponse
+	var err error
+
+	if isUnitTest {
+		// Invoking CreateVolume in a separate thread and then setting the
+		// Status to Bound explicitly.
+		response := make(chan *csi.CreateVolumeResponse)
+		error := make(chan error)
+
+		go createVolume(ctx, ct, reqCreate, response, error)
+		time.Sleep(1 * time.Second)
+		pvc, _ := ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(
+			ct.controller.supervisorNamespace).Get(ctx, testSupervisorPVCName, metav1.GetOptions{})
+		// Update annotation on the supervisor PVC
+		pvcAnnotations := make(map[string]string)
+		pvcAnnotations[common.AnnVolumeAccessibleTopology] = `[{"R1" : "Zone1"}]`
+		pvc.Annotations = pvcAnnotations
+		pvc.Status.Phase = "Bound"
+		_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(
+			ct.controller.supervisorNamespace).Update(ctx, pvc, metav1.UpdateOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		respCreate, err = <-response, <-error
+	} else {
+		// TODO: Skip currently until supervisor side changes are completed
+		t.Skipf("Skipping test until supervisor side changes are complete.")
+		//respCreate, err = ct.controller.CreateVolume(ctx, reqCreate)
+		// Wait for create volume finish.
+		//time.Sleep(1 * time.Second)
+		return
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the response to ensure Accessibility topology is set.
+	if respCreate.Volume.AccessibleTopology == nil {
+		t.Fatalf("AccessibleTopology was unset when volume was created with topology on guest cluster")
+	}
+
+	// Retrieve the segments
+	respAccessibleTopology := respCreate.Volume.AccessibleTopology[0].Segments
+	if val, ok := respAccessibleTopology["R1"]; !ok {
+		t.Fatalf("AccessibleTopology inccorectly populated, key not present")
+	} else {
+		if val != "Zone1" {
+			t.Fatalf("AccessibleTopology inccorectly populated, value incorrect")
+		}
+	}
+	t.Log("AccessibleTopology was correctly set in create volume response")
+
+	supervisorPVCName := respCreate.Volume.VolumeId
+	// Verify the pvc has been created.
+	_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(
+		ct.controller.supervisorNamespace).Get(ctx, supervisorPVCName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete.
+	reqDelete := &csi.DeleteVolumeRequest{
+		VolumeId: supervisorPVCName,
+	}
+	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for delete volume finish.
+	time.Sleep(1 * time.Second)
+	// Verify the pvc has been deleted.
+	_, err = ct.controller.supervisorClient.CoreV1().PersistentVolumeClaims(
+		ct.controller.supervisorNamespace).Get(ctx, supervisorPVCName, metav1.GetOptions{})
+	if !errors.IsNotFound(err) {
+		t.Fatal(err)
+	}
+}
+
 func createTestTopologyRequirement() *csi.TopologyRequirement {
 	// Create a dummy topology requirement.
 	segment := make(map[string]string)

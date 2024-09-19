@@ -195,7 +195,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 					ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod")
-					verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, tempPod.Spec.NodeName+"-"+pvcNameInSV,
+					verifyCNSFileAccessConfigCRDInSupervisor(ctx, tempPod.Spec.NodeName+"-"+pvcNameInSV,
 						crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 					// Verify using CNS Query API if VolumeID retrieved from PV is present.
@@ -284,7 +284,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 					volumesBeforeScaleDown = append(volumesBeforeScaleDown, pvcNameInSV)
 
 					ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod")
-					verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
+					verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+pvcNameInSV,
 						crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 					cnsFileAccessConfigCRDList = append(cnsFileAccessConfigCRDList,
 						pod.Spec.NodeName+"-"+pvcNameInSV)
@@ -322,7 +322,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 
 		ginkgo.By("Wait and verify CNSFileAccessConfig CRD is fully deleted")
 		for _, crdName := range cnsFileAccessConfigCRDList {
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, crdName, crdCNSFileAccessConfig,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, crdName, crdCNSFileAccessConfig,
 				crdVersion, crdGroup, false)
 		}
 	})
@@ -440,7 +440,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 					ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod")
-					verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, tempPod.Spec.NodeName+"-"+pvcNameInSV,
+					verifyCNSFileAccessConfigCRDInSupervisor(ctx, tempPod.Spec.NodeName+"-"+pvcNameInSV,
 						crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 					// Verify using CNS Query API if VolumeID retrieved from PV is present.
@@ -527,7 +527,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 					volumesBeforeScaleDown = append(volumesBeforeScaleDown, pvcNameInSV)
 
 					ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod")
-					verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+pvcNameInSV,
+					verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod.Spec.NodeName+"-"+pvcNameInSV,
 						crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 					cnsFileAccessConfigCRDList = append(cnsFileAccessConfigCRDList,
 						pod.Spec.NodeName+"-"+pvcNameInSV)
@@ -565,7 +565,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 
 		ginkgo.By("Wait and verify CNSFileAccessConfig CRD is fully deleted")
 		for _, crdName := range cnsFileAccessConfigCRDList {
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, crdName, crdCNSFileAccessConfig,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, crdName, crdCNSFileAccessConfig,
 				crdVersion, crdGroup, false)
 		}
 	})

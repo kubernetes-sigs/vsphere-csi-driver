@@ -648,11 +648,9 @@ func eliminateNodesWithPvcOfSiblingReplica(ctx context.Context, client kubernete
 			// value will always be defined on the PV. However, the following checks
 			// are needed to avoid nil pointer exceptions.
 			nodeAffinitySpec := pv.Spec.NodeAffinity.Required
-			if nodeAffinitySpec.NodeSelectorTerms != nil && len(nodeAffinitySpec.NodeSelectorTerms) != 0 {
-				if nodeAffinitySpec.NodeSelectorTerms[0].MatchExpressions != nil &&
-					len(nodeAffinitySpec.NodeSelectorTerms[0].MatchExpressions) != 0 {
-					if nodeAffinitySpec.NodeSelectorTerms[0].MatchExpressions[0].Values != nil &&
-						len(nodeAffinitySpec.NodeSelectorTerms[0].MatchExpressions[0].Values) != 0 {
+			if len(nodeAffinitySpec.NodeSelectorTerms) != 0 {
+				if len(nodeAffinitySpec.NodeSelectorTerms[0].MatchExpressions) != 0 {
+					if len(nodeAffinitySpec.NodeSelectorTerms[0].MatchExpressions[0].Values) != 0 {
 						hostName = nodeAffinitySpec.NodeSelectorTerms[0].MatchExpressions[0].Values[0]
 					}
 				}

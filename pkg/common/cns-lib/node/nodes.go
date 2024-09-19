@@ -177,7 +177,7 @@ func (nodes *Nodes) GetSharedDatastoresInK8SCluster(ctx context.Context) (
 	if len(nodeVMs) == 0 {
 		errMsg := "empty List of Node VMs returned from nodeManager"
 		log.Errorf(errMsg)
-		return make([]*cnsvsphere.DatastoreInfo, 0), fmt.Errorf(errMsg)
+		return make([]*cnsvsphere.DatastoreInfo, 0), fmt.Errorf("%s", errMsg)
 	}
 	sharedDatastores, err := cnsvsphere.GetSharedDatastoresForVMs(ctx, nodeVMs)
 	if err != nil {

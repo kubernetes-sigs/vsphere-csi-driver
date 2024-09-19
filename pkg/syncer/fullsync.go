@@ -20,17 +20,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"google.golang.org/grpc/codes"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	clientset "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -39,12 +45,16 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
-const allowedRetriesToPatchCNSVolumeInfo = 5
+const (
+	allowedRetriesToPatchCNSVolumeInfo    = 5
+	annCSIvSphereVolumeAccessibleTopology = "csi.vsphere.volume-accessible-topology"
+)
 
 // CsiFullSync reconciles volume metadata on a vanilla k8s cluster with volume
 // metadata on CNS.
@@ -146,6 +156,58 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	if err != nil {
 		log.Errorf("FullSync for VC %s: Failed to get volume manager. Err: %v", vc, err)
 		return err
+	}
+
+	var vcenter *cnsvsphere.VirtualCenter
+	// Get VC instance.
+	if isMultiVCenterFssEnabled {
+		vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterHost(ctx, vc, true)
+		if err != nil {
+			log.Errorf("failed to get virtual center instance for VC: %s. Error: %v", vc, err)
+			return err
+		}
+	} else {
+		vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, metadataSyncer.configInfo, false)
+		if err != nil {
+			log.Errorf("failed to get virtual center instance with error: %v", err)
+			return err
+		}
+	}
+
+	// Iterate through all the k8sPVs to find all PVs with node affinity missing and
+	// patch such PVs and their corresponding PVCs with topology discovered
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+		IsWorkloadDomainIsolationSupported {
+		k8sClient, err := k8s.NewClient(ctx)
+		if err != nil {
+			log.Errorf("FullSync for VC %s: Failed to create kubernetes client. Err: %+v", vc, err)
+			return err
+		}
+		var pvWithMissingNodeAffinityList [](*v1.PersistentVolume)
+		for _, pv := range k8sPVs {
+			if pv.Spec.NodeAffinity == nil {
+				pvWithMissingNodeAffinityList = append(pvWithMissingNodeAffinityList, pv)
+			}
+		}
+		// For PVs missing node affinity info, discover and patch the topology information as node affinity.
+		// Also add "csi.vsphere.volume-accessible-topology" annotation to associated PVC(s)
+		if len(pvWithMissingNodeAffinityList) != 0 {
+			patchNodeAffinityToPVAndPVC(ctx, k8sClient, metadataSyncer, vcenter,
+				pvWithMissingNodeAffinityList, pvToPVCMap)
+		}
+		// Add "csi.vsphere.volume-accessible-topology" annotation to all PVCs,
+		// if missed to get patched in patchNodeAffinityToPVAndPVC()
+		for _, pvc := range pvToPVCMap {
+			if pvc.ObjectMeta.Annotations[annCSIvSphereVolumeAccessibleTopology] == "" {
+				err = setVolumeAccessibleTopologyForPVC(ctx, k8sClient, metadataSyncer, vcenter,
+					pvc.Namespace, pvc)
+				if err != nil {
+					log.Errorf("FullSync for VC %s: Failed to add %s annotation for PVC %s. Err: %v",
+						vc, annCSIvSphereVolumeAccessibleTopology, pvc.Name, err)
+					continue
+				}
+			}
+		}
 	}
 
 	queryAllResult, err := utils.QueryAllVolumesForCluster(ctx, volManager,
@@ -276,22 +338,6 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		vc, spew.Sdump(volumeToCnsEntityMetadataMap), spew.Sdump(volumeToK8sEntityMetadataMap))
 	log.Debugf("FullSync for VC %s: volumes where clusterDistribution is set: %+v", vc, volumeClusterDistributionMap)
 
-	var vcenter *cnsvsphere.VirtualCenter
-	// Get VC instance.
-	if isMultiVCenterFssEnabled {
-		vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterHost(ctx, vc, true)
-		if err != nil {
-			log.Errorf("failed to get virtual center instance for VC: %s. Error: %v", vc, err)
-			return err
-		}
-	} else {
-		vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, metadataSyncer.configInfo, false)
-		if err != nil {
-			log.Errorf("failed to get virtual center instance with error: %v", err)
-			return err
-		}
-	}
-
 	containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
 		vcHostObj.User, metadataSyncer.clusterFlavor,
 		metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
@@ -317,6 +363,232 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	log.Debugf("FullSync for VC %s: cnsDeletionMap at end of cycle: %v", vc, cnsDeletionMap)
 	log.Debugf("FullSync for VC %s: cnsCreationMap at end of cycle: %v", vc, cnsCreationMap)
 	log.Infof("FullSync for VC %s: end", vc)
+	return nil
+}
+
+// getPVNodeAffinity finds topology associated with given PV and returns the same
+func getPVNodeAffinity(ctx context.Context, metadataSyncer *metadataSyncInformer,
+	vc *cnsvsphere.VirtualCenter, pv *v1.PersistentVolume) ([]*csi.Topology, error) {
+	log := logger.GetLogger(ctx)
+	var pvTopology []*csi.Topology
+	var singleZoneTopologyToadd string
+
+	// Check availability zones present in supervisor to determine the node
+	// affinity information to be patched on pv
+	azClusterMap := volumeTopologyService.GetAZClustersMap(ctx)
+	if len(azClusterMap) == 1 {
+		// In case of only single zone present, return same zone as PV topology
+		for zoneName := range azClusterMap {
+			singleZoneTopologyToadd = zoneName
+			break
+		}
+		log.Infof("getPVNodeAffinity: Found single zone supervisor cluster with zone %+v",
+			singleZoneTopologyToadd)
+		pvTopology = append(pvTopology, &csi.Topology{
+			Segments: map[string]string{
+				v1.LabelTopologyZone: singleZoneTopologyToadd,
+			},
+		})
+	} else {
+		// Find zones associated with datastore on which volume is created
+		volManager, err := getVolManagerForVcHost(ctx, vc.Config.Host, metadataSyncer)
+		if err != nil {
+			log.Errorf("getPVNodeAffinity: Failed to get volume manager for VC %s. Err: %v", vc, err)
+			return nil, err
+		}
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: []cnstypes.CnsVolumeId{
+				{
+					Id: pv.Spec.CSI.VolumeHandle,
+				},
+			},
+		}
+		querySelection := cnstypes.CnsQuerySelection{
+			Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
+		}
+		queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, &querySelection,
+			true)
+		if err != nil || queryResult == nil || len(queryResult.Volumes) != 1 {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to find the datastore on which volume %q is provisioned. "+
+					"Error: %+v", pv.Spec.CSI.VolumeHandle, err)
+		}
+		selectedDatastore := queryResult.Volumes[0].DatastoreUrl
+		// Calculate accessible topology for the provisioned volume.
+		topoSegToDatastoresMap := make(map[string][]*cnsvsphere.DatastoreInfo)
+		datastoreAccessibleTopology, err := volumeTopologyService.GetTopologyInfoFromNodes(ctx,
+			commoncotypes.WCPRetrieveTopologyInfoParams{
+				DatastoreURL:           selectedDatastore,
+				StorageTopologyType:    "",
+				TopologyRequirement:    nil,
+				Vc:                     vc,
+				TopoSegToDatastoresMap: topoSegToDatastoresMap})
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get topology of datastore on which volume %q is provisioned."+
+					" Error: %+v", pv.Spec.CSI.VolumeHandle, err)
+		}
+		// Add topology segments to output.
+		for _, topoSegments := range datastoreAccessibleTopology {
+			volumeTopology := &csi.Topology{
+				Segments: topoSegments,
+			}
+			pvTopology = append(pvTopology, volumeTopology)
+		}
+		log.Infof("getPVNodeAffinity: Found multi zone supervisor cluster with datastore attached to "+
+			"zones %+v", pvTopology)
+	}
+	return pvTopology, nil
+}
+
+// generateVolumeAccessibleTopologyJSON returns JSON string from AccessibleTopology given as input.
+// This value will be set on the PVC for annotation - "csi.vsphere.volume-accessible-topology"
+func generateVolumeAccessibleTopologyJSON(topologies []*csi.Topology) (string, error) {
+	segmentsArray := make([]string, 0)
+	for _, topology := range topologies {
+		jsonSegment, err := json.Marshal(topology.Segments)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal topology segment: %v to json. Err: %v",
+				topology.Segments, err)
+		}
+		segmentsArray = append(segmentsArray, string(jsonSegment))
+	}
+	return "[" + strings.Join(segmentsArray, ",") + "]", nil
+}
+
+// patchNodeAffinityToPVAndPVC finds the topology associated with PV and patches that info as
+// node affinity to PV objects
+// This also adds "csi.vsphere.volume-accessible-topology" annotation to associated PVC, if any
+func patchNodeAffinityToPVAndPVC(ctx context.Context, k8sClient clientset.Interface,
+	metadataSyncer *metadataSyncInformer,
+	vc *cnsvsphere.VirtualCenter, pvWithoutNodeAffinity []*v1.PersistentVolume,
+	pvToPVCMap map[string]*v1.PersistentVolumeClaim) {
+	log := logger.GetLogger(ctx)
+	// Iterate over all PVs missing node affinity info, discover the topology and patch to both PV & PVC
+	for _, pv := range pvWithoutNodeAffinity {
+		log.Infof("patchNodeAffinityToPVAndPVC: Setting node affinity for pv: %q", pv.Name)
+		oldData, err := json.Marshal(pv)
+		if err != nil {
+			log.Errorf("patchNodeAffinityToPVAndPVC: Failed to marshal pv: %v, Error: %v", pv, err)
+			continue
+		}
+		pvCSITopology, err := getPVNodeAffinity(ctx, metadataSyncer, vc, pv)
+		if err != nil {
+			log.Errorf("patchNodeAffinityToPVAndPVC: Unable to get node affinity for PV %q. Error: %+v",
+				pv.Name, err)
+			continue
+		}
+		newPV := pv.DeepCopy()
+		newPV.Spec.NodeAffinity = GenerateVolumeNodeAffinity(pvCSITopology)
+		newData, err := json.Marshal(newPV)
+		if err != nil {
+			log.Errorf("patchNodeAffinityToPVAndPVC: Failed to marshal updated PV with "+
+				"node affinity rules: %v, Error: %v", newPV, err)
+			continue
+		}
+		patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pv)
+		if err != nil {
+			log.Errorf("patchNodeAffinityToPVAndPVC: Error creating two way merge patch for PV %q"+
+				" with error : %v", pv.Name, err)
+			continue
+		}
+		// Patch node affinity to PV
+		_, err = k8sClient.CoreV1().PersistentVolumes().Patch(ctx, pv.Name, types.StrategicMergePatchType,
+			patchBytes, metav1.PatchOptions{})
+		if err != nil {
+			log.Errorf("patchNodeAffinityToPVAndPVC: Failed to patch the PV %q", pv.Name)
+			continue
+		}
+		log.Infof("patchNodeAffinityToPVAndPVC: Updated PV %s with node affinity details successfully "+
+			"for volume %q", pv.Name, pv.Spec.CSI.VolumeHandle)
+		// Add "csi.vsphere.volume-accessible-topology" annotation to associated PVC
+		if pvc, ok := pvToPVCMap[pv.Name]; ok {
+			log.Infof("patchNodeAffinityToPVAndPVC: Setting claim annotation: %q for pvc: %q, namespace: %q",
+				annCSIvSphereVolumeAccessibleTopology, pvc.Name, pvc.Namespace)
+			err = patchVolumeAccessibleTopologyToPVC(ctx, k8sClient, pvc, pvCSITopology)
+			if err != nil {
+				log.Warnf("patchNodeAffinityToPVAndPVC: Failed to generate VolumeAccessibleTopology Json."+
+					" Err: %v", err)
+				continue
+			}
+		}
+	}
+}
+
+// setVolumeAccessibleTopologyForPVC sets the "csi.vsphere.volume-accessible-topology" annotation on the PVC
+// for DevOps user to know which zone volume is provisioned in
+func setVolumeAccessibleTopologyForPVC(ctx context.Context, k8sClient clientset.Interface,
+	metadataSyncer *metadataSyncInformer, vc *cnsvsphere.VirtualCenter, namespace string,
+	pvc *v1.PersistentVolumeClaim) error {
+	log := logger.GetLogger(ctx)
+	log.Infof("setVolumeAccessibleTopologyForPVC: Setting claim annotation: %q for pvc: %q, namespace: %q",
+		annCSIvSphereVolumeAccessibleTopology, pvc.Name, namespace)
+	if pvc.ObjectMeta.Annotations[annCSIvSphereVolumeAccessibleTopology] == "" {
+		pv, err := k8sClient.CoreV1().PersistentVolumes().Get(ctx, pvc.Spec.VolumeName, metav1.GetOptions{})
+		if err != nil {
+			log.Warnf("setVolumeAccessibleTopologyForPVC: Failed to get PV: %q to fetch "+
+				"node topology %q annotation. Err: %v.",
+				pvc.Spec.VolumeName, annCSIvSphereVolumeAccessibleTopology, err)
+			return err
+		}
+		if pv.Spec.NodeAffinity != nil {
+			pvCSITopology, err := getPVNodeAffinity(ctx, metadataSyncer, vc, pv)
+			if err != nil {
+				log.Errorf("setVolumeAccessibleTopologyForPVC: Unable to get node affinity for PV %q. "+
+					"Error: %+v", pv.Name, err)
+				return err
+			}
+			err = patchVolumeAccessibleTopologyToPVC(ctx, k8sClient, pvc, pvCSITopology)
+			if err != nil {
+				log.Warnf("setVolumeAccessibleTopologyForPVC: Failed to generate VolumeAccessibleTopology Json."+
+					" Err: %v", err)
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// patchVolumeAccessibleTopologyToPVC sets the "csi.vsphere.volume-accessible-topology" annotation on the PVC
+// for DevOps user to know which zone volume is provisioned in
+func patchVolumeAccessibleTopologyToPVC(ctx context.Context, k8sClient clientset.Interface,
+	pvc *v1.PersistentVolumeClaim, accessibleTopology []*csi.Topology) error {
+	log := logger.GetLogger(ctx)
+	annCSIvSphereVolumeAccessibleTopologyValue, err := generateVolumeAccessibleTopologyJSON(accessibleTopology)
+	if err != nil {
+		log.Warnf("patchVolumeAccessibleTopologyToPVC: Failed to generate VolumeAccessibleTopology Json. "+
+			"Err: %v", err)
+		return err
+	}
+	oldData, err := json.Marshal(pvc)
+	if err != nil {
+		log.Errorf("patchVolumeAccessibleTopologyToPVC: Failed to marshal pvc: %v, Error: %v", pvc, err)
+		return err
+	}
+	newPVC := pvc.DeepCopy()
+	newPVC.Annotations[annCSIvSphereVolumeAccessibleTopology] = annCSIvSphereVolumeAccessibleTopologyValue
+	newData, err := json.Marshal(newPVC)
+	if err != nil {
+		log.Errorf("patchVolumeAccessibleTopologyToPVC: Failed to marshal updated PV with "+
+			"node affinity rules: %v, Error: %v", newPVC, err)
+		return err
+	}
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pvc)
+	if err != nil {
+		log.Errorf("patchVolumeAccessibleTopologyToPVC: Error creating two way merge patch for PV %q"+
+			" with error : %v", pvc.Name, err)
+		return err
+	}
+	pvc, err = k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(ctx, pvc.Name,
+		types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
+	if err != nil {
+		log.Errorf("patchVolumeAccessibleTopologyToPVC: Failed to update PVC %q with %q annotation. Err: %v",
+			pvc.Name, annCSIvSphereVolumeAccessibleTopology, err)
+		return err
+
+	}
+	log.Infof("patchVolumeAccessibleTopologyToPVC: Added annotation %q successfully to PVC %q",
+		annCSIvSphereVolumeAccessibleTopology, pvc.Name)
 	return nil
 }
 

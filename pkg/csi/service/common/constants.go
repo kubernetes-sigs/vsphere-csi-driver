@@ -100,7 +100,7 @@ const (
 	// NfsV4FsType represents nfs4 mount type.
 	NfsV4FsType = "nfs4"
 
-	//NTFSFsType represents ntfs
+	// NTFSFsType represents ntfs
 	NTFSFsType = "ntfs"
 
 	// NfsFsType represents nfs mount type.
@@ -290,10 +290,10 @@ const (
 	// topology labels applied on the node by vSphere CSI driver.
 	TopologyLabelsDomain = "topology.csi.vmware.com"
 
-	//AnnGuestClusterRequestedTopology is the key for guest cluster requested topology
+	// AnnGuestClusterRequestedTopology is the key for guest cluster requested topology
 	AnnGuestClusterRequestedTopology = "csi.vsphere.volume-requested-topology"
 
-	//AnnVolumeAccessibleTopology is the annotation set by the supervisor cluster on PVC
+	// AnnVolumeAccessibleTopology is the annotation set by the supervisor cluster on PVC
 	AnnVolumeAccessibleTopology = "csi.vsphere.volume-accessible-topology"
 
 	// PVtoBackingDiskObjectIdSupportedVCenterMajor is the minimum major version of vCenter
@@ -421,11 +421,21 @@ const (
 	VdppOnStretchedSupervisor = "vdpp-on-stretched-supervisor"
 	// CSIDetachOnSupervisor enables CSI to detach the disk from the podvm in a supervisor environment
 	CSIDetachOnSupervisor = "CSI_Detach_Supported"
-	// CnsUnregisterVolume enables the cretion of CRD and controller for CnsUnregisterVolume API.
+	// CnsUnregisterVolume enables the creation of CRD and controller for CnsUnregisterVolume API.
 	CnsUnregisterVolume = "cns-unregister-volume"
+	// WorkloadDomainIsolation is the name of the WCP capability which determines if
+	// workload domain isolation feature is available on a supervisor cluster.
+	WorkloadDomainIsolation = "Workload_Domain_Isolation_Supported"
+	// WorkloadDomainIsolationFSS is FSS for Workload Domain isolation feature
+	// Used in PVCSI
+	WorkloadDomainIsolationFSS = "workload-domain-isolation"
+	// VPCCapabilitySupervisor is a supervisor capability indicating if VPC FSS is enabled
+	VPCCapabilitySupervisor = "VPC_Supported"
 )
 
 var WCPFeatureStates = map[string]struct{}{
 	PodVMOnStretchedSupervisor: {},
 	CSIDetachOnSupervisor:      {},
+	WorkloadDomainIsolation:    {},
+	VPCCapabilitySupervisor:    {},
 }

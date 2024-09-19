@@ -119,6 +119,11 @@ var (
 	// csiNodeTopologyInformer refers to a shared K8s informer listening on CSINodeTopology instances
 	// in the cluster.
 	csiNodeTopologyInformer *cache.SharedIndexInformer
+	// namespaceToZoneMap keeps a mapping of the zones associated with each namespace in a supervisor cluster.
+	// if zone is marked for removal or removed from namespace then zone will be removed from namespaceToZoneMap map
+	namespaceToZoneMap = make(map[string]map[string]struct{})
+	// namespaceToZoneMapInstanceLock guards reads & writes to the namespaceToZoneMap variable.
+	namespaceToZoneMapInstanceLock = &sync.RWMutex{}
 )
 
 // nodeVolumeTopology implements the commoncotypes.NodeTopologyService interface. It stores
@@ -1617,7 +1622,8 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 		if params.TopologyRequirement == nil {
 			// This case is for static volume provisioning using CNSRegisterVolume API
 			if !isPodVMOnStretchedSupervisorEnabled {
-				return nil, logger.LogNewErrorf(log, "topology requirement should not be nil. invalid params: %v", params)
+				return nil, logger.LogNewErrorf(log, "topology requirement should not be nil. invalid "+
+					"params: %v", params)
 			} else {
 				// If the topology requirement received is nil, then identify topology of the datastore by looking into
 				// azClustersMap
@@ -1656,8 +1662,7 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 			topologySegments = append(topologySegments, params.TopologyRequirement.GetPreferred()[0].GetSegments())
 		} else {
 			// If multiple zones are provided as input in the topology requirement, find the zone
-			// to which the selected datastore is associated with. If this search results in multiple zones,
-			// randomly choose one as node affinity.
+			// to which the selected datastore is associated with.
 			var selectedSegments []map[string]string
 			for _, topology := range params.TopologyRequirement.GetPreferred() {
 				for label, value := range topology.GetSegments() {
@@ -1687,6 +1692,39 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 				topologySegments = selectedSegments
 			}
 		}
+	// In VC 9.0, if StorageTopologyType is not set, all the zones the selected datastore
+	// is accessible from will be added as node affinity terms on the PV even if the zones
+	// are not associated with the namespace of the PVC.
+	// This code block runs for static as well as dynamic volume provisioning case.
+	case "":
+		// TopoSegToDatastoresMap will be nil in case of static volume provisioning.
+		if params.TopoSegToDatastoresMap == nil {
+			params.TopoSegToDatastoresMap = make(map[string][]*cnsvsphere.DatastoreInfo)
+		}
+		var selectedSegments []map[string]string
+		for zone, clusters := range azClustersMap {
+			if _, exists := params.TopoSegToDatastoresMap[zone]; !exists {
+				sharedDatastoresForClusters, err := getSharedDatastoresInClusters(ctx, clusters, params.Vc)
+				if err != nil {
+					return nil, logger.LogNewErrorf(log, "failed to get shared datastores for clusters: %v, "+
+						"err: %v", clusters, err)
+				}
+				params.TopoSegToDatastoresMap[zone] = sharedDatastoresForClusters
+			}
+		}
+		for zone, datastores := range params.TopoSegToDatastoresMap {
+			for _, ds := range datastores {
+				if ds.Info.Url == params.DatastoreURL {
+					selectedSegments = append(selectedSegments, map[string]string{v1.LabelTopologyZone: zone})
+					break
+				}
+			}
+		}
+		if len(selectedSegments) == 0 {
+			return nil, logger.LogNewErrorf(log,
+				"could not find the topology of the volume provisioned on datastore %q", params.DatastoreURL)
+		}
+		topologySegments = selectedSegments
 	default:
 		// This is considered a configuration error.
 		return nil, &common.InvalidTopologyProvisioningError{ErrMsg: fmt.Sprintf("unrecognised "+
@@ -1732,4 +1770,86 @@ func getSharedDatastoresInClusters(ctx context.Context, clusterMorefs []string,
 		}
 	}
 	return sharedDatastoresForclusterMorefs, nil
+}
+
+// StartZonesInformer listens on changes to Zone instances.
+func (c *K8sOrchestrator) StartZonesInformer(ctx context.Context,
+	restClientConfig *restclient.Config, namespace string) error {
+	log := logger.GetLogger(ctx)
+
+	// Create an informer for Zone instances.
+	dynInformer, err := k8s.GetDynamicInformer(ctx, "topology.tanzu.vmware.com",
+		"v1alpha1", "zones", namespace, restClientConfig, false)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to create dynamic informer for Zones CR. Error: %+v", err)
+	}
+	zoneInformer := dynInformer.Informer()
+	_, err = zoneInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			zoneObj := obj.(*unstructured.Unstructured)
+			name := zoneObj.GetName()
+			ns := zoneObj.GetNamespace()
+			zoneCRAdded(name, ns)
+		},
+		UpdateFunc: func(oldObj interface{}, newObj interface{}) {
+			oldZoneObj := oldObj.(*unstructured.Unstructured)
+			newZoneObj := newObj.(*unstructured.Unstructured)
+			name := newZoneObj.GetName()
+			ns := newZoneObj.GetNamespace()
+			if oldZoneObj.GetDeletionTimestamp() == nil && newZoneObj.GetDeletionTimestamp() != nil {
+				zoneCRDeleted(name, ns)
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			zoneObj := obj.(*unstructured.Unstructured)
+			name := zoneObj.GetName()
+			ns := zoneObj.GetNamespace()
+			zoneCRDeleted(name, ns)
+		},
+	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on informer for zones CR. Error: %v", err)
+	}
+
+	// Start informer.
+	go func() {
+		log.Info("Informer to watch on Zones CR starting..")
+		zoneInformer.Run(make(chan struct{}))
+	}()
+	return nil
+}
+
+// ZoneCRAdded updates the NamespaceToZoneMap variable.
+func zoneCRAdded(name, ns string) {
+	log := logger.GetLoggerWithNoContext()
+
+	namespaceToZoneMapInstanceLock.Lock()
+	defer namespaceToZoneMapInstanceLock.Unlock()
+	if _, exists := namespaceToZoneMap[ns]; !exists {
+		namespaceToZoneMap[ns] = map[string]struct{}{name: {}}
+	} else {
+		namespaceToZoneMap[ns][name] = struct{}{}
+	}
+	log.Infof("Zone %q added to namespace %q", name, ns)
+}
+
+// ZoneCRDeleted updates the NamespaceToZoneMap variable.
+func zoneCRDeleted(name, ns string) {
+	log := logger.GetLoggerWithNoContext()
+
+	namespaceToZoneMapInstanceLock.Lock()
+	defer namespaceToZoneMapInstanceLock.Unlock()
+	if _, exists := namespaceToZoneMap[ns]; exists {
+		delete(namespaceToZoneMap[ns], name)
+		log.Infof("Zone %q removed from namespace %q", name, ns)
+	} else {
+		log.Infof("Zone %q not present in namespace %q", name, ns)
+	}
+}
+
+// GetZonesForNamespace fetches the zones associated with a namespace.
+func (c *K8sOrchestrator) GetZonesForNamespace(ns string) map[string]struct{} {
+	namespaceToZoneMapInstanceLock.RLock()
+	defer namespaceToZoneMapInstanceLock.RUnlock()
+	return namespaceToZoneMap[ns]
 }

@@ -222,7 +222,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 
 		ginkgo.By("create a sts with 3 replicas")
 		var replicas int32 = 3
-		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false, false, replicas, "", "")
+		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false, false, replicas, "", 0, "")
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -304,7 +304,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 
 		ginkgo.By("Create a sts with 3 replicas")
 		var replicas int32 = 3
-		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false, false, replicas, "", "")
+		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false, false, replicas, "", 0, "")
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
@@ -353,7 +353,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 		steps:
 		1	Create an environment as described in the testbed layout above
 		2	Create statefulset2 with 1 replica
-		3	power off a host which has a k8s-worker with attached PVs in cluster1
+		3	Power off a host which has a k8s-worker with attached PVs in cluster1
 		4	wait for 5-10 mins, verify that the k8s-worker is restarted and brought up on another host
 		5	scale up statefulset2 and scale down statefulset1 to 2 replicas
 		6	power on the host used in step 3

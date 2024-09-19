@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
@@ -76,6 +77,8 @@ var (
 	volumeMigrationService migration.VolumeMigrationService
 	// volumeInfoService holds the pointer to VolumeInfo instance.
 	volumeInfoService cnsvolumeinfo.VolumeInfoService
+	// volumeTopologyService holds the pointer to ControllerTopologyService instance.
+	volumeTopologyService commoncotypes.ControllerTopologyService
 	// COInitParams stores the input params required for initiating the
 	// CO agnostic orchestrator for the syncer container.
 	COInitParams interface{}
@@ -105,6 +108,9 @@ var (
 
 	// isStorageQuotaM2FSSEnabled is true if the Snapshot Storage Quota feature is enabled, false otherwise.
 	isStorageQuotaM2FSSEnabled bool
+
+	// IsWorkloadDomainIsolationSupported is true when Workload_Domain_Isolation_Supported FSS is enabled.
+	IsWorkloadDomainIsolationSupported bool
 )
 
 const (
@@ -252,6 +258,16 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to initialize CSINodes creation. Error: %+v", err)
 			}
+		}
+		IsWorkloadDomainIsolationSupported = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.WorkloadDomainIsolation)
+		if IsWorkloadDomainIsolationSupported {
+			volumeTopologyService, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
+			if err != nil {
+				log.Errorf("failed to init topology manager. err: %v", err)
+				return err
+			}
+			log.Infof("Successfully initialized Topology service in syncer")
 		}
 	}
 

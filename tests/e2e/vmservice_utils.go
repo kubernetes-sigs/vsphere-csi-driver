@@ -30,17 +30,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
@@ -291,7 +294,7 @@ func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespa
 			ClassName:    vmClass,
 			StorageClass: storageClassName,
 			Volumes:      vols,
-			VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: "CloudInit", SecretName: secretName},
+			VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
 		},
 	}
 	err := c.Create(ctx, &vm)
@@ -373,7 +376,9 @@ users:
 // createService4Vm creates a virtualmachineservice(loadbalancer) for given vm in the specified ns
 func createService4Vm(
 	ctx context.Context, c ctlrclient.Client, namespace string, vmName string) *vmopv1.VirtualMachineService {
-	svcName := vmName + "-svc"
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	svcName := fmt.Sprintf("%s-svc-%d", vmName, r.Intn(10000))
+	framework.Logf("Creating loadbalancer VM: %s for vm: %s", svcName, vmName)
 	vmService := vmopv1.VirtualMachineService{
 		ObjectMeta: metav1.ObjectMeta{Name: svcName, Namespace: namespace},
 		Spec: vmopv1.VirtualMachineServiceSpec{
@@ -761,7 +766,7 @@ func createVmServiceVmWithPvcsWithZone(ctx context.Context, c ctlrclient.Client,
 			ClassName:    vmClass,
 			StorageClass: storageClassName,
 			Volumes:      vols,
-			VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: "CloudInit", SecretName: secretName},
+			VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
 		},
 	}
 	err := c.Create(ctx, &vm)
@@ -801,4 +806,93 @@ func wait4Pvc2Detach(
 			return true, nil
 		})
 	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
+}
+
+// createVMServiceVmWithMultiplePvcs creates a VMService VM
+// and attaches this VM to a pvc and returns a list of created VMServiceVMs
+func createVMServiceVmWithMultiplePvcs(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
+	pvcs []*v1.PersistentVolumeClaim, vmi string, storageClassName string, secretName string) []*vmopv1.VirtualMachine {
+	var vms []*vmopv1.VirtualMachine
+	for _, pvc := range pvcs {
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		vols := []vmopv1.VirtualMachineVolume{}
+		vmName := fmt.Sprintf("csi-test-vm-%d", r.Intn(10000))
+
+		vols = append(vols, vmopv1.VirtualMachineVolume{
+			Name: pvc.Name,
+			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
+				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
+			},
+		})
+
+		vm := vmopv1.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: namespace},
+			Spec: vmopv1.VirtualMachineSpec{
+				PowerState:   vmopv1.VirtualMachinePoweredOn,
+				ImageName:    vmi,
+				ClassName:    vmClass,
+				StorageClass: storageClassName,
+				Volumes:      vols,
+				VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
+			},
+		}
+		err := c.Create(ctx, &vm)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		vms = append(vms, waitNgetVmsvcVM(ctx, c, namespace, vmName))
+	}
+	return vms
+}
+
+// performVolumeLifecycleActionForVmServiceVM creates pvc and attaches a VMService VM to it
+// and waits for the workloads to be in healthy state and then deletes them
+func performVolumeLifecycleActionForVmServiceVM(ctx context.Context, client clientset.Interface,
+	vmopC ctlrclient.Client, cnsopC ctlrclient.Client, vmClass string, namespace string, vmi string,
+	sc *storagev1.StorageClass, secretName string) {
+	ginkgo.By("Create a PVC")
+	pvc, err := createPVC(ctx, client, namespace, nil, "", sc, "")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By("Waiting for all claims to be in bound state")
+	pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	pv := pvs[0]
+	volHandle := pv.Spec.CSI.VolumeHandle
+	gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+	defer func() {
+		ginkgo.By("Delete PVCs")
+		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for CNS volumes to be deleted")
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	}()
+
+	ginkgo.By("Creating VM")
+	vm := createVmServiceVmWithPvcs(
+		ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi, sc.Name, secretName)
+	defer func() {
+		ginkgo.By("Deleting VM")
+		err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
+			Name:      vm.Name,
+			Namespace: namespace,
+		}})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+
+	ginkgo.By("Creating loadbalancing service for ssh with the VM")
+	vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
+	defer func() {
+		ginkgo.By("Deleting loadbalancing service for ssh with the VM")
+		err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
+			Name:      vmlbsvc.Name,
+			Namespace: namespace,
+		}})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+
+	ginkgo.By("Wait and verify PVCs are attached to the VM")
+	gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
+		[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
 }

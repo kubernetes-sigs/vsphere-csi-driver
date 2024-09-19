@@ -18,12 +18,19 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"time"
 
+	"github.com/container-storage-interface/spec/lib/go/csi"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -47,6 +54,11 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 			(time.Since(fullSyncStartTime)).Seconds())
 	}()
 
+	isWorkloadDomainIsolationEnabledInPVCSI := metadataSyncer.coCommonInterface.IsFSSEnabled(
+		ctx, common.WorkloadDomainIsolationFSS)
+	if isWorkloadDomainIsolationEnabledInPVCSI {
+		AddNodeAffinityRulesOnPV(ctx, metadataSyncer)
+	}
 	// guestCnsVolumeMetadataList is an in-memory list of cnsvolumemetadata
 	// objects that represents PV/PVC/Pod objects in the guest cluster API server.
 	// These objects are compared to actual objects on the supervisor
@@ -231,6 +243,116 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 		}
 	}
 	return nil
+}
+
+// AddNodeAffinityRulesOnPV update TKG PVs with node affinity rules set on associated supervisor PVC if
+// node affinity rule is not set on the TKG PV
+func AddNodeAffinityRulesOnPV(ctx context.Context, metadataSyncer *metadataSyncInformer) {
+	log := logger.GetLogger(ctx)
+	log.Info("AddNodeAffinityRulesOnPV Start.")
+	pvList, err := getPVsInBoundAvailableOrReleased(ctx, metadataSyncer)
+	if err != nil {
+		log.Errorf("FullSync: Failed to get PVs from guest cluster. Err: %v", err)
+		return
+	}
+	// Get the supervisor namespace in which the guest cluster is deployed.
+	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace(ctx)
+	if err != nil {
+		log.Errorf("FullSync: could not get supervisor namespace in which guest cluster was deployed. Err: %v", err)
+		return
+	}
+
+	// Create the kubernetes client from config.
+	k8sClient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("creating Kubernetes client failed. Err: %v", err)
+		return
+	}
+
+	for _, pv := range pvList {
+		if pv.Spec.NodeAffinity == nil {
+			supervisorPVClaim, err := metadataSyncer.supervisorClient.CoreV1().
+				PersistentVolumeClaims(supervisorNamespace).Get(ctx, pv.Spec.CSI.VolumeHandle, metav1.GetOptions{})
+			if err != nil {
+				log.Errorf("AddNodeAffinityRulesOnPV: failed to get supervisor PVC: %v "+
+					"for the TKG PV %v in the supervisor namespace: %v. Err: %v",
+					pv.Spec.CSI.VolumeHandle, pv.Name, supervisorNamespace, err)
+				continue
+			}
+			accessibleTopologies, err := generateVolumeAccessibleTopologyFromPVCAnnotation(supervisorPVClaim)
+			if err != nil {
+				log.Errorf("failed to generate volume accessibleTopologies "+
+					"from supervisor PVC: %v for csi.vsphere.volume-accessible-topology annoation: %v "+
+					"Err: %v", supervisorPVClaim.Name,
+					supervisorPVClaim.Annotations["csi.vsphere.volume-accessible-topology"], err)
+				continue
+			}
+			var csiAccessibleTopology []*csi.Topology
+			for _, topoSegments := range accessibleTopologies {
+				volumeTopology := &csi.Topology{
+					Segments: topoSegments,
+				}
+				csiAccessibleTopology = append(csiAccessibleTopology, volumeTopology)
+			}
+			oldData, err := json.Marshal(pv)
+			if err != nil {
+				log.Errorf("failed to marshal pv: %v, Error: %v", pv, err)
+				continue
+			}
+			newPV := pv.DeepCopy()
+			newPV.Spec.NodeAffinity = GenerateVolumeNodeAffinity(csiAccessibleTopology)
+			newData, err := json.Marshal(newPV)
+			if err != nil {
+				log.Errorf("failed to marshal updated PV with node affinity rules: %v, Error: %v", newPV, err)
+				continue
+			}
+
+			patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pv)
+			if err != nil {
+				log.Errorf("error Creating two way merge patch for PV %q with error : %v", pv.Name, err)
+				continue
+			}
+			_, err = k8sClient.CoreV1().PersistentVolumes().Patch(
+				context.TODO(), pv.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
+			if err != nil {
+				log.Errorf("error patching PV %q error : %v", pv.Name, err)
+				continue
+			}
+			log.Infof("patched PV: %v with node affinity %v", pv.Name, newPV.Spec.NodeAffinity)
+		}
+	}
+	log.Info("AddNodeAffinityRulesOnPV End.")
+}
+
+func GenerateVolumeNodeAffinity(accessibleTopology []*csi.Topology) *v1.VolumeNodeAffinity {
+	if len(accessibleTopology) == 0 {
+		return nil
+	}
+
+	var terms []v1.NodeSelectorTerm
+	for _, topology := range accessibleTopology {
+		if len(topology.Segments) == 0 {
+			continue
+		}
+
+		var expressions []v1.NodeSelectorRequirement
+		for k, v := range topology.Segments {
+			expressions = append(expressions, v1.NodeSelectorRequirement{
+				Key:      k,
+				Operator: v1.NodeSelectorOpIn,
+				Values:   []string{v},
+			})
+		}
+		terms = append(terms, v1.NodeSelectorTerm{
+			MatchExpressions: expressions,
+		})
+	}
+
+	return &v1.VolumeNodeAffinity{
+		Required: &v1.NodeSelector{
+			NodeSelectorTerms: terms,
+		},
+	}
 }
 
 // compareCnsVolumeMetadatas compares input cnsvolumemetadata objects

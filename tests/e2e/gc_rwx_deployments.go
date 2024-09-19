@@ -241,11 +241,11 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod with pvc1")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, ddpod.Spec.NodeName+"-"+pvc1NameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, ddpod.Spec.NodeName+"-"+pvc1NameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod with pvc2")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, ddpod.Spec.NodeName+"-"+pvc2NameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, ddpod.Spec.NodeName+"-"+pvc2NameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 		}
 
@@ -314,11 +314,11 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod with pvc1")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, ddpod.Spec.NodeName+"-"+pvc1NameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, ddpod.Spec.NodeName+"-"+pvc1NameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 
 			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod with pvc2")
-			verifyCNSFileAccessConfigCRDInSupervisor(ctx, f, ddpod.Spec.NodeName+"-"+pvc2NameInSV,
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, ddpod.Spec.NodeName+"-"+pvc2NameInSV,
 				crdCNSFileAccessConfig, crdVersion, crdGroup, true)
 		}
 

@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
+
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -86,7 +87,8 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
 				return err
 			}
-			if len(clusterComputeResourceMoIds) > 1 {
+			if len(clusterComputeResourceMoIds) > 1 &&
+				!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) {
 				log.Infof("Not initializing the CnsFileAccessConfig Controller as stretched supervisor is detected.")
 				return nil
 			}
@@ -505,20 +507,32 @@ func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 	if err != nil {
 		return "", logger.LogNewErrorf(log, "Failed to identify the network provider. Error: %+v", err)
 	}
-	var nsxConfiguration bool
+
 	if networkProvider == "" {
 		return "", logger.LogNewError(log, "unable to find network provider information")
 	}
-	if networkProvider == cnsoperatorutil.NSXTNetworkProvider {
-		nsxConfiguration = true
-	} else if networkProvider == cnsoperatorutil.VDSNetworkProvider {
-		nsxConfiguration = false
-	} else {
+
+	networkTypes := []string{cnsoperatorutil.NSXTNetworkProvider, cnsoperatorutil.
+		VDSNetworkProvider}
+
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VPCCapabilitySupervisor) {
+		networkTypes = append(networkTypes, cnsoperatorutil.VPCNetworkProvider)
+	}
+
+	supported_found := false
+	for _, networkType := range networkTypes {
+		if networkType == networkProvider {
+			supported_found = true
+			break
+		}
+	}
+
+	if !supported_found {
 		return "", logger.LogNewErrorf(log, "Unknown network provider. Error: %+v", err)
 	}
 
 	tkgVMIP, err := cnsoperatorutil.GetTKGVMIP(ctx, r.vmOperatorClient,
-		r.dynamicClient, vm.Namespace, vm.Name, nsxConfiguration)
+		r.dynamicClient, vm.Namespace, vm.Name, networkProvider)
 	if err != nil {
 		return "", logger.LogNewErrorf(log, "Failed to get external facing IP address for VM %q/%q. Err: %+v",
 			vm.Namespace, vm.Name, err)

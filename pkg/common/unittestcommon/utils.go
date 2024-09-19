@@ -30,6 +30,7 @@ import (
 	"google.golang.org/grpc/codes"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	restclient "k8s.io/client-go/rest"
 
 	cnssim "github.com/vmware/govmomi/cns/simulator"
 	pbmsim "github.com/vmware/govmomi/pbm/simulator"
@@ -72,6 +73,8 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"multi-vcenter-csi-topology":        "true",
 				"listview-tasks":                    "true",
 				"storage-quota-m2":                  "false",
+				// Adding FSS from `wcp-cluster-capabilities` configmap in supervisor here for simplicity.
+				"Workload_Domain_Isolation_Supported": "true",
 			},
 		}
 		return fakeCO, nil
@@ -328,6 +331,19 @@ func (c *FakeK8SOrchestrator) InitializeCSINodes(ctx context.Context) error {
 	return nil
 }
 
+// StartZonesInformer starts a dynamic informer which listens on Zones CR in
+// topology.tanzu.vmware.com/v1alpha1 API group.
+func (c *FakeK8SOrchestrator) StartZonesInformer(ctx context.Context, restClientConfig *restclient.Config,
+	namespace string) error {
+	return nil
+}
+
+// GetZonesForNamespace fetches the zones associated with a namespace when
+// WorkloadDomainIsolation is supported in supervisor.
+func (c *FakeK8SOrchestrator) GetZonesForNamespace(ns string) map[string]struct{} {
+	return nil
+}
+
 // configFromVCSim starts a vcsim instance and returns config for use against the
 // vcsim instance. The vcsim instance is configured with an empty tls.Config.
 func configFromVCSim(vcsimParams VcsimParams, isTopologyEnv bool) (*config.Config, func()) {
@@ -420,11 +436,12 @@ func configFromVCSimWithTLS(tlsConfig *tls.Config, vcsimParams VcsimParams, inse
 
 	cfg.VirtualCenter = make(map[string]*config.VirtualCenterConfig)
 	cfg.VirtualCenter[s.URL.Hostname()] = &config.VirtualCenterConfig{
-		User:         cfg.Global.User,
-		Password:     cfg.Global.Password,
-		VCenterPort:  cfg.Global.VCenterPort,
-		InsecureFlag: cfg.Global.InsecureFlag,
-		Datacenters:  cfg.Global.Datacenters,
+		User:                cfg.Global.User,
+		Password:            cfg.Global.Password,
+		VCenterPort:         cfg.Global.VCenterPort,
+		InsecureFlag:        cfg.Global.InsecureFlag,
+		Datacenters:         cfg.Global.Datacenters,
+		FileVolumeActivated: true, // Set FileVolumeActivated to true to test Workload_Domain_Isolation support
 	}
 
 	// set up the default global maximum of number of snapshots if unset

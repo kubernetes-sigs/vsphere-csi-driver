@@ -30,6 +30,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vsan"
 	vsantypes "github.com/vmware/govmomi/vsan/types"
 	"golang.org/x/crypto/ssh"
@@ -175,6 +176,21 @@ func createFaultDomainMap(ctx context.Context, vs *vSphere) map[string]string {
 	finder.SetDatacenter(dc)
 	hosts, err := finder.HostSystemList(ctx, "*")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	if !vanillaCluster {
+		hostsInVsanStretchCluster := []*object.HostSystem{}
+		for _, host := range hosts {
+			hostInfo := host.Common.InventoryPath
+			hostIpInfo := strings.Split(hostInfo, "/")
+			hostCluster := hostIpInfo[len(hostIpInfo)-2]
+			if !strings.Contains(hostCluster, "EdgeMgmtCluster") {
+				hostsInVsanStretchCluster = append(hostsInVsanStretchCluster, host)
+			}
+
+		}
+		hosts = hostsInVsanStretchCluster
+	}
+
 	for _, host := range hosts {
 		vsanSystem, _ := host.ConfigManager().VsanSystem(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -663,7 +679,7 @@ func checkVmStorageCompliance(client clientset.Interface, storagePolicy string) 
 // statefulset, deployment and volumes of statfulset created
 func createStsDeployment(ctx context.Context, client clientset.Interface, namespace string,
 	sc *storagev1.StorageClass, isDeploymentRequired bool, modifyStsSpec bool,
-	replicaCount int32, stsName string,
+	stsReplica int32, stsName string, depReplicaCount int32,
 	accessMode v1.PersistentVolumeAccessMode) (*appsv1.StatefulSet, *appsv1.Deployment, []string) {
 	var pvclaims []*v1.PersistentVolumeClaim
 	if accessMode == "" {
@@ -680,7 +696,7 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 		statefulset.Name = stsName
 		statefulset.Spec.Template.Labels["app"] = statefulset.Name
 		statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
-		*(statefulset.Spec.Replicas) = replicaCount
+		*(statefulset.Spec.Replicas) = stsReplica
 	}
 	CreateStatefulSet(namespace, statefulset, client)
 	replicas := *(statefulset.Spec.Replicas)
@@ -705,9 +721,25 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 				volumesBeforeScaleDown = append(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)
 				// Verify the attached volume match the one in CNS cache
 				if !multivc {
-					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					if guestCluster {
+						volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+						gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+						svcPVCName := pv.Spec.CSI.VolumeHandle
+						pvcName := volumespec.PersistentVolumeClaim.ClaimName
+
+						pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
+							pvcName, metav1.GetOptions{})
+						gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, volHandle, svcPVCName, pvclaim,
+							pv, &sspod)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					} else {
+						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
+
 				} else {
 					err := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
@@ -730,7 +762,7 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 		labelsMap := make(map[string]string)
 		labelsMap["app"] = "test"
 		deployment, err := createDeployment(
-			ctx, client, 1, labelsMap, nil, namespace, pvclaims, "", false, busyBoxImageOnGcr)
+			ctx, client, depReplicaCount, labelsMap, nil, namespace, pvclaims, "", false, busyBoxImageOnGcr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		deployment, err = client.AppsV1().Deployments(namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
@@ -749,10 +781,18 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 
 // volumeLifecycleActions creates pvc and pod and waits for them to be in healthy state and then deletes them
 func volumeLifecycleActions(ctx context.Context, client clientset.Interface, namespace string,
-	sc *storagev1.StorageClass) {
+	sc *storagev1.StorageClass, accessMode v1.PersistentVolumeAccessMode) {
+
+	var vmUUID string
+	var exists bool
+
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		accessMode = v1.ReadWriteOnce
+	}
 
 	if rwxAccessMode {
-		pvc1, err := createPVC(ctx, client, namespace, nil, "", sc, v1.ReadWriteMany)
+		pvc1, err := createPVC(ctx, client, namespace, nil, "", sc, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(time.Duration(80) * time.Second)
 
@@ -796,10 +836,27 @@ func volumeLifecycleActions(ctx context.Context, client clientset.Interface, nam
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
 
+		if guestCluster {
+			volHandle = getVolumeIDFromSupervisorCluster(pvs[0].Spec.CSI.VolumeHandle)
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		}
+
 		pod1, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		vmUUID := getNodeUUID(ctx, client, pod1.Spec.NodeName)
+		if vanillaCluster {
+			vmUUID = getNodeUUID(ctx, client, pod1.Spec.NodeName)
+			framework.Logf("VMUUID : %s", vmUUID)
+		} else if guestCluster {
+			vmUUID, err = getVMUUIDFromNodeName(pod1.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			framework.Logf("VMUUID : %s", vmUUID)
+		} else if supervisorCluster {
+			annotations := pod1.Annotations
+			vmUUID, exists = annotations[vmUUIDLabel]
+			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+			framework.Logf("VMUUID : %s", vmUUID)
+		}
 		framework.Logf("VMUUID : %s", vmUUID)
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -810,6 +867,13 @@ func volumeLifecycleActions(ctx context.Context, client clientset.Interface, nam
 		_, err = e2eoutput.LookForStringInPodExec(namespace, pod1.Name,
 			[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if guestCluster && rwxAccessMode {
+			ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is created or not for Pod1")
+			verifyCNSFileAccessConfigCRDInSupervisor(ctx, pod1.Spec.NodeName+"-"+volHandle,
+				crdCNSFileAccessConfig, crdVersion, crdGroup, true)
+			deletePodAndWaitForVolsToDetach(ctx, client, pod1)
+		}
 
 		deletePodAndWaitForVolsToDetach(ctx, client, pod1)
 
@@ -870,7 +934,7 @@ func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Inte
 							gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
 								fmt.Sprintf("Volume %q is not detached from the node %q",
 									pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
-						} else {
+						} else if supervisorCluster {
 							annotations := sspod.Annotations
 							vmUUID, exists := annotations[vmUUIDLabel]
 							gomega.Expect(exists).To(gomega.BeTrue(),
@@ -885,6 +949,15 @@ func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Inte
 								fmt.Sprintf(
 									"PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
 									vmUUID, sspod.Spec.NodeName))
+						} else {
+
+							ginkgo.By("Verify volume is detached from the node")
+							isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+								pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
+							gomega.Expect(err).NotTo(gomega.HaveOccurred())
+							gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+								fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+
 						}
 					}
 				}
@@ -898,9 +971,25 @@ func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Inte
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					if guestCluster {
+						volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+						gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+						svcPVCName := pv.Spec.CSI.VolumeHandle
+						pvcName := volumespec.PersistentVolumeClaim.ClaimName
+
+						pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
+							pvcName, metav1.GetOptions{})
+						gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, volHandle, svcPVCName, pvclaim,
+							pv, &sspod)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					} else {
+
+						err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
 				}
 			}
 		}
@@ -942,29 +1031,51 @@ func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interf
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					framework.Logf(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
-					var vmUUID string
+					var vmUUID, volHandle string
 					var exists bool
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
+					volHandle = pv.Spec.CSI.VolumeHandle
 					if vanillaCluster {
 						vmUUID = getNodeUUID(ctx, client, sspod.Spec.NodeName)
-					} else {
+					} else if supervisorCluster {
 						annotations := pod.Annotations
 						vmUUID, exists = annotations[vmUUIDLabel]
 						gomega.Expect(exists).To(
 							gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
 						_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					} else {
+						vmUUID, err = getVMUUIDFromNodeName(sspod.Spec.NodeName)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						framework.Logf("VMUUID : %s", vmUUID)
+						volHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+						gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 					}
 					if !rwxAccessMode {
-						isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
-						gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Disk is not attached to the node")
+						isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 						gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Disk is not attached")
 					}
 					framework.Logf("After scale up, verify the attached volumes match those in CNS Cache")
-					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					if guestCluster {
+						volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
+						gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+						svcPVCName := pv.Spec.CSI.VolumeHandle
+						pvcName := volumespec.PersistentVolumeClaim.ClaimName
+
+						pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
+							pvcName, metav1.GetOptions{})
+						gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						err = waitAndVerifyCnsVolumeMetadata4GCVol(ctx, volHandle, svcPVCName, pvclaim,
+							pv, &sspod)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					} else {
+						err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
 				}
 			}
 		}
