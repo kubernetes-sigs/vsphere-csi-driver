@@ -18,7 +18,51 @@ Documentation for vSphere CSI Driver is available here:
 
 ## vSphere CSI Driver Releases
 
+* [Release 3.3](https://docs.vmware.com/en/VMware-vSphere-Container-Storage-Plug-in/3.0/rn/vmware-vsphere-container-storage-plugin-30-release-notes/index.html#vSphere%20Container%20Storage%20Plug-in%203.3.0)
+  * v3.3.1 images
+
+  ```text
+  registry.k8s.io/csi-vsphere/driver:v3.3.1
+  ```
+
+  ```text
+  registry.k8s.io/csi-vsphere/syncer:v3.3.1
+  ```
+
+  * v3.3.0 images
+
+   ```text
+    registry.k8s.io/csi-vsphere/driver:v3.3.0
+   ```
+
+   ```text
+    registry.k8s.io/csi-vsphere/syncer:v3.3.0
+   ```
+
+* [Release 3.2](https://docs.vmware.com/en/VMware-vSphere-Container-Storage-Plug-in/3.0/rn/vmware-vsphere-container-storage-plugin-30-release-notes/index.html#vSphere%20Container%20Storage%20Plug-in%203.2.0)
+
+  * v3.2.0 images
+
+    ```text
+    registry.k8s.io/csi-vsphere/driver:v3.2.0
+    ```
+
+    ```text
+    registry.k8s.io/csi-vsphere/syncer:v3.2.0
+    ```
+
 * [Release 3.1](https://docs.vmware.com/en/VMware-vSphere-Container-Storage-Plug-in/3.0/rn/vmware-vsphere-container-storage-plugin-30-release-notes/index.html#vSphere%20Container%20Storage%20Plug-in%203.1.x)
+  
+  * v3.1.2 images
+
+    ```text
+    registry.k8s.io/csi-vsphere/driver:v3.1.2
+    ```
+
+    ```text
+    registry.k8s.io/csi-vsphere/syncer:v3.1.2
+    ```
+
 * [Release 3.0](https://docs.vmware.com/en/VMware-vSphere-Container-Storage-Plug-in/3.0/rn/vmware-vsphere-container-storage-plugin-30-release-notes/index.html)
 * [Release 2.7](https://docs.vmware.com/en/VMware-vSphere-Container-Storage-Plug-in/2.7/rn/vmware-vsphere-container-storage-plugin-27-release-notes/index.html)
 * [Release 2.6](https://docs.vmware.com/en/VMware-vSphere-Container-Storage-Plug-in/2.6/rn/vmware-vsphere-container-storage-plugin-26-release-notes/index.html)
