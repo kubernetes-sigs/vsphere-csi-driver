@@ -813,7 +813,6 @@ func wait4Pvc2Detach(
 	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
 }
 
-// updateVmWithNewPvc updates an existing VM by attaching a new PVC and updating the VM spec
 func updateVmWithNewPvc(ctx context.Context, vmopC ctlrclient.Client, vmName string, namespace string, newPvc *v1.PersistentVolumeClaim) error {
 	// Fetch the existing VM
 	vm := &vmopv1.VirtualMachine{}
@@ -822,7 +821,7 @@ func updateVmWithNewPvc(ctx context.Context, vmopC ctlrclient.Client, vmName str
 		return fmt.Errorf("failed to get VM: %v", err)
 	}
 
-	// Attach the new PVC to the VM
+	// Create a new volume using the new PVC
 	newVolume := vmopv1.VirtualMachineVolume{
 		Name: newPvc.Name,
 		PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
@@ -831,14 +830,104 @@ func updateVmWithNewPvc(ctx context.Context, vmopC ctlrclient.Client, vmName str
 			},
 		},
 	}
+
+	// Append the new volume to the existing VM's volumes
 	vm.Spec.Volumes = append(vm.Spec.Volumes, newVolume)
 
 	// Update the VM spec in the Kubernetes cluster
-	err = vmopC.Update(ctx, vm)
-	if err != nil {
+	if err = vmopC.Update(ctx, vm); err != nil {
 		return fmt.Errorf("failed to update VM: %v", err)
 	}
-
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return nil
 }
+
+func formatNVerifyPvcIsAccessible1(diskUuid string, mountIndex int, vmIp string) string {
+    // Construct the disk path from the UUID
+    p := "/dev/disk/by-id/wwn-0x" + strings.ReplaceAll(strings.ToLower(diskUuid), "-", "")
+    fmt.Println("Checking disk path:", p)
+
+    // List the available disks
+    results := execSshOnVmThroughGatewayVm(vmIp, []string{
+        "ls -l /dev/disk/by-id/",
+    })
+    fmt.Println("Disk list results:", results)
+
+    // Check if the desired disk exists
+    diskCheckResults := execSshOnVmThroughGatewayVm(vmIp, []string{
+        "ls -l " + p,
+    })
+
+    // If the disk is not found, try rescanning SCSI devices
+    if strings.Contains(diskCheckResults[0].Stderr, "No such file or directory") {
+        fmt.Printf("Disk %s not found. Rescanning SCSI devices.\n", p)
+        rescanResults := execSshOnVmThroughGatewayVm(vmIp, []string{
+            "echo '- - -' | sudo tee /sys/class/scsi_host/host*/scan",
+            "ls -l /dev/disk/by-id/",
+            "ls -l " + p,
+        })
+        fmt.Println("Rescan results:", rescanResults)
+
+        // Check again if the disk is available after rescanning
+        diskCheckResults = execSshOnVmThroughGatewayVm(vmIp, []string{
+            "ls -l " + p,
+        })
+    }
+
+    // If the disk is still not found, fail the test
+    if strings.Contains(diskCheckResults[0].Stderr, "No such file or directory") {
+        framework.Failf("Disk %s not found on VM %s after rescanning.", p, vmIp)
+    }
+
+    // Extract the device name
+    parts := strings.Split(strings.TrimSpace(diskCheckResults[0].Stdout), "/")
+    if len(parts) < 7 {
+        framework.Failf("Unexpected ls output: %s", diskCheckResults[0].Stdout)
+    }
+    dev := "/dev/" + parts[6]
+    fmt.Println("Device:", dev)
+
+    gomega.Expect(dev).ShouldNot(gomega.Equal("/dev/"))
+    framework.Logf("Found device %s for disk with UUID %s", dev, diskUuid)
+
+    partitionDev := dev + "1"
+    fmt.Println("Partition Device:", partitionDev)
+
+    // Unmount any existing partitions on the device
+    unmountCommands := []string{
+        fmt.Sprintf("sudo umount %s* || true", dev),
+    }
+    res := execSshOnVmThroughGatewayVm(vmIp, unmountCommands)
+    fmt.Println("Unmount Results:", res)
+
+    // Partition and format the disk
+    partitionCommands := []string{
+        fmt.Sprintf("sudo parted --script %s mklabel gpt", dev),
+        fmt.Sprintf("sudo parted --script -a optimal %s mkpart primary 0%% 100%%", dev),
+        "lsblk -l",
+        fmt.Sprintf("sudo mkfs.ext4 %s", partitionDev),
+    }
+    res = execSshOnVmThroughGatewayVm(vmIp, partitionCommands)
+    fmt.Println("Partitioning Results:", res)
+
+    // Mount the new partition
+    volMountPath := "/mnt/volume" + strconv.Itoa(mountIndex)
+    volFolder := volMountPath + "/data"
+    mountCommands := []string{
+        fmt.Sprintf("sudo mkdir -p %s", volMountPath),
+        fmt.Sprintf("sudo mount %s %s", partitionDev, volMountPath),
+        fmt.Sprintf("sudo mkdir -p %s", volFolder),
+        fmt.Sprintf("sudo chmod -R 777 %s", volFolder),
+        fmt.Sprintf("bash -c 'df -Th %s | tee %s/fstype'", partitionDev, volFolder),
+        fmt.Sprintf("grep -c ext4 %s/fstype", volFolder),
+        "sync",
+    }
+    results = execSshOnVmThroughGatewayVm(vmIp, mountCommands)
+    fmt.Println("Mounting Results:", results)
+
+    // Verify the filesystem type
+    gomega.Expect(strings.TrimSpace(results[5].Stdout)).To(gomega.Equal("1"), "Filesystem type is not ext4")
+
+    return volFolder
+}
+
+
