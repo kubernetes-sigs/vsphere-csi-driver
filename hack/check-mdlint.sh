@@ -23,4 +23,4 @@ set -o pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 docker run --rm -v "$(pwd)":/build \
-  gcr.io/cluster-api-provider-vsphere/extra/mdlint:0.23.2
+  vspherecsi/mdlint:0.31.1
