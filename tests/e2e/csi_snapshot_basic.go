@@ -6780,6 +6780,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		pvclaims := make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 		pvclaims2 := make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 		var persistentvolumes []*v1.PersistentVolume
+		var snapshotIds []string
 
 		ginkgo.By("Create storage class")
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, scName)
@@ -6838,7 +6839,19 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 				*volumesnapshots[i].Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(*snapshotContents[i].Status.ReadyToUse).To(gomega.BeTrue())
+			framework.Logf("Get volume snapshot ID from snapshot handle")
+			snapshotId, _, err := getVolumeSnapshotIdFromSnapshotHandle(ctx, snapshotContents[i])
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			snapshotIds = append(snapshotIds, snapshotId)
 		}
+		defer func() {
+			for i := 0; i < volumeOpsScale; i++ {
+				ginkgo.By("Delete dynamic volume snapshot")
+				_, _, err = deleteVolumeSnapshot(ctx, snapc, namespace,
+					volumesnapshots[i], pandoraSyncWaitTime, volHandle, snapshotIds[i], true)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
 
 		ginkgo.By("Create Multiple PVC from one snapshot")
 		for i := 0; i < volumeOpsScale; i++ {
