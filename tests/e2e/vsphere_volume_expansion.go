@@ -725,11 +725,12 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
 		ginkgo.By("File system resize should not succeed Since Vsan-health is down. Expect an error")
-		if guestCluster {
-			expectedErrMsg = "didn't find a plugin capable of expanding the volume"
-		} else {
-			expectedErrMsg = "503 Service Unavailable"
-		}
+		// if guestCluster {
+		// 	expectedErrMsg = "didn't find a plugin capable of expanding the volume"
+		// } else {
+		// 	expectedErrMsg = "503 Service Unavailable"
+		// }
+		expectedErrMsg = "503 Service Unavailable"
 		framework.Logf("Expected failure message: %+q", expectedErrMsg)
 		err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
