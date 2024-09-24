@@ -18,8 +18,10 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -216,6 +218,21 @@ func TestValidateConfigWithValidUsername2(t *testing.T) {
 	err := validateConfig(ctx, cfg)
 	if err != nil {
 		t.Errorf("Unexpected error, as valid username is specified. Config given - %+v", *cfg)
+	}
+}
+
+func TestSensitiveConfigFieldsRedacted(t *testing.T) {
+	vc := VirtualCenterConfig{
+		User:         "Administrator@vsphere.local",
+		Password:     "sensitivepassword",
+		VCenterPort:  "443",
+		Datacenters:  "dc1",
+		InsecureFlag: true,
+	}
+
+	s := fmt.Sprintf("%+v", vc)
+	if strings.Contains(s, "sensitivepassword") {
+		t.Errorf("Sensitive information leaked in VirtualCenterConfig struct:\n%s", s)
 	}
 }
 
