@@ -634,7 +634,7 @@ var _ = ginkgo.Describe("[preferential-disruptive] Preferential-Topology-Disrupt
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
-		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, namespace,
+		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod,
 			allowedTopologyForRack2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -867,7 +867,7 @@ var _ = ginkgo.Describe("[preferential-disruptive] Preferential-Topology-Disrupt
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
-		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, namespace,
+		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod,
 			allowedTopologyForRack1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1098,7 +1098,7 @@ var _ = ginkgo.Describe("[preferential-disruptive] Preferential-Topology-Disrupt
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate " +
 			"node as specified in the allowed topologies of SC")
-		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, namespace,
+		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod,
 			allowedTopologyForRack2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

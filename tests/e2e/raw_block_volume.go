@@ -1203,7 +1203,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		ginkgo.By("Create a dynamic volume snapshot")
 		volumeSnapshot, snapshotContent, snapshotCreated,
-			snapshotContentCreated, snapshotId, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
+			snapshotContentCreated, snapshotId, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
 			pvc1, volumeID, diskSize, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -1301,7 +1301,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		ginkgo.By("Delete dyanmic volume snapshot")
 		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
-			volumeSnapshot, pandoraSyncWaitTime, volumeID, snapshotId)
+			volumeSnapshot, pandoraSyncWaitTime, volumeID, snapshotId, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })
