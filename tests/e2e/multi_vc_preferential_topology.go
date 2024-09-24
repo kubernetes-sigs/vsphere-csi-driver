@@ -630,7 +630,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
 		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod,
-			namespace, allowedTopologies)
+			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 

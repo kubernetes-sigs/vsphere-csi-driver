@@ -250,10 +250,11 @@ const (
 	vsphereClusterIdConfigMapName              = "vsphere-csi-cluster-id"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
-	storagePolicyQuota         = "-storagepolicyquota"
-	podVMOnStretchedSupervisor = "stretched-svc"
-	stretchedSVCTopologyLevels = 1
-	envZonalStoragePolicyName2 = "ZONAL2_STORAGECLASS"
+	storagePolicyQuota                       = "-storagepolicyquota"
+	podVMOnStretchedSupervisor               = "stretched-svc"
+	stretchedSVCTopologyLevels               = 1
+	envZonalStoragePolicyName2               = "ZONAL2_STORAGECLASS"
+	envStoragePolicyNameForVsanNfsDatastores = "STORAGE_POLICY_FOR_VSAN_NFS_DATASTORES"
 )
 
 /*

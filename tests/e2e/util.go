@@ -2017,13 +2017,14 @@ func performPasswordRotationOnSupervisor(client clientset.Interface, ctx context
 	currentTimestamp := time.Now()
 	twelveHoursAgoTimestamp := (currentTimestamp.Add(-12 * time.Hour)).Unix()
 	sshCmd = fmt.Sprintf("cd /etc/vmware/wcp; sudo -u wcp psql -U wcpuser -d VCDB -c "+
-		"\"update cluster_db_configs set last_storage_pwd_rotation_timestamp=%v "+
+		"\"update vcenter_svc_accounts set last_pwd_rotation_timestamp=%v "+
 		"where instance_id='%s'\"", twelveHoursAgoTimestamp, vsphereCfg.Global.SupervisorID)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
 	result, err = fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		return false, fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
+
 	// Starting wcp service
 	sshCmd = fmt.Sprintf("vmon-cli --start %s", wcpServiceName)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
@@ -3428,8 +3429,13 @@ func writeDataOnFileFromPod(namespace string, podName string, filePath string, d
 		cmdArg = "-c"
 	}
 	wrtiecmd := []string{"exec", podName, "--namespace=" + namespace, "--", shellExec, cmdArg,
-		fmt.Sprintf(" echo '%s' >  %s ", data, filePath)}
+		fmt.Sprintf(" echo '%s' >>  %s ", data, filePath)}
 	e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
+
+	data2 := "fsync"
+	wrtiecmd2 := []string{"exec", podName, "--namespace=" + namespace, "--", shellExec, cmdArg,
+		fmt.Sprintf(" echo '%s' >>  %s ", data2, filePath)}
+	e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd2...)
 }
 
 // readFileFromPod read data from given Pod and the given file.
@@ -5568,7 +5574,7 @@ Also it verifies that a pod is scheduled on a node that belongs to the topology 
 is provisioned.
 */
 func verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx context.Context,
-	client clientset.Interface, pod *v1.Pod, namespace string,
+	client clientset.Interface, pod *v1.Pod,
 	allowedTopologies []v1.TopologySelectorLabelRequirement) error {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	for _, volumespec := range pod.Spec.Volumes {
@@ -6864,7 +6870,7 @@ func checkVcServicesHealthPostReboot(ctx context.Context, host string, timeout .
 		pollTime = timeout[0]
 	}
 	//list of default stopped services in VC
-	var defaultStoppedServicesList = []string{"vmcam", "vmonapi", "vmware-imagebuilder", "vmware-netdumper",
+	var defaultStoppedServicesList = []string{"vmcam", "vmware-imagebuilder", "vmware-netdumper",
 		"vmware-rbd-watchdog", "vmware-vcha"}
 	waitErr := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pollTime, true,
 		func(ctx context.Context) (bool, error) {
