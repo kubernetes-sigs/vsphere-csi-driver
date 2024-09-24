@@ -517,6 +517,18 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 		}
+
+		// Wait for PVC to be deleted from supervisor cluster
+		err = common.WaitForPVCDeleted(ctx, c.supervisorClient,
+			req.VolumeId, c.supervisorNamespace,
+			time.Duration(getProvisionTimeoutInMin(ctx))*time.Minute)
+		if err != nil {
+			msg := fmt.Sprintf("persistentVolumeClaim: %s on namespace: %s in supervisor cluster was not deleted. "+
+				"Error: %+v", req.VolumeId, c.supervisorNamespace, err)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+		}
+
 		log.Infof("DeleteVolume: Volume deleted successfully. VolumeID: %q", req.VolumeId)
 		return &csi.DeleteVolumeResponse{}, "", nil
 	}
@@ -1567,6 +1579,18 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 			log.Error(msg)
 			return nil, status.Errorf(codes.Internal, msg)
 		}
+
+		// Wait for VolumeSnapshot to be deleted from supervisor cluster
+		err = common.WaitForVolumeSnapshotDeleted(ctx, c.supervisorSnapshotterClient,
+			supervisorVolumeSnapshotName, c.supervisorNamespace,
+			time.Duration(getSnapshotTimeoutInMin(ctx))*time.Minute)
+		if err != nil {
+			msg := fmt.Sprintf("volumeSnapshot: %s on namespace: %s in supervisor cluster was not deleted. "+
+				"Error: %+v", supervisorVolumeSnapshotName, c.supervisorNamespace, err)
+			log.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+
 		log.Infof("DeleteSnapshot: successfully deleted snapshot %q", csiSnapshotID)
 		return &csi.DeleteSnapshotResponse{}, nil
 	}
