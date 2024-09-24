@@ -33,6 +33,14 @@ func NewCnsClient(ctx context.Context, c *vim25.Client) (*cns.Client, error) {
 		return nil, err
 	}
 	cnsClient.RoundTripper = &MetricRoundTripper{"cns", cnsClient.RoundTripper}
+
+	// TODO: remove code to add version to CNS API, once CNS releases the next version.
+	if UseCnsAPIDevVersion {
+		log.Infof("Setting dev.version on new CNS client")
+		cnsClient.Version = cnsDevVersion
+		cnsClient.Client.Version = cnsDevVersion
+	}
+
 	return cnsClient, nil
 }
 
