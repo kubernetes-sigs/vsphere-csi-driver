@@ -257,6 +257,9 @@ const (
 	podVMOnStretchedSupervisor = "stretched-svc"
 	stretchedSVCTopologyLevels = 1
 	envZonalStoragePolicyName2 = "ZONAL2_STORAGECLASS"
+	envZone1NfsDatastoreUrl    = "ZONE_1_NFS_DATASTORE_URL"
+	envZone2NfsDatastoreUrl    = "ZONE_2_NFS_DATASTORE_URL"
+	envZone3NfsDatastoreUrl    = "ZONE_3_NFS_DATASTORE_URL"
 )
 
 /*
