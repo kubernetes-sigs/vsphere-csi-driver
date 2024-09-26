@@ -386,6 +386,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 					TopologyRequirement: nil,
 					Vc:                  vc})
 		} else if len(clusterComputeResourceMoIds) > 1 {
+			// Fetch datastoreAccessibleTopology for the volume in the stretched supervisor cluster
 			datastoreAccessibleTopology, err = topologyMgr.GetTopologyInfoFromNodes(ctx,
 				commoncotypes.WCPRetrieveTopologyInfoParams{
 					DatastoreURL:        volume.DatastoreUrl,
@@ -404,7 +405,6 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		var terms []v1.NodeSelectorTerm
 		if workloadDomainIsolationEnabled {
 			for _, topologyTerms := range datastoreAccessibleTopology {
-
 				var expressions []v1.NodeSelectorRequirement
 				for key, value := range topologyTerms {
 					expressions = append(expressions, v1.NodeSelectorRequirement{
@@ -417,7 +417,14 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 					MatchExpressions: expressions,
 				})
 			}
-		} else {
+			pvNodeAffinity = &v1.VolumeNodeAffinity{
+				Required: &v1.NodeSelector{
+					NodeSelectorTerms: terms,
+				},
+			}
+		} else if len(clusterComputeResourceMoIds) > 1 && len(datastoreAccessibleTopology) == 1 {
+			// This is the case when workloadDomainIsolation FSS is disabled and
+			// Supervisor is stretched cluster and we have datastoreAccessibleTopology for the Volume.
 			matchExpressions := make([]v1.NodeSelectorRequirement, 0)
 			for key, value := range datastoreAccessibleTopology[0] {
 				matchExpressions = append(matchExpressions, v1.NodeSelectorRequirement{
@@ -429,12 +436,11 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			terms = append(terms, v1.NodeSelectorTerm{
 				MatchExpressions: matchExpressions,
 			})
-		}
-
-		pvNodeAffinity = &v1.VolumeNodeAffinity{
-			Required: &v1.NodeSelector{
-				NodeSelectorTerms: terms,
-			},
+			pvNodeAffinity = &v1.VolumeNodeAffinity{
+				Required: &v1.NodeSelector{
+					NodeSelectorTerms: terms,
+				},
+			}
 		}
 	}
 
