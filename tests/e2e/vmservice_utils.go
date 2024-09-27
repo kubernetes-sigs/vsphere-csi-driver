@@ -25,9 +25,11 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/exec"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -895,4 +897,72 @@ func performVolumeLifecycleActionForVmServiceVM(ctx context.Context, client clie
 	ginkgo.By("Wait and verify PVCs are attached to the VM")
 	gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
 		[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+}
+
+// Perform IO operations on vmSvc VM volumes
+func ioOperationsOnVolumes(wg *sync.WaitGroup, errChan chan<- error, vmIp string, volFolder []string) {
+	defer wg.Done() // Notify that this goroutine is done
+	for i := 0; i < 20; i++ {
+		framework.Logf("Task ioOperationsOnVolumes - Iteration %s", i)
+		time.Sleep(10 * time.Second)
+		// IO operation on volumes
+		for i := range volFolder {
+			verifyDataIntegrityOnVmDisk(vmIp, volFolder[i])
+		}
+	}
+}
+
+// performing vmsvc-vm migration
+func migrationToAnotherDatastore(wg *sync.WaitGroup, errChan chan<- error, datastoreName string, vm string) {
+	defer wg.Done() // Notify that this goroutine is done
+	framework.Logf("Task migrationToAnotherDatastore")
+	err := migrateVmSvcVmToAnotherDatastore(datastoreName, vm)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Migration of vms failed")
+}
+
+// migrateVmSvcVmToAnotherDatastore method is used to migrate a VM to another datastore
+func migrateVmSvcVmToAnotherDatastore(datastoreName string, vm string) error {
+	UnMountDsOnCluster := govcLoginCmdTestUser() + "govc vm.migrate -ds " + datastoreName + " " + vm
+	framework.Logf("Migrate vm to another datastore  %s - command : %s", datastoreName, UnMountDsOnCluster)
+	_, err := exec.Command("/bin/sh", "-c", UnMountDsOnCluster).Output()
+	framework.Logf("Migrate vm to another datastore - after exec command")
+	if err != nil {
+		framework.Logf("Error: %v\n", err)
+		return fmt.Errorf("couldn't execute command: %s, error: %s",
+			UnMountDsOnCluster, err)
+	}
+	return nil
+}
+
+// govc login cmd
+func govcLoginCmdTestUser() string {
+	loginCmd := "export GOVC_INSECURE=1;"
+	loginCmd += fmt.Sprintf("export GOVC_URL='https://%s:%s@%s:%s';",
+		"testUser@vsphere.local", e2eVSphere.Config.Global.Password,
+		e2eVSphere.Config.Global.VCenterHostname, e2eVSphere.Config.Global.VCenterPort)
+	return loginCmd
+}
+
+func stopRequiredService(wg *sync.WaitGroup, ctx context.Context, serviceName string) bool {
+	defer wg.Done() // Notify that this goroutine is done
+	time.Sleep(20 * time.Second)
+	// Stop SPS service
+	framework.Logf("Stopping %v on the vCenter host", serviceName)
+	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+	err := invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	isServiceStopped := true
+	err = waitVCenterServiceToBeInState(ctx, serviceName, vcAddress, svcStoppedMessage)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	defer func() {
+		if isServiceStopped {
+			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", serviceName))
+			err = invokeVCenterServiceControl(ctx, startOperation, serviceName, vcAddress)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = waitVCenterServiceToBeInState(ctx, serviceName, vcAddress, svcRunningMessage)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			isServiceStopped = false
+		}
+	}()
+	return isServiceStopped
 }
