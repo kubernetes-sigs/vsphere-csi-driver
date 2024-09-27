@@ -25,6 +25,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/vmware/govmomi/cns"
@@ -314,12 +316,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			cnsVolumeMap[vol.VolumeId.Id] = vol
 		}
 		log.Infof("calling validateAndCorrectVolumeInfoSnapshotDetails with %d volumes", len(cnsVolumeMap))
-		err = validateAndCorrectVolumeInfoSnapshotDetails(ctx, cnsVolumeMap)
-		if err != nil {
-			log.Errorf("FullSync for VC %s: Error while sync CNSVolumeinfo snapshot details, failed with err=%+v",
-				vc, err.Error())
-			return err
-		}
+		validateAndCorrectVolumeInfoSnapshotDetails(ctx, cnsVolumeMap)
 	}
 	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vc]
 	if !vcHostObjFound {
@@ -767,9 +764,11 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 // in cns with the size in cnsvolumeinfo. if found discrepancy in order to correct the values
 // update the cnsvolumeinfo.
 func validateAndCorrectVolumeInfoSnapshotDetails(ctx context.Context,
-	cnsVolumeMap map[string]cnstypes.CnsVolume) error {
+	cnsVolumeMap map[string]cnstypes.CnsVolume) {
 	log := logger.GetLogger(ctx)
 	volumeInfoCRList := volumeInfoService.ListAllVolumeInfos()
+	alreadySyncedVolumeCount := 0
+	outOfSyncVolumeCount := 0
 	for _, volumeInfo := range volumeInfoCRList {
 		cnsvolumeinfo := &cnsvolumeinfov1alpha1.CNSVolumeInfo{}
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(volumeInfo.(*unstructured.Unstructured).Object,
@@ -779,54 +778,75 @@ func validateAndCorrectVolumeInfoSnapshotDetails(ctx context.Context,
 			continue
 		}
 		if cnsVol, ok := cnsVolumeMap[cnsvolumeinfo.Spec.VolumeID]; ok {
-			log.Infof("validate volume info for storage details for volume %s", cnsVol.VolumeId.Id)
-			var aggregatedSnapshotCapacity int64
+			log.Debugf("validate volume info for storage details for volume %s", cnsVol.VolumeId.Id)
+			var aggregatedSnapshotCapacityInMB int64
 			if cnsVol.BackingObjectDetails != nil &&
 				cnsVol.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails) != nil {
 				val, ok := cnsVol.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 				if ok {
-					aggregatedSnapshotCapacity = val.AggregatedSnapshotCapacityInMb
+					aggregatedSnapshotCapacityInMB = val.AggregatedSnapshotCapacityInMb
 				}
-				log.Infof("Received aggregatedSnapshotCapacity %d for volume %q",
-					aggregatedSnapshotCapacity, cnsVol.VolumeId.Id)
-				if cnsvolumeinfo.Spec.AggregatedSnapshotSize == nil || aggregatedSnapshotCapacity !=
-					cnsvolumeinfo.Spec.AggregatedSnapshotSize.Value() {
-					// use current time as snapshot completion time is not available in fullsync.
-					log.Infof("Update aggregatedSnapshotCapacity for volume %q", cnsVol.VolumeId.Id)
-					currentTime := time.Now()
-					cnsSnapInfo := &volumes.CnsSnapshotInfo{
-						SourceVolumeID:                      cnsvolumeinfo.Spec.VolumeID,
-						SnapshotLatestOperationCompleteTime: time.Now(),
-						AggregatedSnapshotCapacityInMb:      aggregatedSnapshotCapacity,
+				log.Debugf("Received aggregatedSnapshotCapacity %dMB for volume %s from CNS",
+					aggregatedSnapshotCapacityInMB, cnsVol.VolumeId.Id)
+				if cnsvolumeinfo.Spec.AggregatedSnapshotSize != nil && cnsvolumeinfo.Spec.ValidAggregatedSnapshotSize {
+					aggregatedSnapshotCapacity := resource.NewQuantity(aggregatedSnapshotCapacityInMB*common.MbInBytes,
+						resource.BinarySI)
+					if aggregatedSnapshotCapacity.Value() == cnsvolumeinfo.Spec.AggregatedSnapshotSize.Value() {
+						log.Debugf("volume %s Aggregated Snapshot capacity %s in CnsVolumeInfo is in sync with CNS",
+							cnsVol.VolumeId.Id, aggregatedSnapshotCapacity.String())
+						alreadySyncedVolumeCount++
+						continue
 					}
-					log.Infof("unable to get snapshot operation completion time for volumeID %q "+
-						"will use current time %v instead", cnsvolumeinfo.Spec.VolumeID, currentTime)
-					patch, err := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapInfo)
-					if err != nil {
-						log.Errorf("unable to get VolumeInfo patch for %q. Error: %+v",
-							cnsvolumeinfo.Spec.VolumeID, err)
-						return err
-					}
-					patchBytes, err := json.Marshal(patch)
-					if err != nil {
-						log.Errorf("error while create VolumeInfo patch for volume %q. Error while marshaling: %+v",
-							cnsvolumeinfo.Spec.VolumeID, err)
-						return err
-					}
-					err = volumeInfoService.PatchVolumeInfo(ctx, cnsvolumeinfo.Spec.VolumeID, patchBytes,
-						allowedRetriesToPatchCNSVolumeInfo)
-					if err != nil {
-						log.Errorf("failed to patch CNSVolumeInfo instance to update snapshot details."+
-							"for volume %q. Error: %+v", cnsvolumeinfo.Spec.VolumeID, err)
-						return err
-					}
-					log.Infof("Updated CNSvolumeInfo with Snapshot details successfully for volume %q",
-						cnsvolumeinfo.Spec.VolumeID)
+					log.Infof("Aggregated Snapshot size mismatch for volume %s, %s in CnsVolumeInfo and %dMB in CNS",
+						cnsVol.VolumeId.Id, cnsvolumeinfo.Spec.AggregatedSnapshotSize.String(),
+						aggregatedSnapshotCapacityInMB)
 				}
+				// Nothing to do if it's invalid in CNS and CNSVolumeInfo
+				if !cnsvolumeinfo.Spec.ValidAggregatedSnapshotSize && aggregatedSnapshotCapacityInMB == -1 {
+					log.Infof("volume %s aggregated snapshot capacity not present in CNS and CNSVolumeInfo",
+						cnsVol.VolumeId.Id)
+					continue
+				}
+				// implies the cnsvolumeinfo has capacity mismatch with CNS queryVolume result OR
+				// existing cnsvolumeinfo aggregated snapshot is not set or invalid
+				log.Infof("Update aggregatedSnapshotCapacity for volume %s to %dMB",
+					cnsVol.VolumeId.Id, aggregatedSnapshotCapacityInMB)
+				// use current time as snapshot completion time is not available in fullsync.
+				currentTime := time.Now()
+				cnsSnapInfo := &volumes.CnsSnapshotInfo{
+					SourceVolumeID:                      cnsvolumeinfo.Spec.VolumeID,
+					SnapshotLatestOperationCompleteTime: time.Now(),
+					AggregatedSnapshotCapacityInMb:      aggregatedSnapshotCapacityInMB,
+				}
+				log.Infof("snapshot operation completion time unavailable for volumeID %s, will"+
+					" use current time %v instead", cnsvolumeinfo.Spec.VolumeID, currentTime.String())
+				patch, err := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapInfo)
+				if err != nil {
+					log.Errorf("unable to get VolumeInfo patch for %s. Error: %+v. Continuing..",
+						cnsvolumeinfo.Spec.VolumeID, err)
+					continue
+				}
+				patchBytes, err := json.Marshal(patch)
+				if err != nil {
+					log.Errorf("error while create VolumeInfo patch for volume %s. Error while marshaling: %+v. Continuing..",
+						cnsvolumeinfo.Spec.VolumeID, err)
+					continue
+				}
+				err = volumeInfoService.PatchVolumeInfo(ctx, cnsvolumeinfo.Spec.VolumeID, patchBytes,
+					allowedRetriesToPatchCNSVolumeInfo)
+				if err != nil {
+					log.Errorf("failed to patch CNSVolumeInfo instance to update snapshot details."+
+						"for volume %s. Error: %+v. Continuing..", cnsvolumeinfo.Spec.VolumeID, err)
+					continue
+				}
+				log.Infof("Updated CNSvolumeInfo with Snapshot details successfully for volume %s",
+					cnsvolumeinfo.Spec.VolumeID)
+				outOfSyncVolumeCount++
 			}
 		}
 	}
-	return nil
+	log.Infof("Number of volumes with synced aggregated snapshot size with CNS %d", alreadySyncedVolumeCount)
+	log.Infof("Number of volumes with out-of-sync aggregated snapshot size with CNS %d", outOfSyncVolumeCount)
 }
 
 // fullSyncCreateVolumes creates volumes with given array of createSpec.
@@ -1214,7 +1234,7 @@ func fullSyncGetVolumeSpecs(ctx context.Context, vCenterVersion string, pvList [
 				log.Infof("FullSync for VC %s: update is required for volume: %q", vc, volumeHandle)
 				operationType = "updateVolume"
 			} else {
-				log.Infof("FullSync for VC %s: update is not required for volume: %q", vc, volumeHandle)
+				log.Debugf("FullSync for VC %s: update is not required for volume: %q", vc, volumeHandle)
 			}
 		}
 		switch operationType {

@@ -122,7 +122,7 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch,
 			err := property.WaitForUpdatesEx(ctx, p, filter, func(updates []types.ObjectUpdate) bool {
 				ctx := logger.NewContextWithLogger(ctx)
 				log = logger.GetLogger(ctx)
-				log.Infof("Got %d property collector update(s)", len(updates))
+				log.Debugf("Got %d property collector update(s)", len(updates))
 				reconcileAllScheduled := false
 				for _, update := range updates {
 					propChange := update.ChangeSet

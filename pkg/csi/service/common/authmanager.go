@@ -180,7 +180,7 @@ func (authManager *AuthManager) refreshFSEnabledClustersToDsMap() {
 		defer authManager.rwMutex.Unlock()
 
 		authManager.fsEnabledClusterToDsMap = newFsEnabledClusterToDsMap
-		log.Infof("auth manager: newFsEnabledClusterToDsMap is updated to %v for vCenter %q",
+		log.Debugf("auth manager: newFsEnabledClusterToDsMap is updated to %v for vCenter %q",
 			newFsEnabledClusterToDsMap, vcenterHost)
 	} else {
 		log.Warnf("auth manager: failed to get updated datastoreMapForFileVolumes for vCenter %q, Err: %v",
@@ -502,7 +502,7 @@ func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCen
 			log.Debugf("vSAN file service is enabled for cluster: %+v and vCenter: %q.",
 				cluster, vc.Config.Host)
 		} else {
-			log.Infof("vSAN file service is disabled for cluster: %+v and vCenter: %q.",
+			log.Debugf("vSAN file service is disabled for cluster: %+v and vCenter: %q.",
 				cluster, vc.Config.Host)
 		}
 	}

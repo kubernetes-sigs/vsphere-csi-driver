@@ -27,6 +27,8 @@ import (
 	"sync"
 	"time"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/storagepool"
+
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -46,6 +48,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	"github.com/go-logr/zapr"
+	cr_log "sigs.k8s.io/controller-runtime/pkg/log"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
@@ -69,7 +73,6 @@ import (
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/featurestates"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/storagepool"
 )
 
 var (
@@ -204,6 +207,7 @@ func getPVtoBackingDiskObjectIdIntervalInMin(ctx context.Context) int {
 func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *cnsconfig.ConfigurationInfo) error {
 	log := logger.GetLogger(ctx)
+	cr_log.SetLogger(zapr.NewLogger(log.Desugar()))
 	var err error
 	log.Infof("Initializing MetadataSyncer")
 	metadataSyncer := newInformer()
@@ -938,7 +942,7 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 			cnsvolumeoperationrequest.CRDSingular, err)
 		return
 	}
-	log.Infof("cnsvolumeoperationrequestCRAdded: Received a CR added event for cnsvolumeoperationrequestObj %v",
+	log.Debugf("cnsvolumeoperationrequestCRAdded: Received a CR added event for cnsvolumeoperationrequestObj %+v",
 		cnsvolumeoperationrequestObj)
 	// Check for the below set of conditions:
 	// 1. Cnsvolumeoperationrequest object's StorageQuotaDetails should not be nil
@@ -950,23 +954,24 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 		// For CRs mapping to Volumes which are in Bound state, the Reserved Value will be zero.
 		// So, we can safely skip the CRAdded event.
 		if cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value() == 0 {
-			log.Infof("cnsvolumeoperationrequestCRAdded: Received a cnsvolumeoperationrequest CR added event "+
+			log.Debugf("cnsvolumeoperationrequestCRAdded: Received a cnsvolumeoperationrequest CR added event "+
 				"for %q, with the reserved capacity as zero(0). Skipping the informer event",
 				cnsvolumeoperationrequestObj.Name)
 			return
 		}
-		isSnapshot := checkOperationRequestCRForSnapshot(ctx, cnsvolumeoperationrequestObj.Name)
+		cnsVolumeOperationRequestName := cnsvolumeoperationrequestObj.Name
+		isSnapshot := checkOperationRequestCRForSnapshot(ctx, cnsVolumeOperationRequestName)
 		storagePolicyUsageInstanceName := ""
 		if isSnapshot {
 			// Fetch StoragePolicyUsage instance for storageClass associated with the snapshot.
-			log.Infof("Received a CR added event for snapshot operation with snapshotID %q",
-				cnsvolumeoperationrequestObj.Status.SnapshotID)
+			log.Infof("Received a CR added event for snapshot operation on volumeID: %s CnsVolumeOperationRequest: %s",
+				cnsvolumeoperationrequestObj.Status.VolumeID, cnsVolumeOperationRequestName)
 			storagePolicyUsageInstanceName = cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.
 				StorageClassName + "-" + storagepolicyv1alpha2.NameSuffixForSnapshot
 		} else {
 			// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
-			log.Infof("Received a CR added event for pvc operation with volumeID %q",
-				cnsvolumeoperationrequestObj.Status.VolumeID)
+			log.Infof("Received a CR added event for pvc operation with volumeID: %s CnsVolumeOperationRequest: %s",
+				cnsvolumeoperationrequestObj.Status.VolumeID, cnsVolumeOperationRequestName)
 			storagePolicyUsageInstanceName = cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.
 				StorageClassName + "-" + storagepolicyv1alpha2.NameSuffixForPVC
 		}
@@ -1004,9 +1009,10 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
 				return
 			}
-			log.Infof("cnsvolumeoperationrequestCRAdded: Successfully increased the reserved field by %v bytes "+
-				"for storagepolicyusage CR: %q", cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
-				patchedStoragePolicyUsageCR.Name)
+			log.Infof("cnsvolumeoperationrequestCRAdded: Successfully increased the reserved field by %s "+
+				"for storagepolicyusage CR: %s for CnsVolumeOperationRequest: %s",
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.String(),
+				patchedStoragePolicyUsageCR.Name, cnsVolumeOperationRequestName)
 			return
 		} else {
 			// This is a case where, the storagePolicyUsage CR does not have Status field.
@@ -1029,8 +1035,8 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
 				return
 			}
-			log.Infof("cnsvolumeoperationrequestCRAdded: Successfully increased the reserved field by %v bytes "+
-				"for storagepolicyusage CR: %q", cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
+			log.Infof("cnsvolumeoperationrequestCRAdded: Successfully increased the reserved field by %s "+
+				"for storagepolicyusage CR: %q", cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.String(),
 				patchedStoragePolicyUsageCR.Name)
 			return
 		}
@@ -1062,15 +1068,20 @@ func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
 			log.Errorf("Failed to create CnsOperator client. Err: %+v", err)
 			return
 		}
-		isSnapshot := checkOperationRequestCRForSnapshot(ctx, cnsvolumeoperationrequestObj.Name)
+		cnsVolumeOperationRequestName := cnsvolumeoperationrequestObj.Name
+		isSnapshot := checkOperationRequestCRForSnapshot(ctx, cnsVolumeOperationRequestName)
 		storagePolicyUsageInstanceName := ""
 		if isSnapshot {
 			// Fetch StoragePolicyUsage instance for storageClass associated with the snapshot.
 			log.Infof("cnsvolumeoperationrequestCRDeleted: Delete event receieved for snapshot operation "+
-				"with snapshoID %q ", cnsvolumeoperationrequestObj.Status.SnapshotID)
+				"with snapshoID %s CnsVolumeOperationRequest: %s",
+				cnsvolumeoperationrequestObj.Status.SnapshotID, cnsVolumeOperationRequestName)
 			storagePolicyUsageInstanceName = cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.
 				StorageClassName + "-" + storagepolicyv1alpha2.NameSuffixForSnapshot
 		} else {
+			log.Infof("cnsvolumeoperationrequestCRDeleted: Delete event receieved for PVC operation "+
+				"with volumeID %s CnsVolumeOperationRequest: %s",
+				cnsvolumeoperationrequestObj.Status.VolumeID, cnsVolumeOperationRequestName)
 			// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
 			storagePolicyUsageInstanceName = cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
 				storagepolicyv1alpha2.NameSuffixForPVC
@@ -1081,7 +1092,7 @@ func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
 			Name:      storagePolicyUsageInstanceName},
 			storagePolicyUsageCR)
 		if err != nil {
-			log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
+			log.Errorf("failed to fetch %s instance with name %s from supervisor namespace %s. Error: %+v",
 				storagepolicyv1alpha2.CRDSingular, storagePolicyUsageInstanceName,
 				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace, err)
 			return
@@ -1098,9 +1109,10 @@ func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
 			log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
 			return
 		}
-		log.Infof("cnsvolumeoperationrequestCRDeleted: Successfully decreased the reserved field by %v bytes "+
-			"for storagepolicyusage CR: %q", cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
-			patchedStoragePolicyUsageCR.Name)
+		log.Infof("cnsvolumeoperationrequestCRDeleted: Successfully decreased the reserved field by %s "+
+			"for storagepolicyusage CR: %s CnsVolumeOperationRequest: %s",
+			cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.String(),
+			patchedStoragePolicyUsageCR.Name, cnsVolumeOperationRequestName)
 	}
 }
 
@@ -1149,17 +1161,19 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			log.Errorf("Failed to create CnsOperator client. Err: %+v", err)
 			return
 		}
-
-		isSnapshot := checkOperationRequestCRForSnapshot(ctx, newcnsvolumeoperationrequestObj.Name)
+		cnsVolumeOperationRequestName := newcnsvolumeoperationrequestObj.Name
+		isSnapshot := checkOperationRequestCRForSnapshot(ctx, cnsVolumeOperationRequestName)
 		storagePolicyUsageInstanceName := ""
 		if isSnapshot {
-			log.Infof("Update event receieved for snapshot operation with snapshoID %q ",
-				newcnsvolumeoperationrequestObj.Status.SnapshotID)
+			log.Infof("Update event receieved for snapshot operation on volumeID %s CnsVolumeOperationRequest: %s",
+				newcnsvolumeoperationrequestObj.Status.VolumeID, cnsVolumeOperationRequestName)
 			// Fetch StoragePolicyUsage instance for storageClass associated with the snapshot.
 			storagePolicyUsageInstanceName = newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.
 				StorageClassName + "-" + storagepolicyv1alpha2.NameSuffixForSnapshot
 
 		} else {
+			log.Infof("Update event receieved for volume operation on volumeID %s CnsVolumeOperationRequest: %s",
+				newcnsvolumeoperationrequestObj.Status.VolumeID, cnsVolumeOperationRequestName)
 			// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
 			storagePolicyUsageInstanceName = newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
 				storagepolicyv1alpha2.NameSuffixForPVC
@@ -1171,7 +1185,7 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			Name:      storagePolicyUsageInstanceName},
 			storagePolicyUsageCR)
 		if err != nil {
-			log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
+			log.Errorf("failed to fetch %s instance with name %s from supervisor namespace %s. Error: %+v",
 				storagepolicyv1alpha2.CRDSingular, storagePolicyUsageInstanceName,
 				newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace, err)
 			return
@@ -1188,7 +1202,8 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			// CnsVolumeOperationRequest "reserved" field
 			if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil {
 				// Move forward only if StoragePolicyUsage CR has Status.QuotaUsage fields not nil
-				log.Infof("Increase the reserved value in storagePolicyUsage CR %s", storagePolicyUsageCR.Name)
+				log.Infof("Increase the reserved value in storagePolicyUsage CR %s by %d",
+					storagePolicyUsageCR.Name, newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value())
 				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
 					*newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
 				err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
@@ -1197,9 +1212,10 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 					log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
 					return
 				}
-				log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully increased the reserved field by %v bytes "+
-					"for storagepolicyusage CR: %q", newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
-					patchedStoragePolicyUsageCR.Name)
+				log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully increased the reserved field by %s "+
+					"for storagepolicyusage CR: %s CnsVolumeOperationRequest: %s",
+					newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.String(),
+					patchedStoragePolicyUsageCR.Name, cnsVolumeOperationRequestName)
 			}
 		} else {
 			// This is a case where CSI Driver container decreases the value of "reserved" value in
@@ -1208,42 +1224,51 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			// needs to be decreased and the "used" field needs to be increased in StoragePolicyUsage CR.
 			// 2. when the latest CNS task tracked by the CNSVolumeOperationRequest errors out: in this case,
 			// just the "reserved" field in StoragePolicyUsage needs to be decreased.
-			log.Infof("Decrease the reserved value in storagePolicyUsage CR %s", storagePolicyUsageCR.Name)
+			log.Infof("Decrease the reserved value in storagePolicyUsage CR %s by %s CnsVolumeOperationRequest: %s",
+				storagePolicyUsageCR.Name, oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.String(),
+				cnsVolumeOperationRequestName)
 			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(
 				*oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
 			var increaseUsed bool
-			log.Info("skip increase `used` capacity, for snapshot operation cnsvolumeinfo informer will increase it")
 			if !isSnapshot {
 				// Fetch the latest task of the CNSVolumeOperationRequest instance and increment
 				// "used" only when the task is successful.
 				latestOps := newcnsvolumeoperationrequestObj.Status.LatestOperationDetails
 				latestOp := latestOps[len(latestOps)-1]
-				log.Infof("Decrease the used value in storagePolicyUsage CR %s", storagePolicyUsageCR.Name)
 				if latestOp.TaskStatus == cnsvolumeoperationrequest.TaskInvocationStatusSuccess {
-					log.Debugf("Latest task %q in %s instance %q succeeded. Incrementing \"used\" "+
+					log.Debugf("Latest task %s in %s instance %s succeeded. Incrementing \"used\" "+
 						"field in storagepolicyusage CR", latestOp.TaskID,
 						cnsvolumeoperationrequest.CRDSingular, newcnsvolumeoperationrequestObj.Name)
+					log.Infof("Increase the used value in storagePolicyUsage CR %s by %s "+
+						" since the operation was successful CnsVolumeOperationRequest: %s",
+						storagePolicyUsageCR.Name,
+						oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.String(),
+						cnsVolumeOperationRequestName)
 					patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
 						*oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
 					increaseUsed = true
 				}
+			} else {
+				log.Debug("skip increase `used` capacity, for snapshot operation cnsvolumeinfo informer will increase it")
 			}
 			err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
-				log.Errorf("patching operation failed for StoragePolicyUsage CR: %q in namespace: %q. err: %v",
+				log.Errorf("patching operation failed for StoragePolicyUsage CR: %s in namespace: %s. err: %v",
 					patchedStoragePolicyUsageCR.Name, patchedStoragePolicyUsageCR.Namespace, err)
 				return
 			}
 			log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully decreased the reserved field "+
-				"by %v bytes for storagepolicyusage CR: %q in namespace: %q",
-				oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
-				patchedStoragePolicyUsageCR.Name, patchedStoragePolicyUsageCR.Namespace)
+				"by %s for storagepolicyusage CR: %s in namespace: %s CnsVolumeOperationRequest: %s",
+				oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.String(),
+				patchedStoragePolicyUsageCR.Name, patchedStoragePolicyUsageCR.Namespace,
+				cnsVolumeOperationRequestName)
 			if increaseUsed {
 				log.Infof("cnsvolumeoperationrequestCRUpdated: Successfully increased the used field "+
-					"by %v bytes for storagepolicyusage CR: %q in namespace: %q",
-					oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value(),
-					patchedStoragePolicyUsageCR.Name, patchedStoragePolicyUsageCR.Namespace)
+					"by %s for storagepolicyusage CR: %s in namespace: %s CnsVolumeOperationRequest: %s",
+					oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.String(),
+					patchedStoragePolicyUsageCR.Name, patchedStoragePolicyUsageCR.Namespace,
+					cnsVolumeOperationRequestName)
 			}
 		}
 	}
@@ -3292,9 +3317,9 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 				spuKey := strings.Join([]string{storagePolicyUsage.Spec.StorageClassName,
 					storagePolicyUsage.Spec.StoragePolicyId, storagePolicyUsage.Namespace}, "-")
 				if usedQty, ok := spuAggregatedSumMap[spuKey]; ok {
-					log.Infof("storagePolicyUsageCRSync: The used capacity field for StoragepolicyUsage CR: %q "+
-						"in namespace: %q Total AggregatedSnapshotSize Sum In MB is: %v", storagePolicyUsage.Name,
-						storagePolicyUsage.Namespace, usedQty.Value())
+					log.Infof("storagePolicyUsageCRSync: The used capacity field for StoragepolicyUsage CR: %s "+
+						"in namespace: %s Total AggregatedSnapshotSize Sum is: %s", storagePolicyUsage.Name,
+						storagePolicyUsage.Namespace, usedQty.String())
 					totalUsedQty = usedQty
 					updateSpu = true
 				}
@@ -3305,26 +3330,26 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 					// Compare the expected total used capacity vs the actual used capacity value in storagePolicyUsage CR
 					patchedStoragePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Used = totalUsedQty
 					currentUsedCapacity := storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Used
-					if !reflect.DeepEqual(currentUsedCapacity.Value(), totalUsedQty.Value()) {
-						log.Infof("storagePolicyUsageCRSync: The used capacity field for StoragepolicyUsage CR: %q in namespace: %q "+
-							"is not matching with the total capacity of all the k8s volumes in Bound state. Current: %v . "+
-							"Expected: %v", storagePolicyUsage.Name, storagePolicyUsage.Namespace,
-							currentUsedCapacity.Value(), totalUsedQty.Value())
+					if currentUsedCapacity.Value() != totalUsedQty.Value() {
+						log.Infof("storagePolicyUsageCRSync: The used capacity field for StoragepolicyUsage CR: %s in namespace: %s "+
+							"is not matching with the total capacity of all the k8s volumes in Bound state. Current: %s , "+
+							"Expected: %s", storagePolicyUsage.Name, storagePolicyUsage.Namespace,
+							currentUsedCapacity.String(), totalUsedQty.String())
 						err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, &storagePolicyUsage,
 							&patchedStoragePolicyUsage)
 						if err != nil {
-							log.Errorf("storagePolicyUsageCRSync: Patching operation failed for StoragePolicyUsage CR: %q in "+
-								"namespace: %q. err: %v", storagePolicyUsage.Name, patchedStoragePolicyUsage.Namespace, err)
-							return
+							log.Errorf("storagePolicyUsageCRSync: Patching operation failed for StoragePolicyUsage CR: %s in "+
+								"namespace: %s. err: %v. Continuing..", storagePolicyUsage.Name, patchedStoragePolicyUsage.Namespace, err)
+							continue
 						}
-						log.Infof("storagePolicyUsageCRSync: Successfully updated the used field from %v to %v for StoragepolicyUsage "+
-							"CR: %q in namespace: %q", currentUsedCapacity.Value(),
-							totalUsedQty.Value(), patchedStoragePolicyUsage.Name, patchedStoragePolicyUsage.Namespace)
+						log.Infof("storagePolicyUsageCRSync: Successfully updated the used field from %s to %s for StoragepolicyUsage "+
+							"CR: %s in namespace: %s", currentUsedCapacity.String(),
+							totalUsedQty.String(), patchedStoragePolicyUsage.Name, patchedStoragePolicyUsage.Namespace)
 					} else {
-						log.Infof("storagePolicyUsageCRSync: The used capacity field for StoragepolicyUsage CR: %q in namespace: %q "+
-							"field is matching with the total capacity. Used: %v Skipping the Patch operation",
+						log.Infof("storagePolicyUsageCRSync: The used capacity field for StoragepolicyUsage CR: %s in namespace: %s "+
+							"field is matching with the total capacity. Used: %s Skipping the Patch operation",
 							storagePolicyUsage.Name, storagePolicyUsage.Namespace,
-							storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Used.Value())
+							storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Used.String())
 					}
 				} else {
 					patchedStoragePolicyUsage.Status = storagepolicyv1alpha2.StoragePolicyUsageStatus{
@@ -3335,12 +3360,12 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 					err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, &storagePolicyUsage,
 						&patchedStoragePolicyUsage)
 					if err != nil {
-						log.Errorf("storagePolicyUsageCRSync: Patching operation failed for StoragePolicyUsage CR: %q in "+
-							"namespace: %q. err: %v", storagePolicyUsage.Name, patchedStoragePolicyUsage.Namespace, err)
-						return
+						log.Errorf("storagePolicyUsageCRSync: Patching operation failed for StoragePolicyUsage CR: %s in "+
+							"namespace: %s. err: %v. Continuing..", storagePolicyUsage.Name, patchedStoragePolicyUsage.Namespace, err)
+						continue
 					}
-					log.Infof("storagePolicyUsageCRSync: Successfully updated the used field to %v for StoragepolicyUsage "+
-						"CR: %q in namespace: %q", totalUsedQty.Value(), patchedStoragePolicyUsage.Name,
+					log.Infof("storagePolicyUsageCRSync: Successfully updated the used field to %s for StoragepolicyUsage "+
+						"CR: %s in namespace: %s", totalUsedQty.String(), patchedStoragePolicyUsage.Name,
 						patchedStoragePolicyUsage.Namespace)
 				}
 			}
@@ -3490,10 +3515,10 @@ func cnsVolumeInfoCRUpdated(oldObj interface{}, newObj interface{}, metadataSync
 		return
 	}
 	if diffSnapshotSize.Value() > 0 {
-		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size increased by %v, increased Used "+
-			"field for storagepolicyusage CR: %q", diffSnapshotSize, patchedStoragePolicyUsageCR.Name)
+		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size increased by %s, increased Used "+
+			"field for storagepolicyusage CR: %s", diffSnapshotSize.String(), patchedStoragePolicyUsageCR.Name)
 	} else if diffSnapshotSize.Value() < 0 {
-		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size decreased by %v, decreased Used "+
-			"field for storagepolicyusage CR: %q", diffSnapshotSize, patchedStoragePolicyUsageCR.Name)
+		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size decreased by %s, decreased Used "+
+			"field for storagepolicyusage CR: %s", diffSnapshotSize.String(), patchedStoragePolicyUsageCR.Name)
 	}
 }
