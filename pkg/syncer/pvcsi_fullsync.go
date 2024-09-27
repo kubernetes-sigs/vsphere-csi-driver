@@ -19,6 +19,7 @@ package syncer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"time"
 
@@ -148,6 +149,14 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 				log.Warnf("FullSync: Failed to delete CnsVolumeMetadata %v. Err: %v", supervisorObject.Name, err)
 			}
 		}
+	}
+
+	// Set csi.vsphere.tanzu-kubernetes-cluster annotation on the Supervisor PVC which is
+	// requested from TKC Cluster
+	err = setTanzuClusterIDOnSupervisorPVC(ctx, metadataSyncer, supervisorNamespace)
+	if err != nil {
+		log.Errorf("FullSync: Failed to create CnsVolumeMetadataList from guest cluster. Err: %v", err)
+		return err
 	}
 
 	log.Infof("FullSync: End")
@@ -353,6 +362,62 @@ func GenerateVolumeNodeAffinity(accessibleTopology []*csi.Topology) *v1.VolumeNo
 			NodeSelectorTerms: terms,
 		},
 	}
+}
+
+func setTanzuClusterIDOnSupervisorPVC(ctx context.Context, metadataSyncer *metadataSyncInformer,
+	supervisorNamespace string) error {
+	log := logger.GetLogger(ctx)
+	log.Debugf("FullSync: Querying guest cluster API server for all PV objects.")
+	pvList, err := getPVsInBoundAvailableOrReleased(ctx, metadataSyncer)
+	if err != nil {
+		log.Errorf("FullSync: Failed to get PVs from guest cluster. Err: %v", err)
+		return err
+	}
+	for _, pv := range pvList {
+		if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound {
+			svPVC, err := metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).
+				Get(ctx, pv.Spec.CSI.VolumeHandle, metav1.GetOptions{})
+			if err != nil {
+				msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v",
+					pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
+				log.Error(msg)
+				continue
+			}
+			if svPVC.Annotations[common.AnnTanzuGuestClusterOwner] != "" {
+				// Function to generate annotation key with an index if it already exists
+				addAnnotationWithIndex := func(prefix, uid string, annotations map[string]string) {
+					index := 1
+					key := fmt.Sprintf("%s-%d", prefix, index)
+
+					// Check if key with current index exists, and increment until it's unique
+					for {
+						if _, exists := annotations[key]; !exists {
+							break
+						}
+						index++
+						key = fmt.Sprintf("%s-%d", prefix, index)
+					}
+
+					// Assign the value to the unique key
+					annotations[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+				}
+				// Adding the annotation with index check
+				annotationKey := metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName +
+					metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+
+				addAnnotationWithIndex(common.AnnTanzuGuestClusterOwner, annotationKey, svPVC.Annotations)
+				_, err = metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).Update(
+					ctx, svPVC, metav1.UpdateOptions{})
+				if err != nil {
+					msg := fmt.Sprintf("failed to update supervisor PVC: %q with annoation %q in %q namespace. Error: %+v",
+						pv.Spec.CSI.VolumeHandle, common.AnnTanzuGuestClusterOwner, supervisorNamespace, err)
+					log.Error(msg)
+					continue
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // compareCnsVolumeMetadatas compares input cnsvolumemetadata objects

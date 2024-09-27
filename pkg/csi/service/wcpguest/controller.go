@@ -81,6 +81,7 @@ type controller struct {
 	vmWatcher                   *cache.ListWatch
 	supervisorNamespace         string
 	tanzukubernetesClusterUID   string
+	tanzukubernetesClusterName  string
 }
 
 // New creates a CNS controller
@@ -99,6 +100,7 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 		return err
 	}
 	c.tanzukubernetesClusterUID = config.GC.TanzuKubernetesClusterUID
+	c.tanzukubernetesClusterName = config.GC.TanzuKubernetesClusterName
 	c.restClientConfig = k8s.GetRestClientConfigForSupervisor(ctx, config.GC.Endpoint, config.GC.Port)
 	c.supervisorClient, err = k8s.NewSupervisorClient(ctx, c.restClientConfig)
 	if err != nil {
@@ -311,13 +313,35 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		if err != nil {
 			if errors.IsNotFound(err) {
 				diskSize := strconv.FormatInt(volSizeMB, 10) + "Mi"
-				var annotations map[string]string
+				annotations := make(map[string]string)
+				//
+				// Function to generate annotation key with an index if it already exists
+				addAnnotationWithIndex := func(prefix, uid string, annotations map[string]string) {
+					index := 1
+					key := fmt.Sprintf("%s-%d", prefix, index)
+
+					// Check if key with current index exists, and increment until it's unique
+					for {
+						if _, exists := annotations[key]; !exists {
+							break
+						}
+						index++
+						key = fmt.Sprintf("%s-%d", prefix, index)
+					}
+
+					// Assign the value to the unique key
+					annotations[key] = c.tanzukubernetesClusterUID
+				}
+
+				// Adding the annotation with index check
+				annotationKey := c.tanzukubernetesClusterName + c.tanzukubernetesClusterUID
+				addAnnotationWithIndex(common.AnnTanzuGuestClusterOwner, annotationKey, annotations)
+
 				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 					req.AccessibilityRequirements != nil &&
 					(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) ||
 						!isFileVolumeRequest) {
 					// Generate volume topology requirement annotation.
-					annotations = make(map[string]string)
 					topologyAnnotation, err := generateGuestClusterRequestedTopologyJSON(req.AccessibilityRequirements.Preferred)
 					if err != nil {
 						msg := fmt.Sprintf("failed to generate accessibility topology for pvc with name: %s "+
