@@ -213,12 +213,13 @@ func getAccessMode(accessMode csi.VolumeCapability_AccessMode_Mode) v1.Persisten
 // getPersistentVolumeClaimSpecWithStorageClass return the PersistentVolumeClaim spec with specified storage class
 func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace string, diskSize string,
 	storageClassName string, pvcAccessMode v1.PersistentVolumeAccessMode, annotations map[string]string,
-	volumeSnapshotName string) *v1.PersistentVolumeClaim {
+	labels map[string]string, volumeSnapshotName string) *v1.PersistentVolumeClaim {
 	claim := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        pvcName,
 			Namespace:   namespace,
 			Annotations: annotations,
+			Labels:      labels,
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
 			AccessModes: []v1.PersistentVolumeAccessMode{
