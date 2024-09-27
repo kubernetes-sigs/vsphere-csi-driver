@@ -455,7 +455,7 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 	if len(sharedDatastores) == 0 && len(vsanDirectDatastores) == 0 {
 		return nil, nil, fmt.Errorf("no candidates datastores found in the Kubernetes cluster")
 	}
-	log.Infof("Found shared datastores: %+v and vSAN Direct datastores: %+v", sharedDatastores,
+	log.Debugf("Found shared datastores: %+v and vSAN Direct datastores: %+v", sharedDatastores,
 		vsanDirectDatastores)
 	return sharedDatastores, vsanDirectDatastores, nil
 }

@@ -779,7 +779,7 @@ func validateAndCorrectVolumeInfoSnapshotDetails(ctx context.Context,
 			continue
 		}
 		if cnsVol, ok := cnsVolumeMap[cnsvolumeinfo.Spec.VolumeID]; ok {
-			log.Infof("validate volume info for storage details for volume %s", cnsVol.VolumeId.Id)
+			log.Debugf("validate volume info for storage details for volume %s", cnsVol.VolumeId.Id)
 			var aggregatedSnapshotCapacity int64
 			if cnsVol.BackingObjectDetails != nil &&
 				cnsVol.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails) != nil {
@@ -787,12 +787,16 @@ func validateAndCorrectVolumeInfoSnapshotDetails(ctx context.Context,
 				if ok {
 					aggregatedSnapshotCapacity = val.AggregatedSnapshotCapacityInMb
 				}
-				log.Infof("Received aggregatedSnapshotCapacity %d for volume %q",
-					aggregatedSnapshotCapacity, cnsVol.VolumeId.Id)
+				if aggregatedSnapshotCapacity > 0 {
+					log.Infof("Received aggregatedSnapshotCapacity %d for volume %q",
+						aggregatedSnapshotCapacity, cnsVol.VolumeId.Id)
+				}
 				if cnsvolumeinfo.Spec.AggregatedSnapshotSize == nil || aggregatedSnapshotCapacity !=
 					cnsvolumeinfo.Spec.AggregatedSnapshotSize.Value() {
 					// use current time as snapshot completion time is not available in fullsync.
-					log.Infof("Update aggregatedSnapshotCapacity for volume %q", cnsVol.VolumeId.Id)
+					log.Infof("Update aggregatedSnapshotCapacity for volume %q from %d to %d",
+						cnsVol.VolumeId.Id, cnsvolumeinfo.Spec.AggregatedSnapshotSize.Value(),
+						aggregatedSnapshotCapacity)
 					currentTime := time.Now()
 					cnsSnapInfo := &volumes.CnsSnapshotInfo{
 						SourceVolumeID:                      cnsvolumeinfo.Spec.VolumeID,
@@ -1214,7 +1218,7 @@ func fullSyncGetVolumeSpecs(ctx context.Context, vCenterVersion string, pvList [
 				log.Infof("FullSync for VC %s: update is required for volume: %q", vc, volumeHandle)
 				operationType = "updateVolume"
 			} else {
-				log.Infof("FullSync for VC %s: update is not required for volume: %q", vc, volumeHandle)
+				log.Debugf("FullSync for VC %s: update is not required for volume: %q", vc, volumeHandle)
 			}
 		}
 		switch operationType {

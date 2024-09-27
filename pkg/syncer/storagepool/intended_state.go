@@ -217,7 +217,7 @@ func isRemoteVsan(ctx context.Context, dsprops *dsProps,
 		return false, nil
 	}
 
-	log.Infof("vSAN Datastore %s is remote to this cluster", dsprops.dsName)
+	log.Debugf("vSAN Datastore %s is remote to this cluster", dsprops.dsName)
 	return true, nil
 }
 
@@ -228,7 +228,7 @@ func newIntendedVsanSNAState(ctx context.Context, scWatchCntlr *StorageClassWatc
 	nodes := make([]string, 0)
 	nodes = append(nodes, node)
 
-	log.Infof("creating vsan sna sp %q", node)
+	log.Debugf("creating vsan sna sp %q", node)
 	compatSC := make([]string, 0)
 	for _, scName := range vsan.compatSC {
 		if scWatchCntlr.isHostLocal(scName) {
@@ -356,7 +356,7 @@ func (c *SpController) applyIntendedState(ctx context.Context, state *intendedSt
 	} else {
 		// StoragePool already exists, so Update it. We don't expect
 		// ConflictErrors since updates are synchronized with a lock.
-		log.Infof("Updating StoragePool instance for %s", state.spName)
+		log.Debugf("Updating StoragePool instance for %s", state.spName)
 		sp := state.updateUnstructuredStoragePool(ctx, sp)
 		newSp, err := spClient.Resource(*spResource).Update(ctx, sp, metav1.UpdateOptions{})
 		if err != nil {
