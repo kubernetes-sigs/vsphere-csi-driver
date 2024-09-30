@@ -221,7 +221,7 @@ const (
 	vsphereCloudProviderConfiguration         = "vsphere-cloud-provider.conf"
 	vsphereControllerManager                  = "vmware-system-tkg-controller-manager"
 	vSphereCSIConf                            = "csi-vsphere.conf"
-	vsphereTKGSystemNamespace                 = "vmware-system-tkg"
+	vsphereTKGSystemNamespace                 = "svc-tkg-domain-c10"
 	waitTimeForCNSNodeVMAttachmentReconciler  = 30 * time.Second
 	wcpServiceName                            = "wcp"
 	vmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant

@@ -2040,7 +2040,7 @@ func performPasswordRotationOnSupervisor(client clientset.Interface, ctx context
 	currentTimestamp := time.Now()
 	twelveHoursAgoTimestamp := (currentTimestamp.Add(-12 * time.Hour)).Unix()
 	sshCmd = fmt.Sprintf("cd /etc/vmware/wcp; sudo -u wcp psql -U wcpuser -d VCDB -c "+
-		"\"update cluster_db_configs set last_storage_pwd_rotation_timestamp=%v "+
+		"\"update vcenter_svc_accounts set last_pwd_rotation_timestamp=%v "+
 		"where instance_id='%s'\"", twelveHoursAgoTimestamp, vsphereCfg.Global.SupervisorID)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
 	result, err = fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
