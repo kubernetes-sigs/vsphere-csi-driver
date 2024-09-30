@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -413,7 +414,7 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		if setCfgGlobalvCenter && cfg.Global.VCenterIP == "" {
 			cfg.Global.VCenterIP = vcServer
 		}
-		// Print out the config. WARNING: This will print the password used in plain text.
+		// Print out the config.
 		log.Debugf("vc server %s config: %+v", vcServer, vcConfig)
 	}
 
@@ -785,4 +786,24 @@ func GetSessionUserAgent(ctx context.Context) (string, error) {
 		}
 	}
 	return useragent, nil
+}
+
+// String returns a string representation of VirtualCenterConfig with sensitive fields redacted
+func (vc VirtualCenterConfig) String() string {
+	val := reflect.ValueOf(vc)
+	typ := val.Type()
+
+	var fields []string
+	for i := 0; i < val.NumField(); i++ {
+		field := typ.Field(i)
+		value := val.Field(i)
+
+		if field.Tag.Get("sensitive") == "true" {
+			fields = append(fields, fmt.Sprintf("%s:%s", field.Name, strings.Repeat("*", value.Len())))
+		} else {
+			fields = append(fields, fmt.Sprintf("%s:%v", field.Name, value.Interface()))
+		}
+	}
+
+	return fmt.Sprintf("{%s}", strings.Join(fields, " "))
 }

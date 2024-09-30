@@ -134,9 +134,9 @@ type NetPermissionConfig struct {
 // endpoint.
 type VirtualCenterConfig struct {
 	// vCenter username.
-	User string `gcfg:"user"`
+	User string `gcfg:"user" sensitive:"true"`
 	// vCenter password in clear text.
-	Password string `gcfg:"password"`
+	Password string `gcfg:"password" sensitive:"true"`
 	// vCenter port.
 	VCenterPort string `gcfg:"port"`
 	// True if vCenter uses self-signed cert.
