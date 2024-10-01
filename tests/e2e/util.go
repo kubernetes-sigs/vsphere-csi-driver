@@ -4345,14 +4345,28 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	podLabels map[string]string, nodeSelector map[string]string, namespace string,
 	pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool, image string) (*appsv1.Deployment, error) {
 	if len(command) == 0 {
-		command = "trap exit TERM; while true; do sleep 1; done"
+		if windowsEnv {
+			command = windowsExecCmd
+		} else {
+			command = "trap exit TERM; while true; do sleep 1; done"
+		}
 	}
 	deploymentSpec := getDeploymentSpec(ctx, client, replicas, podLabels, nodeSelector, namespace,
 		pvclaims, command, isPrivileged, image)
 	if windowsEnv {
+		var commands []string
+		if (len(command) == 0) || (command == execCommand) {
+			commands = []string{windowsExecCmd}
+		} else if command == execRWXCommandPod {
+			commands = []string{windowsExecRWXCommandPod}
+		} else if command == execRWXCommandPod1 {
+			commands = []string{windowsExecRWXCommandPod1}
+		} else {
+			commands = []string{command}
+		}
 		deploymentSpec.Spec.Template.Spec.Containers[0].Image = windowsImageOnMcr
 		deploymentSpec.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
-		deploymentSpec.Spec.Template.Spec.Containers[0].Args = []string{"-Command", command}
+		deploymentSpec.Spec.Template.Spec.Containers[0].Args = commands
 	}
 	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
 	if err != nil {

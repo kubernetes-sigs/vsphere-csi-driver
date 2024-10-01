@@ -131,7 +131,9 @@ const (
 	evacMModeType                             = "evacuateAllData"
 	fcdName                                   = "BasicStaticFCD"
 	fileSizeInMb                              = int64(2048)
+	filePathPod                               = "/mnt/volume1/Pod.html"
 	filePathPod1                              = "/mnt/volume1/Pod1.html"
+	filePathPod2                              = "/mnt/volume1/Pod2.html"
 	filePathFsType                            = "/mnt/volume1/fstype"
 	fullSyncFss                               = "trigger-csi-fullsync"
 	gcNodeUser                                = "vmware-system-user"
