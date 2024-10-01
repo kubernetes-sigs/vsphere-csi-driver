@@ -874,7 +874,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		volumeInfo           *cnsvolume.CnsVolumeInfo
 		faultType            string
 	)
-
+	topologyRequirement = req.AccessibilityRequirements
 	// Volume Size - Default is 10 GiB.
 	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
 	if req.GetCapacityRange() != nil && req.GetCapacityRange().RequiredBytes != 0 {
