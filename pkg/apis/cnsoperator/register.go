@@ -32,6 +32,7 @@ import (
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	storagepolicyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
+	storagequotaperiodicsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagequotaperiodicsync/v1alpha1"
 )
 
 // GroupName represents the group for cns operator apis
@@ -127,19 +128,28 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 
 	scheme.AddKnownTypes(
 		SchemeGroupVersion,
+		&storagequotaperiodicsyncv1alpha1.StorageQuotaPeriodicSync{},
+		&storagequotaperiodicsyncv1alpha1.StorageQuotaPeriodicSyncList{},
+	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
 		&storagepolicyv1alpha1.StoragePolicyUsage{},
 		&storagepolicyv1alpha1.StoragePolicyUsageList{},
 	)
+
 	scheme.AddKnownTypes(
 		SchemeGroupVersionV2,
 		&storagepolicyv1alpha2.StoragePolicyUsage{},
 		&storagepolicyv1alpha2.StoragePolicyUsageList{},
 	)
+
 	scheme.AddKnownTypes(
 		SchemeGroupVersionV2,
 		&storagepolicyv1alpha2.StoragePolicyQuota{},
 		&storagepolicyv1alpha2.StoragePolicyQuotaList{},
 	)
+
 	scheme.AddKnownTypes(
 		SchemeGroupVersion,
 		&metav1.Status{},
@@ -149,6 +159,7 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		scheme,
 		SchemeGroupVersion,
 	)
+
 	metav1.AddToGroupVersion(
 		scheme,
 		SchemeGroupVersionV2,
