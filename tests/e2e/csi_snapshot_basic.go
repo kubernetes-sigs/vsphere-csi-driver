@@ -2260,7 +2260,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if !windowsEnv {
+			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		}
 		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
