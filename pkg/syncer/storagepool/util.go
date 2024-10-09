@@ -90,7 +90,7 @@ func getDatastoreProperties(ctx context.Context, d *cnsvsphere.DatastoreInfo) *d
 		freeSpace:   resource.NewQuantity(ds.Summary.FreeSpace, resource.DecimalSI),
 	}
 
-	log.Infof("Datastore %s properties: %v", d.Info.Name, p)
+	log.Debugf("Datastore %s properties: %v", d.Info.Name, p)
 	return &p
 }
 

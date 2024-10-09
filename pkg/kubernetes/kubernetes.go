@@ -72,14 +72,14 @@ func GetKubeConfig(ctx context.Context) (*restclient.Config, error) {
 	var err error
 	kubecfgPath := getKubeConfigPath(ctx)
 	if kubecfgPath != "" {
-		log.Infof("k8s client using kubeconfig from %s", kubecfgPath)
+		log.Debugf("k8s client using kubeconfig from %s", kubecfgPath)
 		config, err = clientcmd.BuildConfigFromFlags("", kubecfgPath)
 		if err != nil {
 			log.Errorf("BuildConfigFromFlags failed %v", err)
 			return nil, err
 		}
 	} else {
-		log.Info("k8s client using in-cluster config")
+		log.Debug("k8s client using in-cluster config")
 		config, err = restclient.InClusterConfig()
 		if err != nil {
 			log.Errorf("InClusterConfig failed %v", err)
@@ -102,24 +102,24 @@ func getKubeConfigPath(ctx context.Context) string {
 		flagValue := kubecfgFlag.Value.String()
 		if flagValue != "" {
 			kubecfgPath = flagValue
-			log.Infof("Kubeconfig path obtained from kubeconfig flag: %q", kubecfgPath)
+			log.Debugf("Kubeconfig path obtained from kubeconfig flag: %q", kubecfgPath)
 		} else {
-			log.Info("Kubeconfig flag is set but empty, checking environment variable value")
+			log.Debug("Kubeconfig flag is set but empty, checking environment variable value")
 		}
 	} else {
-		log.Info("Kubeconfig flag not set, checking environment variable value")
+		log.Debug("Kubeconfig flag not set, checking environment variable value")
 	}
 	if kubecfgPath == "" {
 		// Get the Kubeconfig path from the environment variable
 		kubecfgPath = os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
-		log.Infof("Kubeconfig path obtained from environment variable %q: %q",
+		log.Debugf("Kubeconfig path obtained from environment variable %q: %q",
 			clientcmd.RecommendedConfigPathEnvVar, kubecfgPath)
 	}
 	// Final logging of the Kubeconfig path used
 	if kubecfgPath == "" {
-		log.Info("No Kubeconfig path found, either from environment variable or flag")
+		log.Debug("No Kubeconfig path found, either from environment variable or flag")
 	} else {
-		log.Infof("Final Kubeconfig path used: %q", kubecfgPath)
+		log.Debugf("Final Kubeconfig path used: %q", kubecfgPath)
 	}
 	return kubecfgPath
 }
@@ -431,7 +431,7 @@ func getClientThroughput(ctx context.Context, isSupervisorClient bool) (float32,
 			burst = value
 		}
 	}
-	log.Infof("Setting client QPS to %f and Burst to %d.", qps, burst)
+	log.Debugf("Setting client QPS to %f and Burst to %d.", qps, burst)
 	return qps, burst
 }
 
