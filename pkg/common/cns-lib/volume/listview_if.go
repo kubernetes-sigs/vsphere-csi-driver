@@ -24,4 +24,9 @@ type ListViewIf interface {
 	// MarkTaskForDeletion marks a given task MoRef for deletion by a cleanup goroutine
 	// use case: failure to remove task due to a vc issue
 	MarkTaskForDeletion(ctx context.Context, taskMoRef types.ManagedObjectReference) error
+	// IsListViewReady returns the status of the listview + property collector mechanism
+	IsListViewReady() bool
+	// SetListViewNotReady explicitly states the listview state as not ready
+	// use case: unit tests
+	SetListViewNotReady(ctx context.Context)
 }
