@@ -1200,6 +1200,98 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		ginkgo.By("File system resize finished successfully")
 	})
 
+	/*
+		CNS Unregister volume API
+
+	*/
+	ginkgo.It("Staging verify cns unregister volume API", func() {
+		ginkgo.By("Staging verify cns unregister volume API")
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var pvclaim *v1.PersistentVolumeClaim
+		var pv *v1.PersistentVolume
+		var err error
+
+		ginkgo.By("Creating a PVC")
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		pvclaim, err = fpv.CreatePVC(ctx, client, namespace,
+			getPersistentVolumeClaimSpecWithStorageClass(namespace, diskSize, storageclass, nil, v1.ReadWriteOnce))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Expect claim to provision volume successfully")
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
+		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		pv = persistentvolumes[0]
+
+		defer func() {
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, pvclaim.Namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create Pod using the above PVC")
+		pod, vmUUID := createPODandVerifyVolumeMountWithoutF(ctx, client, namespace, pvclaim, volHandle)
+
+		defer func() {
+			// Delete POD
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+			err := fpod.DeletePodWithWait(ctx, client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s",
+				pv.Spec.CSI.VolumeHandle, vmUUID))
+			_, err = e2eVSphere.getVMByUUIDWithWait(ctx, vmUUID, supervisorClusterOperationsTimeout)
+			gomega.Expect(err).To(gomega.HaveOccurred(),
+				fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
+					vmUUID, pv.Spec.CSI.VolumeHandle))
+
+		}()
+
+		// Get a config to talk to the apiserver
+		restConfig := getRestConfigClient()
+
+		// Get supvervisor cluster client.
+		_, svNamespace := getSvcClientAndNamespace()
+
+		ginkgo.By("Create CNS register volume with above created FCD")
+		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, svNamespace, volHandle, "", "hello", v1.ReadWriteOnce)
+		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
+			restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
+		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+		framework.Logf("CNS register volume name : %s", cnsRegisterVolumeName)
+
+		ginkgo.By("Create CNS unregister volume with above created FCD " + volHandle)
+
+		cnsUnRegisterVolume := getCNSUnregisterVolumeSpec(namespace, volHandle)
+
+		cnsUnRegisterVolumeName := cnsUnRegisterVolume.GetName()
+
+		framework.Logf("CNS unregister volume name : %s", cnsUnRegisterVolumeName)
+
+		err = createCNSUnRegisterVolume(ctx, restConfig, cnsUnRegisterVolume)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			ginkgo.By("Delete CNS unregister volume CR by name " + cnsUnRegisterVolumeName)
+			err = deleteCNSUnRegisterVolume(ctx, restConfig, cnsUnRegisterVolume)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Waiting for  CNS unregister volume to be unregistered")
+		gomega.Expect(waitForCNSUnRegisterVolumeToGetUnregistered(ctx,
+			restConfig, cnsUnRegisterVolume, poll,
+			supervisorClusterOperationsTimeout)).To(gomega.HaveOccurred())
+
+	})
+
 	// Test for valid disk size of 2Gi
 	ginkgo.It("Verify dynamic provisioning of pv using storageclass with a valid disk size passes", func() {
 		ctx, cancel := context.WithCancel(context.Background())
