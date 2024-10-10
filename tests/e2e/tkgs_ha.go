@@ -71,6 +71,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		labels_ns                  map[string]string
 		isVcRebooted               bool
 		vcAddress                  string
+		isStorageQuotaFSSEnabled   bool
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -141,6 +142,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		} else {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
+
+		//vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		//isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+		isStorageQuotaFSSEnabled = true
 	})
 
 	ginkgo.AfterEach(func() {
@@ -189,6 +194,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		18. Delete PVC,POD,SC
 	*/
 	ginkgo.It("Dynamic PVC -  Zonal storage and Immediate binding", func() {
+		var totalquota_used_before, storagepolicyquota_pvc_before, storagepolicy_usage_pvc_before, totalquota_used_after *resource.Quantity
+		var storagepolicyquota_volSnapshot_before, storagepolicy_usage_volSnapshot_before, storagepolicyquota_volSnapshot_after, storagepolicy_usage_volSnapshot_after *resource.Quantity
+		var storagepolicyquota_pvc_after, storagepolicy_usage_pvc_after *resource.Quantity
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		framework.Logf("snapc: %v", snapc)
@@ -198,12 +207,37 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 
 		ginkgo.By("Creating Pvc with Immediate topology storageclass")
-		createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		//createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, rqLimit)
+		restConfig := getRestConfigClient()
 		scParameters[svStorageClassName] = zonalPolicy
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+
+		if isStorageQuotaFSSEnabled {
+			totalquota_used_before, _ = getTotalQuotaConsumedByStoragePolicy(ctx, restConfig, storageclass.Name, svNamespace)
+			framework.Logf("totalUsedQuota_Before :%v", totalquota_used_before)
+
+			storagepolicyquota_pvc_before, _ = getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, volExtensionName)
+			framework.Logf("volume ********** storagepolicyquota_pvc_before :%v ", storagepolicyquota_pvc_before)
+
+			storagepolicy_usage_pvc_before, _ = getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, pvcUsage)
+			framework.Logf("volume ********** storagepolicy_usage_pvc_before :%v", storagepolicy_usage_pvc_before)
+
+			storagepolicyquota_volSnapshot_before, _ = getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, snapshotExtensionName)
+			framework.Logf("volume ********** storagepolicyquota_pvc_before :%v ", storagepolicyquota_volSnapshot_before)
+
+			storagepolicy_usage_volSnapshot_before, _ = getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, snapshotUsage)
+			framework.Logf("volume ********** storagepolicy_usage_pvc_before :%v", storagepolicy_usage_volSnapshot_before)
+		}
+
 		pvclaim, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -217,6 +251,27 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		svcPVCName := pv.Spec.CSI.VolumeHandle
 		svcPVC := getPVCFromSupervisorCluster(svcPVCName)
+
+		if isStorageQuotaFSSEnabled {
+			totalquota_used_after, _ = getTotalQuotaConsumedByStoragePolicy(ctx, restConfig, storageclass.Name, namespace)
+			framework.Logf("totalquota_used_after :%v", totalquota_used_after)
+
+			storagepolicyquota_pvc_after, _ = getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, volExtensionName)
+			framework.Logf("********** storagepolicyquota_pvc_after :%v", storagepolicyquota_pvc_after)
+
+			storagepolicy_usage_pvc_after, _ = getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, pvcUsage)
+			framework.Logf("********** pvc_Usage_Quota_After :%v", storagepolicy_usage_pvc_after)
+
+			quotavalidationStatus := validate_totalStoragequota(ctx, diskSizeInMb, totalquota_used_before, totalquota_used_after)
+			gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
+			quotavalidationStatus = validate_totalStoragequota(ctx, diskSizeInMb, storagepolicyquota_pvc_before, storagepolicyquota_pvc_after)
+			gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
+			quotavalidationStatus = validate_totalStoragequota(ctx, diskSizeInMb, storagepolicy_usage_pvc_before, storagepolicy_usage_pvc_after)
+			gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
+
+		}
 
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
@@ -270,6 +325,23 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			snapc, volumeSnapshotClass,
 			pvclaim, volHandle, diskSize, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if isStorageQuotaFSSEnabled {
+			storagepolicy_usage_volSnapshot_after, _ = getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, snapshotUsage)
+			framework.Logf("********** pvc_Usage_Quota_After :%v", storagepolicy_usage_volSnapshot_after)
+
+			storagepolicyquota_volSnapshot_after, _ = getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, snapshotExtensionName)
+			framework.Logf("volume ********** storagepolicyquota_pvc_before :%v ", storagepolicyquota_volSnapshot_after)
+
+			quotavalidationStatus := validate_totalStoragequota(ctx, diskSizeInMb, storagepolicyquota_volSnapshot_before, storagepolicyquota_volSnapshot_after)
+			gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
+
+			quotavalidationStatus = validate_totalStoragequota(ctx, diskSizeInMb, storagepolicy_usage_volSnapshot_before, storagepolicy_usage_volSnapshot_after)
+			gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
+
+		}
 		defer func() {
 			if snapshotContentCreated {
 				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
@@ -321,6 +393,28 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
 			volumeSnapshot, pandoraSyncWaitTime, volHandle, dynamicSnapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if isStorageQuotaFSSEnabled {
+			totalquota_used_after_Cleanup, totalReservedQuota_after_Cleanup := getTotalQuotaConsumedByStoragePolicy(ctx, restConfig, storageclass.Name, svNamespace)
+			framework.Logf("totalquota_used_after :%v, totalReservedQuota_after: %v totalQuota", totalquota_used_after_Cleanup, totalReservedQuota_after_Cleanup)
+
+			storagepolicyquota_pvc_after_cleanup, pvc_reservedQuota_after_cleanup := getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, volExtensionName)
+			framework.Logf("volume ********** storagepolicyquota_pvc_after_cleanup :%v, pvc_reservedQuota_after__cleanup: %v PolicyQuota", storagepolicyquota_pvc_after_cleanup, pvc_reservedQuota_after_cleanup)
+
+			pvc_Usage_Quota_After_cleanup, pvc_reserved_Quota_After_cleanup := getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, pvcUsage)
+			framework.Logf("volume ********** pvc_Usage_Quota_After :%v, pvc_reserved_Quota_After: %v ", pvc_Usage_Quota_After_cleanup, pvc_reserved_Quota_After_cleanup)
+
+			quotavalidationStatus_afterCleanup := validate_totalStoragequota_afterCleanUp(ctx, diskSizeInMb, totalquota_used_after, totalquota_used_after_Cleanup)
+			gomega.Expect(quotavalidationStatus_afterCleanup).NotTo(gomega.BeFalse())
+			quotavalidationStatus_afterCleanup = validate_totalStoragequota_afterCleanUp(ctx, diskSizeInMb, storagepolicyquota_pvc_after, storagepolicyquota_pvc_after_cleanup)
+			gomega.Expect(quotavalidationStatus_afterCleanup).NotTo(gomega.BeFalse())
+			quotavalidationStatus_afterCleanup = validate_totalStoragequota_afterCleanUp(ctx, diskSizeInMb, storagepolicy_usage_pvc_after, pvc_Usage_Quota_After_cleanup)
+			gomega.Expect(quotavalidationStatus_afterCleanup).NotTo(gomega.BeFalse())
+			reservedQuota := validate_reservedQuota_afterCleanUp(ctx, totalReservedQuota_after_Cleanup, pvc_reservedQuota_after_cleanup, pvc_reserved_Quota_After_cleanup)
+			gomega.Expect(reservedQuota).NotTo(gomega.BeFalse())
+		}
 	})
 
 	/*
@@ -345,6 +439,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 	*/
 	ginkgo.It("Stateful set - storage class with Zonal storage and wffc and"+
 		" with parallel pod management policy", func() {
+
+		var totalquota_used_before, storagepolicyquota_pvc_before, storagepolicy_usage_pvc_before, totalquota_used_after *resource.Quantity
+		var storagepolicyquota_pvc_after, storagepolicy_usage_pvc_after *resource.Quantity
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -352,7 +450,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 
 		ginkgo.By("Create statefulset with parallel pod management policy with replica 3")
-		createResourceQuota(client, namespace, rqLimit, zonalWffcPolicy)
+		//createResourceQuota(client, namespace, rqLimit, zonalWffcPolicy)
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, rqLimit)
+		restConfig := getRestConfigClient()
 		scParameters[svStorageClassName] = zonalWffcPolicy
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalWffcPolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
@@ -365,6 +466,20 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		defer func() {
 			deleteService(namespace, client, service)
 		}()
+
+		//on GC side though it uses labebinding sc , it points to immediate storage class in SVC
+		if isStorageQuotaFSSEnabled {
+			totalquota_used_before, _ = getTotalQuotaConsumedByStoragePolicy(ctx, restConfig, zonalPolicy, svNamespace)
+			framework.Logf("totalUsedQuota_Before :%v", totalquota_used_before)
+
+			storagepolicyquota_pvc_before, _ = getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				zonalPolicy, svNamespace, volExtensionName)
+			framework.Logf("volume ********** storagepolicyquota_pvc_before :%v ", storagepolicyquota_pvc_before)
+
+			storagepolicy_usage_pvc_before, _ = getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				zonalPolicy, svNamespace, pvcUsage)
+			framework.Logf("volume ********** storagepolicy_usage_pvc_before :%v", storagepolicy_usage_pvc_before)
+		}
 
 		statefulset := GetStatefulSetFromManifest(namespace)
 		ginkgo.By("Creating statefulset")
@@ -392,6 +507,28 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
 						"kubernetes", volumeHandle))
+			}
+
+			if isStorageQuotaFSSEnabled {
+				totalquota_used_after_Cleanup, totalReservedQuota_after_Cleanup := getTotalQuotaConsumedByStoragePolicy(ctx, restConfig, zonalPolicy, svNamespace)
+				framework.Logf("totalquota_used_after :%v, totalReservedQuota_after: %v totalQuota", totalquota_used_after_Cleanup, totalReservedQuota_after_Cleanup)
+
+				storagepolicyquota_pvc_after_cleanup, pvc_reservedQuota_after_cleanup := getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+					zonalPolicy, svNamespace, volExtensionName)
+				framework.Logf("volume ********** storagepolicyquota_pvc_after_cleanup :%v, pvc_reservedQuota_after__cleanup: %v PolicyQuota", storagepolicyquota_pvc_after_cleanup, pvc_reservedQuota_after_cleanup)
+
+				pvc_Usage_Quota_After_cleanup, pvc_reserved_Quota_After_cleanup := getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+					zonalPolicy, svNamespace, pvcUsage)
+				framework.Logf("volume ********** pvc_Usage_Quota_After :%v, pvc_reserved_Quota_After: %v ", pvc_Usage_Quota_After_cleanup, pvc_reserved_Quota_After_cleanup)
+
+				quotavalidationStatus_afterCleanup := validate_totalStoragequota_afterCleanUp(ctx, diskSizeInMb*3, totalquota_used_after, totalquota_used_after_Cleanup)
+				gomega.Expect(quotavalidationStatus_afterCleanup).NotTo(gomega.BeFalse())
+				quotavalidationStatus_afterCleanup = validate_totalStoragequota_afterCleanUp(ctx, diskSizeInMb*3, storagepolicyquota_pvc_after, storagepolicyquota_pvc_after_cleanup)
+				gomega.Expect(quotavalidationStatus_afterCleanup).NotTo(gomega.BeFalse())
+				quotavalidationStatus_afterCleanup = validate_totalStoragequota_afterCleanUp(ctx, diskSizeInMb*3, storagepolicy_usage_pvc_after, pvc_Usage_Quota_After_cleanup)
+				gomega.Expect(quotavalidationStatus_afterCleanup).NotTo(gomega.BeFalse())
+				reservedQuota := validate_reservedQuota_afterCleanUp(ctx, totalReservedQuota_after_Cleanup, pvc_reservedQuota_after_cleanup, pvc_reserved_Quota_After_cleanup)
+				gomega.Expect(reservedQuota).NotTo(gomega.BeFalse())
 			}
 		}()
 
@@ -421,7 +558,9 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		ginkgo.By("Creating Pvc with Immediate topology storageclass")
-		createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		//createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 		scParameters[svStorageClassName] = zonalPolicy
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
@@ -557,6 +696,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		11.Clear all PVC,POD and sc
 	*/
 	ginkgo.It("Verify Online Volume expansion using zonal storage", func() {
+		var totalquota_used_before, storagepolicyquota_pvc_before, storagepolicy_usage_pvc_before *resource.Quantity
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -564,12 +704,16 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		nodeList, _ := fnodes.GetReadySchedulableNodes(ctx, client)
 
 		ginkgo.By("Creating Pvc with Immediate topology storageclass")
-		createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		//createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, rqLimit)
+		restConfig := getRestConfigClient()
 		scParameters[svStorageClassName] = zonalPolicy
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+
 		pvclaim, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -583,6 +727,19 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		svcPVCName := pv.Spec.CSI.VolumeHandle
 		svcPVC := getPVCFromSupervisorCluster(svcPVCName)
+
+		if isStorageQuotaFSSEnabled {
+			totalquota_used_before, _ = getTotalQuotaConsumedByStoragePolicy(ctx, restConfig, storageclass.Name, svNamespace)
+			framework.Logf("totalUsedQuota_Before :%v", totalquota_used_before)
+
+			storagepolicyquota_pvc_before, _ = getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, volExtensionName)
+			framework.Logf("volume ********** storagepolicyquota_pvc_before :%v ", storagepolicyquota_pvc_before)
+
+			storagepolicy_usage_pvc_before, _ = getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, pvcUsage)
+			framework.Logf("volume ********** storagepolicy_usage_pvc_before :%v", storagepolicy_usage_pvc_before)
+		}
 
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
@@ -628,6 +785,25 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		verifyOnlineVolumeExpansionOnGc(client, namespace, svcPVCName, volHandle, pvclaim, pod, f)
 
+		if isStorageQuotaFSSEnabled {
+			totalquota_used_afterExpansion, _ := getTotalQuotaConsumedByStoragePolicy(ctx, restConfig, storageclass.Name, svNamespace)
+			framework.Logf("totalquota_used_after :%v", totalquota_used_afterExpansion)
+			quotavalidationStatus_afterexpansion := validate_increasedQuota(ctx, diskSizeInMb, totalquota_used_before, totalquota_used_afterExpansion)
+			gomega.Expect(quotavalidationStatus_afterexpansion).NotTo(gomega.BeFalse())
+
+			storagepolicyquota_pvc_after_expansion, _ := getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, volExtensionName)
+			framework.Logf("volume ********** storagepolicyquota_pvc_after_cleanup :%v", storagepolicyquota_pvc_after_expansion)
+			quotavalidationStatus_afterexpansion = validate_increasedQuota(ctx, diskSizeInMb, storagepolicyquota_pvc_before, storagepolicyquota_pvc_after_expansion)
+			gomega.Expect(quotavalidationStatus_afterexpansion).NotTo(gomega.BeFalse())
+
+			pvc_Usage_Quota_After_expansion, _ := getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, pvcUsage)
+			framework.Logf("volume ********** pvc_Usage_Quota_After :%v", pvc_Usage_Quota_After_expansion)
+			quotavalidationStatus_afterexpansion = validate_increasedQuota(ctx, diskSizeInMb, storagepolicyquota_pvc_before, storagepolicyquota_pvc_after_expansion)
+			gomega.Expect(quotavalidationStatus_afterexpansion).NotTo(gomega.BeFalse())
+		}
+
 	})
 
 	/*
@@ -652,6 +828,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		12.Clear all PVC,POD and sc
 	*/
 	ginkgo.It("Verify offline Volume expansion using zonal storage", func() {
+		var totalquota_used_before, storagepolicyquota_pvc_before, storagepolicy_usage_pvc_before *resource.Quantity
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -660,7 +837,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 
 		ginkgo.By("Creating Pvc with Immediate topology storageclass")
-		createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		//createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, rqLimit)
+		restConfig := getRestConfigClient()
 		scParameters[svStorageClassName] = zonalPolicy
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
@@ -679,6 +859,19 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 		svcPVCName := pv.Spec.CSI.VolumeHandle
 		svcPVC := getPVCFromSupervisorCluster(svcPVCName)
+
+		if isStorageQuotaFSSEnabled {
+			totalquota_used_before, _ = getTotalQuotaConsumedByStoragePolicy(ctx, restConfig, storageclass.Name, svNamespace)
+			framework.Logf("totalUsedQuota_Before :%v", totalquota_used_before)
+
+			storagepolicyquota_pvc_before, _ = getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, volExtensionName)
+			framework.Logf("volume ********** storagepolicyquota_pvc_before :%v ", storagepolicyquota_pvc_before)
+
+			storagepolicy_usage_pvc_before, _ = getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, pvcUsage)
+			framework.Logf("volume ********** storagepolicy_usage_pvc_before :%v", storagepolicy_usage_pvc_before)
+		}
 
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
@@ -723,6 +916,25 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		verifyOfflineVolumeExpansionOnGc(ctx, client, pvclaim, svcPVCName, namespace, volHandle, pod, pv, f)
 
+		if isStorageQuotaFSSEnabled {
+			totalquota_used_afterExpansion, _ := getTotalQuotaConsumedByStoragePolicy(ctx, restConfig, storageclass.Name, svNamespace)
+			framework.Logf("totalquota_used_after :%v", totalquota_used_afterExpansion)
+			quotavalidationStatus_afterexpansion := validate_increasedQuota(ctx, diskSizeInMb, totalquota_used_before, totalquota_used_afterExpansion)
+			gomega.Expect(quotavalidationStatus_afterexpansion).NotTo(gomega.BeFalse())
+
+			storagepolicyquota_pvc_after_expansion, _ := getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, volExtensionName)
+			framework.Logf("volume ********** storagepolicyquota_pvc_after_cleanup :%v", storagepolicyquota_pvc_after_expansion)
+			quotavalidationStatus_afterexpansion = validate_increasedQuota(ctx, diskSizeInMb, storagepolicyquota_pvc_before, storagepolicyquota_pvc_after_expansion)
+			gomega.Expect(quotavalidationStatus_afterexpansion).NotTo(gomega.BeFalse())
+
+			pvc_Usage_Quota_After_expansion, _ := getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, pvcUsage)
+			framework.Logf("volume ********** pvc_Usage_Quota_After :%v", pvc_Usage_Quota_After_expansion)
+			quotavalidationStatus_afterexpansion = validate_increasedQuota(ctx, diskSizeInMb, storagepolicyquota_pvc_before, storagepolicyquota_pvc_after_expansion)
+			gomega.Expect(quotavalidationStatus_afterexpansion).NotTo(gomega.BeFalse())
+		}
+
 	})
 
 	/*
@@ -745,14 +957,18 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		15. Delete pod, gc1-pv and gc1-pvc and svc pvc.
 	*/
 	ginkgo.It("Static volume provisioning using zonal storage", func() {
+		var totalquota_used_before, storagepolicyquota_pvc_before, storagepolicy_usage_pvc_before, totalquota_used_after *resource.Quantity
+		var storagepolicyquota_pvc_after, storagepolicy_usage_pvc_after *resource.Quantity
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
-
 		svClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, rqLimit)
+		restConfig := getRestConfigClient()
 		pvcAnnotations := make(map[string]string)
 		annotationVal := "["
 		var topoList []string
@@ -769,12 +985,28 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		framework.Logf("annotationVal :%s, pvcAnnotations: %v", annotationVal, pvcAnnotations)
 
 		ginkgo.By("Creating Pvc with Immediate topology storageclass")
-		createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		//createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 		scParameters[svStorageClassName] = zonalPolicy
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+
+		if isStorageQuotaFSSEnabled {
+			totalquota_used_before, _ = getTotalQuotaConsumedByStoragePolicy(ctx, restConfig, storageclass.Name, svNamespace)
+			framework.Logf("totalUsedQuota_Before :%v", totalquota_used_before)
+
+			storagepolicyquota_pvc_before, _ = getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, volExtensionName)
+			framework.Logf("volume ********** storagepolicyquota_pvc_before :%v ", storagepolicyquota_pvc_before)
+
+			storagepolicy_usage_pvc_before, _ = getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, pvcUsage)
+			framework.Logf("volume ********** storagepolicy_usage_pvc_before :%v", storagepolicy_usage_pvc_before)
+		}
+
 		pvcSpec := getPersistentVolumeClaimSpecWithStorageClass(svNamespace, "", storageclass, nil, "")
 		pvcSpec.Annotations = pvcAnnotations
 		svPvclaim, err := svClient.CoreV1().PersistentVolumeClaims(svNamespace).Create(context.TODO(),
@@ -865,6 +1097,27 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 				fmt.Sprintf("Volume %q is not detached from the node %q",
 					staticPv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}()
+
+		if isStorageQuotaFSSEnabled {
+			totalquota_used_after, _ = getTotalQuotaConsumedByStoragePolicy(ctx, restConfig, storageclass.Name, namespace)
+			framework.Logf("totalquota_used_after :%v", totalquota_used_after)
+
+			storagepolicyquota_pvc_after, _ = getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, volExtensionName)
+			framework.Logf("********** storagepolicyquota_pvc_after :%v", storagepolicyquota_pvc_after)
+
+			storagepolicy_usage_pvc_after, _ = getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
+				storageclass.Name, svNamespace, pvcUsage)
+			framework.Logf("********** pvc_Usage_Quota_After :%v", storagepolicy_usage_pvc_after)
+
+			quotavalidationStatus := validate_totalStoragequota(ctx, diskSizeInMb, totalquota_used_before, totalquota_used_after)
+			gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
+			quotavalidationStatus = validate_totalStoragequota(ctx, diskSizeInMb, storagepolicyquota_pvc_before, storagepolicyquota_pvc_after)
+			gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
+			quotavalidationStatus = validate_totalStoragequota(ctx, diskSizeInMb, storagepolicy_usage_pvc_before, storagepolicy_usage_pvc_after)
+			gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
+
+		}
 
 		_, err = verifyPodLocationLevel5(pod, nodeList, allowedTopologyHAMap)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -971,7 +1224,9 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		nodeList, _ := fnodes.GetReadySchedulableNodes(ctx, client)
 
 		ginkgo.By("Create statefulset with parallel pod management policy with replica 3")
-		createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		//createResourceQuota(client, namespace, rqLimit, zonalPolicy)
+		svcClient, svNamespace := getSvcClientAndNamespace()
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 		scParameters[svStorageClassName] = zonalWffcPolicy
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
@@ -1179,16 +1434,22 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			}()
 
 			ginkgo.By("Decrease SVC storage policy resource quota")
-			svcClient, svNamespace := getSvcClientAndNamespace()
-			quotaName := svcNamespace + "-storagequota"
-			framework.Logf("quotaName: %s", quotaName)
-			resourceQuota := newTestResourceQuota(quotaName, "10Mi", zonalPolicy)
-			resourceQuota, err = svcClient.CoreV1().ResourceQuotas(svNamespace).Update(
-				ctx, resourceQuota, metav1.UpdateOptions{})
+			// svcClient, svNamespace := getSvcClientAndNamespace()
+			// quotaName := svcNamespace + "-storagequota"
+			// framework.Logf("quotaName: %s", quotaName)
+			// resourceQuota := newTestResourceQuota(quotaName, "10Mi", zonalPolicy)
+			// resourceQuota, err = svcClient.CoreV1().ResourceQuotas(svNamespace).Update(
+			// 	ctx, resourceQuota, metav1.UpdateOptions{})
+			// 	ginkgo.By("create resource quota")
+			setStoragePolicyQuota(ctx, restConfig, storageclass.Name, namespace, "10Mi")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By(fmt.Sprintf("Create Resource quota: %+v", resourceQuota))
-			framework.Logf("Sleeping for 15 seconds to claim resource quota fully")
-			time.Sleep(time.Duration(15) * time.Second)
+			defer func() {
+				setStoragePolicyQuota(ctx, restConfig, storageclass.Name, namespace, rqLimit)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+			// ginkgo.By(fmt.Sprintf("Create Resource quota: %+v", resourceQuota))
+			// framework.Logf("Sleeping for 15 seconds to claim resource quota fully")
+			// time.Sleep(time.Duration(15) * time.Second)
 
 			ginkgo.By("Create statefulset with parallel pod management policy with replica 1")
 			statefulset := GetStatefulSetFromManifest(namespace)
@@ -1242,14 +1503,16 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			}
 
 			ginkgo.By("Increase SVC storagepolicy resource quota")
-			framework.Logf("quotaName: %s", quotaName)
-			resourceQuota = newTestResourceQuota(quotaName, rqLimit, zonalPolicy)
-			resourceQuota, err = svcClient.CoreV1().ResourceQuotas(svNamespace).Update(
-				ctx, resourceQuota, metav1.UpdateOptions{})
+			setStoragePolicyQuota(ctx, restConfig, storageclass.Name, namespace, rqLimit)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", resourceQuota))
-			framework.Logf("Sleeping for 15 seconds to claim resource quota fully")
-			time.Sleep(time.Duration(15) * time.Second)
+			// framework.Logf("quotaName: %s", quotaName)
+			// resourceQuota = newTestResourceQuota(quotaName, rqLimit, zonalPolicy)
+			// resourceQuota, err = svcClient.CoreV1().ResourceQuotas(svNamespace).Update(
+			// 	ctx, resourceQuota, metav1.UpdateOptions{})
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", resourceQuota))
+			// framework.Logf("Sleeping for 15 seconds to claim resource quota fully")
+			// time.Sleep(time.Duration(15) * time.Second)
 
 			ginkgo.By("Verify annotations on SVC PV and required node affinity details on SVC PV and GC PV")
 			ginkgo.By("Verify pod gets scheduled on appropriate nodes preset in the availability zone")
