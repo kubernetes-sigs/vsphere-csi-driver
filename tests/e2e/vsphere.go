@@ -1179,11 +1179,6 @@ func (vs *vSphere) verifyPreferredDatastoreMatch(volumeID string, dsUrls []strin
 	for _, dsUrl := range dsUrls {
 		if actualDatastoreUrl == dsUrl {
 			flag = true
-			if rwxAccessMode {
-				if !strings.HasPrefix(dsUrl, "ds:///vmfs/volumes/vsan:") {
-					return false
-				}
-			}
 			return flag
 		}
 	}
