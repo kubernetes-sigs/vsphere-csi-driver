@@ -145,6 +145,11 @@ type Manager interface {
 		string, error)
 	// GetOperationStore returns the VolumeOperationRequest interface
 	GetOperationStore() cnsvolumeoperationrequest.VolumeOperationRequest
+	// IsListViewReady returns the status of the listview + property collector mechanism
+	IsListViewReady() bool
+	// SetListViewNotReady explicitly states the listview state as not ready
+	// use case: unit tests
+	SetListViewNotReady(ctx context.Context)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -3019,4 +3024,17 @@ func (m *defaultManager) getAggregatedSnapshotSize(ctx context.Context, volumeID
 		}
 	}
 	return aggregatedSnapshotCapacity, nil
+}
+
+func (m *defaultManager) IsListViewReady() bool {
+	if m.listViewIf == nil {
+		return false
+	}
+	return m.listViewIf.IsListViewReady()
+}
+
+func (m *defaultManager) SetListViewNotReady(ctx context.Context) {
+	if m.listViewIf != nil {
+		m.listViewIf.SetListViewNotReady(ctx)
+	}
 }
