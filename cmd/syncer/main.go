@@ -77,8 +77,10 @@ var (
 		"Name of the feature state switch configmap in supervisor cluster")
 	supervisorFSSNamespace = flag.String("supervisor-fss-namespace", "",
 		"Namespace of the feature state switch configmap in supervisor cluster")
-	internalFSSName      = flag.String("fss-name", "", "Name of the feature state switch configmap")
-	internalFSSNamespace = flag.String("fss-namespace", "", "Namespace of the feature state switch configmap")
+	internalFSSName           = flag.String("fss-name", "", "Name of the feature state switch configmap")
+	internalFSSNamespace      = flag.String("fss-namespace", "", "Namespace of the feature state switch configmap")
+	periodicSyncIntervalInMin = flag.Duration("storagequota-sync-interval", 30*time.Minute,
+		"Periodic sync interval in Minutes")
 )
 
 // main for vsphere syncer.
@@ -356,6 +358,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 				os.Exit(0)
 			}
 		}()
+		syncer.PeriodicSyncIntervalInMin = *periodicSyncIntervalInMin
 		if err := syncer.InitMetadataSyncer(ctx, clusterFlavor, configInfo); err != nil {
 			log.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
 			utils.LogoutAllvCenterSessions(ctx)
