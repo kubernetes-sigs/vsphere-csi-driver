@@ -907,6 +907,24 @@ func initStorageQuotaPeriodicSync(ctx context.Context, metadataSyncer *metadataS
 			return err
 		}
 	}
+	if sqPeriodicSync.Spec.SyncIntervalInMinutes != int(PeriodicSyncIntervalInMin.Minutes()) {
+		rawPatch := client.MergeFromWithOptions(
+			sqPeriodicSync.DeepCopy(),
+			client.MergeFromWithOptimisticLock{})
+		oldInterval := sqPeriodicSync.Spec.SyncIntervalInMinutes
+
+		sqPeriodicSync.Spec.SyncIntervalInMinutes = int(PeriodicSyncIntervalInMin.Minutes())
+		err = cnsOperatorClient.Patch(ctx, sqPeriodicSync, rawPatch)
+		if err != nil {
+			log.Errorf("initStorageQuotaPeriodicSync: failed to patch StorageQuotaPeriodicSync instance"+
+				" with name %q Error: %+v",
+				StorageQuotaPeriodicSyncInstanceName, err)
+			sqPeriodicSync.Spec.SyncIntervalInMinutes = oldInterval
+			log.Infof("initStorageQuotaPeriodicSync: Initializing periodic sync with previous interval value, %d ",
+				oldInterval)
+		}
+	}
+
 	// start cron job
 	s := gocron.NewScheduler(time.UTC)
 	job, err := s.Every(sqPeriodicSync.Spec.SyncIntervalInMinutes).Minute().Do(func() {
@@ -1172,7 +1190,7 @@ func calculateVolumeSnapshotReservedForNamespace(ctx context.Context,
 func updateStorageQuotaPeriodicSyncCR(ctx context.Context, cnsOperatorClient client.Client,
 	expectedReservedvalues []sqperiodicsyncv1alpha1.ExpectedReservedValues, lastSyncTime metav1.Time) {
 	log := logger.GetLogger(ctx)
-	log.Info("updateStorageQuotaPeriodicSyncCR: Updating StorageQuotaPeriodicSyncCR %s",
+	log.Infof("updateStorageQuotaPeriodicSyncCR: Updating StorageQuotaPeriodicSyncCR %s",
 		StorageQuotaPeriodicSyncInstanceName)
 	sqPeriodicSync := &sqperiodicsyncv1alpha1.StorageQuotaPeriodicSync{}
 	err := cnsOperatorClient.Get(ctx,
