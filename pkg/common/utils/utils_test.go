@@ -8,10 +8,12 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	cnssim "github.com/vmware/govmomi/cns/simulator"
 	"github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/simulator"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	cnsvolumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -29,8 +31,7 @@ var (
 )
 
 type commonUtilsTest struct {
-	config  *cnsconfig.Config
-	vcenter *cnsvsphere.VirtualCenter
+	volumeManager cnsvolumes.Manager
 }
 
 // configFromSim starts a vcsim instance and returns config for use against the vcsim instance.
@@ -129,9 +130,23 @@ func getCommonUtilsTest(t *testing.T) *commonUtilsTest {
 		if err != nil {
 			t.Fatal(err)
 		}
+
+		volumeManager, err := cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false, "")
+		if err != nil {
+			t.Fatalf("failed to create an instance of volume manager. err=%v", err)
+		}
+
+		// wait till property collector has been started
+		err = wait.PollUntilContextTimeout(ctx, 1*time.Second, 10*time.Second, false,
+			func(ctx context.Context) (done bool, err error) {
+				return volumeManager.IsListViewReady(), nil
+			})
+		if err != nil {
+			t.Fatalf("listview not ready. err=%v", err)
+		}
+
 		commonUtilsTestInstance = &commonUtilsTest{
-			config:  csiConfig,
-			vcenter: virtualCenter,
+			volumeManager: volumeManager,
 		}
 	})
 	return commonUtilsTestInstance
@@ -141,11 +156,6 @@ func TestQuerySnapshotsUtil(t *testing.T) {
 	// Create context
 	commonUtilsTestInstance := getCommonUtilsTest(t)
 
-	volumeManager, err := cnsvolumes.GetManager(ctx, commonUtilsTestInstance.vcenter, nil, false, false, false, "")
-	if err != nil {
-		t.Fatalf("failed to create an instance of volume manager. err=%v", err)
-	}
-
 	queryFilter := types.CnsSnapshotQueryFilter{
 		SnapshotQuerySpecs: nil,
 		Cursor: &types.CnsCursor{
@@ -153,11 +163,12 @@ func TestQuerySnapshotsUtil(t *testing.T) {
 			Limit:  10,
 		},
 	}
-	queryResultEntries, _, err := QuerySnapshotsUtil(ctx, volumeManager, queryFilter, DefaultQuerySnapshotLimit)
+	queryResultEntries, _, err := QuerySnapshotsUtil(ctx, commonUtilsTestInstance.volumeManager, queryFilter,
+		DefaultQuerySnapshotLimit)
 	if err != nil {
 		t.Error(err)
 	}
-	//TODO: Create Snapshots using CreateSnapshot API.
+	// TODO: Create Snapshots using CreateSnapshot API.
 	t.Log("Snapshots: ")
 	for _, entry := range queryResultEntries {
 		t.Log(entry)

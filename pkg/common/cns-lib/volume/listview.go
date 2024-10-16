@@ -49,6 +49,8 @@ type ListViewImpl struct {
 	shouldStopListening bool
 	// this mutex is used while logging out expired VC session and creating a new one
 	mu sync.RWMutex
+	// isReady defines the ready state of the listview + property collector mechanism
+	isReady bool
 }
 
 // TaskDetails is used to hold state for a task
@@ -86,7 +88,6 @@ func NewListViewImpl(ctx context.Context, virtualCenter *cnsvsphere.VirtualCente
 
 func (l *ListViewImpl) createListView(ctx context.Context, tasks []types.ManagedObjectReference) error {
 	log := logger.GetLogger(ctx)
-	var err error
 	if err := l.virtualCenter.Connect(ctx); err != nil {
 		return logger.LogNewErrorf(log, "failed to create a ListView. error: %+v", err)
 	} else {
@@ -105,20 +106,14 @@ func (l *ListViewImpl) createListView(ctx context.Context, tasks []types.Managed
 }
 
 // ResetVirtualCenter updates the VC object reference.
-// It also triggers a restart of listview object and connection to VC.
-// This is required as VC.Connect() can return true as the VC object points to latest config
-// but adding a task to a listview object created with an older VC object will error out
 // use case: ReloadConfiguration
 func (l *ListViewImpl) ResetVirtualCenter(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter) {
 	log := logger.GetLogger(ctx)
+	log.Info("attempting to acquire lock before updating vc object")
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	log.Info("updating VirtualCenter object reference in ListView")
+	log.Info("acquired lock before updating vc object")
 	l.virtualCenter = virtualCenter
-	log.Info("cancelling ongoing listView context to trigger restart with new credentials")
-	if l.waitForUpdatesCancelFunc != nil {
-		l.waitForUpdatesCancelFunc()
-	}
 	log.Info("updated VirtualCenter object reference in ListView")
 }
 
@@ -137,8 +132,8 @@ func getListViewWaitFilter(listView *view.ListView) *property.WaitFilter {
 }
 
 func (l *ListViewImpl) isSessionValid(ctx context.Context) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.mu.RLock()
+	defer l.mu.RUnlock()
 	log := logger.GetLogger(ctx)
 	if l.virtualCenter.Client == nil || l.virtualCenter.Client.Client == nil {
 		return false
@@ -157,20 +152,26 @@ func (l *ListViewImpl) isSessionValid(ctx context.Context) bool {
 	return false
 }
 
+// IsListViewReady wraps a read lock to access the state of isReady
+func (l *ListViewImpl) IsListViewReady() bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.isReady
+}
+
 // AddTask adds task to listView and the internal map
 func (l *ListViewImpl) AddTask(ctx context.Context, taskMoRef types.ManagedObjectReference, ch chan TaskResult) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("AddTask called for %+v", taskMoRef)
 
+	if !l.IsListViewReady() {
+		return fmt.Errorf("%w. task: %v, err: listview not ready", ErrListViewTaskAddition, taskMoRef)
+	}
+
 	if !l.isSessionValid(ctx) {
 		log.Infof("current session is not valid")
-		if err := l.virtualCenter.Connect(ctx); err != nil {
-			return fmt.Errorf("%w. task: %v, err: %v", ErrListViewTaskAddition, taskMoRef, err)
-		}
-		log.Info("cancelling ongoing listView context to re-create listview object")
-		if l.waitForUpdatesCancelFunc != nil {
-			l.waitForUpdatesCancelFunc()
-		}
+		l.SetListViewNotReady(ctx)
+		return fmt.Errorf("%w. task: %v, err: listview not ready", ErrListViewTaskAddition, taskMoRef)
 	}
 
 	l.taskMap.Upsert(taskMoRef, TaskDetails{
@@ -184,6 +185,7 @@ func (l *ListViewImpl) AddTask(ctx context.Context, taskMoRef types.ManagedObjec
 	response, err := l.listView.Add(l.ctx, []types.ManagedObjectReference{taskMoRef})
 	if err != nil {
 		l.taskMap.Delete(taskMoRef)
+		l.SetListViewNotReady(ctx)
 		return fmt.Errorf("%w. task: %v, err: %v", ErrListViewTaskAddition, taskMoRef, err)
 	}
 	if len(response) > 0 {
@@ -216,29 +218,49 @@ func (l *ListViewImpl) RemoveTask(ctx context.Context, taskMoRef types.ManagedOb
 		log.Infof("op timeout. context deadline exceeded. using listview context without a timeout")
 		ctx = l.ctx
 	}
-	if l.listView == nil {
-		return logger.LogNewErrorf(log, "failed to remove task from listView: listView not initialized")
+
+	if !l.IsListViewReady() {
+		return fmt.Errorf("%w. task: %v, err: listview not ready", ErrListViewTaskAddition, taskMoRef)
 	}
 
 	if !l.isSessionValid(ctx) {
 		log.Infof("current session is not valid")
-		if err := l.virtualCenter.Connect(ctx); err != nil {
-			return fmt.Errorf("%w. task: %v, err: %v", ErrListViewTaskAddition, taskMoRef, err)
-		}
-		log.Info("cancelling ongoing listView context to re-create listview object")
-		if l.waitForUpdatesCancelFunc != nil {
-			l.waitForUpdatesCancelFunc()
-		}
+		l.SetListViewNotReady(ctx)
+		return fmt.Errorf("%w. task: %v, err: listview not ready", ErrListViewTaskAddition, taskMoRef)
 	}
+
 	log.Infof("client is valid. trying to remove task from listview object")
 	_, err := l.listView.Remove(l.ctx, []types.ManagedObjectReference{taskMoRef})
 	if err != nil {
+		l.SetListViewNotReady(ctx)
 		return logger.LogNewErrorf(log, "failed to remove task %v from ListView. error: %+v", taskMoRef, err)
 	}
 	log.Infof("task %+v removed from listView", taskMoRef)
 	l.taskMap.Delete(taskMoRef)
 	log.Debugf("task %+v removed from map", taskMoRef)
 	return nil
+}
+
+func (l *ListViewImpl) SetListViewNotReady(ctx context.Context) {
+	log := logger.GetLogger(ctx)
+	log.Infof("waiting for lock before setting listview to not ready")
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	log.Infof("acquired lock before setting listview to not ready")
+	l.isReady = false
+	if l.waitForUpdatesCancelFunc != nil {
+		l.waitForUpdatesCancelFunc()
+	}
+	log.Info("cancelled context")
+}
+
+func (l *ListViewImpl) connect() error {
+	log := logger.GetLogger(l.ctx)
+	log.Infof("waiting for lock before calling connect")
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	log.Infof("acquired lock before calling connect")
+	return l.virtualCenter.Connect(l.ctx)
 }
 
 // listenToTaskUpdates is a long-running goroutine
@@ -255,7 +277,7 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 	recreateView := false
 	for {
 		// calling Connect at the beginning to ensure the current session is neither nil nor NotAuthenticated
-		if err := l.virtualCenter.Connect(l.ctx); err != nil {
+		if err := l.connect(); err != nil {
 			log.Errorf("failed to connect to vCenter. err: %v", err)
 			time.Sleep(waitForUpdatesRetry)
 			continue
@@ -263,11 +285,15 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 			log.Infof("connection to vc successful")
 		}
 
+		log.Infof("attempting lock before re-creating listview")
+		l.mu.Lock()
+		log.Infof("acquired lock before re-creating listview")
 		if recreateView {
 			log.Info("re-creating the listView object")
 			err := l.createListView(l.ctx, nil)
 			if err != nil {
 				log.Errorf("failed to create a ListView. error: %+v", err)
+				l.mu.Unlock()
 				continue
 			}
 
@@ -277,7 +303,11 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 		}
 
 		log.Info("Starting listening for task updates...")
+		log.Infof("waitForUpdatesContext %v", l.waitForUpdatesContext)
 		pc := property.DefaultCollector(l.virtualCenter.Client.Client)
+		l.isReady = true
+		log.Infof("listview ready state is %v", l.isReady)
+		l.mu.Unlock()
 		err := property.WaitForUpdatesEx(l.waitForUpdatesContext, pc, filter, func(updates []types.ObjectUpdate) bool {
 			log.Debugf("Got %d property collector update(s)", len(updates))
 			for _, update := range updates {
@@ -300,6 +330,13 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 				l.virtualCenter.Config.Host)
 			recreateView = true
 			l.reportErrorOnAllPendingTasks(err)
+			log.Info("waiting for lock before setting listview ready state to false")
+			l.mu.Lock()
+			log.Info("acquired lock before setting listview ready state to false")
+			log.Infof("setting listview ready state to false. current ready state: %v", l.isReady)
+			l.isReady = false
+			log.Infof("listview ready state is %v", l.isReady)
+			l.mu.Unlock()
 		}
 		// use case: unit tests: this will help us stop listening
 		// and finish the unit test

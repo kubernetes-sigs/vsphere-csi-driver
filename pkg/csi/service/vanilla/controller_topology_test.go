@@ -23,10 +23,12 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/simulator"
@@ -365,12 +367,38 @@ func getControllerTestWithTopology(t *testing.T) *controllerTestTopology {
 		if err != nil {
 			t.Fatalf("failed to create an instance of volume manager. err=%v", err)
 		}
+
+		// wait till property collector has been started
+		err = wait.PollUntilContextTimeout(ctxtopology, 1*time.Second, 10*time.Second, false,
+			func(ctx context.Context) (done bool, err error) {
+				return volumeManager.IsListViewReady(), nil
+			})
+		if err != nil {
+			t.Fatalf("listview not ready. err=%v", err)
+		}
+
 		// GetManager returns a singleton instance of VolumeManager. So, it could be pointing
 		// to old VC instance as part of previous unit test run from same folder.
 		// Call ResetManager to get new VolumeManager instance with current VC configuration.
 		err = volumeManager.ResetManager(ctxtopology, vcenter)
 		if err != nil {
 			t.Fatalf("failed to reset volume manager with new vcenter. err=%v", err)
+		}
+
+		// as per current logic, new vc object will be saved but not immediately used
+		// only when we notice an issue adding tasks to listview, we will kill the context to property collector
+		// causing the listview to be re-created with the newer credentials
+		// this method is called here to explicitly re-create the listview since we changed the config above for
+		// topology
+		volumeManager.SetListViewNotReady(ctxtopology)
+
+		// wait again for the property collector to be re-created
+		err = wait.PollUntilContextTimeout(ctxtopology, 1*time.Second, 10*time.Second, false,
+			func(ctx context.Context) (done bool, err error) {
+				return volumeManager.IsListViewReady(), nil
+			})
+		if err != nil {
+			t.Fatalf("listview not ready. err=%v", err)
 		}
 
 		manager := &common.Manager{
