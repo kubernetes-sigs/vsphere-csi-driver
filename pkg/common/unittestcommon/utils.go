@@ -73,6 +73,7 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"multi-vcenter-csi-topology":        "true",
 				"listview-tasks":                    "true",
 				"storage-quota-m2":                  "false",
+				"workload-domain-isolation":         "true",
 				// Adding FSS from `wcp-cluster-capabilities` configmap in supervisor here for simplicity.
 				"Workload_Domain_Isolation_Supported": "true",
 			},
