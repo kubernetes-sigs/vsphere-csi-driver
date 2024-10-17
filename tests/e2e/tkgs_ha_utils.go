@@ -167,7 +167,9 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 	}()
 
 	ginkgo.By("Create statefulset with default pod management policy with replica 3")
-	createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+	//createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+	svcClient, svNamespace := getSvcClientAndNamespace()
+	setResourceQuota(svcClient, svNamespace, rqLimit)
 	storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 	if !apierrors.IsNotFound(err) {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
