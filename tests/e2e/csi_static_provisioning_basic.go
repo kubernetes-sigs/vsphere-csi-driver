@@ -127,8 +127,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if guestCluster {
-			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, rqLimit)
+			// Get a config to talk to the apiserver
+			restConfig := getRestConfigClient()
+			_, svNamespace := getSvcClientAndNamespace()
+			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, svNamespace, rqLimit)
 		}
 
 		if os.Getenv(envFullSyncWaitTime) != "" {
@@ -181,7 +183,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 		if supervisorCluster {
@@ -212,7 +213,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 
 		ginkgo.By("create resource quota")
-		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
+		// setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
+		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 
 		return restConfig, storageclass, profileID
 	}
