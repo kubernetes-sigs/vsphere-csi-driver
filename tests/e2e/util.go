@@ -88,6 +88,7 @@ import (
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
+	cnsunregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -3243,6 +3244,27 @@ func getCNSRegisterVolumeSpec(ctx context.Context, namespace string, fcdID strin
 	return cnsRegisterVolume
 }
 
+// Function to create CNS UnregisterVolume spec, with given FCD ID
+func getCNSUnregisterVolumeSpec(namespace string,
+	fcdID string) *cnsunregistervolumev1alpha1.CnsUnregisterVolume {
+	var (
+		cnsUnRegisterVolume *cnsunregistervolumev1alpha1.CnsUnregisterVolume
+	)
+	framework.Logf("get CNS UnregisterVolume API spec")
+
+	cnsUnRegisterVolume = &cnsunregistervolumev1alpha1.CnsUnregisterVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "cnsunregvol-",
+			Namespace:    namespace,
+		},
+		Spec: cnsunregistervolumev1alpha1.CnsUnregisterVolumeSpec{
+			VolumeID: fcdID,
+		},
+	}
+	return cnsUnRegisterVolume
+}
+
 // Create CNS register volume.
 func createCNSRegisterVolume(ctx context.Context, restConfig *rest.Config,
 	cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume) error {
@@ -3251,6 +3273,30 @@ func createCNSRegisterVolume(ctx context.Context, restConfig *rest.Config,
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Create CNSRegisterVolume")
 	err = cnsOperatorClient.Create(ctx, cnsRegisterVolume)
+
+	return err
+}
+
+// Create CNS Unregister volume.
+func createCNSUnRegisterVolume(ctx context.Context, restConfig *rest.Config,
+	cnsUnRegisterVolume *cnsunregistervolumev1alpha1.CnsUnregisterVolume) error {
+
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Create CNSUnRegisterVolume")
+	err = cnsOperatorClient.Create(ctx, cnsUnRegisterVolume)
+
+	return err
+}
+
+// Delete CNS Unregister volume.
+func deleteCNSUnRegisterVolume(ctx context.Context, restConfig *rest.Config,
+	cnsUnRegisterVolume *cnsunregistervolumev1alpha1.CnsUnregisterVolume) error {
+
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Delete CNSUnRegisterVolume")
+	err = cnsOperatorClient.Delete(ctx, cnsUnRegisterVolume)
 
 	return err
 }
@@ -3273,6 +3319,31 @@ func queryCNSRegisterVolume(ctx context.Context, restClientConfig *rest.Config,
 	err = cnsOperatorClient.Get(ctx, pkgtypes.NamespacedName{Name: cnsRegistervolumeName, Namespace: namespace}, cns)
 	if err == nil {
 		framework.Logf("CNS RegisterVolume %s Found in the namespace  %s:", cnsRegistervolumeName, namespace)
+		isPresent = true
+	}
+
+	return isPresent
+
+}
+
+// Query CNS Unregister volume. Returns true if the CNSUnregisterVolume is
+// available otherwise false.
+func queryCNSUnregisterVolume(ctx context.Context, restClientConfig *rest.Config,
+	cnsUnregistervolumeName string, namespace string) bool {
+	isPresent := false
+	framework.Logf("cleanUpCnsUnregisterVolumeInstances: start")
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Get list of CnsUnregisterVolume instances from all namespaces.
+	cnsUnregisterVolumesList := &cnsunregistervolumev1alpha1.CnsUnregisterVolumeList{}
+	err = cnsOperatorClient.List(ctx, cnsUnregisterVolumesList)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	cns := &cnsunregistervolumev1alpha1.CnsUnregisterVolume{}
+	err = cnsOperatorClient.Get(ctx, pkgtypes.NamespacedName{Name: cnsUnregistervolumeName, Namespace: namespace}, cns)
+	if err == nil {
+		framework.Logf("CNS UnregisterVolume %s Found in the namespace  %s:", cnsUnregistervolumeName, namespace)
 		isPresent = true
 	}
 
@@ -3326,6 +3397,20 @@ func getCNSRegistervolume(ctx context.Context, restClientConfig *rest.Config,
 		pkgtypes.NamespacedName{Name: cnsRegisterVolume.Name, Namespace: cnsRegisterVolume.Namespace}, cns)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	return cns
+}
+
+// Get CNS Unregister volume.
+func getCNSUnRegistervolume(ctx context.Context,
+	restClientConfig *rest.Config, cnsUnRegisterVolume *cnsunregistervolumev1alpha1.
+		CnsUnregisterVolume) *cnsunregistervolumev1alpha1.CnsUnregisterVolume {
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	cns := &cnsunregistervolumev1alpha1.CnsUnregisterVolume{}
+	err = cnsOperatorClient.Get(ctx,
+		pkgtypes.NamespacedName{Name: cnsUnRegisterVolume.Name, Namespace: cnsUnRegisterVolume.Namespace}, cns)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return cns
 }
 
@@ -4049,6 +4134,46 @@ func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.
 	}
 
 	return fmt.Errorf("cnsRegisterVolume %s creation is failed within %v", cnsRegisterVolumeName, timeout)
+}
+
+// waitForCNSUnRegisterVolumeToGetUnregistered waits for a cnsUnRegisterVolume to get
+// created or until timeout occurs, whichever comes first.
+func waitForCNSUnRegisterVolumeToGetUnregistered(ctx context.Context, restConfig *rest.Config,
+	cnsUnRegisterVolume *cnsunregistervolumev1alpha1.CnsUnregisterVolume, Poll, timeout time.Duration) error {
+	framework.Logf("Waiting up to %v for CnsUnRegisterVolume %s to get created", timeout, cnsUnRegisterVolume)
+
+	cnsUnRegisterVolumeName := cnsUnRegisterVolume.GetName()
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+		cnsUnRegisterVolume = getCNSUnRegistervolume(ctx, restConfig, cnsUnRegisterVolume)
+		flag := cnsUnRegisterVolume.Status.Unregistered
+		if !flag {
+			continue
+		} else {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("cnsRegisterVolume %s unregister is failed within %v", cnsUnRegisterVolumeName, timeout)
+}
+
+// waitForCNSUnRegisterVolumeFailToUnregistered waits for a cnsUnRegisterVolume to get
+// fail or until timeout occurs, whichever comes first.
+func waitForCNSUnRegisterVolumeFailToUnregistered(ctx context.Context, restConfig *rest.Config,
+	cnsUnRegisterVolume *cnsunregistervolumev1alpha1.CnsUnregisterVolume, Poll, timeout time.Duration) error {
+	framework.Logf("Waiting up to %v for CnsUnRegisterVolume %s to get created", timeout, cnsUnRegisterVolume)
+
+	cnsUnRegisterVolumeName := cnsUnRegisterVolume.GetName()
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+		cnsUnRegisterVolume = getCNSUnRegistervolume(ctx, restConfig, cnsUnRegisterVolume)
+		flag := cnsUnRegisterVolume.Status.Unregistered
+		if flag {
+			continue
+		} else {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("cnsRegisterVolume %s unregister is failed within %v", cnsUnRegisterVolumeName, timeout)
 }
 
 // waitForCNSRegisterVolumeToGetDeleted waits for a cnsRegisterVolume to get
