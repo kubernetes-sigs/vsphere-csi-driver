@@ -314,7 +314,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				var annotations map[string]string
 				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 					req.AccessibilityRequirements != nil &&
-					(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) ||
+					(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) ||
 						!isFileVolumeRequest) {
 					// Generate volume topology requirement annotation.
 					annotations = make(map[string]string)
@@ -410,7 +410,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		var accessibleTopologies []map[string]string
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 			req.AccessibilityRequirements != nil &&
-			(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) ||
+			(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) ||
 				!isFileVolumeRequest) {
 			// Retrieve the latest version of the PVC
 			pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
