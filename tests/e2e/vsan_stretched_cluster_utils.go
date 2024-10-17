@@ -38,6 +38,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	pkgtypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -52,6 +53,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
+
+	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v6/apis/volumesnapshot/v1"
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 )
 
 const (
@@ -1282,4 +1286,75 @@ func checkForEventWithMessage(client clientset.Interface, namespace string,
 		}
 	}
 	return eventFound
+}
+
+// createDynamicSnapshotInParallel
+func createDynamicSnapshotInParallel(ctx context.Context, namespace string,
+	snapc *snapclient.Clientset, pvcList []*v1.PersistentVolumeClaim, volumeSnapshotClassName string,
+	ch chan *snapV1.VolumeSnapshot, lock *sync.Mutex, wg *sync.WaitGroup) {
+	defer wg.Done()
+	ginkgo.By("Create a volume snapshot")
+	for _, pvc := range pvcList {
+		snapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+			getVolumeSnapshotSpec(namespace, volumeSnapshotClassName, pvc.Name), metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		lock.Lock()
+		ch <- snapshot
+		lock.Unlock()
+		framework.Logf("Volume snapshot name is : %s", snapshot.Name)
+	}
+
+}
+
+// deleteDynamicSnapshotInParallel
+func deleteVolumeSnapshotInParallel(ctx context.Context, namespace string,
+	snapc *snapclient.Clientset, volumeSnapshotList []*snapV1.VolumeSnapshot, wg *sync.WaitGroup) {
+	defer wg.Done()
+	ginkgo.By("Delete a volume snapshot")
+	for _, volumeSnapshot := range volumeSnapshotList {
+		err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx,
+			volumeSnapshot.Name, metav1.DeleteOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("%s is successfully deleted", volumeSnapshot.Name)
+	}
+}
+
+// restoreVolumeFromSnapshotInParallel
+func restoreVolumeFromSnapshotInParallel(ctx context.Context, client clientset.Interface, namespace string,
+	sc *storagev1.StorageClass, volumeSnapshotList []*snapV1.VolumeSnapshot,
+	ch chan *v1.PersistentVolumeClaim, lock *sync.Mutex, wg *sync.WaitGroup) {
+	defer wg.Done()
+	ginkgo.By("Create PVC from snapshot")
+	for _, volumeSnapshot := range volumeSnapshotList {
+		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, sc, nil,
+			v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
+
+		pvc, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		lock.Lock()
+		ch <- pvc
+		lock.Unlock()
+		framework.Logf("PVC created name is : %s", pvc.Name)
+	}
+
+}
+
+func expandVolumeInParallel(client clientset.Interface, pvclaims []*v1.PersistentVolumeClaim, wg *sync.WaitGroup, resizeValue string) {
+
+	defer wg.Done()
+	for _, pvclaim := range pvclaims {
+		ginkgo.By("Expanding current pvc")
+		currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+		newSize := currentPvcSize.DeepCopy()
+		newSize.Add(resource.MustParse(resizeValue))
+		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+		pvclaim, err := expandPVCSize(pvclaim, newSize, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+
+		pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+		if pvcSize.Cmp(newSize) != 0 {
+			framework.Failf("error updating pvc size %q", pvclaim.Name)
+		}
+	}
 }
