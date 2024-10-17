@@ -377,6 +377,7 @@ spec:
             - "--leader-election-lease-duration=120s"
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
+            - "--storagequota-sync-interval=10m"
           env:
             - name: CLUSTER_FLAVOR
               value: "WORKLOAD"
