@@ -24,6 +24,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/go-logr/zapr"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service"
@@ -53,6 +55,8 @@ func main() {
 	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
+	logr := zapr.NewLogger(log.Desugar())
+	ctrllog.SetLogger(logr)
 	log.Infof("Version : %s", service.Version)
 
 	// Set CO Init params.
