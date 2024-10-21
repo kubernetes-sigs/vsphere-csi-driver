@@ -1371,27 +1371,34 @@ func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityReques
 	log := logger.GetLogger(ctx)
 	log.Infof("GetCapacity: called with args %+v", *req)
 
+	// Setting capacity to MaxInt64 for all topologies except for those which have been marked for deletion by VI Admin.
+	totalcapacity := int64(math.MaxInt64)
+	maxvolumesize := int64(math.MaxInt64)
+
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
-		var totalcapacity, maxvolumesize int64
 		zonesMap := commonco.ContainerOrchestratorUtility.GetZonesForNamespace(c.supervisorNamespace)
 		if req.AccessibleTopology != nil {
+			if zonesMap == nil {
+				return nil, logger.LogNewErrorCode(log, codes.Internal, "the guest cluster seems to be topology "+
+					"aware but CSI controller could not find zone instances in supervisor cluster.")
+			}
+
 			segments := req.AccessibleTopology.GetSegments()
 			if _, exists := zonesMap[segments["topology.kubernetes.io/zone"]]; !exists {
 				totalcapacity = 0
 				maxvolumesize = 0
-			} else {
-				totalcapacity = math.MaxInt64
-				maxvolumesize = math.MaxInt64
+				log.Infof("Zone %q is either marked for deletion or is not part of the namespace %q. "+
+					"Setting capacity to 0.", segments["topology.kubernetes.io/zone"], c.supervisorNamespace)
 			}
+		} else {
+			log.Debug("Not a topology aware guest cluster")
 		}
-		resp := &csi.GetCapacityResponse{
-			AvailableCapacity: totalcapacity,
-			MaximumVolumeSize: &wrappers.Int64Value{Value: maxvolumesize},
-		}
-		return resp, nil
-	} else {
-		return nil, status.Error(codes.Unimplemented, "")
 	}
+
+	return &csi.GetCapacityResponse{
+		AvailableCapacity: totalcapacity,
+		MaximumVolumeSize: &wrappers.Int64Value{Value: maxvolumesize},
+	}, nil
 }
 
 func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (
