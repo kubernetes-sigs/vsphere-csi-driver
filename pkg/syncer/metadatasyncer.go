@@ -853,6 +853,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 func initStorageQuotaPeriodicSync(ctx context.Context, metadataSyncer *metadataSyncInformer) error {
 	log := logger.GetLogger(ctx).WithOptions()
+	if int(PeriodicSyncIntervalInMin.Minutes()) == 0 {
+		log.Info("initStorageQuotaPeriodicSync: sync interval is set to 0, " +
+			"will skip the Periodic Sync for storage quota")
+		return nil
+	}
 	// create storagequotaperiodicsync CR
 
 	log.Info("initStorageQuotaPeriodicSync: Initialize the storage quota periodic sync")
