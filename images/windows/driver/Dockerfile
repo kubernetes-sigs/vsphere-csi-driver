@@ -1,4 +1,4 @@
-# Copyright 2021 The Kubernetes Authors.
+# Copyright 2024 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.21
+ARG GOLANG_IMAGE=golang:1.23
 ARG OSVERSION
 ARG ARCH=amd64
 
