@@ -28,6 +28,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -335,7 +336,7 @@ func waitNgetVmsvcVM(ctx context.Context, c ctlrclient.Client, namespace string,
 // waitNgetVmsvcVmIp wait and fetch the primary IP of the vm in give ns
 func waitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace string, name string) (string, error) {
 	ip := ""
-	err := wait.PollUntilContextTimeout(ctx, poll*10, pollTimeout*2, true,
+	err := wait.PollUntilContextTimeout(ctx, poll*10, pollTimeout*4, true,
 		func(ctx context.Context) (bool, error) {
 			vm, err := getVmsvcVM(ctx, c, namespace, name)
 			if err != nil {
@@ -904,6 +905,57 @@ func createVMServiceVmWithMultiplePvcs(ctx context.Context, c ctlrclient.Client,
 		vms = append(vms, waitNgetVmsvcVM(ctx, c, namespace, vmName))
 	}
 	return vms
+}
+
+// createVMServiceVmInParallel
+func createVMServiceVmInParallel(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
+	pvcs []*v1.PersistentVolumeClaim, vmi string, storageClassName string, secretName string,
+	vmCount int, ch chan *vmopv1.VirtualMachine, wg *sync.WaitGroup, lock *sync.Mutex) {
+	defer wg.Done()
+	for i := 0; i < vmCount; i++ {
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		vols := []vmopv1.VirtualMachineVolume{}
+		vmName := fmt.Sprintf("csi-test-vm-%d", r.Intn(10000))
+
+		vols = append(vols, vmopv1.VirtualMachineVolume{
+			Name: pvcs[i].Name,
+			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
+				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvcs[i].Name},
+			},
+		})
+
+		vm := vmopv1.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: namespace},
+			Spec: vmopv1.VirtualMachineSpec{
+				PowerState:   vmopv1.VirtualMachinePoweredOn,
+				ImageName:    vmi,
+				ClassName:    vmClass,
+				StorageClass: storageClassName,
+				Volumes:      vols,
+				VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
+			},
+		}
+		err := c.Create(ctx, &vm)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		lock.Lock()
+		ch <- &vm
+		lock.Unlock()
+		framework.Logf("Created VMServiceVM: %s", vmName)
+	}
+}
+
+func deleteVMServiceVmInParallel(ctx context.Context, c ctlrclient.Client, vms []*vmopv1.VirtualMachine, namespace string,
+	wg *sync.WaitGroup) {
+
+	defer wg.Done()
+	for _, vm := range vms {
+		err := c.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
+			Name:      vm.Name,
+			Namespace: namespace,
+		}})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 }
 
 // performVolumeLifecycleActionForVmServiceVM creates pvc and attaches a VMService VM to it
