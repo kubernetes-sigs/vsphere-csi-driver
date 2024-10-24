@@ -28,6 +28,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-logr/zapr"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"k8s.io/client-go/kubernetes"
@@ -35,6 +36,7 @@ import (
 	"k8s.io/client-go/tools/leaderelection"
 	rl "k8s.io/client-go/tools/leaderelection/resourcelock"
 
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
@@ -93,6 +95,8 @@ func main() {
 	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
+	logr := zapr.NewLogger(log.Desugar())
+	ctrllog.SetLogger(logr)
 	log.Infof("Version : %s", syncer.Version)
 
 	// Set CO agnostic init params.
