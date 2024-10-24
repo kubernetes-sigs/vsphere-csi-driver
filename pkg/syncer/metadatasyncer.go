@@ -127,7 +127,7 @@ const (
 	ResourceKindSnapshot                 = "VolumeSnapshot"
 	PVCQuotaExtensionServiceName         = "volume.cns.vsphere.vmware.com"
 	SnapQuotaExtensionServiceName        = "snapshot.cns.vsphere.vmware.com"
-	VMServiceExtensionServiceName        = "vmservice.cns.vsphere.vmware.com"
+	VMServiceExtensionServiceName        = "vmware-system-vmop-webhook-service"
 	scParamStoragePolicyID               = "storagePolicyID"
 	StorageQuotaPeriodicSyncInstanceName = "storage-quota-periodic-sync"
 )
