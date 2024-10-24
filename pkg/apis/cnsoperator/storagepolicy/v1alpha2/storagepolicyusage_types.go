@@ -72,6 +72,10 @@ type StoragePolicyUsageSpec struct {
 	// Namespace of service extension for given storage resource type
 	// +optional
 	ResourceExtensionNamespace string `json:"resourceExtensionNamespace,omitempty"`
+
+	// caBundle is a PEM encoded CA bundle which will be used to validate the extension service's server certificate.
+	// +optional
+	CABundle []byte `json:"caBundle,omitempty"`
 }
 
 // StoragePolicyUsageStatus defines the observed state of StoragePolicyUsage
