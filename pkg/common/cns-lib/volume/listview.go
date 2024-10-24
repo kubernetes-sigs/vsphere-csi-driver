@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -83,7 +84,39 @@ func NewListViewImpl(ctx context.Context, virtualCenter *cnsvsphere.VirtualCente
 		return nil, logger.LogNewErrorf(log, "failed to create a ListView. error: %+v", err)
 	}
 	go t.listenToTaskUpdates()
+	go t.restartContainer()
 	return t, nil
+}
+
+// restartContainer runs as a goroutine that checks every 30 seconds
+// if credentials are valid but listview state is not ready, it will start a timer of 3 minutes.
+// after 3 minutes, if listview state is still not ready,
+// we've run into some irrecoverable scenario and should restart the container
+func (l *ListViewImpl) restartContainer() {
+	log := logger.GetLogger(l.ctx)
+	ticker := time.NewTicker(30 * time.Second)
+	var waitMu sync.Mutex
+	waiting := false
+	for range ticker.C {
+		waitMu.Lock()
+		if !waiting && l.connect() == nil && !l.IsListViewReady() {
+			log.Infof("credentials are correct but listview is not ready. " +
+				"will wait 2 minutes before restarting the container")
+			waiting = true
+			waitMu.Unlock()
+			time.AfterFunc(2*time.Minute, func() {
+				waitMu.Lock()
+				defer waitMu.Unlock()
+				if !l.IsListViewReady() {
+					os.Exit(1)
+				}
+				log.Infof("credentials are correct and listview is ready within 3 minutes")
+				waiting = false
+			})
+		} else {
+			waitMu.Unlock()
+		}
+	}
 }
 
 func (l *ListViewImpl) createListView(ctx context.Context, tasks []types.ManagedObjectReference) error {
