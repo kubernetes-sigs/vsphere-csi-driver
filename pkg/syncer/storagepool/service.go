@@ -18,10 +18,14 @@ package storagepool
 
 import (
 	"context"
+	"os"
 	"reflect"
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	restclient "k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	storagepoolconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/config"
@@ -41,6 +45,8 @@ type Service struct {
 	scWatchCntlr   *StorageClassWatch
 	migrationCntlr *migrationController
 	clusterIDs     []string
+
+	restart chan struct{}
 }
 
 var (
@@ -153,6 +159,7 @@ func InitStoragePoolService(ctx context.Context,
 	storagePoolService.scWatchCntlr = scWatchCntlr
 	storagePoolService.migrationCntlr = migrationController
 	storagePoolService.clusterIDs = clusterIDs
+	storagePoolService.restart = make(chan struct{})
 
 	// Create the default Service.
 	defaultStoragePoolServiceLock.Lock()
@@ -162,6 +169,14 @@ func InitStoragePoolService(ctx context.Context,
 	startPropertyCollectorListener(ctx)
 
 	log.Infof("Done initializing Storage Pool Service")
+	go func() {
+		<-defaultStoragePoolService.restart
+		err := InitStoragePoolService(ctx, configInfo, coInitParams)
+		if err != nil { // TODO: how to handle this?
+			log.Errorf("Failed starting Storage Pool Service. Err: %+v", err)
+			os.Exit(1)
+		}
+	}()
 	return nil
 }
 
@@ -220,4 +235,31 @@ func ResetVC(ctx context.Context, vc *cnsvsphere.VirtualCenter) {
 		// PC listener will automatically reestablish its session with VC.
 		log.Info("Successfully reset VC connection in StoragePool service")
 	}
+}
+
+// TODO: this could cause multiple watcher registrations. So, we should just update the map and send a signal
+func startAvailabilityZoneWatcher(ctx context.Context, cfg restclient.Config) error {
+	var restartSPS = func(obj interface{}) {
+		_, log := logger.GetNewContextWithLogger()
+		// Retrieve name of CR instance.
+		azName, found, err := unstructured.NestedString(obj.(*unstructured.Unstructured).Object, "metadata", "name")
+		if !found || err != nil {
+			log.Errorf("failed to get `name` from AvailabilityZone instance: %+v, Error: %+v", obj, err)
+			return
+		}
+
+		log.Infof("restarting StoragePool service as AvailabilityZone %s is either created or deleted", azName)
+		defaultStoragePoolServiceLock.Lock()
+		defer defaultStoragePoolServiceLock.Unlock()
+		defaultStoragePoolService.restart <- struct{}{}
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group: "topology.tanzu.vmware.com", Version: "v1alpha1", Resource: "availabilityzones",
+	}
+	_, err := common.StartInformer(ctx, cfg, gvr, restartSPS, nil, restartSPS)
+	if err != nil {
+		return err
+	}
+	return nil
 }

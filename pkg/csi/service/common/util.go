@@ -33,12 +33,15 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 const (
@@ -47,6 +50,7 @@ const (
 )
 
 var ErrAvailabilityZoneCRNotRegistered = errors.New("AvailabilityZone custom resource not registered")
+var ErrGroupVersionResourceNotRegistered = errors.New("GroupVersionResource custom resource not registered")
 
 // GetVCenter returns VirtualCenter object from specified Manager object.
 // Before returning VirtualCenter object, vcenter connection is established if
@@ -469,4 +473,46 @@ func GetValidatedCNSVolumeInfoPatch(ctx context.Context,
 		}
 	}
 	return patch, nil
+}
+
+// StartInformer listens to changes to the given group version resource
+func StartInformer(ctx context.Context, cfg restclient.Config, gvr schema.GroupVersionResource,
+	addFunc func(ob interface{}), updateFunc func(old interface{}, new interface{}),
+	deleteFunc func(ob interface{})) (*cache.SharedIndexInformer, error) {
+	log := logger.GetLogger(ctx)
+	client, err := dynamic.NewForConfig(&cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create client using config. Err: %+v", err)
+	}
+
+	_, err = client.Resource(gvr).List(ctx, metav1.ListOptions{})
+	if apiMeta.IsNoMatchError(err) {
+		log.Error("Requested CR is not registered on the cluster", gvr)
+		return nil, ErrGroupVersionResourceNotRegistered
+	}
+
+	// At this point, we are sure the resource is registered. Create an informer.
+	dynInformer, err := k8s.GetDynamicInformer(ctx, gvr.Group,
+		gvr.Version, gvr.Resource, metav1.NamespaceAll, &cfg, true)
+	if err != nil {
+		log.Errorf("failed to create dynamic informer for CR. Error: %+v",
+			err)
+		return nil, err
+	}
+	informer := dynInformer.Informer()
+	_, err = informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    addFunc,
+		UpdateFunc: updateFunc,
+		DeleteFunc: deleteFunc,
+	})
+	if err != nil {
+		return nil, logger.LogNewErrorf(log,
+			"failed to add event handler on informer for CR. Error: %v", err)
+	}
+
+	go func() {
+		log.Info("Informer to watch on CR starting..")
+		informer.Run(make(chan struct{}))
+	}()
+	return &informer, nil
 }
