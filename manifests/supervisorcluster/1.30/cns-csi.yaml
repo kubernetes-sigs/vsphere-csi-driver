@@ -234,7 +234,7 @@ spec:
       priorityClassName: system-node-critical
       containers:
         - name: csi-provisioner
-          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v5.0.2_vmware.2
+          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v5.0.2_vmware.3
           args:
             - "--v=4"
             - "--timeout=300s"
