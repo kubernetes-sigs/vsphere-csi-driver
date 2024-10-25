@@ -3420,22 +3420,19 @@ func GetPodSpecByUserID(ns string, nodeSelector map[string]string, pvclaims []*v
 
 // writeDataOnFileFromPod writes specified data from given Pod at the given.
 func writeDataOnFileFromPod(namespace string, podName string, filePath string, data string) {
-	var shellExec, cmdArg string
+	var shellExec, cmdArg, syncCmd string
 	if windowsEnv {
 		shellExec = "Powershell.exe"
 		cmdArg = "-Command"
 	} else {
 		shellExec = "/bin/sh"
 		cmdArg = "-c"
+		syncCmd = fmt.Sprintf("echo '%s' >> %s && sync", data, filePath)
 	}
-	wrtiecmd := []string{"exec", podName, "--namespace=" + namespace, "--", shellExec, cmdArg,
-		fmt.Sprintf(" echo '%s' >>  %s ", data, filePath)}
-	e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
 
-	data2 := "fsync"
-	wrtiecmd2 := []string{"exec", podName, "--namespace=" + namespace, "--", shellExec, cmdArg,
-		fmt.Sprintf(" echo '%s' >>  %s ", data2, filePath)}
-	e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd2...)
+	// Command to write data and sync it
+	wrtiecmd := []string{"exec", podName, "--namespace=" + namespace, "--", shellExec, cmdArg, syncCmd}
+	e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
 }
 
 // readFileFromPod read data from given Pod and the given file.
