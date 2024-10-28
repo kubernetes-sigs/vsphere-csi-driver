@@ -245,7 +245,7 @@ func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn,
 	port := common.GetK8sCloudOperatorServicePort(ctx)
 	k8sCloudOperatorServiceAddr := "127.0.0.1:" + strconv.Itoa(port)
 	// Connect to k8s cloud operator gRPC service.
-	conn, err := grpc.Dial(k8sCloudOperatorServiceAddr, opts...)
+	conn, err := grpc.NewClient(k8sCloudOperatorServiceAddr, opts...)
 	if err != nil {
 		return nil, err
 	}
