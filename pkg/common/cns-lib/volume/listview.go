@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -83,7 +84,41 @@ func NewListViewImpl(ctx context.Context, virtualCenter *cnsvsphere.VirtualCente
 		return nil, logger.LogNewErrorf(log, "failed to create a ListView. error: %+v", err)
 	}
 	go t.listenToTaskUpdates()
+	go t.restartContainer()
 	return t, nil
+}
+
+// restartContainer runs as a goroutine that checks every 30 seconds
+// if credentials are valid but listview state is not ready, it will start a timer of 2 minutes.
+// after 2 minutes, if listview state is still not ready,
+// we've run into some irrecoverable scenario and should restart the container
+func (l *ListViewImpl) restartContainer() {
+	log := logger.GetLogger(l.ctx)
+	ticker := time.NewTicker(30 * time.Second)
+	var waitMu sync.Mutex
+	waiting := false
+	for range ticker.C {
+		waitMu.Lock()
+		if !waiting && l.connect() == nil && !l.IsListViewReady() {
+			log.Debugf("credentials are correct but listview is not ready. " +
+				"will wait 2 minutes before restarting the container")
+			waiting = true
+			waitMu.Unlock()
+			time.AfterFunc(2*time.Minute, func() {
+				waitMu.Lock()
+				defer waitMu.Unlock()
+				if !l.IsListViewReady() {
+					log.Infof("credentials are correct but listview is not ready within 2 minutes. " +
+						"restarting the container")
+					os.Exit(1)
+				}
+				log.Debugf("credentials are correct and listview is ready within 2 minutes")
+				waiting = false
+			})
+		} else {
+			waitMu.Unlock()
+		}
+	}
 }
 
 func (l *ListViewImpl) createListView(ctx context.Context, tasks []types.ManagedObjectReference) error {
@@ -256,10 +291,10 @@ func (l *ListViewImpl) SetListViewNotReady(ctx context.Context) {
 
 func (l *ListViewImpl) connect() error {
 	log := logger.GetLogger(l.ctx)
-	log.Infof("waiting for lock before calling connect")
+	log.Debugf("waiting for lock before calling connect")
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	log.Infof("acquired lock before calling connect")
+	log.Debugf("acquired lock before calling connect")
 	return l.virtualCenter.Connect(l.ctx)
 }
 
@@ -373,6 +408,9 @@ func (l *ListViewImpl) processTaskUpdate(prop types.PropertyChange) {
 	result := TaskResult{}
 	taskDetails, ok := l.taskMap.Get(taskInfo.Task)
 	if !ok {
+		// if vc sends a duplicate success event for a task,
+		// and we've already processed an earlier success event for the same task
+		// and removed it from our map, we will see this error
 		log.Errorf("failed to retrieve receiver channel for task %+v", taskInfo.Task)
 		return
 	} else if taskInfo.State == types.TaskInfoStateError {
