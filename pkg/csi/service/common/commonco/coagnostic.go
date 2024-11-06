@@ -41,6 +41,11 @@ type COCommonInterface interface {
 	// IsFSSEnabled checks if feature state switch is enabled for the given feature indicated
 	// by featureName.
 	IsFSSEnabled(ctx context.Context, featureName string) bool
+	// EnableFSS helps enable feature state switch in the FSS config map
+	EnableFSS(ctx context.Context, featureName string) error
+	// DisableFSS helps disable feature state switch in the FSS config map
+	// This method is added for Unit tests coverage
+	DisableFSS(ctx context.Context, featureName string) error
 	// IsFakeAttachAllowed checks if the passed volume can be fake attached.
 	IsFakeAttachAllowed(ctx context.Context, volumeID string, volumeManager cnsvolume.Manager) (bool, error)
 	// MarkFakeAttached marks the volume as fake attached.

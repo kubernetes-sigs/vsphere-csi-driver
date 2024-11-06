@@ -101,6 +101,15 @@ func (c *FakeK8SOrchestrator) IsFSSEnabled(ctx context.Context, featureName stri
 	return false
 }
 
+func (c *FakeK8SOrchestrator) EnableFSS(ctx context.Context, featureName string) error {
+	c.featureStates[featureName] = "true"
+	return nil
+}
+func (c *FakeK8SOrchestrator) DisableFSS(ctx context.Context, featureName string) error {
+	c.featureStates[featureName] = "false"
+	return nil
+}
+
 // IsFakeAttachAllowed checks if the passed volume can be fake attached and mark it as fake attached.
 func (c *FakeK8SOrchestrator) IsFakeAttachAllowed(
 	ctx context.Context,

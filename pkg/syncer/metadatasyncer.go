@@ -273,6 +273,21 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 		IsWorkloadDomainIsolationSupported = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.WorkloadDomainIsolation)
+
+		if IsWorkloadDomainIsolationSupported {
+			log.Infof("Supervisor Capability: %q is enabled", common.WorkloadDomainIsolation)
+			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
+				log.Infof("Supervisor CNS-CSI FSS: %q is disabled", common.WorkloadDomainIsolationFSS)
+				err = commonco.ContainerOrchestratorUtility.EnableFSS(ctx, common.WorkloadDomainIsolationFSS)
+				if err != nil {
+					return logger.LogNewErrorf(log, "failed to enable CNS-CSI FSS %q, err: %+v",
+						common.WorkloadDomainIsolationFSS, err)
+				}
+				log.Infof("Successfully updated CNS-CSI FSS: %q to true", common.WorkloadDomainIsolationFSS)
+			} else {
+				log.Infof("Supervisor CNS-CSI FSS: %q is enabled", common.WorkloadDomainIsolationFSS)
+			}
+		}
 		if IsWorkloadDomainIsolationSupported {
 			volumeTopologyService, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
 			if err != nil {

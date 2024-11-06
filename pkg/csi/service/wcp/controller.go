@@ -81,8 +81,7 @@ var (
 	// This will hold mapping for VolumeID to Storage policy info for PodVMOnStretchedSupervisor deployments
 	volumeInfoService cnsvolumeinfo.VolumeInfoService
 	// isPodVMOnStretchSupervisorFSSEnabled is true when PodVMOnStretchedSupervisor FSS is enabled.
-	// workloadDomainIsolationEnabled is the FSS to guard changes being made to confine namespaces to zones.
-	isPodVMOnStretchSupervisorFSSEnabled, workloadDomainIsolationEnabled bool
+	isPodVMOnStretchSupervisorFSSEnabled bool
 )
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
@@ -156,8 +155,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 	isPodVMOnStretchSupervisorFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.PodVMOnStretchedSupervisor)
-	workloadDomainIsolationEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.WorkloadDomainIsolation)
 	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CSIVolumeManagerIdempotency)
 	if idempotencyHandlingEnabled {
@@ -506,7 +503,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					"support for topology requirement with both zone and hostname labels is not yet implemented.")
 			}
 		} else if zoneLabelPresent {
-			if !workloadDomainIsolationEnabled {
+			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) {
 				if storageTopologyType == "" {
 					return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
 						"StorageTopologyType is unset while topology label is present")
@@ -533,7 +530,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
 		} else {
 			// No topology labels present in the topologyRequirement
-			if workloadDomainIsolationEnabled && isVdppOnStretchedSVEnabled {
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) &&
+				isVdppOnStretchedSVEnabled {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
 					"volume provisioning request received without topologyRequirement.")
 			}
