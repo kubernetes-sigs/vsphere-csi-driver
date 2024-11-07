@@ -306,7 +306,7 @@ func verifyOfflineVolumeExpansionOnGc(ctx context.Context, client clientset.Inte
 	pvclaim *v1.PersistentVolumeClaim, svcPVCName string, namespace string, volHandle string,
 	pod *v1.Pod, pv *v1.PersistentVolume, f *framework.Framework) {
 	ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-	originalFsSize, err := getFSSizeMb(f, pod)
+	originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Delete POD.
@@ -400,7 +400,7 @@ func verifyOfflineVolumeExpansionOnGc(ctx context.Context, client clientset.Inte
 	expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
-	fsSize, err := getFSSizeMb(f, pod)
+	fsSize, err := getFileSystemSizeForOsType(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	// Filesystem size may be smaller than the size of the block volume.
 	// Here since filesystem was already formatted on the original volume,
@@ -423,7 +423,9 @@ func verifyVolumeMetadataOnStatefulsets(client clientset.Interface, ctx context.
 	categories []string, storagePolicyName string, nodeList *v1.NodeList, f *framework.Framework) {
 	// Waiting for pods status to be Ready
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-	gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+	if !windowsEnv {
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+	}
 	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
@@ -859,7 +861,9 @@ func verifyStsVolumeMetadata(client clientset.Interface, ctx context.Context, na
 	categories []string, storagePolicyName string, nodeList *v1.NodeList, f *framework.Framework) {
 	// Waiting for pods status to be Ready
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-	gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+	if !windowsEnv {
+		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+	}
 	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
