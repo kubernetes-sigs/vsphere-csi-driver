@@ -259,7 +259,16 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 // but not storage topology type. It is a negative case.
 func TestWCPCreateVolumeWithZonalLabelPresentButNoStorageTopoType(t *testing.T) {
 	ct := getControllerTest(t)
-
+	err := commonco.ContainerOrchestratorUtility.DisableFSS(ctx, "Workload_Domain_Isolation_Supported")
+	if err != nil {
+		t.Fatal("failed to disable Workload_Domain_Isolation_Supported FSS")
+	}
+	defer func() {
+		err := commonco.ContainerOrchestratorUtility.EnableFSS(ctx, "Workload_Domain_Isolation_Supported")
+		if err != nil {
+			t.Fatal("failed to enable Workload_Domain_Isolation_Supported FSS back to true")
+		}
+	}()
 	// Create.
 	params := make(map[string]string)
 

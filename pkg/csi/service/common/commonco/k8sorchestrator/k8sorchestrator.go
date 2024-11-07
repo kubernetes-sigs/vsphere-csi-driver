@@ -30,6 +30,7 @@ import (
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
+	"google.golang.org/grpc/codes"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -1171,6 +1172,42 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 	}
 	log.Debugf("cluster flavor %q not recognised. Defaulting to false", c.clusterFlavor)
 	return false
+}
+
+// EnableFSS helps enable feature state switch in the FSS config map
+func (c *K8sOrchestrator) EnableFSS(ctx context.Context, featureName string) error {
+	log := logger.GetLogger(ctx)
+	if c.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		csifeaturestatesconfigmap, err := c.k8sClient.CoreV1().ConfigMaps(cnsconfig.DefaultCSINamespace).Get(ctx,
+			cnsconfig.DefaultSupervisorFSSConfigMapName, metav1.GetOptions{})
+		if err != nil {
+			log.Errorf("failed to "+
+				"get configmap: %q from namespace: %q. err: %v",
+				cnsconfig.DefaultSupervisorFSSConfigMapName, cnsconfig.DefaultCSINamespace, err)
+			return err
+		}
+		csifeaturestatesconfigmap.Data[featureName] = "true"
+		csifeaturestatesconfigmap, err = c.k8sClient.CoreV1().ConfigMaps(cnsconfig.DefaultCSINamespace).Update(ctx,
+			csifeaturestatesconfigmap, metav1.UpdateOptions{})
+		if err != nil {
+			log.Errorf("failed to update configmap: %q in namespace: %q to enable FSS %q. err: %v",
+				cnsconfig.DefaultSupervisorFSSConfigMapName, cnsconfig.DefaultCSINamespace, featureName, err)
+			return err
+		}
+		log.Infof("Successfully updated configmap: %q in namespace: %q to enable FSS %q. ConfigMapData: %v",
+			cnsconfig.DefaultSupervisorFSSConfigMapName, cnsconfig.DefaultCSINamespace, featureName,
+			csifeaturestatesconfigmap.Data)
+		return nil
+	} else {
+		return fmt.Errorf("EnableFSS is not implemented for clusterFlavor: %q", c.clusterFlavor)
+	}
+}
+
+// DisableFSS helps disable feature state switch in the FSS config map
+func (c *K8sOrchestrator) DisableFSS(ctx context.Context, featureName string) error {
+	log := logger.GetLogger(ctx)
+	return logger.LogNewErrorCode(log, codes.Unimplemented,
+		"DisableFSS is not implemented.")
 }
 
 // IsFakeAttachAllowed checks if the volume is eligible to be fake attached
