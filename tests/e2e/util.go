@@ -3905,7 +3905,7 @@ func getPVCSpecWithPVandStorageClass(pvcName string, namespace string, labels ma
 // object name.
 func waitForEvent(ctx context.Context, client clientset.Interface,
 	namespace string, substr string, name string) error {
-	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
+	waitErr := wait.PollUntilContextTimeout(ctx, poll, 2*pollTimeout, true,
 		func(ctx context.Context) (bool, error) {
 			eventList, err := client.CoreV1().Events(namespace).List(ctx,
 				metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
