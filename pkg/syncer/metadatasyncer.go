@@ -270,9 +270,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				return logger.LogNewErrorf(log, "failed to initialize CSINodes creation. Error: %+v", err)
 			}
 		}
+
 		IsWorkloadDomainIsolationSupported = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.WorkloadDomainIsolation)
-
+		// If the capability for WorkloadDomainIsolation feature is enabled mid-flight,
+		// this code will update the CNS-CSI FSS in vmware-system-csi namespace to true.
 		if IsWorkloadDomainIsolationSupported {
 			log.Infof("Supervisor Capability: %q is enabled", common.WorkloadDomainIsolation)
 			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
@@ -286,6 +288,92 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			} else {
 				log.Infof("Supervisor CNS-CSI FSS: %q is enabled", common.WorkloadDomainIsolationFSS)
 			}
+		}
+
+		parseBool := func(CfgMap *v1.ConfigMap, featureName string, namespace string) bool {
+			var fssVal bool
+			if state, ok := CfgMap.Data[featureName]; ok {
+				fssVal, err = strconv.ParseBool(state)
+				if err != nil {
+					log.Errorf("failed while converting %s FSS with value: %+v "+
+						"to boolean in %q configmap in %q namespace. Killing the container...",
+						featureName, fssVal, CfgMap.Name, namespace)
+					os.Exit(1)
+				}
+			}
+			return fssVal
+		}
+		if !IsWorkloadDomainIsolationSupported {
+			// If the WCP capability for WorkloadDomainIsolation feature is disabled,
+			// start an informer to know when the capability is enabled and restart the container.
+			err = k8s.NewConfigMapListener(
+				ctx,
+				k8sClient,
+				common.KubeSystemNamespace,
+				// Add.
+				nil,
+				// Update.
+				func(oldObj interface{}, newObj interface{}) {
+					_, log := logger.GetNewContextWithLogger()
+					oldFssConfigMap, ok := oldObj.(*v1.ConfigMap)
+					if oldFssConfigMap == nil || !ok {
+						log.Warnf("configMapUpdated: unrecognized old object %+v", oldObj)
+						return
+					}
+					newFssConfigMap, ok := newObj.(*v1.ConfigMap)
+					if newFssConfigMap == nil || !ok {
+						log.Warnf("configMapUpdated: unrecognized new object %+v", newObj)
+						return
+					}
+					if oldFssConfigMap.Name == common.WCPCapabilityConfigMapName {
+						log.Infof("Observed a change in WCP capabilities...")
+						oldFSSValue := parseBool(oldFssConfigMap, common.WorkloadDomainIsolation,
+							common.KubeSystemNamespace)
+						newFSSValue := parseBool(newFssConfigMap, common.WorkloadDomainIsolation,
+							common.KubeSystemNamespace)
+						if !oldFSSValue && newFSSValue {
+							log.Infof("%s capability is enabled in %s configmap in %s namespace. "+
+								"Restarting the container as capabilities have changed.",
+								common.WorkloadDomainIsolation, common.WCPCapabilityConfigMapName,
+								common.KubeSystemNamespace)
+							os.Exit(1)
+						}
+					}
+				},
+				// Delete.
+				nil)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to listen on configmaps in namespace %q. Error: %v",
+					common.KubeSystemNamespace, err)
+			}
+
+			// In case the informer above missed the update event where WCP capability for
+			// WorkloadDomainIsolation feature is turned on, we will check the WCP capability configmap
+			// every 2mins to check if there is a change and restart the container if it is enabled.
+			go func() {
+				ticker := time.NewTicker(time.Duration(2) * time.Minute)
+				defer ticker.Stop()
+
+				for range ticker.C {
+					wcpCapMap, err := k8sClient.CoreV1().ConfigMaps(common.KubeSystemNamespace).Get(ctx,
+						common.WCPCapabilityConfigMapName, metav1.GetOptions{})
+					if err != nil {
+						log.Errorf("failed to fetch configmap %s in namespace %s. Error: %+v",
+							common.WCPCapabilityConfigMapName, common.KubeSystemNamespace)
+						os.Exit(1)
+					}
+					fssVal := parseBool(wcpCapMap, common.WorkloadDomainIsolation,
+						common.KubeSystemNamespace)
+					if fssVal {
+						log.Infof("%s capability is enabled in %s configmap in %s namespace. "+
+							"Restarting the container as capabilities have changed.",
+							common.WorkloadDomainIsolation, common.WCPCapabilityConfigMapName,
+							common.KubeSystemNamespace)
+						os.Exit(1)
+					}
+
+				}
+			}()
 		}
 		if IsWorkloadDomainIsolationSupported {
 			volumeTopologyService, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
