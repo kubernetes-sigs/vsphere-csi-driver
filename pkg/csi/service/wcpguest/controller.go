@@ -81,6 +81,8 @@ type controller struct {
 	vmWatcher                   *cache.ListWatch
 	supervisorNamespace         string
 	tanzukubernetesClusterUID   string
+	tanzukubernetesClusterName  string
+	guestClusterDist            string
 }
 
 // New creates a CNS controller
@@ -99,6 +101,8 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 		return err
 	}
 	c.tanzukubernetesClusterUID = config.GC.TanzuKubernetesClusterUID
+	c.tanzukubernetesClusterName = config.GC.TanzuKubernetesClusterName
+	c.guestClusterDist = config.GC.ClusterDistribution
 	c.restClientConfig = k8s.GetRestClientConfigForSupervisor(ctx, config.GC.Endpoint, config.GC.Port)
 	c.supervisorClient, err = k8s.NewSupervisorClient(ctx, c.restClientConfig)
 	if err != nil {
@@ -311,13 +315,15 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		if err != nil {
 			if errors.IsNotFound(err) {
 				diskSize := strconv.FormatInt(volSizeMB, 10) + "Mi"
-				var annotations map[string]string
+				labels := make(map[string]string)
+				annotations := make(map[string]string)
+				key := fmt.Sprintf("%s/%s", c.tanzukubernetesClusterName, c.guestClusterDist)
+				labels[key] = c.tanzukubernetesClusterUID
 				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 					req.AccessibilityRequirements != nil &&
 					(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) ||
 						!isFileVolumeRequest) {
 					// Generate volume topology requirement annotation.
-					annotations = make(map[string]string)
 					topologyAnnotation, err := generateGuestClusterRequestedTopologyJSON(req.AccessibilityRequirements.Preferred)
 					if err != nil {
 						msg := fmt.Sprintf("failed to generate accessibility topology for pvc with name: %s "+
@@ -328,7 +334,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 					annotations[common.AnnGuestClusterRequestedTopology] = topologyAnnotation
 				}
 				claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace,
-					diskSize, supervisorStorageClass, getAccessMode(accessMode), annotations, volumeSnapshotName)
+					diskSize, supervisorStorageClass, getAccessMode(accessMode), annotations, labels, volumeSnapshotName)
 				log.Debugf("PVC claim spec is %+v", spew.Sdump(claim))
 				pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Create(
 					ctx, claim, metav1.CreateOptions{})
