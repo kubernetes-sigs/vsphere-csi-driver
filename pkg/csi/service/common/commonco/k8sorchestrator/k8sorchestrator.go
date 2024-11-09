@@ -598,7 +598,8 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 		// Update.
 		func(oldObj interface{}, newObj interface{}) {
 			if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest &&
-				operationMode == "METADATA_SYNC" &&
+				operationMode != "WEBHOOK_SERVER" &&
+				serviceMode != "node" &&
 				k8sOrchestratorInstance.IsPVCSIFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) &&
 				!k8sOrchestratorInstance.IsCNSCSIFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
 				handleEnablementOfWLDIFSS(oldObj, newObj)
