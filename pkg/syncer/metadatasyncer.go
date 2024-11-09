@@ -27,8 +27,6 @@ import (
 	"sync"
 	"time"
 
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/storagepool"
-
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-co-op/gocron"
@@ -76,6 +74,7 @@ import (
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/featurestates"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/storagepool"
 )
 
 var (
@@ -298,6 +297,39 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 	}
 
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		// Check the replicated FSS Configmap every 2 minutes
+		// When workload-domain-isolation FSS is enabled in csi-feature-states config-map, restart the container
+		if commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) &&
+			!commonco.ContainerOrchestratorUtility.IsCNSCSIFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
+			go func() {
+				ticker := time.NewTicker(time.Duration(2) * time.Minute)
+				defer ticker.Stop()
+				for range ticker.C {
+					csifeaturestatesconfigmap, err := k8sClient.CoreV1().ConfigMaps(cnsconfig.DefaultCSINamespace).
+						Get(ctx, cnsconfig.DefaultSupervisorFSSConfigMapName, metav1.GetOptions{})
+					if err != nil {
+						log.Errorf("failed to get configmap %q from namespace %q. Error: %v",
+							cnsconfig.DefaultSupervisorFSSConfigMapName, cnsconfig.DefaultCSINamespace, err)
+						os.Exit(1)
+					}
+					fssVal, found := csifeaturestatesconfigmap.Data[common.WorkloadDomainIsolationFSS]
+					if found {
+						fssValBool, err := strconv.ParseBool(fssVal)
+						if err != nil {
+							log.Errorf("failed to parse fss value: %q for fss: %q",
+								fssVal, common.WorkloadDomainIsolationFSS)
+							os.Exit(1)
+						}
+						if fssValBool {
+							log.Infof("Detected Enablement of FSS: %q. Restarting Container.", common.WorkloadDomainIsolationFSS)
+							os.Exit(1)
+						}
+					}
+				}
+			}()
+		}
+	}
 	// Initialize cnsDeletionMap used by Full Sync.
 	cnsDeletionMap = make(map[string]map[string]bool)
 	// Initialize cnsCreationMap used by Full Sync.

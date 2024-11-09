@@ -101,6 +101,18 @@ func (c *FakeK8SOrchestrator) IsFSSEnabled(ctx context.Context, featureName stri
 	return false
 }
 
+// IsCNSCSIFSSEnabled returns the FSS values for a given feature in CNS-CSI
+func (c *FakeK8SOrchestrator) IsCNSCSIFSSEnabled(ctx context.Context, featureName string) bool {
+	// TODO: add featureStates map for CNSCSI for Unit tests
+	return c.IsFSSEnabled(ctx, featureName)
+}
+
+// IsPVCSIFSSEnabled returns the FSS values for a given feature in PV-CSI
+func (c *FakeK8SOrchestrator) IsPVCSIFSSEnabled(ctx context.Context, featureName string) bool {
+	// TODO: add featureStates map for PVCSI for Unit tests
+	return c.IsFSSEnabled(ctx, featureName)
+}
+
 func (c *FakeK8SOrchestrator) EnableFSS(ctx context.Context, featureName string) error {
 	c.featureStates[featureName] = "true"
 	return nil
