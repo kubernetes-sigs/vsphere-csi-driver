@@ -12,6 +12,7 @@ steps:
       - TAG=$_GIT_TAG
       - PULL_BASE_REF=$_PULL_BASE_REF
       - DOCKER_BUILDKIT=1
+      - GOTOOLCHAIN=auto
     args:
       - deploy
 substitutions:
