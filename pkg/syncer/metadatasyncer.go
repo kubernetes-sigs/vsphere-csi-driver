@@ -733,10 +733,10 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
 	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
 	metadataSyncer.podLister = metadataSyncer.k8sInformerManager.GetPodLister()
-	stopCh := metadataSyncer.k8sInformerManager.Listen()
-	if stopCh == nil {
-		return logger.LogNewError(log, "Failed to sync informer caches")
-	}
+	//stopCh := metadataSyncer.k8sInformerManager.Listen()
+	//if stopCh == nil {
+	//	return logger.LogNewError(log, "Failed to sync informer caches")
+	//}
 	log.Infof("Initialized metadata syncer")
 
 	fullSyncTicker := time.NewTicker(time.Duration(getFullSyncIntervalInMin(ctx)) * time.Minute)
@@ -969,7 +969,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			for ; true; <-volumeResizeEnablementTicker.C {
 				ctx, log = logger.GetNewContextWithLogger()
 				if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.VolumeExtend) {
-					log.Debugf("ExpandVolume feature is disabled on the cluster")
+					log.Debugf("ExpandVolume feature is disabled on the cluster.")
 				} else {
 					if err := initResizeReconciler(ctx, k8sClient, metadataSyncer.supervisorClient); err != nil {
 						log.Warnf("Error while initializing volume resize reconciler. Err:%+v. Retry will be triggered at %v",
@@ -982,7 +982,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}()
 	}
 
-	<-stopCh
+	//<-stopCh
 	return nil
 }
 
