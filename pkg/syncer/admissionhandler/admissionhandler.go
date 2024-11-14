@@ -26,13 +26,13 @@ import (
 	"os"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/go-logr/zapr"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
-
-	cnstypes "github.com/vmware/govmomi/cns/types"
-
+	cr_log "sigs.k8s.io/controller-runtime/pkg/log"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -60,6 +60,7 @@ var (
 	featureGateTKGSHaEnabled                  bool
 	featureGateVolumeHealthEnabled            bool
 	featureGateTopologyAwareFileVolumeEnabled bool
+	featureGateByokEnabled                    bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
@@ -121,8 +122,10 @@ func watchConfigChange() {
 
 // StartWebhookServer starts the webhook server.
 func StartWebhookServer(ctx context.Context) error {
-	var stopCh = make(chan bool)
 	log := logger.GetLogger(ctx)
+	cr_log.SetLogger(zapr.NewLogger(log.Desugar()))
+
+	var stopCh = make(chan bool)
 	var err error
 	var clusterFlavor cnstypes.CnsClusterFlavor
 	var containerOrchestratorUtility commonco.COCommonInterface
@@ -142,7 +145,10 @@ func StartWebhookServer(ctx context.Context) error {
 		featureGateTKGSHaEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 		featureGateVolumeHealthEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeHealth)
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-		startCNSCSIWebhookManager(ctx)
+		featureGateByokEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BYOK_FSS)
+		if err := startCNSCSIWebhookManager(ctx); err != nil {
+			return fmt.Errorf("unable to run the webhook manager: %w", err)
+		}
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		startPVCSIWebhookManager(ctx)

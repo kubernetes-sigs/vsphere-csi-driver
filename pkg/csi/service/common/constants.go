@@ -431,6 +431,8 @@ const (
 	WorkloadDomainIsolationFSS = "workload-domain-isolation"
 	// VPCCapabilitySupervisor is a supervisor capability indicating if VPC FSS is enabled
 	VPCCapabilitySupervisor = "VPC_Supported"
+	// TODO: WCP_VMService_BYOK_FSS enables Bring Your Own Key (BYOK) capabilities.
+	BYOK_FSS = "byok"
 )
 
 var WCPFeatureStates = map[string]struct{}{

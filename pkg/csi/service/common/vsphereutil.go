@@ -240,6 +240,19 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		createSpec.Profile = append(createSpec.Profile, profileSpec)
 	}
 
+	if spec.CryptoKeyID != nil {
+		createSpec.CreateSpec = &cnstypes.CnsBlockCreateSpec{
+			CryptoSpec: &vim25types.CryptoSpecEncrypt{
+				CryptoKeyId: vim25types.CryptoKeyId{
+					KeyId: spec.CryptoKeyID.KeyID,
+					ProviderId: &vim25types.KeyProviderId{
+						Id: spec.CryptoKeyID.KeyProvider,
+					},
+				},
+			},
+		}
+	}
+
 	// Handle the case of CreateVolumeFromSnapshot by checking if
 	// the ContentSourceSnapshotID is available in CreateVolumeSpec
 	if spec.ContentSourceSnapshotID != "" {

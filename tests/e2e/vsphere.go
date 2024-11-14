@@ -1355,3 +1355,43 @@ func (vs *vSphere) getAllVms(ctx context.Context) []*object.VirtualMachine {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return vms
 }
+
+func (vs *vSphere) generateEncryptionKey(ctx context.Context, keyProviderID string) (string, error) {
+	vimClient := vs.Client.Client
+	cm := vimClient.ServiceContent.CryptoManager
+	resp, err := methods.GenerateKey(ctx, vimClient, &vim25types.GenerateKey{
+		This: *cm,
+		KeyProvider: &vim25types.KeyProviderId{
+			Id: keyProviderID,
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	if !resp.Returnval.Success || resp.Returnval.KeyId.KeyId == "" {
+		return "", fmt.Errorf("failed to generate encryption key in key provider %s", keyProviderID)
+	}
+
+	return resp.Returnval.KeyId.KeyId, nil
+}
+
+func (vs *vSphere) findKeyProvier(ctx context.Context, keyProviderID string) (*vim25types.KmipClusterInfo, error) {
+	vimClient := vs.Client.Client
+	cm := vimClient.ServiceContent.CryptoManager
+	resp, err := methods.ListKmipServers(ctx, vimClient, &vim25types.ListKmipServers{
+		This: *cm,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for idx := range resp.Returnval {
+		kms := &resp.Returnval[idx]
+		if kms.ClusterId.Id == keyProviderID {
+			return kms, nil
+		}
+	}
+
+	return nil, nil
+}

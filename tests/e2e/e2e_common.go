@@ -104,6 +104,8 @@ const (
 	envStoragePolicyNameForVvolDatastores      = "STORAGE_POLICY_FOR_VVOL_DATASTORES"
 	envStoragePolicyNameFromInaccessibleZone   = "STORAGE_POLICY_FROM_INACCESSIBLE_ZONE"
 	envStoragePolicyNameWithThickProvision     = "STORAGE_POLICY_WITH_THICK_PROVISIONING"
+	envStoragePolicyNameWithEncryption         = "STORAGE_POLICY_WITH_ENCRYPTION"
+	envKeyProvider                             = "KEY_PROVIDER"
 	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
 	envSupervisorClusterNamespaceToDelete      = "SVC_NAMESPACE_TO_DELETE"
 	envTopologyWithOnlyOneNode                 = "TOPOLOGY_WITH_ONLY_ONE_NODE"

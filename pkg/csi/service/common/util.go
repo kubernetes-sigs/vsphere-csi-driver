@@ -38,7 +38,6 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 )
 
 const (
@@ -432,11 +431,7 @@ func MergeMaps(first map[string]string, second map[string]string) map[string]str
 
 // GetCSINamespace returns the namespace in which CSI driver is installed
 func GetCSINamespace() string {
-	CSINamespace := os.Getenv(csitypes.EnvVarNamespace)
-	if CSINamespace == "" {
-		CSINamespace = cnsconfig.DefaultCSINamespace
-	}
-	return CSINamespace
+	return cnsconfig.GetCSINamespace()
 }
 
 func GetValidatedCNSVolumeInfoPatch(ctx context.Context,

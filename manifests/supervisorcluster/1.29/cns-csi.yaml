@@ -114,6 +114,9 @@ rules:
   - apiGroups: ["crd.nsx.vmware.com"]
     resources: ["networkinfos"]
     verbs: ["get", "watch", "list"]
+  - apiGroups: ["encryption.vmware.com"]
+    resources: ["encryptionclasses"]
+    verbs: ["get", "list", "watch"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -193,6 +196,30 @@ subjects:
 roleRef:
   kind: Role
   name: vsphere-csi-secret-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: vmware-system-csi
+  name: vsphere-csi-configmap-writer
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "watch", "list", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vsphere-csi-provisioner-configmap-writer
+  namespace: vmware-system-csi
+subjects:
+  - kind: ServiceAccount
+    name: vsphere-csi-controller
+    namespace: vmware-system-csi
+roleRef:
+  kind: Role
+  name: vsphere-csi-configmap-writer
   apiGroup: rbac.authorization.k8s.io
 ---
 kind: Deployment

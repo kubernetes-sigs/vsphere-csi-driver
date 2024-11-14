@@ -45,6 +45,7 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/admissionhandler"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/byokoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/manager"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8scloudoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/storagepool"
@@ -358,6 +359,17 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 				os.Exit(0)
 			}
 		}()
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BYOK_FSS) &&
+			clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			// Start BYOK Operator for Supervisor clusters.
+			go func() {
+				if err := startByokOperator(ctx, clusterFlavor, configInfo); err != nil {
+					log.Errorf("Error running BYOK Operator. Error: %+v", err)
+					utils.LogoutAllvCenterSessions(ctx)
+					os.Exit(0)
+				}
+			}()
+		}
 		syncer.PeriodicSyncIntervalInMin = *periodicSyncIntervalInMin
 		if err := syncer.InitMetadataSyncer(ctx, clusterFlavor, configInfo); err != nil {
 			log.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
@@ -365,6 +377,26 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			os.Exit(0)
 		}
 	}
+}
+
+func startByokOperator(ctx context.Context,
+	clusterFlavor cnstypes.CnsClusterFlavor,
+	configInfo *config.ConfigurationInfo) error {
+	log := logger.GetLogger(ctx)
+
+	defer func() {
+		log.Info("Cleaning up vc sessions cns operator")
+		if r := recover(); r != nil {
+			cleanupSessions(ctx, r)
+		}
+	}()
+
+	mgr, err := byokoperator.NewManager(ctx, clusterFlavor, configInfo)
+	if err != nil {
+		return err
+	}
+
+	return mgr.Start(ctx)
 }
 
 func cleanupSessions(ctx context.Context, r interface{}) {

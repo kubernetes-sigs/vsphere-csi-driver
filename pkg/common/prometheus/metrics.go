@@ -62,6 +62,8 @@ const (
 	PrometheusCnsDetachVolumeOpType = "detach-volume"
 	// PrometheusCnsUpdateVolumeMetadataOpType represents the UpdateVolumeMetadata operation.
 	PrometheusCnsUpdateVolumeMetadataOpType = "update-volume-metadata"
+	// PrometheusCnsUpdateVolumeCryptoOpType represents the UpdateVolumeCrypto operation.
+	PrometheusCnsUpdateVolumeCryptoOpType = "update-volume-crypto"
 	// PrometheusCnsExpandVolumeOpType represents the ExpandVolume operation.
 	PrometheusCnsExpandVolumeOpType = "expand-volume"
 	// PrometheusCnsQueryVolumeOpType represents the QueryVolume operation.

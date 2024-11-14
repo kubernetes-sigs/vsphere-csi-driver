@@ -42,6 +42,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/wait"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -176,11 +177,22 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}
+
+	var cryptoClient crypto.Client
+
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BYOK_FSS) {
+		var err error
+		if cryptoClient, err = crypto.NewClientWithDefaultConfig(ctx); err != nil {
+			return logger.LogNewErrorf(log, "failed to create an instance of crypto client. err=%v", err)
+		}
+	}
+
 	c.manager = &common.Manager{
 		VcenterConfig:  vcenterconfig,
 		CnsConfig:      config,
 		VolumeManager:  volumeManager,
 		VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
+		CryptoClient:   cryptoClient,
 	}
 
 	vc, err := common.GetVCenter(ctx, c.manager)
@@ -427,6 +439,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		storagePool          string
 		selectedDatastoreURL string
 		storageTopologyType  string
+		pvcName              string
+		pvcNamespace         string
 		topologyRequirement  *csi.TopologyRequirement
 		// accessibleNodes will be used to populate volumeAccessTopology.
 		accessibleNodes      []string
@@ -460,6 +474,10 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 						storageTopologyType)
 				}
 			}
+		case common.AttributePvcName:
+			pvcName = req.Parameters[paramName]
+		case common.AttributePvcNamespace:
+			pvcNamespace = req.Parameters[paramName]
 		}
 	}
 
@@ -668,6 +686,25 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				volSizeBytes, snapshotSizeInBytes)
 		}
 	}
+
+	var cryptoKeyID *common.CryptoKeyID
+
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BYOK_FSS) {
+		if encClass, err := c.manager.CryptoClient.GetEncryptionClassForPVC(
+			ctx,
+			pvcName,
+			pvcNamespace); err != nil {
+
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get encryption class for PVC. Error: %+v", err)
+		} else if encClass != nil {
+			cryptoKeyID = &common.CryptoKeyID{
+				KeyID:       encClass.Spec.KeyID,
+				KeyProvider: encClass.Spec.KeyProvider,
+			}
+		}
+	}
+
 	// Create CreateVolumeSpec and populate values.
 	var createVolumeSpec = common.CreateVolumeSpec{
 		CapacityMB:              volSizeMB,
@@ -678,6 +715,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		VolumeType:              common.BlockVolumeType,
 		VsanDatastoreURL:        selectedDatastoreURL,
 		ContentSourceSnapshotID: contentSourceSnapshotID,
+		CryptoKeyID:             cryptoKeyID,
 	}
 	var (
 		volumeInfo *cnsvolume.CnsVolumeInfo
