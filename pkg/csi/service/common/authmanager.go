@@ -357,7 +357,7 @@ func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *cnsvsphere.Virtu
 	}
 	if len(result) != 0 && len(dsURLToInfoMap) == 0 {
 		log.Infof("auth manager: user %s on vCenter %q doesn't have privileges for any datastore. "+
-			"HasUserPrivilegeOnEntities returns %v, when checking privileges %v on entities %v."+
+			"HasUserPrivilegeOnEntities returns %v, when checking privileges %v on entities %v.",
 			userName, vc.Config.Host, result, privIds, entities)
 	}
 	return dsURLToInfoMap, nil
@@ -470,7 +470,7 @@ func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCen
 	}
 	if len(result) != 0 && len(clusterComputeResourceWithPriv) == 0 {
 		log.Infof("auth manager: user %s on vCenter %q doesn't have privileges for any ClusterComputeResource. "+
-			"HasUserPrivilegeOnEntities returns %v, when checking privileges %v on entities %v."+
+			"HasUserPrivilegeOnEntities returns %v, when checking privileges %v on entities %v.",
 			userName, vc.Config.Host, result, privIds, entities)
 	} else {
 		log.Debugf("Clusters with priv: %s and vCenter: %q are : %+v", HostConfigStoragePriv,
