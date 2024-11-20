@@ -75,7 +75,8 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"storage-quota-m2":                  "false",
 				"workload-domain-isolation":         "true",
 				// Adding FSS from `wcp-cluster-capabilities` configmap in supervisor here for simplicity.
-				"Workload_Domain_Isolation_Supported": "true",
+				// TODO: Enable FSS for unit tests after mockControllerVolumeTopology interfaces are implemented
+				"Workload_Domain_Isolation_Supported": "false",
 			},
 		}
 		return fakeCO, nil

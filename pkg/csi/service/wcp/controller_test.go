@@ -259,16 +259,20 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 // but not storage topology type. It is a negative case.
 func TestWCPCreateVolumeWithZonalLabelPresentButNoStorageTopoType(t *testing.T) {
 	ct := getControllerTest(t)
-	err := commonco.ContainerOrchestratorUtility.DisableFSS(ctx, "Workload_Domain_Isolation_Supported")
-	if err != nil {
-		t.Fatal("failed to disable Workload_Domain_Isolation_Supported FSS")
-	}
-	defer func() {
-		err := commonco.ContainerOrchestratorUtility.EnableFSS(ctx, "Workload_Domain_Isolation_Supported")
+	// TODO: Add following code back when FSS for Workload_Domain_Isolation_Supported is enabled for unit tests
+	/*
+		err := commonco.ContainerOrchestratorUtility.DisableFSS(ctx, "Workload_Domain_Isolation_Supported")
 		if err != nil {
-			t.Fatal("failed to enable Workload_Domain_Isolation_Supported FSS back to true")
+			t.Fatal("failed to disable Workload_Domain_Isolation_Supported FSS")
 		}
-	}()
+		defer func() {
+			err := commonco.ContainerOrchestratorUtility.EnableFSS(ctx, "Workload_Domain_Isolation_Supported")
+			if err != nil {
+				t.Fatal("failed to enable Workload_Domain_Isolation_Supported FSS back to true")
+			}
+		}()
+	*/
+
 	// Create.
 	params := make(map[string]string)
 
@@ -365,7 +369,16 @@ func TestWCPCreateVolumeWithZonalLabelPresentButNoStorageTopoType(t *testing.T) 
 // default value of FileVolumeActivated as "true".
 func TestWCPCreateVolumeWithoutZoneLabelPresentForFileVolume(t *testing.T) {
 	ct := getControllerTest(t)
-
+	err := commonco.ContainerOrchestratorUtility.EnableFSS(ctx, "Workload_Domain_Isolation_Supported")
+	if err != nil {
+		t.Fatal("failed to enable Workload_Domain_Isolation_Supported FSS")
+	}
+	defer func() {
+		err := commonco.ContainerOrchestratorUtility.DisableFSS(ctx, "Workload_Domain_Isolation_Supported")
+		if err != nil {
+			t.Fatal("failed to disable Workload_Domain_Isolation_Supported FSS")
+		}
+	}()
 	// Create.
 	params := make(map[string]string)
 
@@ -456,7 +469,16 @@ func TestWCPCreateVolumeWithoutZoneLabelPresentForFileVolume(t *testing.T) {
 // default value of FileVolumeActivated as "true".
 func TestWCPCreateVolumeWithHostLabelPresentForFileVolume(t *testing.T) {
 	ct := getControllerTest(t)
-
+	err := commonco.ContainerOrchestratorUtility.EnableFSS(ctx, "Workload_Domain_Isolation_Supported")
+	if err != nil {
+		t.Fatal("failed to enable Workload_Domain_Isolation_Supported FSS")
+	}
+	defer func() {
+		err := commonco.ContainerOrchestratorUtility.DisableFSS(ctx, "Workload_Domain_Isolation_Supported")
+		if err != nil {
+			t.Fatal("failed to disable Workload_Domain_Isolation_Supported FSS")
+		}
+	}()
 	// Create.
 	params := make(map[string]string)
 
