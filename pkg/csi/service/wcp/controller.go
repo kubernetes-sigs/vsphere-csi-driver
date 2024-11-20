@@ -180,7 +180,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 	var cryptoClient crypto.Client
 
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BYOK_FSS) {
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK) {
 		var err error
 		if cryptoClient, err = crypto.NewClientWithDefaultConfig(ctx); err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of crypto client. err=%v", err)
@@ -689,7 +689,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 
 	var cryptoKeyID *common.CryptoKeyID
 
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BYOK_FSS) {
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK) {
 		if encClass, err := c.manager.CryptoClient.GetEncryptionClassForPVC(
 			ctx,
 			pvcName,

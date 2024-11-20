@@ -145,7 +145,7 @@ func StartWebhookServer(ctx context.Context) error {
 		featureGateTKGSHaEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 		featureGateVolumeHealthEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeHealth)
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-		featureGateByokEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BYOK_FSS)
+		featureGateByokEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK)
 		if err := startCNSCSIWebhookManager(ctx); err != nil {
 			return fmt.Errorf("unable to run the webhook manager: %w", err)
 		}

@@ -375,7 +375,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}
 		}()
 		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BYOK_FSS) {
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK) {
 			// Start BYOK Operator for Supervisor clusters.
 			wg.Add(1)
 			go func() {
