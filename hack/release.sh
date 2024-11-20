@@ -150,6 +150,8 @@ function build_syncer_image_linux() {
       --build-arg "GOPROXY=${GOPROXY}" \
       --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
       --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
+      --build-arg ARCH=amd64 \
+      --platform "linux/$ARCH" \
   .
 
   if [ "${LATEST}" ]; then
