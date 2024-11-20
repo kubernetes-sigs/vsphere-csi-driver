@@ -139,12 +139,12 @@ datacenters should be comma separated if deployed on multi-datacenters
     export NFS_DATASTORE_NAME="nfs-test"
 
 ### To run encryption tests need to do extra steps
+
     # Set variable for storage policy with encryption capabilities in vCenter.
     export STORAGE_POLICY_WITH_ENCRYPTION="<encrypted-storage-policy>"
     # Reference to a standard Key Provider registered and authenticated in vCenter.
     # This is typically a PyKMIP server authenticated using a certificate and private key
     export KEY_PROVIDER="<kmip_server>"
-    
 
 ## Requirements
 

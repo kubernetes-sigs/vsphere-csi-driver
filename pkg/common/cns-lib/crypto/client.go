@@ -1,3 +1,19 @@
+/*
+Copyright 2024 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package crypto
 
 import (
@@ -12,7 +28,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto/internal"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -44,7 +59,7 @@ func NewClientWithConfig(ctx context.Context, config *rest.Config) (Client, erro
 		return nil, err
 	}
 
-	k8sClient, err := ctrlclient.New(config, client.Options{
+	k8sClient, err := ctrlclient.New(config, ctrlclient.Options{
 		Scheme: scheme,
 	})
 	if err != nil {
@@ -177,7 +192,10 @@ func (c *defaultClient) MarkEncryptedStorageClass(
 	return c.Client.Patch(ctx, &obj, objPatch)
 }
 
-func (c *defaultClient) isEncryptedStorageClass(ctx context.Context, storageClass *storagev1.StorageClass) (bool, string, error) {
+func (c *defaultClient) isEncryptedStorageClass(
+	ctx context.Context,
+	storageClass *storagev1.StorageClass,
+) (bool, string, error) {
 	var (
 		obj    corev1.ConfigMap
 		objKey = ctrlclient.ObjectKey{
@@ -200,7 +218,10 @@ func (c *defaultClient) isEncryptedStorageClass(ctx context.Context, storageClas
 	return false, "", nil
 }
 
-func (c *defaultClient) GetEncryptionClass(ctx context.Context, name, namespace string) (*byokv1.EncryptionClass, error) {
+func (c *defaultClient) GetEncryptionClass(
+	ctx context.Context,
+	name, namespace string,
+) (*byokv1.EncryptionClass, error) {
 	var obj byokv1.EncryptionClass
 	key := ctrlclient.ObjectKey{Namespace: namespace, Name: name}
 	err := c.Client.Get(ctx, key, &obj)
@@ -210,7 +231,10 @@ func (c *defaultClient) GetEncryptionClass(ctx context.Context, name, namespace 
 	return &obj, nil
 }
 
-func (c *defaultClient) GetDefaultEncryptionClass(ctx context.Context, namespace string) (*byokv1.EncryptionClass, error) {
+func (c *defaultClient) GetDefaultEncryptionClass(
+	ctx context.Context,
+	namespace string,
+) (*byokv1.EncryptionClass, error) {
 	var list byokv1.EncryptionClassList
 	if err := c.Client.List(
 		ctx,
@@ -231,7 +255,10 @@ func (c *defaultClient) GetDefaultEncryptionClass(ctx context.Context, namespace
 	return &list.Items[0], nil
 }
 
-func (c *defaultClient) GetEncryptionClassForPVC(ctx context.Context, name, namespace string) (*byokv1.EncryptionClass, error) {
+func (c *defaultClient) GetEncryptionClassForPVC(
+	ctx context.Context,
+	name, namespace string,
+) (*byokv1.EncryptionClass, error) {
 	var pvc corev1.PersistentVolumeClaim
 	pvcKey := ctrlclient.ObjectKey{Namespace: namespace, Name: name}
 	if err := c.Client.Get(ctx, pvcKey, &pvc); err != nil {

@@ -1,3 +1,19 @@
+/*
+Copyright 2024 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package persistentvolumeclaim
 
 import (
@@ -132,7 +148,10 @@ func (r *reconciler) reconcileNormal(ctx context.Context, pvc *corev1.Persistent
 	return r.volumeManager.UpdateVolumeCrypto(ctx, updateSpec)
 }
 
-func (r *reconciler) findEncryptionClass(ctx context.Context, pvc *corev1.PersistentVolumeClaim) (*byokv1.EncryptionClass, error) {
+func (r *reconciler) findEncryptionClass(
+	ctx context.Context,
+	pvc *corev1.PersistentVolumeClaim,
+) (*byokv1.EncryptionClass, error) {
 	encClassName := crypto.GetEncryptionClassNameForPVC(pvc)
 	if encClassName == "" {
 		return nil, nil
@@ -163,7 +182,10 @@ func (r *reconciler) findVolume(ctx context.Context, pvc *corev1.PersistentVolum
 	return &result.Volumes[0], nil
 }
 
-func (r *reconciler) findVolumeCryptoKeyID(ctx context.Context, volume *cnstypes.CnsVolume) (*vimtypes.CryptoKeyId, error) {
+func (r *reconciler) findVolumeCryptoKeyID(
+	ctx context.Context,
+	volume *cnstypes.CnsVolume,
+) (*vimtypes.CryptoKeyId, error) {
 	volumeIDList := []cnstypes.CnsVolumeId{volume.VolumeId}
 
 	result, err := r.volumeManager.QueryVolumeInfo(ctx, volumeIDList)

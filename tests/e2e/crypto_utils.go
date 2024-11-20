@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,7 +29,6 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/types"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -136,7 +135,7 @@ func buildPersistentVolumeClaimWithCryptoSpec(namespace, scName, encClassName st
 			},
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceName(v1.ResourceStorage): resource.MustParse("50Mi"),
+					corev1.ResourceName(corev1.ResourceStorage): resource.MustParse("50Mi"),
 				},
 			},
 		},
@@ -172,7 +171,7 @@ func createPersistentVolumeClaimWithCrypto(
 		_, err = fpv.WaitForPVClaimBoundPhase(
 			ctx,
 			client,
-			[]*v1.PersistentVolumeClaim{pvc},
+			[]*corev1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout*2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
@@ -233,22 +232,6 @@ func validateVolumeToBeEncryptedWithKey(
 	gomega.Expect(cryptoKey.ProviderId).NotTo(gomega.BeNil())
 	gomega.Expect(cryptoKey.ProviderId.Id).To(gomega.Equal(keyProvider))
 	gomega.Expect(cryptoKey.KeyId).To(gomega.Equal(keyID))
-}
-
-func validateVolumeNotToBeEncryptedWithKey(
-	ctx context.Context,
-	volumeName, keyProvider, keyID string) {
-
-	cryptoKey := findVolumeCryptoKey(ctx, volumeName)
-	gomega.Expect(cryptoKey).NotTo(gomega.BeNil())
-	gomega.Expect(cryptoKey.ProviderId).NotTo(gomega.BeNil())
-	gomega.Expect(cryptoKey.ProviderId.Id).NotTo(gomega.Equal(keyProvider))
-	gomega.Expect(cryptoKey.KeyId).NotTo(gomega.Equal(keyID))
-}
-
-func validateVolumeNotToBeEncrypted(ctx context.Context, volumeName string) {
-	cryptoKey := findVolumeCryptoKey(ctx, volumeName)
-	gomega.Expect(cryptoKey).To(gomega.BeNil())
 }
 
 func validateVolumeToBeUpdatedWithEncryptedKey(ctx context.Context, volumeName string, keyProvider, keyID string) {
