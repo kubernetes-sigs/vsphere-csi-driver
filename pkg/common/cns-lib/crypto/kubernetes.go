@@ -22,6 +22,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 )
 
+// NewK8sScheme creates a Kubernetes runtime schema for interacting with EncryptionClass entities.
 func NewK8sScheme() (*runtime.Scheme, error) {
 	scheme := runtime.NewScheme()
 

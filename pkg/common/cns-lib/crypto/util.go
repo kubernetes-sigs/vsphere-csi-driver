@@ -25,6 +25,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 )
 
+// GetEncryptionClassNameForPVC extracts the name of the encryption class associated
+// with the provided PersistentVolumeClaim (PVC).
 func GetEncryptionClassNameForPVC(pvc *corev1.PersistentVolumeClaim) string {
 	annotations := pvc.GetAnnotations()
 	if annotations == nil {
@@ -33,6 +35,8 @@ func GetEncryptionClassNameForPVC(pvc *corev1.PersistentVolumeClaim) string {
 	return annotations[PVCEncryptionClassAnnotationName]
 }
 
+// SetEncryptionClassNameForPVC associates an encryption class with the specified
+// PersistentVolumeClaim (PVC).
 func SetEncryptionClassNameForPVC(pvc *corev1.PersistentVolumeClaim, encClassName string) {
 	annotations := pvc.GetAnnotations()
 	if annotations == nil {
@@ -49,6 +53,8 @@ func SetEncryptionClassNameForPVC(pvc *corev1.PersistentVolumeClaim, encClassNam
 
 }
 
+// GetStoragePolicyID retrieves the storage policy ID associated with the
+// provided StorageClass.
 func GetStoragePolicyID(sc *storagev1.StorageClass) string {
 	if sc.Provisioner != types.Name {
 		return ""

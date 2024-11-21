@@ -33,6 +33,8 @@ import (
 	ctrlcommon "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/byokoperator/controller/common"
 )
 
+// NewManager creates and initializes a new controller manager for the specified
+// cluster flavor and configuration.
 func NewManager(
 	ctx context.Context,
 	clusterFlavor cnstypes.CnsClusterFlavor,

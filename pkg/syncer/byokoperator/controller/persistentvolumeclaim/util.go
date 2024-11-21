@@ -37,22 +37,9 @@ func EncryptionClassToPersistentVolumeClaimMapper(
 	ctx context.Context,
 	k8sClient client.Client) handler.MapFunc {
 
-	if ctx == nil {
-		panic("context is nil")
-	}
-	if k8sClient == nil {
-		panic("k8sClient is nil")
-	}
-
 	// For a given EncryptionClass, return reconcile requests for PVCs that
 	// specify the same EncryptionClass.
 	return func(ctx context.Context, o client.Object) []reconcile.Request {
-		if ctx == nil {
-			panic("context is nil")
-		}
-		if o == nil {
-			panic("object is nil")
-		}
 		obj, ok := o.(*byokv1.EncryptionClass)
 		if !ok {
 			panic(fmt.Sprintf("object is %T", o))

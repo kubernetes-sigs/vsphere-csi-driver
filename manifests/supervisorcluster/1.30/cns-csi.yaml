@@ -211,7 +211,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: vsphere-csi-provisioner-configmap-writer
+  name: vsphere-csi-controller-configmap-writer
   namespace: vmware-system-csi
 subjects:
   - kind: ServiceAccount

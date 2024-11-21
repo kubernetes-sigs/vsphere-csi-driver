@@ -30,19 +30,33 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto/internal"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
+// Client providers functionality quering encryption information related to entities.
 type Client interface {
 	ctrlclient.Client
+	// IsEncryptedStorageClass returns true if the provided StorageClass name was
+	// marked as encrypted. If encryption is supported, the StorageClass's profile
+	// ID is also returned.
 	IsEncryptedStorageClass(ctx context.Context, name string) (bool, string, error)
+	// IsEncryptedStorageProfile returns true if the provided storage profile ID was
+	// marked as encrypted.
 	IsEncryptedStorageProfile(ctx context.Context, profileID string) (bool, error)
+	// MarkEncryptedStorageClass records the provided StorageClass as encrypted.
 	MarkEncryptedStorageClass(ctx context.Context, storageClass *storagev1.StorageClass, encrypted bool) error
+	// GetEncryptionClass retrieves the encryption class associated with a specific name
+	// and namespace.
 	GetEncryptionClass(ctx context.Context, name, namespace string) (*byokv1.EncryptionClass, error)
+	// GetDefaultEncryptionClass retrieves the default encryption class in a namespace.
 	GetDefaultEncryptionClass(ctx context.Context, namespace string) (*byokv1.EncryptionClass, error)
+	// GetEncryptionClassForPVC retrieves the encryption class associated with a PersistentVolumeClaim (PVC).
 	GetEncryptionClassForPVC(ctx context.Context, name, namespace string) (*byokv1.EncryptionClass, error)
 }
 
+// NewClient creates and returns a new instance of a crypto Client implementation based on
+// existing Kubernetes client.
 func NewClient(ctx context.Context, k8sClient ctrlclient.Client) Client {
 	return &defaultClient{
 		Client:       k8sClient,
@@ -50,6 +64,8 @@ func NewClient(ctx context.Context, k8sClient ctrlclient.Client) Client {
 	}
 }
 
+// NewClient creates and returns a new instance of a crypto Client implementation based on
+// Kubernetes client config.
 func NewClientWithConfig(ctx context.Context, config *rest.Config) (Client, error) {
 	scheme, err := NewK8sScheme()
 	if err != nil {
@@ -66,6 +82,8 @@ func NewClientWithConfig(ctx context.Context, config *rest.Config) (Client, erro
 	return NewClient(ctx, k8sClient), nil
 }
 
+// NewClient creates and returns a new instance of a crypto Client implementation using
+// default Kubernetes client config.
 func NewClientWithDefaultConfig(ctx context.Context) (Client, error) {
 	config, err := k8s.GetKubeConfig(ctx)
 	if err != nil {
@@ -92,7 +110,6 @@ func (c *defaultClient) IsEncryptedStorageClass(ctx context.Context, name string
 	return c.isEncryptedStorageClass(ctx, &obj)
 }
 
-// IsEncryptedStorageProfile returns true if the provided storage profile ID was marked as encrypted.
 func (c *defaultClient) IsEncryptedStorageProfile(ctx context.Context, profileID string) (bool, error) {
 	var obj storagev1.StorageClassList
 	if err := c.Client.List(ctx, &obj); err != nil {
@@ -109,11 +126,12 @@ func (c *defaultClient) IsEncryptedStorageProfile(ctx context.Context, profileID
 	return false, nil
 }
 
-// MarkEncryptedStorageClass records the provided StorageClass as encrypted.
 func (c *defaultClient) MarkEncryptedStorageClass(
 	ctx context.Context,
 	storageClass *storagev1.StorageClass,
 	encrypted bool) error {
+
+	log := logger.GetLogger(ctx)
 
 	var (
 		obj = corev1.ConfigMap{
@@ -145,6 +163,9 @@ func (c *defaultClient) MarkEncryptedStorageClass(
 		// The ConfigMap does not already exist and the goal is to mark the
 		// StorageClass as encrypted, so go ahead and create the ConfigMap and
 		// return early.
+		log.Infof("Creating config map %s for storing references to storage classes "+
+			"with encryption capabilities",
+			internal.EncryptedStorageClassNamesConfigMapName)
 		obj.OwnerReferences = []metav1.OwnerReference{ownerRef}
 		return c.Client.Create(ctx, &obj)
 	}
@@ -169,9 +190,11 @@ func (c *defaultClient) MarkEncryptedStorageClass(
 	objPatch := ctrlclient.StrategicMergeFrom(obj.DeepCopyObject().(ctrlclient.Object))
 	if encrypted {
 		// Add the StorageClass as an owner of the ConfigMap.
+		log.Infof("Marking StorageClass %s as encrypted", storageClass.Name)
 		obj.OwnerReferences = append(obj.OwnerReferences, ownerRef)
 	} else {
 		// Remove the StorageClass as an owner of the ConfigMap.
+		log.Infof("Unmarking StorageClass %s as encrypted", storageClass.Name)
 		obj.OwnerReferences = slices.DeleteFunc(
 			obj.OwnerReferences,
 			func(o metav1.OwnerReference) bool { return o == ownerRef })

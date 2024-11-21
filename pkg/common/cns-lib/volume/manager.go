@@ -1491,10 +1491,6 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 
 // UpdateVolumeCrypto updates a volume given its spec.
 func (m *defaultManager) UpdateVolumeCrypto(ctx context.Context, spec *cnstypes.CnsVolumeCryptoUpdateSpec) error {
-	if spec == nil {
-		panic("spec is nil")
-	}
-
 	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
 	defer cancelFunc()
 	internalUpdateVolumeCrypto := func() error {
