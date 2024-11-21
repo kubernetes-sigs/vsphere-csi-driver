@@ -83,10 +83,10 @@ RUN chmod 777 /tmp/cloud
 ENV TIMESTAMP $(date +%s)
 
 # Create an empty file with the desired name
-RUN touch /tmp/cloud/contr-dump-$TIMESTAMP.out
+RUN touch /tmp/cloud/contr-dump.out
 
 COPY --from=builder /build/vsphere-csi.test /bin/vsphere-csi.test
 
 #ENTRYPOINT ["/bin/vsphere-csi.test", "-test.coverprofile=/tmp/cloud/contr-dump.out"]
-ENTRYPOINT ["/bin/sh", "-c", "/bin/vsphere-csi.test -test.coverprofile=/tmp/cloud/contr-$(date +%s).out"]
+ENTRYPOINT ["/bin/sh", "-c", "/bin/vsphere-csi.test -test.coverprofile=/tmp/cloud/contr-dump.out"]
 

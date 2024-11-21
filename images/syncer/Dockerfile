@@ -61,4 +61,14 @@ RUN tdnf -y upgrade
 # Remove cached data
 RUN tdnf clean all
 
-ENTRYPOINT ["/bin/vsphere-syncer"]
+##ENTRYPOINT ["/bin/vsphere-syncer"]
+RUN mkdir -p /tmp/cloud
+
+RUN chmod 777 /tmp/cloud
+
+RUN RUN touch /tmp/cloud/contr-syncer-dump.out
+
+COPY --from=builder /build/vsphere-syncer.test /bin/vsphere-syncer.test
+
+ENTRYPOINT ["/bin/sh", "-c", "/bin/vsphere-syncer.test -test.coverprofile=/tmp/cloud/contr-syncer-dump.out"]
+
