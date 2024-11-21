@@ -417,7 +417,8 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 }
 
 // createBlockVolume creates a block volume based on the CreateVolumeRequest.
-func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
+func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolumeRequest,
+	isWorkloadDomainIsolationEnabled bool) (
 	*csi.CreateVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
 	var (
@@ -435,9 +436,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		zoneLabelPresent     bool
 		err                  error
 	)
-
 	isVdppOnStretchedSVEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VdppOnStretchedSupervisor)
-
 	// Support case insensitive parameters.
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
@@ -503,7 +502,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					"support for topology requirement with both zone and hostname labels is not yet implemented.")
 			}
 		} else if zoneLabelPresent {
-			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) {
+			if !isWorkloadDomainIsolationEnabled {
 				if storageTopologyType == "" {
 					return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
 						"StorageTopologyType is unset while topology label is present")
@@ -530,12 +529,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
 		} else {
 			// No topology labels present in the topologyRequirement
-			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) &&
-				isVdppOnStretchedSVEnabled {
+			if isWorkloadDomainIsolationEnabled {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
 					"volume provisioning request received without topologyRequirement.")
 			}
-
+			if isVdppOnStretchedSVEnabled {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+					"volume provisioning request received without topologyRequirement.")
+			}
 			if len(clusterComputeResourceMoIds) > 1 {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 					"stretched supervisor cluster does not support creating volumes "+
@@ -858,7 +859,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 }
 
 // createFileVolume creates a file volume based on the CreateVolumeRequest.
-func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
+func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolumeRequest,
+	isWorkloadDomainIsolationEnabled bool) (
 	*csi.CreateVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
 	var (
@@ -897,8 +899,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
-	isWorkloadDomainIsolationSupported := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.WorkloadDomainIsolation)
 	topoSegToDatastoresMap := make(map[string][]*cnsvsphere.DatastoreInfo)
 
 	vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
@@ -909,7 +909,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 
 	// If FSS Workload_Domain_Isolation_Supported is enabled, find the shared datastores associated with
 	// topology requirements provided in the request if any and pass those to CNS for further processing.
-	if isWorkloadDomainIsolationSupported {
+	if isWorkloadDomainIsolationEnabled {
 		// Check if topology requirements are specified in the request and accordingly filter the vSAN datastores
 		// to be sent to CNS for volume provisioning.
 		hostnameLabelPresent, zoneLabelPresent = checkTopologyKeysFromAccessibilityReqs(req.GetAccessibilityRequirements())
@@ -1052,7 +1052,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	}
 
 	// Calculate accessible topology for the provisioned volume in case of topology aware environment.
-	if isWorkloadDomainIsolationSupported {
+	if isWorkloadDomainIsolationEnabled {
 		if zoneLabelPresent {
 			// Note: with Workload domain isolation feature enabled, volumeInfo will always
 			// 			return URL of the datastore that volume is allocated on.
@@ -1124,6 +1124,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	createVolumeInternal := func() (
 		*csi.CreateVolumeResponse, string, error) {
 		log.Infof("CreateVolume: called with args %+v", *req)
+		isWorkloadDomainIsolationEnabled := commonco.ContainerOrchestratorUtility.
+			IsFSSEnabled(ctx, common.WorkloadDomainIsolation)
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
@@ -1152,7 +1154,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 			// Block file volume provisioning if FSS Workload_Domain_Isolation_Supported is enabled but
 			// 'fileVolumeActivated' field is set to false in vSphere config secret.
-			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) &&
+			if isWorkloadDomainIsolationEnabled &&
 				!c.manager.VcenterConfig.FileVolumeActivated {
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
 					"file services are disabled on supervisor cluster")
@@ -1162,14 +1164,14 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			// with multiple vSphere clusters.
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 				if len(clusterComputeResourceMoIds) > 1 &&
-					!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) {
+					!isWorkloadDomainIsolationEnabled {
 					return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
 						"file volume provisioning is not supported on a stretched supervisor cluster")
 				}
 			}
-			return c.createFileVolume(ctx, req)
+			return c.createFileVolume(ctx, req, isWorkloadDomainIsolationEnabled)
 		}
-		return c.createBlockVolume(ctx, req)
+		return c.createBlockVolume(ctx, req, isWorkloadDomainIsolationEnabled)
 	}
 	resp, faultType, err := createVolumeInternal()
 	log.Debugf("createVolumeInternal: returns fault %q", faultType)

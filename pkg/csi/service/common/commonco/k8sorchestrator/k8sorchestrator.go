@@ -1155,8 +1155,39 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 				}
 				log.Debugf("Supervisor feature state %q in WCP cluster capabilities is set to %t", featureName,
 					supervisorFeatureState)
+
+				if !supervisorFeatureState {
+					// if capability can be enabled after upgrading CSI, we need to fetch config again and confirm FSS
+					// is still disabled, or it got enabled
+					// WCPFeatureStatesSupportsLateEnablement contains capabilities which can be enabled later after
+					// CSI is upgraded and up and running
+					if _, exists = common.WCPFeatureStatesSupportsLateEnablement[featureName]; exists {
+						wcpCapabilityConfigMap, err := c.k8sClient.CoreV1().ConfigMaps(common.KubeSystemNamespace).Get(ctx,
+							common.WCPCapabilityConfigMapName, metav1.GetOptions{})
+						if err != nil {
+							log.Errorf("failed to fetch WCP FSS configmap %q/%q. Setting the feature state "+
+								"to false. Error: %+v", common.KubeSystemNamespace, common.WCPCapabilityConfigMapName, err)
+							return false
+						}
+						wcpCapabilityFssMap = wcpCapabilityConfigMap.Data
+						log.Infof("WCP cluster capabilities map - %+v", wcpCapabilityFssMap)
+
+						if fssVal, exists := wcpCapabilityFssMap[featureName]; exists {
+							supervisorFeatureState, err = strconv.ParseBool(fssVal)
+							if err != nil {
+								log.Errorf("Error while converting %q feature state with value: %q in "+
+									"%q/%q configmap to boolean. Setting the feature state to false. Error: %+v", featureName,
+									fssVal, common.KubeSystemNamespace, common.WCPCapabilityConfigMapName, err)
+								return false
+							}
+							log.Debugf("Supervisor feature state %q in WCP cluster capabilities is set to %t", featureName,
+								supervisorFeatureState)
+						}
+					}
+				}
 				return supervisorFeatureState
 			}
+			return false
 		}
 
 		// Check SV FSS map.

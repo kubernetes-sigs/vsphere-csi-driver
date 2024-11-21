@@ -439,3 +439,11 @@ var WCPFeatureStates = map[string]struct{}{
 	WorkloadDomainIsolation:    {},
 	VPCCapabilitySupervisor:    {},
 }
+
+// WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
+// after CSI upgrade
+// During FSS check if driver detects that the capabilities is disabled in the cached configmap,
+// it will re-fetch the configmap and update the cached configmap.
+var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
+	WorkloadDomainIsolation: {},
+}
