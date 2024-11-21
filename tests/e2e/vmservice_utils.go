@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,8 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	vmopv3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmopv3common "github.com/vmware-tanzu/vm-operator/api/v1alpha3/common"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -271,6 +274,95 @@ func waitNGetVmiForImageName(ctx context.Context, c ctlrclient.Client, namespace
 	return vmi
 }
 
+type CreateVmOptionsV3 struct {
+	Namespace           string
+	VmClass             string
+	VMI                 string
+	StorageClassName    string
+	CloudInitSecretName string
+	PVCs                []*v1.PersistentVolumeClaim
+	CryptoSpec          *vmopv3.VirtualMachineCryptoSpec
+	WaitForReadyStatus  bool
+}
+
+// createVmServiceVmV3 creates VM v3 via VM service with given options
+func createVmServiceVmV3(ctx context.Context, c ctlrclient.Client, opts CreateVmOptionsV3) *vmopv3.VirtualMachine {
+	gomega.Expect(opts.VMI).NotTo(gomega.BeEmpty())
+	gomega.Expect(opts.StorageClassName).NotTo(gomega.BeEmpty())
+
+	if opts.Namespace == "" {
+		opts.Namespace = "default"
+	}
+	if opts.VmClass == "" {
+		opts.VmClass = vmClassBestEffortSmall
+	}
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	vols := []vmopv3.VirtualMachineVolume{}
+	vmName := fmt.Sprintf("csi-test-vm-%d", r.Intn(10000))
+	for _, pvc := range opts.PVCs {
+		vols = append(vols, vmopv3.VirtualMachineVolume{
+			Name: pvc.Name,
+			VirtualMachineVolumeSource: vmopv3.VirtualMachineVolumeSource{
+				PersistentVolumeClaim: &vmopv3.PersistentVolumeClaimVolumeSource{
+					PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
+				},
+			},
+		})
+	}
+	vm := &vmopv3.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: opts.Namespace},
+		Spec: vmopv3.VirtualMachineSpec{
+			PowerState:   vmopv3.VirtualMachinePowerStateOn,
+			ImageName:    opts.VMI,
+			ClassName:    opts.VmClass,
+			StorageClass: opts.StorageClassName,
+			Volumes:      vols,
+			Crypto:       opts.CryptoSpec,
+		},
+	}
+
+	if opts.CloudInitSecretName != "" {
+		vm.Spec.Bootstrap = &vmopv3.VirtualMachineBootstrapSpec{
+			CloudInit: &vmopv3.VirtualMachineBootstrapCloudInitSpec{
+				RawCloudConfig: &vmopv3common.SecretKeySelector{
+					Name: opts.CloudInitSecretName,
+					Key:  "user-data",
+				},
+			},
+		}
+	}
+
+	err := c.Create(ctx, vm)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	vmKey := ctlrclient.ObjectKey{Name: vmName, Namespace: opts.Namespace}
+
+	err = wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			err := c.Get(ctx, vmKey, vm)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					return false, err
+				}
+				return false, nil
+			}
+
+			if opts.WaitForReadyStatus &&
+				!slices.ContainsFunc(vm.GetConditions(), func(c metav1.Condition) bool {
+					return c.Type == vmopv3.VirtualMachineReconcileReady && c.Status == metav1.ConditionTrue
+				}) {
+				return false, nil
+			}
+
+			return true, nil
+		})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Found VM %s in namespace %s", vmName, opts.Namespace)
+
+	return vm
+}
+
 // createVmServiceVmWithPvcs creates VM via VM service with given ns, sc, vmi, pvc(s) and bootstrap data for cloud init
 func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
 	pvcs []*v1.PersistentVolumeClaim, vmi string, storageClassName string, secretName string) *vmopv1.VirtualMachine {
@@ -301,6 +393,15 @@ func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespa
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return waitNgetVmsvcVM(ctx, c, namespace, vmName)
+}
+
+// deleteVmServiceVm deletes VM via VM service
+func deleteVmServiceVm(ctx context.Context, c ctlrclient.Client, namespace, name string) {
+	err := c.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
+		Name:      name,
+		Namespace: namespace,
+	}})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 // getVmsvcVM fetches the vm from the specified ns

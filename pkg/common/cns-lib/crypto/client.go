@@ -22,7 +22,6 @@ import (
 	"slices"
 
 	byokv1 "github.com/vmware-tanzu/vm-operator/external/byok/api/v1alpha1"
-	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -31,7 +30,6 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto/internal"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
@@ -49,7 +47,6 @@ func NewClient(ctx context.Context, k8sClient ctrlclient.Client) Client {
 	return &defaultClient{
 		Client:       k8sClient,
 		csiNamespace: cnsconfig.GetCSINamespace(),
-		logger:       logger.GetLogger(ctx),
 	}
 }
 
@@ -80,7 +77,6 @@ func NewClientWithDefaultConfig(ctx context.Context) (Client, error) {
 type defaultClient struct {
 	ctrlclient.Client
 	csiNamespace string
-	logger       *zap.SugaredLogger
 }
 
 func (c *defaultClient) IsEncryptedStorageClass(ctx context.Context, name string) (bool, string, error) {
@@ -96,8 +92,7 @@ func (c *defaultClient) IsEncryptedStorageClass(ctx context.Context, name string
 	return c.isEncryptedStorageClass(ctx, &obj)
 }
 
-// IsEncryptedStorageProfile returns true if the provided storage profile ID was
-// marked as encrypted.
+// IsEncryptedStorageProfile returns true if the provided storage profile ID was marked as encrypted.
 func (c *defaultClient) IsEncryptedStorageProfile(ctx context.Context, profileID string) (bool, error) {
 	var obj storagev1.StorageClassList
 	if err := c.Client.List(ctx, &obj); err != nil {
@@ -139,10 +134,7 @@ func (c *defaultClient) MarkEncryptedStorageClass(
 			return err
 		}
 
-		//
 		// The ConfigMap was not found.
-		//
-
 		if !encrypted {
 			// If the goal is to mark the StorageClass as not encrypted, then we
 			// do not need to actually create the underlying ConfigMap if it
@@ -157,10 +149,7 @@ func (c *defaultClient) MarkEncryptedStorageClass(
 		return c.Client.Create(ctx, &obj)
 	}
 
-	//
 	// The ConfigMap already exists, so check if it needs to be updated.
-	//
-
 	storageClassIsOwner := slices.Contains(obj.OwnerReferences, ownerRef)
 
 	switch {

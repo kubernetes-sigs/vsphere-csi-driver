@@ -146,7 +146,7 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 			supervisorObjs := []runtime.Object{test.vm}
 
 			supervisor_scheme := scheme.Scheme
-			supervisor_scheme.AddKnownTypes(vmoperatortypes.SchemeGroupVersion, test.vm)
+			supervisor_scheme.AddKnownTypes(vmoperatortypes.GroupVersion, test.vm)
 
 			fakeVmOperatorClient := fake.NewClientBuilder().
 				WithScheme(supervisor_scheme).

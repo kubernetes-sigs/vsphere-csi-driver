@@ -7029,3 +7029,24 @@ func removeStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config
 	framework.Logf("Quota after removing:  %s", spq.Spec.Limit)
 
 }
+
+// ToRef returns a pointer to t.
+func ToRef[T any](t T) *T {
+	return &t
+}
+
+// Deref returns the value referenced by t if not nil, otherwise the empty value
+// for T is returned.
+func Deref[T any](t *T) T {
+	var empT T
+	return DerefWithDefault(t, empT)
+}
+
+// DerefWithDefault returns the value referenced by t if not nil, otherwise
+// defaulT is returned.
+func DerefWithDefault[T any](t *T, defaulT T) T {
+	if t != nil {
+		return *t
+	}
+	return defaulT
+}

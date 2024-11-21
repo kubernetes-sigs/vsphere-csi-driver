@@ -304,9 +304,10 @@ func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config,
 	if err != nil {
 		log.Errorf("failed to add to scheme with err: %+v", err)
 	}
+
 	gvk := schema.GroupVersionKind{
-		Group:   vmoperatorv1alpha1.SchemeGroupVersion.Group,
-		Version: vmoperatorv1alpha1.SchemeGroupVersion.Version,
+		Group:   vmoperatorv1alpha1.GroupVersion.Group,
+		Version: vmoperatorv1alpha1.GroupVersion.Version,
 		Kind:    virtualMachineKind,
 	}
 

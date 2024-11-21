@@ -22,6 +22,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/onsi/gomega"
+	vmopv3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	byokv1 "github.com/vmware-tanzu/vm-operator/external/byok/api/v1alpha1"
 	"github.com/vmware/govmomi/cns"
 	cnsmethods "github.com/vmware/govmomi/cns/methods"
@@ -42,6 +43,55 @@ import (
 const (
 	VolumeCryptoUpdateTimeout = 3 * time.Minute
 )
+
+func findVolumeCryptoKey(ctx context.Context, volumeName string) *types.CryptoKeyId {
+	var volume *cnstypes.CnsVolume
+	{
+		req := cnstypes.CnsQueryVolume{
+			This: cnsVolumeManagerInstance,
+			Filter: cnstypes.CnsQueryFilter{
+				Names: []string{volumeName},
+			},
+		}
+		res, err := cnsmethods.CnsQueryVolume(ctx, e2eVSphere.CnsClient.Client, &req)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(res).NotTo(gomega.BeNil())
+		gomega.Expect(res.Returnval.Volumes).To(gomega.HaveLen(1))
+		volume = &res.Returnval.Volumes[0]
+	}
+
+	var storageObj *types.VStorageObject
+	{
+		req := cnstypes.CnsQueryVolumeInfo{
+			This:      cnsVolumeManagerInstance,
+			VolumeIds: []cnstypes.CnsVolumeId{volume.VolumeId},
+		}
+		res, err := cnsmethods.CnsQueryVolumeInfo(ctx, e2eVSphere.CnsClient.Client, &req)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(res).NotTo(gomega.BeNil())
+
+		task := object.NewTask(e2eVSphere.Client.Client, res.Returnval)
+		taskInfo, err := task.WaitForResult(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(res).NotTo(gomega.BeNil())
+
+		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+		gomega.Expect(volumeOperationRes.Fault).To(gomega.BeNil(), spew.Sdump(volumeOperationRes.Fault))
+
+		volumeInfoResult := taskResult.(*cnstypes.CnsQueryVolumeInfoResult)
+		blockVolumeInfo, ok := volumeInfoResult.VolumeInfo.(*cnstypes.CnsBlockVolumeInfo)
+		gomega.Expect(ok).To(gomega.BeTrue(), "failed to convert VolumeInfo to BlockVolumeInfo")
+		storageObj = &blockVolumeInfo.VStorageObject
+	}
+
+	diskFileBackingInfo, ok := storageObj.Config.Backing.(*types.BaseConfigInfoDiskFileBackingInfo)
+	gomega.Expect(ok).To(gomega.BeTrue(), "failed to retrieve FCD backing info")
+
+	return diskFileBackingInfo.KeyId
+}
 
 func validateEncryptedStorageClass(ctx context.Context, cryptoClient crypto.Client, scName string, expected bool) {
 	var storageClass storagev1.StorageClass
@@ -65,9 +115,43 @@ func validateKeyProvider(ctx context.Context, keyProviderID string) {
 	gomega.Expect(kms.ManagementType).To(gomega.Equal("vCenter"), "Key Provider must have Standard type")
 }
 
+func validateVolumeToBeEncryptedWithKey(ctx context.Context, volumeName, keyProviderID, keyID string) {
+	cryptoKey := findVolumeCryptoKey(ctx, volumeName)
+	gomega.Expect(cryptoKey).NotTo(gomega.BeNil())
+	gomega.Expect(cryptoKey.ProviderId).NotTo(gomega.BeNil())
+	gomega.Expect(cryptoKey.ProviderId.Id).To(gomega.Equal(keyProviderID))
+	gomega.Expect(cryptoKey.KeyId).To(gomega.Equal(keyID))
+}
+
+func validateVolumeNotToBeEncrypted(ctx context.Context, volumeName string) {
+	cryptoKey := findVolumeCryptoKey(ctx, volumeName)
+	gomega.Expect(cryptoKey).To(gomega.BeNil())
+}
+
+func validateVolumeToBeUpdatedWithEncryptedKey(ctx context.Context, volumeName, keyProviderID, keyID string) {
+	poll := framework.Poll
+	for start := time.Now(); time.Since(start) < VolumeCryptoUpdateTimeout; time.Sleep(poll) {
+		cryptoKey := findVolumeCryptoKey(ctx, volumeName)
+		if cryptoKey != nil &&
+			cryptoKey.ProviderId != nil &&
+			cryptoKey.ProviderId.Id == keyProviderID &&
+			cryptoKey.KeyId == keyID {
+			return
+		}
+	}
+
+	validateVolumeToBeEncryptedWithKey(ctx, volumeName, keyProviderID, keyID)
+}
+
+func validateVmToBeEncryptedWithKey(vm *vmopv3.VirtualMachine, keyProviderID, keyID string) {
+	gomega.Expect(vm.Status.Crypto).NotTo(gomega.BeNil())
+	gomega.Expect(vm.Status.Crypto.KeyID).To(gomega.Equal(keyID))
+	gomega.Expect(vm.Status.Crypto.ProviderID).To(gomega.Equal(keyProviderID))
+}
+
 func createEncryptionClass(ctx context.Context,
 	cryptoClient crypto.Client,
-	namespace, keyProvider, keyID string,
+	namespace, keyProviderID, keyID string,
 	isDefault bool) *byokv1.EncryptionClass {
 
 	encClass := &byokv1.EncryptionClass{
@@ -76,7 +160,7 @@ func createEncryptionClass(ctx context.Context,
 			Namespace:    namespace,
 		},
 		Spec: byokv1.EncryptionClassSpec{
-			KeyProvider: keyProvider,
+			KeyProvider: keyProviderID,
 			KeyID:       keyID,
 		},
 	}
@@ -96,10 +180,10 @@ func createEncryptionClass(ctx context.Context,
 func updateEncryptionClass(ctx context.Context,
 	cryptoClient crypto.Client,
 	encClass *byokv1.EncryptionClass,
-	keyProvider, keyID string,
+	keyProviderID, keyID string,
 	isDefault bool) {
 
-	encClass.Spec.KeyProvider = keyProvider
+	encClass.Spec.KeyProvider = keyProviderID
 	encClass.Spec.KeyID = keyID
 
 	if isDefault {
@@ -221,79 +305,4 @@ func deletePersistentVolumeClaim(
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
-}
-
-func validateVolumeToBeEncryptedWithKey(
-	ctx context.Context,
-	volumeName, keyProvider, keyID string) {
-
-	cryptoKey := findVolumeCryptoKey(ctx, volumeName)
-	gomega.Expect(cryptoKey).NotTo(gomega.BeNil())
-	gomega.Expect(cryptoKey.ProviderId).NotTo(gomega.BeNil())
-	gomega.Expect(cryptoKey.ProviderId.Id).To(gomega.Equal(keyProvider))
-	gomega.Expect(cryptoKey.KeyId).To(gomega.Equal(keyID))
-}
-
-func validateVolumeToBeUpdatedWithEncryptedKey(ctx context.Context, volumeName string, keyProvider, keyID string) {
-	poll := framework.Poll
-	for start := time.Now(); time.Since(start) < VolumeCryptoUpdateTimeout; time.Sleep(poll) {
-		cryptoKey := findVolumeCryptoKey(ctx, volumeName)
-		if cryptoKey != nil &&
-			cryptoKey.ProviderId != nil &&
-			cryptoKey.ProviderId.Id == keyProvider &&
-			cryptoKey.KeyId == keyID {
-			return
-		}
-	}
-
-	validateVolumeToBeEncryptedWithKey(ctx, volumeName, keyProvider, keyID)
-}
-
-func findVolumeCryptoKey(ctx context.Context, volumeName string) *types.CryptoKeyId {
-	var volume *cnstypes.CnsVolume
-	{
-		req := cnstypes.CnsQueryVolume{
-			This: cnsVolumeManagerInstance,
-			Filter: cnstypes.CnsQueryFilter{
-				Names: []string{volumeName},
-			},
-		}
-		res, err := cnsmethods.CnsQueryVolume(ctx, e2eVSphere.CnsClient.Client, &req)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(res).NotTo(gomega.BeNil())
-		gomega.Expect(res.Returnval.Volumes).To(gomega.HaveLen(1))
-		volume = &res.Returnval.Volumes[0]
-	}
-
-	var storageObj *types.VStorageObject
-	{
-		req := cnstypes.CnsQueryVolumeInfo{
-			This:      cnsVolumeManagerInstance,
-			VolumeIds: []cnstypes.CnsVolumeId{volume.VolumeId},
-		}
-		res, err := cnsmethods.CnsQueryVolumeInfo(ctx, e2eVSphere.CnsClient.Client, &req)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(res).NotTo(gomega.BeNil())
-
-		task := object.NewTask(e2eVSphere.Client.Client, res.Returnval)
-		taskInfo, err := task.WaitForResult(ctx)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(res).NotTo(gomega.BeNil())
-
-		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
-		gomega.Expect(volumeOperationRes.Fault).To(gomega.BeNil(), spew.Sdump(volumeOperationRes.Fault))
-
-		volumeInfoResult := taskResult.(*cnstypes.CnsQueryVolumeInfoResult)
-		blockVolumeInfo, ok := volumeInfoResult.VolumeInfo.(*cnstypes.CnsBlockVolumeInfo)
-		gomega.Expect(ok).To(gomega.BeTrue(), "failed to convert VolumeInfo to BlockVolumeInfo")
-		storageObj = &blockVolumeInfo.VStorageObject
-	}
-
-	diskFileBackingInfo, ok := storageObj.Config.Backing.(*types.BaseConfigInfoDiskFileBackingInfo)
-	gomega.Expect(ok).To(gomega.BeTrue(), "failed to retrieve FCD backing info")
-
-	return diskFileBackingInfo.KeyId
 }
