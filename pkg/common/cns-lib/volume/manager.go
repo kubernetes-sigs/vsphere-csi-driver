@@ -239,9 +239,8 @@ type createVolumeTaskDetails struct {
 // GetManager returns the Manager instance.
 func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 	operationStore cnsvolumeoperationrequest.VolumeOperationRequest,
-	idempotencyHandlingEnabled, multivCenterEnabled,
-	multivCenterTopologyDeployment bool,
-	clusterFlavor cnstypes.CnsClusterFlavor) (Manager, error) {
+	idempotencyHandlingEnabled, multivCenterEnabled, multivCenterTopologyDeployment bool,
+	clusterFlavor cnstypes.CnsClusterFlavor, isUnitTestRun bool) (Manager, error) {
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
@@ -273,7 +272,7 @@ func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 		}
 		managerInstanceMap[vc.Config.Host] = managerInstance
 	}
-	err := managerInstance.initListView(ctx)
+	err := managerInstance.initListView(ctx, isUnitTestRun)
 	if err != nil {
 		return nil, err
 	}
@@ -675,7 +674,7 @@ func (m *defaultManager) waitOnTask(csiOpContext context.Context,
 	taskMoRef vim25types.ManagedObjectReference) (*vim25types.TaskInfo, error) {
 	log := logger.GetLogger(csiOpContext)
 	if m.listViewIf == nil {
-		err := m.initListView(context.Background())
+		err := m.initListView(context.Background(), false)
 		if err != nil {
 			return nil, err
 		}
@@ -723,10 +722,10 @@ func waitForResultOrTimeout(csiOpContext context.Context, taskMoRef vim25types.M
 	return taskInfo, err
 }
 
-func (m *defaultManager) initListView(ctx context.Context) error {
+func (m *defaultManager) initListView(ctx context.Context, isUnitTestRun bool) error {
 	log := logger.GetLogger(ctx)
 	var err error
-	m.listViewIf, err = NewListViewImpl(ctx, m.virtualCenter)
+	m.listViewIf, err = NewListViewImpl(ctx, m.virtualCenter, isUnitTestRun)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to initialize listView object. err: %v", err)
 	}

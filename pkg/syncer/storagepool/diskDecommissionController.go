@@ -105,7 +105,7 @@ func (w *DiskDecommController) detachVolumes(ctx context.Context, storagePoolNam
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to get cluster flavor. Error: %v", err)
 	}
-	volManager, err := volume.GetManager(ctx, &vc, nil, false, false, false, clusterFlavor)
+	volManager, err := volume.GetManager(ctx, &vc, nil, false, false, false, clusterFlavor, false)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}

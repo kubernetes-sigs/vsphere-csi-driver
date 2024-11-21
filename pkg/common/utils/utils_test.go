@@ -131,7 +131,7 @@ func getCommonUtilsTest(t *testing.T) *commonUtilsTest {
 			t.Fatal(err)
 		}
 
-		volumeManager, err := cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false, "")
+		volumeManager, err := cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false, "", true)
 		if err != nil {
 			t.Fatalf("failed to create an instance of volume manager. err=%v", err)
 		}

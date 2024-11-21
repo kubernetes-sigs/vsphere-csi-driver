@@ -140,7 +140,7 @@ func TestSyncerWorkflows(t *testing.T) {
 		}
 	}()
 
-	volumeManager, err = cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false, "")
+	volumeManager, err = cnsvolumes.GetManager(ctx, virtualCenter, nil, false, false, false, "", false)
 	if err != nil {
 		t.Fatalf("failed to create an instance of volume manager. err=%v", err)
 	}
