@@ -23,4 +23,4 @@ set -o pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 docker run --rm -v "$(pwd)":/build \
-  vspherecsi/mdlint:0.31.1
+  registry.k8s.io/cloud-pv-vsphere/extra/mdlint:0.17.0
