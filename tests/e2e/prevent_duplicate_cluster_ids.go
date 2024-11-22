@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -419,7 +420,8 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 		csipods, err = client.CoreV1().Pods(csiNamespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = fpod.WaitForPodsRunningReady(ctx, client, csiNamespace, int32(csipods.Size()), 0, pollTimeout)
+		err = fpod.WaitForPodsRunningReady(ctx, client, csiNamespace, int(csipods.Size()),
+			time.Duration(pollTimeout))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Scale up replicas of statefulset and verify CNS entries for volumes")
@@ -928,8 +930,8 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		list_of_pods, err = fpod.GetPodsInNamespace(ctx, client, csiSystemNamespace, ignoreLabels)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		num_csi_pods := len(list_of_pods)
-		err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int32(num_csi_pods), 0,
-			pollTimeout)
+		err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(num_csi_pods),
+			time.Duration(pollTimeout))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		newclusterID := fetchClusterIdFromConfigmap(client, ctx, csiNamespace)

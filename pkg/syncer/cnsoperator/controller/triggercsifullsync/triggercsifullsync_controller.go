@@ -131,8 +131,9 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	backOffDuration = make(map[string]time.Duration)
 
 	// Watch for changes to primary resource TriggerCsiFullSync.
-	err = c.Watch(source.Kind(mgr.GetCache(), &triggercsifullsyncv1alpha1.TriggerCsiFullSync{}),
-		&handler.EnqueueRequestForObject{})
+	err = c.Watch(source.Kind(mgr.GetCache(),
+		&triggercsifullsyncv1alpha1.TriggerCsiFullSync{},
+		&handler.TypedEnqueueRequestForObject[*triggercsifullsyncv1alpha1.TriggerCsiFullSync]{}))
 	if err != nil {
 		log.Errorf("Failed to watch for changes to TriggerCsiFullSync resource with error: %+v", err)
 		return err

@@ -1868,7 +1868,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		hostIP = psodHostWithPv(ctx, &e2eVSphere, pv.Name)
 
 		ginkgo.By("Query CNS volume health status")
-		err = queryCNSVolumeWithWait(ctx, client, volHandle)
+		err = queryCNSVolumeWithWait(ctx, volHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bringing SV API server UP")
@@ -3058,7 +3058,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		// Wait for the StatefulSet Pods to be up and Running
 		num_csi_pods := len(list_of_pods)
-		err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int32(num_csi_pods), 0, pollTimeout)
+		err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int(num_csi_pods),
+			time.Duration(pollTimeout))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if supervisorCluster {

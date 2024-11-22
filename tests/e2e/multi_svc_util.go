@@ -125,10 +125,10 @@ func isAlarmPresentOnDatacenter(ctx context.Context, datacenter string, alarmToV
 				if exitErr, ok := err.(*exec.ExitError); ok {
 					// Get the stderr output
 					stderr := string(exitErr.Stderr)
-					framework.Logf("Stderr:", stderr)
+					framework.Logf("Stderr: %v", stderr)
 					return false, nil
 				} else {
-					framework.Logf("Not an ExitError:", err)
+					framework.Logf("Not an ExitError: %v", err)
 					return false, fmt.Errorf("error fetching alarms details : %v", err)
 				}
 
@@ -243,7 +243,7 @@ func getDatastoreNamesFromDCs(sshClientConfig *ssh.ClientConfig,
 		ds := govcLoginCmd() + "govc ls " + dataCenters[i].InventoryPath + "/datastore"
 		dsResult, err := exec.Command("/bin/sh", "-c", ds).Output()
 		if err != nil {
-			framework.Logf(string(dsResult))
+			framework.Logf("dsResult %s", string(dsResult))
 			return nil, fmt.Errorf("couldn't execute command: %s , error: %s",
 				ds, err)
 		}

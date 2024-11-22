@@ -594,7 +594,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		e2ekubectl.RunKubectlOrDie(csiSystemNamespace, statusCheck...)
 
 		// wait for csi Pods to be in running ready state
-		err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout)
+		err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(num_csi_pods),
+			time.Duration(pollTimeout))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Get the list of Volumes attached to Pods before scale down

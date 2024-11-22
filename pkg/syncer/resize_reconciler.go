@@ -51,7 +51,7 @@ type resizeReconciler struct {
 	// Supervisor Cluster namespace.
 	supervisorNamespace string
 	// Tanzu Kubernetes Grid claim queue.
-	claimQueue workqueue.RateLimitingInterface
+	claimQueue workqueue.TypedRateLimitingInterface[any]
 
 	// Tanzu Kubernetes Grid PVC Lister.
 	pvcLister corelisters.PersistentVolumeClaimLister
@@ -87,7 +87,7 @@ func newResizeReconciler(
 	supervisorNamespace string,
 	resyncPeriod time.Duration,
 	informerFactory informers.SharedInformerFactory,
-	pvcRateLimitter workqueue.RateLimiter,
+	pvcRateLimitter workqueue.TypedRateLimiter[any],
 	stopCh <-chan struct{}) (*resizeReconciler, error) {
 
 	_, log := logger.GetNewContextWithLogger()

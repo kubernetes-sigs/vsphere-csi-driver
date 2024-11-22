@@ -519,7 +519,7 @@ func performOnlineVolumeExpansion(f *framework.Framework, client clientset.Inter
 	if err != nil {
 		return fmt.Errorf("error getting file system size: %v", err)
 	}
-	framework.Logf("File system size after expansion : %s", fsSize)
+	framework.Logf("File system size after expansion : %d", fsSize)
 
 	if fsSize < diskSizeInMb {
 		return fmt.Errorf("error updating filesystem size for %q. Resulting filesystem size is %d", expandedPVC.Name, fsSize)
@@ -927,8 +927,8 @@ func setNewNameSpaceInCsiYaml(ctx context.Context, client clientset.Interface, s
 		return err
 	}
 	num_csi_pods := len(list_of_pods)
-	err = fpod.WaitForPodsRunningReady(ctx, client, newNS, int32(num_csi_pods), 0,
-		pollTimeout)
+	err = fpod.WaitForPodsRunningReady(ctx, client, newNS, int(num_csi_pods),
+		time.Duration(pollTimeout))
 	if err != nil {
 		return err
 	}
@@ -1035,7 +1035,7 @@ func createVsphereConfigSecret(namespace string, cfg e2eTestConfig, sshClientCon
 	conf += fmt.Sprintf("[Labels]\ntopology-categories = \"%s\"\n", cfg.Labels.TopologyCategories)
 	conf += "\nEOF"
 
-	framework.Logf(conf)
+	framework.Logf("conf: %s", conf)
 
 	result, err := sshExec(sshClientConfig, controlIp, conf)
 	if err != nil && result.Code != 0 {
@@ -1044,7 +1044,7 @@ func createVsphereConfigSecret(namespace string, cfg e2eTestConfig, sshClientCon
 	}
 	applyConf := "kubectl create secret generic vsphere-config-secret --from-file=csi-vsphere.conf " +
 		"-n " + namespace
-	framework.Logf(applyConf)
+	framework.Logf("applyConf: %s", applyConf)
 	result, err = sshExec(sshClientConfig, controlIp, applyConf)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
@@ -1147,7 +1147,7 @@ func createStaticFCDPvAndPvc(ctx context.Context, f *framework.Framework,
 	fcdID, err := multiVCe2eVSphere.createFCDInMultiVC(ctx, "BasicStaticFCD"+curtimeinstring, diskSizeInMb,
 		defaultDatastore.Reference(), clientIndex)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("FCD ID :", fcdID)
+	framework.Logf("FCD ID : %s", fcdID)
 
 	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
 		pandoraSyncWaitTime, fcdID))

@@ -2028,7 +2028,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 		fsSize, err = getFSSizeMb(f, newPods[0])
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("File system size after expansion : %s", fsSize)
+		framework.Logf("File system size after expansion : %d", fsSize)
 
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
@@ -3723,7 +3723,7 @@ func verifyKnownDataInPod(f *framework.Framework, pod *v1.Pod, testdataFile stri
 
 		framework.Logf("Running diff with source file and file from pod %v for 100M starting %vM", pod.Name, skip)
 		op, err := exec.Command("diff", testdataFile, testdataFile+pod.Name).Output()
-		framework.Logf("diff: ", op)
+		framework.Logf("diff: %v", op)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(len(op)).To(gomega.BeZero())
 	}

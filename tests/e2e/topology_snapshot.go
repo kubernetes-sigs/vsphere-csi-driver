@@ -265,7 +265,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology-Snapshot", func() {
 		ginkgo.By("Creating pod")
 		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		podName := pod.GetName
+		podName := pod.GetName()
 		framework.Logf("podName: %s", podName)
 
 		/* Verify PV node affinity and that the PODS are running on appropriate node as

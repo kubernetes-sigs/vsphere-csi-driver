@@ -721,7 +721,8 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			e2ekubectl.RunKubectlOrDie(csiSystemNamespace, statusCheck...)
 
 			// wait for csi Pods to be in running ready state
-			err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout)
+			err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(num_csi_pods),
+				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// Scale up statefulSets replicas count
@@ -1299,8 +1300,8 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			num_csi_pods := len(list_of_pods)
 			time.Sleep(1 * time.Minute)
-			err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int32(num_csi_pods), 0,
-				pollTimeout)
+			err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int(num_csi_pods),
+				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 

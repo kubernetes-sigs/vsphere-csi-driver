@@ -31,6 +31,7 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
@@ -259,7 +260,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 
 		// Create Pod
 		ginkgo.By(fmt.Sprintf("Create pod with pvc: %s", pvclaim.Name))
-		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaims[0]}, false, execCommand)
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaims[0]},
+			admissionapi.LevelBaseline, execCommand)
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

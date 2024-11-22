@@ -1430,7 +1430,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 		fsSize, err = getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("File system size after expansion : %s", fsSize)
+		framework.Logf("File system size after expansion : %d", fsSize)
 
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
@@ -1490,7 +1490,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		storagePolicyName2 := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores2)
 
 		profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName2)
-		framework.Logf("Profile ID :%s", profileID)
+		framework.Logf("Profile ID : %s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
 
@@ -1702,7 +1702,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 		fsSize, err = getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("File system size after expansion : %s", fsSize)
+		framework.Logf("File system size after expansion : %d", fsSize)
 
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
@@ -1852,7 +1852,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 		fsSize, err = getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("File system size after expansion : %s", fsSize)
+		framework.Logf("File system size after expansion : %d", fsSize)
 
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
@@ -1987,7 +1987,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 		fsSize, err = getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("File system size after expansion : %s", fsSize)
+		framework.Logf("File system size after expansion : %d", fsSize)
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
 		// the original volume size as the filesystem is formatted for the
@@ -2222,7 +2222,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 		fsSize, err = getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("File system size after expansion : %s", fsSize)
+		framework.Logf("File system size after expansion : %d", fsSize)
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
 		// the original volume size as the filesystem is formatted for the
@@ -2333,7 +2333,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 		fsSize, err = getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("File system size after expansion : %s", fsSize)
+		framework.Logf("File system size after expansion : %d", fsSize)
 
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
@@ -2643,7 +2643,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 		fsSize, err := getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("File system size after expansion : %s, before expansion: %s", fsSize, diskSizeInMb)
+		framework.Logf("File system size after expansion : %d, before expansion: %d", fsSize, diskSizeInMb)
 
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
@@ -2695,14 +2695,14 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 	}
 
 	ginkgo.By("Waiting for controller resize to finish")
-	framework.Logf("PVC name : " + pvclaim.Name)
+	framework.Logf("PVC name : %s ", pvclaim.Name)
 	pv := getPvFromClaim(client, namespace, pvclaim.Name)
 	pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 	err = waitForPvResize(pv, client, pvcSize, totalResizeWaitPeriod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Checking for conditions on pvc")
-	framework.Logf("PVC Name :", pvclaim.Name)
+	framework.Logf("PVC Name %s:", pvclaim.Name)
 	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(
 		client, namespace, pvclaim.Name, totalResizeWaitPeriod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2773,7 +2773,7 @@ func createStaticPVC(ctx context.Context, f *framework.Framework,
 	curtimeinstring := strconv.FormatInt(curtime, 10)
 	fcdID, err := e2eVSphere.createFCD(ctx, "BasicStaticFCD"+curtimeinstring, diskSizeInMb, defaultDatastore.Reference())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("FCD ID :", fcdID)
+	framework.Logf("FCD ID : %s", fcdID)
 
 	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
 		pandoraSyncWaitTime, fcdID))
@@ -2894,7 +2894,7 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(ctx context.Context, f *framew
 		for _, pvc := range pvclaims {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			newpv := getPvFromClaim(client, namespace, pvc.Name)
-			framework.Logf("Processing PVC: " + pvc.Name)
+			framework.Logf("Processing PVC: %s", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc, newpv, nil)
@@ -3063,7 +3063,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 		for _, pvc := range pvclaims {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			newpv := getPvFromClaim(client, namespace, pvc.Name)
-			framework.Logf("Processing PVC: " + pvc.Name)
+			framework.Logf("Processing PVC: %s" + pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc, newpv, nil)
@@ -3195,7 +3195,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 	fsSize, err = getFileSystemSizeForOsType(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("File system size after expansion : %s", fsSize)
+	framework.Logf("File system size after expansion : %d", fsSize)
 
 	// Filesystem size may be smaller than the size of the block volume
 	// so here we are checking if the new filesystem size is greater than
@@ -3296,7 +3296,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 		for _, pvc := range pvclaims {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			newpv := getPvFromClaim(client, namespace, pvc.Name)
-			framework.Logf("Processing PVC: " + pvc.Name)
+			framework.Logf("Processing PVC: %s", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc, newpv, nil)
@@ -3526,7 +3526,7 @@ func invokeTestForInvalidVolumeExpansion(f *framework.Framework, client clientse
 		for _, pvc := range pvclaims {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			pv := getPvFromClaim(client, namespace, pvc.Name)
-			framework.Logf("Processing PVC: " + pvc.Name)
+			framework.Logf("Processing PVC: %s", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc, pv, nil)
@@ -3615,7 +3615,7 @@ func invokeTestForInvalidVolumeShrink(f *framework.Framework, client clientset.I
 		for _, pvc := range pvclaims {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			pv := getPvFromClaim(client, namespace, pvc.Name)
-			framework.Logf("Processing PVC: " + pvc.Name)
+			framework.Logf("Processing PVC: %s", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc, pv, nil)
@@ -3843,7 +3843,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 		for _, pvc := range pvclaims {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			newpv := getPvFromClaim(client, namespace, pvc.Name)
-			framework.Logf("Processing PVC: " + pvc.Name)
+			framework.Logf("Processing PVC: %s", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("till here")
@@ -3980,7 +3980,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 	fsSize, err = getFileSystemSizeForOsType(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("File system size after expansion : %s", fsSize)
+	framework.Logf("File system size after expansion : %d", fsSize)
 
 	// Filesystem size may be smaller than the size of the block volume
 	// so here we are checking if the new filesystem size is greater than
@@ -4332,7 +4332,7 @@ func offlineVolumeExpansionOnSupervisorPVC(client clientset.Interface, f *framew
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 	fsSize, err := getFSSizeMb(f, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	framework.Logf("File system size after expansion : %s", fsSize)
+	framework.Logf("File system size after expansion : %d", fsSize)
 
 	// Filesystem size may be smaller than the size of the block volume
 	// so here we are checking if the new filesystem size is greater than

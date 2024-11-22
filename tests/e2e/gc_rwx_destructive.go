@@ -547,7 +547,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(sleepTimeOut * time.Second)
 
-		err = fpod.WaitForPodsRunningReady(ctx, clientNewGc, namespace, int32(5), 0, pollTimeout)
+		err = fpod.WaitForPodsRunningReady(ctx, clientNewGc, namespace, int(5), time.Duration(pollTimeout))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pods, err = fdep.GetPodsForDeployment(ctx, clientNewGc, dep)

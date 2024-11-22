@@ -1035,7 +1035,8 @@ var _ = ginkgo.Describe("statefulset", func() {
 			}
 		}()
 
-		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout)
+		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int(csipods.Size()),
+			time.Duration(pollTimeout))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Scale up statefulset replica to 5")
 		replicas = replicas + 2

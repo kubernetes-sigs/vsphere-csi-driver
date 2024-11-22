@@ -179,8 +179,11 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	backOffDuration = make(map[string]time.Duration)
 
 	// Watch for changes to primary resource CnsFileAccessConfig.
-	err = c.Watch(source.Kind(mgr.GetCache(), &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}),
-		&handler.EnqueueRequestForObject{})
+	err = c.Watch(source.Kind(
+		mgr.GetCache(),
+		&cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{},
+		&handler.TypedEnqueueRequestForObject[*cnsfileaccessconfigv1alpha1.CnsFileAccessConfig]{},
+	))
 	if err != nil {
 		log.Errorf("Failed to watch for changes to CnsFileAccessConfig resource with error: %+v", err)
 		return err

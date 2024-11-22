@@ -229,7 +229,7 @@ func updateVmfsPolicyAlloctype(
 	if err != nil {
 		return err
 	}
-	framework.Logf("policy content after update", spew.Sdump(policyContent))
+	framework.Logf("policy content after update: %s", spew.Sdump(policyContent))
 	return nil
 }
 

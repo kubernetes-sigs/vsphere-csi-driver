@@ -1999,7 +1999,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
 			originalSizeInMb, err := getFSSizeMb(f, podList[i])
-			framework.Logf("original size : %s", originalSizeInMb)
+			framework.Logf("original size : %d", originalSizeInMb)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			originalSizes = append(originalSizes, originalSizeInMb)
 
@@ -2062,7 +2062,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 			fsSize, err = getFSSizeMb(f, podList[i])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			framework.Logf("File system size after expansion : %s", fsSize)
+			framework.Logf("File system size after expansion : %d", fsSize)
 			// Filesystem size may be smaller than the size of the block volume
 			// so here we are checking if the new filesystem size is greater than
 			// the original volume size as the filesystem is formatted for the
