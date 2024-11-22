@@ -80,6 +80,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	"k8s.io/pod-security-admission/api"
 	"k8s.io/utils/strings/slices"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -744,7 +745,7 @@ func getPersistentVolumeClaimSpecWithStorageClass(namespace string, ds string, s
 			AccessModes: []v1.PersistentVolumeAccessMode{
 				accessMode,
 			},
-			Resources: v1.ResourceRequirements{
+			Resources: v1.VolumeResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
 				},
@@ -781,7 +782,7 @@ func getPersistentVolumeClaimSpecWithoutStorageClass(namespace string, ds string
 			AccessModes: []v1.PersistentVolumeAccessMode{
 				accessMode,
 			},
-			Resources: v1.ResourceRequirements{
+			Resources: v1.VolumeResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
 				},
@@ -1193,8 +1194,8 @@ func updateCSIDeploymentProvisionerTimeout(client clientset.Interface, namespace
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Waiting for a min for update operation on deployment to take effect...")
 	time.Sleep(1 * time.Minute)
-	err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int32(num_csi_pods), 0,
-		2*pollTimeout)
+	err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(num_csi_pods),
+		time.Duration(2*pollTimeout))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
@@ -1257,7 +1258,7 @@ func getPersistentVolumeClaimSpec(namespace string, labels map[string]string, pv
 			AccessModes: []v1.PersistentVolumeAccessMode{
 				v1.ReadWriteOnce,
 			},
-			Resources: v1.ResourceRequirements{
+			Resources: v1.VolumeResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
 				},
@@ -1342,7 +1343,7 @@ func getPersistentVolumeClaimSpecForRWX(namespace string, labels map[string]stri
 			AccessModes: []v1.PersistentVolumeAccessMode{
 				v1.ReadWriteMany,
 			},
-			Resources: v1.ResourceRequirements{
+			Resources: v1.VolumeResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse(pvSize),
 				},
@@ -3469,7 +3470,7 @@ func getPersistentVolumeClaimSpecFromVolume(namespace string, pvName string,
 			AccessModes: []v1.PersistentVolumeAccessMode{
 				accessMode,
 			},
-			Resources: v1.ResourceRequirements{
+			Resources: v1.VolumeResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
 				},
@@ -3861,7 +3862,7 @@ func getPVCSpecWithPVandStorageClass(pvcName string, namespace string, labels ma
 			AccessModes: []v1.PersistentVolumeAccessMode{
 				v1.ReadWriteOnce,
 			},
-			Resources: v1.ResourceRequirements{
+			Resources: v1.VolumeResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse(sizeOfDisk),
 				},
@@ -4038,7 +4039,8 @@ func waitForNamespaceToGetDeleted(ctx context.Context, c clientset.Interface,
 // created or until timeout occurs, whichever comes first.
 func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.Config, namespace string,
 	cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume, Poll, timeout time.Duration) error {
-	framework.Logf("Waiting up to %v for CnsRegisterVolume %s to get created", timeout, cnsRegisterVolume)
+	framework.Logf("Waiting up to %v for CnsRegisterVolume %v, namespace: %s,  to get created",
+		timeout, cnsRegisterVolume, namespace)
 
 	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
 	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
@@ -4058,13 +4060,13 @@ func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.
 // deleted or until timeout occurs, whichever comes first.
 func waitForCNSRegisterVolumeToGetDeleted(ctx context.Context, restConfig *rest.Config, namespace string,
 	cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume, Poll, timeout time.Duration) error {
-	framework.Logf("Waiting up to %v for cnsRegisterVolume %s to get deleted", timeout, cnsRegisterVolume)
+	framework.Logf("Waiting up to %v for cnsRegisterVolume %v to get deleted", timeout, cnsRegisterVolume)
 
 	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
 	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
 		flag := queryCNSRegisterVolume(ctx, restConfig, cnsRegisterVolumeName, namespace)
 		if flag {
-			framework.Logf("CnsRegisterVolume %s is not yet deleted. Deletion flag status  =%s (%v)",
+			framework.Logf("CnsRegisterVolume %s is not yet deleted. Deletion flag status  =%t (%v)",
 				cnsRegisterVolumeName, flag, time.Since(start))
 			continue
 		}
@@ -4231,7 +4233,11 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 // createPod with given claims based on node selector.
 func createPod(ctx context.Context, client clientset.Interface, namespace string, nodeSelector map[string]string,
 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
-	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+	securityLevel := api.LevelBaseline
+	if isPrivileged {
+		securityLevel = api.LevelPrivileged
+	}
+	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, securityLevel, command)
 	if windowsEnv {
 		var commands []string
 		if (len(command) == 0) || (command == execCommand) {
@@ -4363,8 +4369,11 @@ func createPodForFSGroup(ctx context.Context, client clientset.Interface, namesp
 			return &i
 		}(2000)
 	}
-
-	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+	securityLevel := api.LevelBaseline
+	if isPrivileged {
+		securityLevel = api.LevelPrivileged
+	}
+	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, securityLevel, command)
 	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 	pod.Spec.SecurityContext = &v1.PodSecurityContext{
 		RunAsUser: runAsUser,
@@ -4583,7 +4592,8 @@ func toggleCSIMigrationFeatureGatesOnK8snodes(ctx context.Context, client client
 		}
 		pods, err := fpod.GetPodsInNamespace(ctx, client, namespace, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int32(len(pods)), 0, pollTimeout*2)
+		err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int(len(pods)),
+			time.Duration(pollTimeout*2))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -6001,7 +6011,8 @@ func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
 		}
 	}
 	// wait for csi Pods to be in running ready state
-	err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int32(num_csi_pods), 0, pollTimeout)
+	err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(num_csi_pods),
+		time.Duration(pollTimeout))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return nil
 }
@@ -6145,8 +6156,8 @@ func startCSIPods(ctx context.Context, client clientset.Interface, csiReplicas i
 		return true, err
 	}
 	num_csi_pods := len(list_of_pods)
-	err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int32(num_csi_pods), 0,
-		pollTimeout)
+	err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int(num_csi_pods),
+		time.Duration(pollTimeout))
 	isServiceStopped := false
 	return isServiceStopped, err
 }
@@ -6197,7 +6208,8 @@ func enableFullSyncTriggerFss(ctx context.Context, client clientset.Interface, n
 			for _, pod := range csipods.Items {
 				fpod.DeletePodOrFail(ctx, client, csiSystemNamespace, pod.Name)
 			}
-			err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int32(csipods.Size()), 0, pollTimeout)
+			err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(csipods.Size()),
+				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			break
 		} else if fss == k && v == "true" {
@@ -6538,7 +6550,7 @@ func verifyDataFromRawBlockVolume(ns string, podName string, devicePath string, 
 
 		framework.Logf("Running diff with source file and file from pod %v for 1M starting %vM", podName, skip)
 		op, err := exec.Command("diff", testdataFile, testdataFile+podName).Output()
-		framework.Logf("diff: ", op)
+		framework.Logf("diff: %v", op)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(len(op)).To(gomega.BeZero())
 	}

@@ -3447,7 +3447,8 @@ func initVolumeHealthReconciler(ctx context.Context, tkgKubeClient clientset.Int
 	defer close(stopCh)
 	rc, err := NewVolumeHealthReconciler(tkgKubeClient, svcKubeClient, volumeHealthResyncPeriod,
 		tkgInformerFactory, svcInformerFactory,
-		workqueue.NewItemExponentialFailureRateLimiter(volumeHealthRetryIntervalStart, volumeHealthRetryIntervalMax),
+		workqueue.NewTypedItemExponentialFailureRateLimiter[any](volumeHealthRetryIntervalStart,
+			volumeHealthRetryIntervalMax),
 		supervisorNamespace, stopCh,
 	)
 	if err != nil {
@@ -3473,10 +3474,9 @@ func initResizeReconciler(ctx context.Context, tkgClient clientset.Interface,
 	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/585
 	informerFactory := informers.NewSharedInformerFactory(tkgClient, resizeResyncPeriod)
 
-	rc, err := newResizeReconciler(tkgClient, supervisorClient, supervisorNamespace, resizeResyncPeriod, informerFactory,
-		workqueue.NewItemExponentialFailureRateLimiter(resizeRetryIntervalStart, resizeRetryIntervalMax),
-		stopCh,
-	)
+	rc, err := newResizeReconciler(tkgClient, supervisorClient, supervisorNamespace,
+		resizeResyncPeriod, informerFactory, workqueue.NewTypedItemExponentialFailureRateLimiter[any](
+			resizeRetryIntervalStart, resizeRetryIntervalMax), stopCh)
 	if err != nil {
 		return err
 	}
@@ -3492,7 +3492,7 @@ func initStoragePolicyQuotaReconciler(ctx context.Context, metadataSyncInformer 
 	// TODO: Refactor the code to use existing NewInformer function to get informerFactory
 	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/585
 	rc, err := newStoragePolicyQuotaReconciler(ctx, metadataSyncInformer,
-		workqueue.NewItemExponentialFailureRateLimiter(storagePolicyQuotaRetryIntervalStart,
+		workqueue.NewTypedItemExponentialFailureRateLimiter[any](storagePolicyQuotaRetryIntervalStart,
 			storagePolicyQuotaRetryIntervalMax), stopCh)
 	if err != nil {
 		log.Errorf("initStoragePolicyQuotaReconciler: err received %v", err)

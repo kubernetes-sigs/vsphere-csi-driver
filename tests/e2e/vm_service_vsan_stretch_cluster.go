@@ -269,7 +269,8 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 		time.Sleep(5 * time.Minute)
 		// Check if csi pods are running fine after site failure
 		ginkgo.By("Check if csi pods are running fine after site failure")
-		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int32(csipods.Size()), 0, pollTimeout*2)
+		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, int(csipods.Size()),
+			time.Duration(pollTimeout*2))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Waiting for all claims to be in bound state")

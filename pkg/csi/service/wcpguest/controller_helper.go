@@ -225,7 +225,7 @@ func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace stri
 			AccessModes: []v1.PersistentVolumeAccessMode{
 				pvcAccessMode,
 			},
-			Resources: v1.ResourceRequirements{
+			Resources: v1.VolumeResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse(diskSize),
 				},

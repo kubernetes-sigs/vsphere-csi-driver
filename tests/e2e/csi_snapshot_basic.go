@@ -217,7 +217,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			eventList, err := svcClient.CoreV1().Events(svcNamespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, item := range eventList.Items {
-				framework.Logf(fmt.Sprintf(item.Message))
+				framework.Logf(item.Message)
 			}
 		}
 
@@ -4285,8 +4285,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 					ginkgo.By("Delete elected leader CSi-Controller-Pod where csi-snapshotter is running")
 					err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, snapshotterContainerName)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int32(csipods.Size()),
-						0, pollTimeoutShort*2)
+					err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(csipods.Size()),
+						time.Duration(pollTimeoutShort*2))
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				} else {
 					err = execStopContainerOnGc(sshWcpConfig, svcMasterIp,
@@ -4358,8 +4358,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 					ginkgo.By("Delete elected leader CSi-Controller-Pod where csi-snapshotter is running")
 					err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, snapshotterContainerName)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int32(csipods.Size()),
-						0, pollTimeoutShort*2)
+					err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(csipods.Size()),
+						time.Duration(pollTimeoutShort*2))
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				} else if guestCluster {
 					err = execStopContainerOnGc(sshWcpConfig, svcMasterIp,
@@ -6689,7 +6689,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		framework.Logf("snapshot name: %s", staticSnapshot.Name)
-		framework.Logf("snapshot details: %s", staticSnapshot)
+		framework.Logf("snapshot details: %v", staticSnapshot)
 		pvclaim2, persistentVolumes2, pod2 := verifyVolumeRestoreOperation(ctx, client,
 			namespace, storageclass, staticSnapshot, diskSize, true)
 		volHandle2 := persistentVolumes2[0].Spec.CSI.VolumeHandle
@@ -7390,7 +7390,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Creating pod")
 		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		podName := pod.GetName
+		podName := pod.GetName()
 		framework.Logf("podName : %s", podName)
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",

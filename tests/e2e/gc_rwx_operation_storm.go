@@ -216,7 +216,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		for i := 2; i <= volumeOpsScale; i++ {
 			ginkgo.By("Create Pods concurrently, without waiting them to be running here..")
 			executeCommand := "echo 'Hi' && while true ; do sleep 2 ; done"
-			newPod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, executeCommand)
+			newPod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
+				admissionapi.LevelBaseline, executeCommand)
 
 			newPod, err = client.CoreV1().Pods(namespace).Create(ctx, newPod, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -378,7 +379,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		}()
 
 		for index, claim := range pvclaims {
-			framework.Logf("Waiting for all claims %s to be in bound state - PVC number %s", claim.Name, index)
+			framework.Logf("Waiting for all claims %s to be in bound state - PVC number %d", claim.Name, index)
 			pv, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{claim},
 				framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -414,7 +415,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 
 		if volHealthCheck {
 			for index, claim := range pvclaims {
-				framework.Logf("poll for health status annotation for volume number = %s", index)
+				framework.Logf("poll for health status annotation for volume number = %d", index)
 				err = pvcHealthAnnotationWatcher(ctx, client, claim, healthStatusAccessible)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
@@ -424,7 +425,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		for podCount < volumeOpsScale {
 			ginkgo.By("Create Pods concurrently, without waiting them to be running here..")
 			executeCommand := "echo 'Hi' && while true ; do sleep 2 ; done"
-			newPod := fpod.MakePod(namespace, nil, pvclaims, false, executeCommand)
+			newPod := fpod.MakePod(namespace, nil, pvclaims,
+				admissionapi.LevelBaseline, executeCommand)
 			newPod, err = client.CoreV1().Pods(namespace).Create(ctx, newPod, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			podArray[podCount] = newPod

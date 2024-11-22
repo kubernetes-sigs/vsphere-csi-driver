@@ -1190,7 +1190,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 		fsSize, err = getFSSizeMbWithoutF(namespace, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("File system size after expansion : %s", fsSize)
+		framework.Logf("File system size after expansion : %d", fsSize)
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
 		// the original volume size as the filesystem is formatted for the

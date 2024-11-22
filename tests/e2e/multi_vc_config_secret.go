@@ -698,7 +698,8 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 				e2ekubectl.RunKubectlOrDie(newNamespace.Name, statusCheck...)
 
 				// wait for csi Pods to be in running ready state
-				err = fpod.WaitForPodsRunningReady(ctx, client, newNamespace.Name, int32(num_csi_pods), 0, pollTimeout)
+				err = fpod.WaitForPodsRunningReady(ctx, client, newNamespace.Name, int(num_csi_pods),
+					time.Duration(pollTimeout))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client, scaleUpReplicaCount,
@@ -1045,7 +1046,8 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if deploymentPods.Status.UnavailableReplicas != csiReplicas {
-			framework.Logf("CSi Pods are not ready or in CLBO state with %d unavilable csi pod replica")
+			framework.Logf("CSi Pods are not ready or in CLBO state with %d unavilable csi pod replica",
+				deploymentPods.Status.UnavailableReplicas)
 		}
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")

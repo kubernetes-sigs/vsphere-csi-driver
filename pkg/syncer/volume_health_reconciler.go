@@ -102,7 +102,7 @@ type volumeHealthReconciler struct {
 	// Supervisor Cluster KubeClient.
 	svcKubeClient kubernetes.Interface
 	// Supervisor Cluster claim queue.
-	svcClaimQueue workqueue.RateLimitingInterface
+	svcClaimQueue workqueue.TypedRateLimitingInterface[any]
 
 	// Tanzu Kubernetes Grid PV Lister.
 	tkgPVLister corelisters.PersistentVolumeLister
@@ -128,7 +128,7 @@ func NewVolumeHealthReconciler(
 	resyncPeriod time.Duration,
 	tkgInformerFactory informers.SharedInformerFactory,
 	svcInformerFactory informers.SharedInformerFactory,
-	svcPVCRateLimiter workqueue.RateLimiter,
+	svcPVCRateLimiter workqueue.TypedRateLimiter[any],
 	supervisorNamespace string, stopCh <-chan struct{}) (VolumeHealthReconciler, error) {
 
 	ctx, log := logger.GetNewContextWithLogger()

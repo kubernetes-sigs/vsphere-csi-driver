@@ -935,7 +935,7 @@ func verifyCnsVolumeMetadata4GCVol(volumeID string, svcPVCName string, gcPvc *v1
 	cnsQueryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	if len(cnsQueryResult.Volumes) == 0 {
-		framework.Logf("CNS volume query yielded no results for volume id: " + volumeID)
+		framework.Logf("CNS volume query yielded no results for volume id: %s", volumeID)
 		return false
 	}
 	cnsVolume := cnsQueryResult.Volumes[0]

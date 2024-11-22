@@ -134,8 +134,11 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	backOffDuration = make(map[string]time.Duration)
 
 	// Watch for changes to primary resource CnsUnregisterVolume.
-	err = c.Watch(source.Kind(mgr.GetCache(), &cnsunregistervolumev1alpha1.CnsUnregisterVolume{}),
-		&handler.EnqueueRequestForObject{})
+	err = c.Watch(source.Kind(
+		mgr.GetCache(),
+		&cnsunregistervolumev1alpha1.CnsUnregisterVolume{},
+		&handler.TypedEnqueueRequestForObject[*cnsunregistervolumev1alpha1.CnsUnregisterVolume]{},
+	))
 	if err != nil {
 		log.Errorf("Failed to watch for changes to CnsUnregisterVolume resource with error: %+v", err)
 		return err

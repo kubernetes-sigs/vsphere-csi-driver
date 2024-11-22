@@ -770,7 +770,7 @@ func (vs *vSphere) getVsanClusterResource(ctx context.Context, forceRefresh ...b
 				cluster = clusterComputeResource[1]
 			}
 
-			framework.Logf("Looking for cluster with the default datastore passed into test in DC: " + dc)
+			framework.Logf("Looking for cluster with the default datastore passed into test in DC: %s", dc)
 			datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
 			if err == nil {
@@ -894,7 +894,7 @@ func (c *VsanClient) QueryVsanObjects(ctx context.Context, uuids []string, vs *v
 }
 
 // queryCNSVolumeWithWait gets the cns volume health status
-func queryCNSVolumeWithWait(ctx context.Context, client clientset.Interface, volHandle string) error {
+func queryCNSVolumeWithWait(ctx context.Context, volHandle string) error {
 	waitErr := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pollTimeout, true,
 		func(ctx context.Context) (bool, error) {
 			framework.Logf("wait for next poll %v", pollTimeoutShort)

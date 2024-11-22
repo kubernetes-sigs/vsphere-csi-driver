@@ -121,21 +121,20 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 	backOffDuration = make(map[string]time.Duration)
-	src := source.Kind(mgr.GetCache(), &cnsv1alpha1.CnsVolumeMetadata{})
-	h := &handler.EnqueueRequestForObject{}
 	// Predicates are used to determine under which conditions
 	// the reconcile callback will be made for an instance.
-	pred := predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
+
+	pred := predicate.TypedFuncs[*cnsv1alpha1.CnsVolumeMetadata]{
+		CreateFunc: func(e event.TypedCreateEvent[*cnsv1alpha1.CnsVolumeMetadata]) bool {
 			return true
 		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldObj, ok := e.ObjectOld.(*cnsv1alpha1.CnsVolumeMetadata)
-			if oldObj == nil || !ok {
+		UpdateFunc: func(e event.TypedUpdateEvent[*cnsv1alpha1.CnsVolumeMetadata]) bool {
+			oldObj := e.ObjectOld
+			if oldObj == nil {
 				return false
 			}
-			newObj, ok := e.ObjectNew.(*cnsv1alpha1.CnsVolumeMetadata)
-			if newObj == nil || !ok {
+			newObj := e.ObjectNew
+			if newObj == nil {
 				return false
 			}
 			// Return true if finalizer or spec has changed.
@@ -145,16 +144,18 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 			return !(reflect.DeepEqual(oldObj.Finalizers, newObj.Finalizers) && reflect.DeepEqual(oldObj.Spec, newObj.Spec)) ||
 				(newObj.DeletionTimestamp != nil && newObj.Finalizers != nil)
 		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
+		DeleteFunc: func(e event.TypedDeleteEvent[*cnsv1alpha1.CnsVolumeMetadata]) bool {
 			// Instances are deleted only after CNS Operator has removed its
 			// finalizer from that instance. No reconcile operations need to
 			// take place after the finalizer is removed.
 			return false
 		},
 	}
-
+	src := source.Kind(mgr.GetCache(),
+		&cnsv1alpha1.CnsVolumeMetadata{},
+		&handler.TypedEnqueueRequestForObject[*cnsv1alpha1.CnsVolumeMetadata]{}, pred)
 	// Watch for changes to primary resource CnsVolumeMetadata.
-	err = c.Watch(src, h, pred)
+	err = c.Watch(src)
 	if err != nil {
 		log.Errorf("failed to watch for changes to CnsVolumeMetadata resource with error: %+v", err)
 		return err

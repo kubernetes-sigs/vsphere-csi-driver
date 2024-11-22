@@ -50,7 +50,7 @@ type storagePolicyQuotaReconciler struct {
 	// metadataSyncer informer to get FSS information.
 	metadataSyncerInformer *metadataSyncInformer
 	// StoragePolicyQuota queue to add/delete StoragePolicyUsage CRs.
-	svcQuotaOpsQueue workqueue.RateLimitingInterface
+	svcQuotaOpsQueue workqueue.TypedRateLimitingInterface[any]
 	// StoragePolicyQuota Synced.
 	svcQuotaSynced cache.InformerSynced
 }
@@ -59,7 +59,7 @@ type storagePolicyQuotaReconciler struct {
 func newStoragePolicyQuotaReconciler(
 	ctx context.Context,
 	metadataSyncerInformer *metadataSyncInformer,
-	svcStoragePolicyQuotaRateLimiter workqueue.RateLimiter,
+	svcStoragePolicyQuotaRateLimiter workqueue.TypedRateLimiter[any],
 	stopCh <-chan struct{}) (*storagePolicyQuotaReconciler, error) {
 
 	log := logger.GetLogger(ctx)
@@ -77,8 +77,8 @@ func newStoragePolicyQuotaReconciler(
 	gvr := schema.GroupVersionResource{Group: cnsoperatorv1alpha1.GroupName, Version: cnsoperatorv1alpha1.Version,
 		Resource: cnsoperatorv1alpha1.CnsStoragePolicyQuotaPlural}
 	storagePolicyQuotaInformer := dynamicInformerFactory.ForResource(gvr)
-	svcQuotaOpsQueue := workqueue.NewRateLimitingQueueWithConfig(
-		svcStoragePolicyQuotaRateLimiter, workqueue.RateLimitingQueueConfig{
+	svcQuotaOpsQueue := workqueue.NewTypedRateLimitingQueueWithConfig(
+		svcStoragePolicyQuotaRateLimiter, workqueue.TypedRateLimitingQueueConfig[any]{
 			Name: "storage-policy-quota-ops",
 		})
 

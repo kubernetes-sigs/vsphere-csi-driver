@@ -1920,7 +1920,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		}
 		vimClient, err := convertToVimClient(ctx, soapClient)
 		if err != nil {
-			framework.Logf("Error: ", err)
+			framework.Logf("Error: %v", err)
 		}
 		finder := find.NewFinder(vimClient, false)
 

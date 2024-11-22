@@ -474,7 +474,7 @@ func getPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, sto
 			AccessModes: []v1.PersistentVolumeAccessMode{
 				accessMode,
 			},
-			Resources: v1.ResourceRequirements{
+			Resources: v1.VolumeResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
 				},
@@ -563,8 +563,8 @@ func createPreProvisionedSnapshotInGuestCluster(ctx context.Context, volumeSnaps
 		return nil, nil, false, false, fmt.Errorf("failed to delete VolumeSnapshotContent: %v", err)
 	}
 
-	framework.Logf(fmt.Sprintf("Creating static VolumeSnapshotContent in Guest Cluster using "+
-		"supervisor VolumeSnapshotName %s", svcVolumeSnapshotName))
+	framework.Logf("Creating static VolumeSnapshotContent in Guest Cluster using "+
+		"supervisor VolumeSnapshotName %s", svcVolumeSnapshotName)
 	staticSnapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Create(ctx,
 		getVolumeSnapshotContentSpec(snapV1.DeletionPolicy("Delete"), svcVolumeSnapshotName,
 			"static-vs", namespace), metav1.CreateOptions{})

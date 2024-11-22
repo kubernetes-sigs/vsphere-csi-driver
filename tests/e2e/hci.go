@@ -237,7 +237,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 		targetHost := e2eVSphere.getHostFromVMReference(ctx, workervms[0].Reference())
 		hostMoRef := vim25types.ManagedObjectReference{Type: "HostSystem", Value: targetHost.Value}
 		targetHostSystem = object.NewHostSystem(e2eVSphere.Client.Client, hostMoRef)
-		framework.Logf("Target host name: %s, MOID: %s", targetHostSystem.Name, targetHost.Value)
+		framework.Logf("Target host name: %s, MOID: %s", targetHostSystem.Name(), targetHost.Value)
 		nicMgr, err = targetHostSystem.ConfigManager().VirtualNicManager(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vmknic4VsanDown = true

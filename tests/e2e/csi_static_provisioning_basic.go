@@ -793,7 +793,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("pvc name :%s", pvcName)
 
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
-		framework.Logf("Storage class : ", storageclass.Name)
+		framework.Logf("Storage class : %s", storageclass.Name)
 
 		ginkgo.By("Creating FCD (CNS Volume)")
 		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
@@ -822,7 +822,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Creating pod")
 		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		podName := pod.GetName
+		podName := pod.GetName()
 		framework.Logf("podName : %s", podName)
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
@@ -907,7 +907,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Creating pod")
 		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		podName := pod.GetName
+		podName := pod.GetName()
 		framework.Logf("podName: %s", podName)
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
@@ -1001,7 +1001,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Creating pod")
 		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		podName := pod.GetName
+		podName := pod.GetName()
 		framework.Logf("podName: %s", podName)
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
@@ -1914,7 +1914,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Perform dynamic provisioning and create PVC")
 		pvc1, err := createPVC(ctx, client, namespaceToDelete, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("Dynamically created PVC :%s" + pvc1.Name)
+		framework.Logf("Dynamically created PVC :%s", pvc1.Name)
 
 		ginkgo.By("Dynamic volume provisioning - Waiting for claim to be in bound phase")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,

@@ -430,13 +430,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		defer func() {
 			c := []string{"rm", "-f", vmFileData}
 			op, err = exec.Command(c[0], c[1:]...).Output()
-			framework.Logf("Command: %c, output: %v", c, op)
+			framework.Logf("Command: %v, output: %v", c, op)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 		framework.Logf("Comparing file fetched from the VM with test data file")
 		c := []string{"md5sum", testdataFile, vmFileData}
 		op, err = exec.Command(c[0], c[1:]...).Output()
-		framework.Logf("Command: %c, output: %v", c, op)
+		framework.Logf("Command: %v, output: %v", c, op)
 		lines := strings.Split(string(op[:]), "\n")
 		gomega.Expect(strings.Fields(lines[0])[0]).To(gomega.Equal(strings.Fields(lines[1])[0]))
 	})

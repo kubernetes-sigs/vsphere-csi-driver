@@ -299,7 +299,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(sleepTimeOut * time.Second)
 
-		err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int32(5), 0, pollTimeout)
+		err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int(5), time.Duration(pollTimeout))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pods, err = fdep.GetPodsForDeployment(ctx, client, dep)

@@ -164,15 +164,15 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node, %s", vmUUID))
 
 		podUID := string(pod.UID)
-		framework.Logf("Pod uuid : " + podUID)
-		framework.Logf("PVC name in SV " + svcPVCName)
+		framework.Logf("Pod uuid : %s", podUID)
+		framework.Logf("PVC name in SV %s", svcPVCName)
 		pvcUID = string(pvc.GetUID())
-		framework.Logf("PVC UUID in GC " + pvcUID)
+		framework.Logf("PVC UUID in GC %s", pvcUID)
 		gcClusterID = strings.Replace(svcPVCName, pvcUID, "", -1)
 
-		framework.Logf("gcClusterId " + gcClusterID)
+		framework.Logf("gcClusterId %s", gcClusterID)
 		pvUID := string(pv.UID)
-		framework.Logf("PV uuid " + pvUID)
+		framework.Logf("PV uuid %s", pvUID)
 
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle, crdCNSVolumeMetadatas,
 			crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
@@ -241,14 +241,14 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		framework.Logf("PVC name in SV " + svcPVCName)
+		framework.Logf("PVC name in SV %s", svcPVCName)
 		pvcUID = string(pvc.GetUID())
-		framework.Logf("PVC UUID in GC " + pvcUID)
+		framework.Logf("PVC UUID in GC %s", pvcUID)
 		gcClusterID = strings.Replace(svcPVCName, pvcUID, "", -1)
 
-		framework.Logf("gcClusterId " + gcClusterID)
+		framework.Logf("gcClusterId %s", gcClusterID)
 		pvUID := string(pv.UID)
-		framework.Logf("PV uuid " + pvUID)
+		framework.Logf("PV uuid %s", pvUID)
 
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
@@ -337,15 +337,15 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node, %s", vmUUID))
 
 		podUID := string(pod.UID)
-		framework.Logf("Pod uuid : " + podUID)
-		framework.Logf("PVC name in SV " + svcPVCName)
+		framework.Logf("Pod uuid : %s", podUID)
+		framework.Logf("PVC name in SV %s", svcPVCName)
 		pvcUID = string(pvc.GetUID())
-		framework.Logf("PVC UUID in GC " + pvcUID)
+		framework.Logf("PVC UUID in GC %s", pvcUID)
 		gcClusterID = strings.Replace(svcPVCName, pvcUID, "", -1)
 
-		framework.Logf("gcClusterId " + gcClusterID)
+		framework.Logf("gcClusterId %s", gcClusterID)
 		pvUID := string(pv.UID)
-		framework.Logf("PV uuid " + pvUID)
+		framework.Logf("PV uuid %s", pvUID)
 
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
@@ -444,7 +444,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
-					framework.Logf("value of volumeID " + volumeID)
+					framework.Logf("value of volumeID %s", volumeID)
 					ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
 						pvclabels, volumespec.PersistentVolumeClaim.ClaimName,
 						GetAndExpectStringEnvVar(envSupervisorClusterNamespace)))
@@ -477,7 +477,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
-					framework.Logf("value of volumeID " + volumeID)
+					framework.Logf("value of volumeID %s", volumeID)
 					ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", pvlabels, pv.Name))
 					err = e2eVSphere.waitForLabelsToBeUpdated(volumeID, pvlabels,
 						string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, "")
@@ -554,15 +554,15 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node, %s", vmUUID))
 
 		podUID := string(pod.UID)
-		framework.Logf("Pod uuid : " + podUID)
-		framework.Logf("PVC name in SV " + svcPVCName)
+		framework.Logf("Pod uuid : %s", podUID)
+		framework.Logf("PVC name in SV %s", svcPVCName)
 		pvcUID = string(pvc.GetUID())
-		framework.Logf("PVC UUID in GC " + pvcUID)
+		framework.Logf("PVC UUID in GC %s", pvcUID)
 		gcClusterID = strings.Replace(svcPVCName, pvcUID, "", -1)
 
-		framework.Logf("gcClusterId " + gcClusterID)
+		framework.Logf("gcClusterId %s", gcClusterID)
 		pvUID := string(pv.UID)
-		framework.Logf("PV uuid " + pvUID)
+		framework.Logf("PV uuid %s", pvUID)
 
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
@@ -1173,14 +1173,14 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 
-		framework.Logf("PVC name in SV " + svcPVCName)
+		framework.Logf("PVC name in SV %s", svcPVCName)
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC " + pvcUID)
+		framework.Logf("PVC UUID in GC %s", pvcUID)
 		gcClusterID := strings.Replace(svcPVCName, pvcUID, "", -1)
 
-		framework.Logf("gcClusterId " + gcClusterID)
+		framework.Logf("gcClusterId %s", gcClusterID)
 		pvUID := string(pv.UID)
-		framework.Logf("PV uuid " + pvUID)
+		framework.Logf("PV uuid %s", pvUID)
 
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
@@ -1274,9 +1274,9 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		volumeIDNewGC = getVolumeIDFromSupervisorCluster(svcNewPVCName)
 		gomega.Expect(volumeIDNewGC).NotTo(gomega.BeEmpty())
 
-		framework.Logf("PVC name in SV " + svcNewPVCName)
+		framework.Logf("PVC name in SV %s", svcNewPVCName)
 		pvcNewUID := string(pvcNew.GetUID())
-		framework.Logf("pvcNewUID in GC " + pvcNewUID)
+		framework.Logf("pvcNewUID in GC %s", pvcNewUID)
 		gcNewClusterID := strings.Replace(svcNewPVCName, pvcNewUID, "", -1)
 
 		ginkgo.By("Creating PV in new guest cluster with volume handle from SVC")
@@ -1289,7 +1289,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvNewUID := string(pvNew.UID)
-		framework.Logf("pvNew uuid " + pvNewUID)
+		framework.Logf("pvNew uuid %s", pvNewUID)
 
 		ginkgo.By("verify crd in supervisor")
 		time.Sleep(10 * time.Second)
@@ -1400,14 +1400,14 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 
-		framework.Logf("PVC name in SV " + svcPVCName)
+		framework.Logf("PVC name in SV %s", svcPVCName)
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC " + pvcUID)
+		framework.Logf("PVC UUID in GC %s", pvcUID)
 		gcClusterID := strings.Replace(svcPVCName, pvcUID, "", -1)
 
-		framework.Logf("gcClusterId " + gcClusterID)
+		framework.Logf("gcClusterId %s", gcClusterID)
 		pvUID := string(pv.UID)
-		framework.Logf("PV uuid " + pvUID)
+		framework.Logf("PV uuid %s", pvUID)
 
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
@@ -1468,7 +1468,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvNewUID := string(pvNew.UID)
-		framework.Logf("pvNew uuid " + pvNewUID)
+		framework.Logf("pvNew uuid %s", pvNewUID)
 
 		defer func() {
 			if pvc != nil {

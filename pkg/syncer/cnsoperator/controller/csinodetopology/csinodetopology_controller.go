@@ -162,17 +162,17 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 
 	// Predicates are used to determine under which conditions the reconcile
 	// callback will be made for an instance.
-	pred := predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
+	pred := predicate.TypedFuncs[*csinodetopologyv1alpha1.CSINodeTopology]{
+		CreateFunc: func(e event.TypedCreateEvent[*csinodetopologyv1alpha1.CSINodeTopology]) bool {
 			return true
 		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
+		UpdateFunc: func(e event.TypedUpdateEvent[*csinodetopologyv1alpha1.CSINodeTopology]) bool {
 			// The CO calls NodeGetInfo API just once during the node registration,
 			// therefore we do not support updates to the spec after the CR has
 			// been reconciled.
 			return true
 		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
+		DeleteFunc: func(e event.TypedDeleteEvent[*csinodetopologyv1alpha1.CSINodeTopology]) bool {
 			// Instances are deleted by the garbage collector automatically after
 			// the corresponding NodeVM is deleted. No reconcile operations are
 			// required.
@@ -182,8 +182,9 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	}
 
 	// Watch for changes to primary resource CSINodeTopology.
-	err = c.Watch(source.Kind(mgr.GetCache(), &csinodetopologyv1alpha1.CSINodeTopology{}),
-		&handler.EnqueueRequestForObject{}, pred)
+	err = c.Watch(source.Kind(mgr.GetCache(),
+		&csinodetopologyv1alpha1.CSINodeTopology{},
+		&handler.TypedEnqueueRequestForObject[*csinodetopologyv1alpha1.CSINodeTopology]{}, pred))
 	if err != nil {
 		log.Errorf("Failed to watch for changes to CSINodeTopology resource with error: %+v", err)
 		return err

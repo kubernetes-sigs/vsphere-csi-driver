@@ -16,6 +16,7 @@ import (
 	crConfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -63,7 +64,10 @@ func startCNSCSIWebhookManager(ctx context.Context) error {
 		webhookPort, metricsBindAddress)
 
 	mgrOpts := manager.Options{
-		MetricsBindAddress: metricsBindAddress, WebhookServer: webhook.NewServer(webhook.Options{
+		Metrics: metricsserver.Options{
+			BindAddress: metricsBindAddress,
+		},
+		WebhookServer: webhook.NewServer(webhook.Options{
 			Port: webhookPort,
 			TLSOpts: []func(*tls.Config){
 				func(t *tls.Config) {

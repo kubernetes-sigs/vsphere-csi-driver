@@ -723,7 +723,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 		fsSize, err := getFSSizeMb(f, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("File system size after expansion : %s, before expansion: %s", fsSize, diskSizeInMb)
+		framework.Logf("File system size after expansion : %d, before expansion: %d", fsSize, diskSizeInMb)
 		if fsSize < diskSizeInMb {
 			framework.Failf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize)
 		}
@@ -886,7 +886,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		ginkgo.By("Creating pod")
 		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		podName := pod.GetName
+		podName := pod.GetName()
 		framework.Logf("podName : %s", podName)
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
