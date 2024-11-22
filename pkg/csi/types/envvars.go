@@ -16,6 +16,10 @@ limitations under the License.
 
 package types
 
+import (
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+)
+
 const (
 	// EnvSupervisorClientQPS  is the QPS for all clients to the supervisor cluster API server
 	EnvSupervisorClientQPS = "SUPERVISOR_CLIENT_QPS"
@@ -33,7 +37,7 @@ const (
 	EnvVarEndpoint = "CSI_ENDPOINT"
 
 	// EnvVarNamespace specifies the namespace in which CSI driver is installed.
-	EnvVarNamespace = "CSI_NAMESPACE"
+	EnvVarNamespace = cnsconfig.EnvCSINamespace
 
 	// EnvVarMode is the name of the environment variable used to specify
 	// the service mode of the plugin. Valid values are:

@@ -98,6 +98,8 @@ type Manager interface {
 	DeleteVolume(ctx context.Context, volumeID string, deleteDisk bool) (string, error)
 	// UpdateVolumeMetadata updates a volume metadata given its spec.
 	UpdateVolumeMetadata(ctx context.Context, spec *cnstypes.CnsVolumeMetadataUpdateSpec) error
+	// UpdateVolumeCrypto encrypts a volume given its spec.
+	UpdateVolumeCrypto(ctx context.Context, spec *cnstypes.CnsVolumeCryptoUpdateSpec) error
 	// QueryVolumeInfo calls the CNS QueryVolumeInfo API and return a task, from
 	// which CnsQueryVolumeInfoResult is extracted.
 	QueryVolumeInfo(ctx context.Context, volumeIDList []cnstypes.CnsVolumeId) (*cnstypes.CnsQueryVolumeInfoResult, error)
@@ -1482,6 +1484,71 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
 	} else {
 		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsUpdateVolumeMetadataOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return err
+}
+
+// UpdateVolumeCrypto updates a volume given its spec.
+func (m *defaultManager) UpdateVolumeCrypto(ctx context.Context, spec *cnstypes.CnsVolumeCryptoUpdateSpec) error {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
+	internalUpdateVolumeCrypto := func() error {
+		log := logger.GetLogger(ctx)
+		err := validateManager(ctx, m)
+		if err != nil {
+			return err
+		}
+		// Set up the VC connection.
+		err = m.virtualCenter.ConnectCns(ctx)
+		if err != nil {
+			log.Errorf("ConnectCns failed with err: %+v", err)
+			return err
+		}
+
+		cnsUpdateSpecList := []cnstypes.CnsVolumeCryptoUpdateSpec{*spec}
+		task, err := m.virtualCenter.CnsClient.UpdateVolumeCrypto(ctx, cnsUpdateSpecList)
+		if err != nil {
+			log.Errorf("CNS UpdateVolumeCrypto failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			return err
+		}
+		// Get the taskInfo.
+		var taskInfo *vim25types.TaskInfo
+		taskInfo, err = m.waitOnTask(ctx, task.Reference())
+
+		if err != nil || taskInfo == nil {
+			log.Errorf("failed to get UpdateVolumeCrypto taskInfo from vCenter %q with err: %v",
+				m.virtualCenter.Config.Host, err)
+			return err
+		}
+		log.Infof("UpdateVolumeCrypto: volumeID: %q, opId: %q", spec.VolumeId.Id, taskInfo.ActivationId)
+		// Get the task results for the given task.
+		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+		if err != nil {
+			log.Errorf("unable to find UpdateVolumeCrypto result from vCenter %q: taskID %q, opId %q and updateResults %+v",
+				m.virtualCenter.Config.Host, taskInfo.Task.Value, taskInfo.ActivationId, taskResult)
+			return err
+		}
+		if taskResult == nil {
+			return logger.LogNewErrorf(log, "taskResult is empty for UpdateVolumeCrypto task: %q, opId: %q",
+				taskInfo.Task.Value, taskInfo.ActivationId)
+		}
+		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+		if volumeOperationRes.Fault != nil {
+			return logger.LogNewErrorf(log, "failed to update volume. updateSpec: %q, fault: %q, opID: %q",
+				spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		}
+		log.Infof("UpdateVolumeCrypto: Volume crypto updated successfully. volumeID: %q, opId: %q",
+			spec.VolumeId.Id, taskInfo.ActivationId)
+		return nil
+	}
+	start := time.Now()
+	err := internalUpdateVolumeCrypto()
+	if err != nil {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsUpdateVolumeCryptoOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsUpdateVolumeCryptoOpType,
 			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
 	return err

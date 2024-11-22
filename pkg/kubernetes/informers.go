@@ -26,7 +26,6 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/sample-controller/pkg/signals"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
@@ -77,7 +76,7 @@ func NewInformer(ctx context.Context, client clientset.Interface, inClusterClnt 
 	if informerInstance == nil {
 		informerInstance = &InformerManager{
 			client:          client,
-			stopCh:          signals.SetupSignalHandler().Done(),
+			stopCh:          ctx.Done(),
 			informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
 		}
 

@@ -62,6 +62,8 @@ const (
 	DefaultInternalFSSConfigMapName = "internal-feature-states.csi.vsphere.vmware.com"
 	// DefaultCSINamespace is the default namespace for CNS-CSI and pvCSI drivers.
 	DefaultCSINamespace = "vmware-system-csi"
+	// EnvCSINamespace specifies the namespace in which CSI driver is installed.
+	EnvCSINamespace = "CSI_NAMESPACE"
 	// DefaultCnsRegisterVolumesCleanupIntervalInMin is the default time
 	// interval after which successful CnsRegisterVolumes will be cleaned up.
 	// Current default value is set to 12 hours
@@ -806,4 +808,13 @@ func (vc VirtualCenterConfig) String() string {
 	}
 
 	return fmt.Sprintf("{%s}", strings.Join(fields, " "))
+}
+
+// GetCSINamespace returns the namespace in which CSI driver is installed
+func GetCSINamespace() string {
+	CSINamespace := os.Getenv(EnvCSINamespace)
+	if CSINamespace == "" {
+		CSINamespace = DefaultCSINamespace
+	}
+	return CSINamespace
 }

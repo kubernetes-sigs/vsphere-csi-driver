@@ -20,6 +20,7 @@ import (
 	"errors"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -60,6 +61,7 @@ type Manager struct {
 	CnsConfig      *config.Config
 	VolumeManager  cnsvolume.Manager
 	VcenterManager cnsvsphere.VirtualCenterManager
+	CryptoClient   crypto.Client
 }
 
 // Managers type comprises VirtualCenterConfigs, CnsConfig, VolumeManagers and VirtualCenterManager
@@ -87,6 +89,7 @@ type CreateVolumeSpec struct {
 	VolumeType              string
 	VsanDatastoreURL        string // Datastore URL used by host local volumes (vSAN Direct/vSAN SNA)
 	ContentSourceSnapshotID string // SnapshotID from VolumeContentSource in CreateVolumeRequest
+	CryptoKeyID             *CryptoKeyID
 }
 
 // StorageClassParams represents the storage class parameterss
@@ -95,4 +98,9 @@ type StorageClassParams struct {
 	StoragePolicyName string
 	CSIMigration      string
 	Datastore         string
+}
+
+type CryptoKeyID struct {
+	KeyID       string
+	KeyProvider string
 }
