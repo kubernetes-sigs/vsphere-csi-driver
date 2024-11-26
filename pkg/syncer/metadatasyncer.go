@@ -1286,24 +1286,19 @@ func calculateVolumeSnapshotReservedForNamespace(ctx context.Context,
 	volumeMap := make(map[string]*v1.PersistentVolumeClaim)
 	storagePolicyIdToReservedMap := make(map[string]*resource.Quantity)
 	for _, vs := range vsList.Items {
-		if vs.Status == nil {
-			log.Infof("calculateVolumeSnapshotReservedForNamespace: volumesnapshot status is unset for "+
-				"Name: %q, Namespace: %q", vs.Name, vs.Namespace)
-			continue
-		}
 		if vs.DeletionTimestamp != nil {
 			log.Infof("calculateVolumeSnapshotReservedForNamespace: volumesnapshot is marked for deletion,"+
 				" ignoring Name: %q, Namespace: %q",
 				vs.Name, vs.Namespace)
 			continue
 		}
-		if *vs.Status.ReadyToUse {
+		if vs.Status != nil && *vs.Status.ReadyToUse {
 			log.Infof("calculateVolumeSnapshotReservedForNamespace: skipping volumesnapshot"+
 				" as it is ready to use, ignoring Name: %q, Namespace: %q", vs.Name, vs.Namespace)
 			continue
 		} else {
 			log.Infof("calculateVolumeSnapshotReservedForNamespace: Processing VolumeSnapshot"+
-				" Name: %q, Namespace: %q readyToUse %q", vs.Name, vs.Namespace, vs.Status.ReadyToUse)
+				" Name: %q, Namespace: %q", vs.Name, vs.Namespace)
 			if len(pvcList.Items) == 0 {
 				log.Infof("calculateVolumeSnapshotReservedForNamespace: Fetching PersistentVolumeClaim "+
 					" for Namespace: %q", vs.Namespace)
