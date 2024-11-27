@@ -66,7 +66,7 @@ RUN mkdir -p /tmp/cloud
 
 RUN chmod 777 /tmp/cloud
 
-RUN RUN touch /tmp/cloud/contr-syncer-dump.out
+RUN touch /tmp/cloud/contr-syncer-dump.out
 
 COPY --from=builder /build/vsphere-syncer.test /bin/vsphere-syncer.test
 
