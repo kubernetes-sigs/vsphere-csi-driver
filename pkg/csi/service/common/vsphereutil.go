@@ -18,6 +18,7 @@ package common
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -52,10 +53,24 @@ type VanillaCreateBlockVolParamsForMultiVC struct {
 	FilterSuspendedDatastores bool
 }
 
+// CreateBlockVolumeOptions defines the FSS required to create a block volume.
+type CreateBlockVolumeOptions struct {
+	FilterSuspendedDatastores,
+	UseSupervisorId,
+	IsVdppOnStretchedSvFssEnabled bool
+	IsByokEnabled bool
+}
+
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
-func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, manager *Manager,
-	spec *CreateVolumeSpec, sharedDatastores []*vsphere.DatastoreInfo, filterSuspendedDatastores, useSupervisorId,
-	isVdppOnStretchedSvFssEnabled bool, extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
+func CreateBlockVolumeUtil(
+	ctx context.Context,
+	clusterFlavor cnstypes.CnsClusterFlavor,
+	manager *Manager,
+	spec *CreateVolumeSpec,
+	sharedDatastores []*vsphere.DatastoreInfo,
+	opts CreateBlockVolumeOptions,
+	extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
+
 	log := logger.GetLogger(ctx)
 	vc, err := GetVCenter(ctx, manager)
 	if err != nil {
@@ -76,7 +91,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		}
 	}
 
-	if filterSuspendedDatastores {
+	if opts.FilterSuspendedDatastores {
 		sharedDatastores, err = vsphere.FilterSuspendedDatastores(ctx, sharedDatastores)
 		if err != nil {
 			log.Errorf("Error occurred while filter suspended datastores, err: %+v", err)
@@ -109,7 +124,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 					continue
 				}
 
-				if filterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
+				if opts.FilterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
 					continue
 				}
 				datastoreObj = datastoreInfoObj.Datastore
@@ -155,7 +170,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 				continue
 			}
 
-			if filterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
+			if opts.FilterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
 				continue
 			}
 			datastoreObj = datastoreInfoObj.Datastore
@@ -190,7 +205,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		}
 	}
 
-	if !isVdppOnStretchedSvFssEnabled || spec.VsanDatastoreURL == "" {
+	if !opts.IsVdppOnStretchedSvFssEnabled || spec.VsanDatastoreURL == "" {
 		fault, err := isDataStoreCompatible(ctx, vc, spec, datastores, datastoreObj)
 		if err != nil {
 			return nil, fault, err
@@ -199,7 +214,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 
 	var containerClusterArray []cnstypes.CnsContainerCluster
 	clusterID := manager.CnsConfig.Global.ClusterID
-	if useSupervisorId {
+	if opts.UseSupervisorId {
 		clusterID = manager.CnsConfig.Global.SupervisorID
 	}
 	containerCluster := vsphere.GetContainerCluster(clusterID,
@@ -240,18 +255,7 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 		createSpec.Profile = append(createSpec.Profile, profileSpec)
 	}
 
-	if spec.CryptoKeyID != nil {
-		createSpec.CreateSpec = &cnstypes.CnsBlockCreateSpec{
-			CryptoSpec: &vim25types.CryptoSpecEncrypt{
-				CryptoKeyId: vim25types.CryptoKeyId{
-					KeyId: spec.CryptoKeyID.KeyID,
-					ProviderId: &vim25types.KeyProviderId{
-						Id: spec.CryptoKeyID.KeyProvider,
-					},
-				},
-			},
-		}
-	}
+	var snapshotVolumeCryptoKeyID *vim25types.CryptoKeyId
 
 	// Handle the case of CreateVolumeFromSnapshot by checking if
 	// the ContentSourceSnapshotID is available in CreateVolumeSpec
@@ -307,6 +311,32 @@ func CreateBlockVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluste
 			"when create volume from snapshot %s", createSpec.Datastores, compatibleDatastore,
 			spec.ContentSourceSnapshotID)
 		createSpec.Datastores = []vim25types.ManagedObjectReference{compatibleDatastore}
+
+		if opts.IsByokEnabled {
+			// Retrieve the encryption key ID from the source volume
+			snapshotVolumeCryptoKeyID, err = QueryVolumeCryptoKeyByID(ctx, manager.VolumeManager, cnsVolumeID)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+					"failed to query volume crypto key for the snapshot %s with error %+v",
+					spec.ContentSourceSnapshotID, err)
+			}
+		}
+	}
+
+	if opts.IsByokEnabled {
+		// Build crypto spec for the new volume.
+		var cryptoKeyID *vim25types.CryptoKeyId
+		if spec.CryptoKeyID != nil {
+			cryptoKeyID = &vim25types.CryptoKeyId{
+				KeyId:      spec.CryptoKeyID.KeyID,
+				ProviderId: &vim25types.KeyProviderId{Id: spec.CryptoKeyID.KeyProvider},
+			}
+		}
+
+		cryptoSpec := createCryptoSpec(snapshotVolumeCryptoKeyID, cryptoKeyID)
+		if cryptoSpec != nil {
+			createSpec.CreateSpec = &cnstypes.CnsBlockCreateSpec{CryptoSpec: cryptoSpec}
+		}
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))
@@ -1210,4 +1240,57 @@ func isDataStoreCompatible(ctx context.Context, vc *vsphere.VirtualCenter, spec 
 		}
 	}
 	return "", nil
+}
+
+// QueryVolumeCryptoKeyByID retrieves the encryption key ID for a volume.
+func QueryVolumeCryptoKeyByID(
+	ctx context.Context,
+	volumeManager cnsvolume.Manager,
+	volumeID string) (*vim25types.CryptoKeyId, error) {
+
+	result, err := volumeManager.QueryVolumeInfo(ctx, []cnstypes.CnsVolumeId{{Id: volumeID}})
+	if err != nil {
+		return nil, err
+	}
+
+	blockVolumeInfo, ok := result.VolumeInfo.(*cnstypes.CnsBlockVolumeInfo)
+	if !ok {
+		return nil, fmt.Errorf("failed to retrieve CNS volume info")
+	}
+
+	storageObj := blockVolumeInfo.VStorageObject
+
+	diskFileBackingInfo, ok := storageObj.Config.Backing.(*vim25types.BaseConfigInfoDiskFileBackingInfo)
+	if !ok {
+		return nil, fmt.Errorf("failed to retrieve FCD backing info")
+	}
+
+	return diskFileBackingInfo.KeyId, nil
+}
+
+// createCryptoSpec creates a crypto spec based on the requested encryption operation.
+//
+// - Encrypt: Source is not encrypted, target is encrypted.
+// - Decrypt: Source is encrypted, target is not.
+// - NoOp: Both source and target are encrypted with the same key.
+// - ShallowRecrypt: Both source and target are encrypted with different keys.
+func createCryptoSpec(oldKeyID, newKeyID *vim25types.CryptoKeyId) vim25types.BaseCryptoSpec {
+	if oldKeyID == nil && newKeyID == nil {
+		return nil
+	}
+
+	if oldKeyID == nil {
+		return &vim25types.CryptoSpecEncrypt{CryptoKeyId: *newKeyID}
+	}
+
+	if newKeyID == nil {
+		return &vim25types.CryptoSpecDecrypt{}
+	}
+
+	if oldKeyID.KeyId == newKeyID.KeyId &&
+		oldKeyID.ProviderId.Id == newKeyID.ProviderId.Id {
+		return &vim25types.CryptoSpecNoOp{}
+	}
+
+	return &vim25types.CryptoSpecShallowRecrypt{NewKeyId: *newKeyID}
 }

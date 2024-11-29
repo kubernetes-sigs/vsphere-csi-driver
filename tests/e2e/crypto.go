@@ -31,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientset "k8s.io/client-go/kubernetes"
-	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	admissionapi "k8s.io/pod-security-admission/api"
@@ -54,7 +53,6 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		vmopClient            ctlrclient.Client
 		vmi                   string
 		vmClass               string
-		restConfig            *restclient.Config
 		namespace             string
 		standardStorageClass  *storagev1.StorageClass
 		encryptedStorageClass *storagev1.StorageClass
@@ -91,9 +89,9 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 				scParamStoragePolicyID: e2eVSphere.GetSpbmPolicyID(standardStoragePolicyName),
 			},
 			nil, "", "", false, standardStoragePolicyName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("Failed to create storage class with err: %v", err))
 		validateEncryptedStorageClass(ctx, cryptoClient, standardStoragePolicyName, false)
-		setStoragePolicyQuota(ctx, restConfig, standardStoragePolicyName, namespace, rqLimit)
 
 		// Load encrypted storage class
 		encryptedStoragePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameWithEncryption)
@@ -102,9 +100,9 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 				scParamStoragePolicyID: e2eVSphere.GetSpbmPolicyID(encryptedStoragePolicyName),
 			},
 			nil, "", "", false, encryptedStoragePolicyName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("Failed to create storage class with err: %v", err))
 		validateEncryptedStorageClass(ctx, cryptoClient, encryptedStoragePolicyName, true)
-		setStoragePolicyQuota(ctx, restConfig, encryptedStoragePolicyName, namespace, rqLimit)
 
 		// Load key providers
 		keyProviderID = GetAndExpectStringEnvVar(envKeyProvider)
@@ -154,227 +152,215 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 	})
 
 	/*
-		Verify PVC is encrypted with EC.
-
-		1. Generate encryption key from KMS.
-		2. Create EncryptionClass with newly generated encryption key.
-		3. Create PVC associated with EncryptionClass, encrypted StorageClass and ReadWriteOnce access mode.
-		4. Validate volume is encrypted with the encryption key specified in the
-			EncryptionClass created in (2).
+		Steps:
+		1. Generate encryption key
+		2. Create EncryptionClass with encryption key [1]
+		3. Create PVC with EncryptionClass [2]
+		4. Validate PVC volume [3] is encrypted with encryption key [1]
 	*/
-	ginkgo.It("Verify PVC is encrypted with EC", func() {
+	ginkgo.It("Verify PVC is encrypted with EncryptionClass", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		ginkgo.By("1. Generating new encryption key")
-		keyID, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("1. Generate encryption key")
+		keyID := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("2. Creating an EncryptionClass")
+		ginkgo.By("2. Create EncryptionClass with encryption key [1]")
 		encClass := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID, false)
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass)
 
-		ginkgo.By("3. Creating encrypted PVC")
-		pvc := createPersistentVolumeClaimWithCrypto(
-			ctx,
-			client,
-			namespace,
-			encryptedStorageClass.Name,
-			encClass.Name,
-			true,
-		)
+		ginkgo.By("3. Create PVC with EncryptionClass [2]")
+		pvc := createPersistentVolumeClaim(ctx, client, PersistentVolumeClaimOptions{
+			Namespace:           namespace,
+			StorageClassName:    encryptedStorageClass.Name,
+			EncryptionClassName: encClass.Name,
+		})
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
-		ginkgo.By("4. Validate volume is encrypted with EC")
+		ginkgo.By("4. Validate PVC volume [3] is encrypted with encryption key [1]")
 		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID)
 	})
 
 	/*
-		Verify PVC is encrypted with the default EC.
-
-		1. Generate encryption key from KMS.
-		2. Create EncryptionClass with newly generated encryption key and mark it as default for the namespace.
-		3. Create PVC associated with encrypted StorageClass and ReadWriteOnce access mode.
-		4. Validate volume is encrypted with the encryption key specified
-			in the default EncryptionClass created in (2).
+		Steps:
+		1. Generate encryption key
+		2. Create default EncryptionClass with encryption key [1]
+		3. Create a PVC with encrypted StorageClass but without specifying an EncryptionClass
+		4. Validate PVC volume [3] is encrypted with encryption key [1]
 	*/
-	ginkgo.It("Verify PVC is encrypted with the default EC", func() {
+	ginkgo.It("Verify PVC is encrypted with default EncryptionClass", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		ginkgo.By("1. Generating new encryption key")
-		keyID, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("1. Generating encryption key")
+		keyID := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("2. Creating an EncryptionClass")
+		ginkgo.By("2. Create default EncryptionClass with encryption key [1]")
 		defaultEncClass := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID, true)
 		defer deleteEncryptionClass(ctx, cryptoClient, defaultEncClass)
 
-		ginkgo.By("3. Creating encrypted PVC")
-		pvc := createPersistentVolumeClaimWithCrypto(ctx, client, namespace, encryptedStorageClass.Name, "", true)
+		ginkgo.By("3. Create a PVC with encrypted StorageClass but without specifying an EncryptionClass")
+		pvc := createPersistentVolumeClaim(ctx, client, PersistentVolumeClaimOptions{
+			Namespace:        namespace,
+			StorageClassName: encryptedStorageClass.Name,
+		})
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
-		ginkgo.By("4. Validate volume is encrypted")
+		ginkgo.By("4. Validate PVC volume [3] is encrypted with encryption key [1]")
 		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID)
 	})
 
 	/*
-		Verify PVC is recrypted when setting new EC.
-
-		1. Generate first encryption key from KMS.
-		2. Generate second encryption key from KMS.
-		3. Create EncryptionClass with generated encryption key (1).
-		4. Create EncryptionClass with generated encryption key (2).
-		5. Create PVC associated with EncryptionClass (3), encrypted StorageClass and ReadWriteOnce access mode.
-		6. Validate volume is encrypted with encryption key (1)
-		7. Associate PVC with EncryptionClass  (4)
-		8. Validate volume is encrypted with encryption key (2)
+		Steps:
+		1. Generate first encryption key
+		2. Generate second encryption key
+		3. Create first EncryptionClass with encryption key [1]
+		4. Create second EncryptionClass with encryption key [2]
+		5. Creating PVC with first EncryptionClass [3]
+		6. Validate PVC volume [5] is encrypted with first encryption key [1]
+		7. Update PVC with second EncryptionClass [4]
+		8. Validate PVC volume [5] is encrypted with second encryption key [2]
 	*/
-	ginkgo.It("Verify PVC is recrypted when setting new EC", func() {
+	ginkgo.It("Verify PVC is recrypted when a new EncryptionClass is applied", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		ginkgo.By("1. Generating first encryption key")
-		keyID1, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("1. Generate first encryption key")
+		keyID1 := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("2. Generating second encryption key")
-		keyID2, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("2. Generate second encryption key")
+		keyID2 := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("3. Creating first EncryptionClass")
+		ginkgo.By("3. Create first EncryptionClass with encryption key [1]")
 		encClass1 := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID1, false)
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass1)
 
-		ginkgo.By("4. Creating second EncryptionClass")
+		ginkgo.By("4. Create second EncryptionClass with encryption key [2]")
 		encClass2 := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID2, false)
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass2)
 
-		ginkgo.By("5. Creating encrypted PVC")
-		pvc := createPersistentVolumeClaimWithCrypto(
-			ctx,
-			client,
-			namespace,
-			encryptedStorageClass.Name,
-			encClass1.Name,
-			true,
-		)
+		ginkgo.By("5. Creating PVC with first EncryptionClass [3]")
+		pvc := createPersistentVolumeClaim(ctx, client, PersistentVolumeClaimOptions{
+			Namespace:           namespace,
+			StorageClassName:    encryptedStorageClass.Name,
+			EncryptionClassName: encClass1.Name,
+		})
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
-		ginkgo.By("6. Validate volume is encrypted with first key")
+		ginkgo.By("6. Validate PVC volume [5] is encrypted with first encryption key [1]")
 		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID1)
 
-		ginkgo.By("7. Update encrypted PVC with second EncryptionClass")
+		ginkgo.By("7. Update PVC with second EncryptionClass [4]")
 		pvc = updatePersistentVolumeClaimWithCrypto(ctx, client, pvc, encryptedStorageClass.Name, encClass2.Name)
 
-		ginkgo.By("8. Validate volume is encrypted with second key")
+		ginkgo.By("8. Validate PVC volume [5] is encrypted with second encryption key [2]")
 		validateVolumeToBeUpdatedWithEncryptedKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID2)
 	})
 
 	/*
-		Verify PVC is recrypted when associated EC has its key rotated.
-
-		1. Generate first encryption key from KMS.
-		2. Generate second encryption key from KMS.
-		3. Create EncryptionClass with generated encryption key (1).
-		4. Create PVC associated with EncryptionClass, encrypted StorageClass and ReadWriteOnce access mode.
-		5. Validate volume is encrypted with encryption key (1)
-		6. Change EncryptionClass key (2)
-		7. Validate volume is encrypted with encryption key (2)
+		Steps:
+		1. Generate first encryption key
+		2. Generate second encryption key
+		3. Create EncryptionClass with encryption key [1]
+		4. Create PVC with EncryptionClass [3]
+		5. Validate PVC volume [4] is encrypted with first encryption key [1]
+		6. Update EncryptionClass [3] with second encryption key [2]
+		7. Validate PVC volume [4] is encrypted with second encryption key [2]
 	*/
-	ginkgo.It("Verify PVC is recrypted when associated EC has its key rotated", func() {
+	ginkgo.It("Verify PVC is recrypted when a new encryption key is applied to its "+
+		"associated EncryptionClass", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		ginkgo.By("1. Generating first encryption key")
-		keyID1, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("1. Generate first encryption key")
+		keyID1 := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("2. Generating second encryption key")
-		keyID2, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("2. Generate second encryption key")
+		keyID2 := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("3. Creating EncryptionClass")
+		ginkgo.By("3. Create EncryptionClass with encryption key [1]")
 		encClass := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID1, false)
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass)
 
-		ginkgo.By("4. Creating encrypted PVC")
-		pvc := createPersistentVolumeClaimWithCrypto(
-			ctx,
-			client,
-			namespace,
-			encryptedStorageClass.Name,
-			encClass.Name,
-			true,
-		)
+		ginkgo.By("4. Create PVC with EncryptionClass [3]")
+		pvc := createPersistentVolumeClaim(ctx, client, PersistentVolumeClaimOptions{
+			Namespace:           namespace,
+			StorageClassName:    encryptedStorageClass.Name,
+			EncryptionClassName: encClass.Name,
+		})
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
-		ginkgo.By("5. Validate volume is encrypted with first encryption key")
+		ginkgo.By("5. Validate PVC volume [4] is encrypted with first encryption key [1]")
 		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID1)
 
-		ginkgo.By("6. Update EncryptionClass with second key")
+		ginkgo.By("6. Update EncryptionClass [3] with second encryption key [2]")
 		updateEncryptionClass(ctx, cryptoClient, encClass, keyProviderID, keyID2, false)
 
-		ginkgo.By("7. Validate volume is encrypted with second encryption key")
+		ginkgo.By("7. Validate PVC volume [4] is encrypted with second encryption key [2]")
 		validateVolumeToBeUpdatedWithEncryptedKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID2)
 	})
 
 	/*
-		Verify PVC creation fails when associated with EC and SC not supporting encryption.
-
-		1. Generate encryption key from KMS.
-		2. Create EncryptionClass with newly generated encryption key.
-		3. Create PVC associated with EncryptionClass, StorageClass without encryption capabilities.
-		4. Validate operation fails.
+		Steps:
+		1. Generate encryption key
+		2. Create EncryptionClass with encryption key [1]
+		3. Create PVC with EncryptionClass [2]
 	*/
-	ginkgo.It("Verify PVC creation fails when associated with EC and SC not supporting encryption", func() {
+	ginkgo.It("Verify PVC creation fails when associated with an EncryptionClass "+
+		"but the StorageClass does not support encryption", func() {
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		ginkgo.By("1. Generating new encryption key")
-		keyID, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("1. Generate encryption key")
+		keyID := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("2. Creating an EncryptionClass")
+		ginkgo.By("2. Create EncryptionClass with encryption key [1]")
 		encClass := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID, false)
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass)
 
-		ginkgo.By("3. Creating encrypted PVC")
-		pvc := buildPersistentVolumeClaimWithCryptoSpec(namespace, standardStorageClass.Name, encClass.Name)
-		_, err = client.
+		ginkgo.By("3. Create PVC with EncryptionClass [2]")
+		pvc := buildPersistentVolumeClaimSpec(PersistentVolumeClaimOptions{
+			Namespace:           namespace,
+			StorageClassName:    standardStorageClass.Name,
+			EncryptionClassName: encClass.Name,
+		})
+		_, err := client.
 			CoreV1().
 			PersistentVolumeClaims(namespace).
 			Create(ctx, pvc, metav1.CreateOptions{})
 		gomega.Expect(err).To(gomega.HaveOccurred())
-	})
+	},
+	)
 
 	/*
-		Verify VM encrypted with EC, PVC is not encrypted.
-		Expectation: PVC attachment to VM should succeed.
-
-		1. Generating encryption key
-		2. Creating EncryptionClass
-		3. Creating non-encrypted PVC
-		4. Creating encrypted VM with non-encrypted PVC
-		5. Validate VM is encrypted and attached volume is not encrypted
+		Steps:
+		1. Generate encryption key
+		2. Create EncryptionClass with encryption key [1]
+		3. Create non-encrypted PVC
+		4. Create VM with EncryptionClass [2] and PVC [3]
+		5. Validate VM [4] is encrypted with encryption key [1]
+		6. Validate PVC [3] is not encrypted
 	*/
-	ginkgo.It("Verify VM encrypted with EC, PVC is not encrypted.", func() {
+	ginkgo.It("Verify VM is encrypted with EncryptionClass while PVC is not encrypted", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		ginkgo.By("1. Generating encryption key")
-		keyID, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("1. Generate encryption key")
+		keyID := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("2. Creating EncryptionClass")
+		ginkgo.By("2. Create EncryptionClass with encryption key [1]")
 		encClass := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID, false)
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass)
 
-		ginkgo.By("3. Creating non-encrypted PVC")
-		pvc := createPersistentVolumeClaimWithCrypto(ctx, client, namespace, standardStorageClass.Name, "", true)
+		ginkgo.By("3. Create non-encrypted PVC")
+		pvc := createPersistentVolumeClaim(ctx, client, PersistentVolumeClaimOptions{
+			Namespace:        namespace,
+			StorageClassName: standardStorageClass.Name,
+		})
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
-		ginkgo.By("4. Creating encrypted VM with PVC")
+		ginkgo.By("4. Create VM with EncryptionClass [2] and PVC [3]")
 		vm := createVmServiceVmV3(ctx, vmopClient, CreateVmOptionsV3{
 			Namespace:        namespace,
 			VmClass:          vmClass,
@@ -388,45 +374,42 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		})
 		defer deleteVmServiceVm(ctx, vmopClient, namespace, vm.Name)
 
-		ginkgo.By("5. Validate VM is encrypted and attached volume is not encrypted")
+		ginkgo.By("5. Validate VM [4] is encrypted with encryption key [1]")
 		validateVmToBeEncryptedWithKey(vm, keyProviderID, keyID)
+
+		ginkgo.By("6. Validate PVC [3] is not encrypted")
 		validateVolumeNotToBeEncrypted(ctx, pvc.Spec.VolumeName)
 	})
 
 	/*
-		Verify VM and PVC are encrypted with EC
-		Expectation: PVC attachment to VM should succeed.
-
-		1. Generating encryption key
-		2. Creating EncryptionClass
-		3. Creating encrypted PVC
-		4. Creating encrypted VM with PVC
-		5. Validate VM and attached volume are encrypted
+		Steps:
+		1. Generate encryption key
+		2. Create EncryptionClass with encryption key [1]
+		3. Create PVC with EncryptionClass [2]
+		4. Create VM with EncryptionClass [2] and PVC [3]
+		5. Validate VM [4] is encrypted with encryption key [1]
+		6. Validate PVC [3] is encrypted with encryption key [1]
 	*/
-	ginkgo.It("Verify VM encrypted with EC and PVC is encrypted with EC", func() {
+	ginkgo.It("Verify VM and associated PVC are encrypted with EncryptionClass", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		ginkgo.By("1. Generating encryption key")
-		keyID, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("1. Generate encryption key")
+		keyID := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("2. Creating EncryptionClass")
+		ginkgo.By("2. Create EncryptionClass with encryption key [1]")
 		encClass := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID, false)
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass)
 
-		ginkgo.By("3. Creating encrypted PVC")
-		pvc := createPersistentVolumeClaimWithCrypto(
-			ctx,
-			client,
-			namespace,
-			encryptedStorageClass.Name,
-			encClass.Name,
-			true,
-		)
+		ginkgo.By("3. Create PVC with EncryptionClass [2]")
+		pvc := createPersistentVolumeClaim(ctx, client, PersistentVolumeClaimOptions{
+			Namespace:           namespace,
+			StorageClassName:    encryptedStorageClass.Name,
+			EncryptionClassName: encClass.Name,
+		})
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
-		ginkgo.By("4. Creating encrypted VM with PVC")
+		ginkgo.By("4. Create VM with EncryptionClass [2] and PVC [3]")
 		vm := createVmServiceVmV3(ctx, vmopClient, CreateVmOptionsV3{
 			Namespace:        namespace,
 			VmClass:          vmClass,
@@ -440,41 +423,41 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		})
 		defer deleteVmServiceVm(ctx, vmopClient, namespace, vm.Name)
 
-		ginkgo.By("5. Validate VM and attached volume are encrypted")
+		ginkgo.By("5. Validate VM [4] is encrypted with encryption key [1]")
 		validateVmToBeEncryptedWithKey(vm, keyProviderID, keyID)
+
+		ginkgo.By("6. Validate PVC [3] is encrypted with encryption key [1]")
 		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID)
 	})
 
 	/*
-		Verify VM and attached PVC are encrypted with default EncryptionClass
-		Expectation: PVC attachment to VM should succeed.
-
-		1. Generating encryption key
-		2. Creating default EncryptionClass
-		3. Creating encrypted PVC without EncryptionClass
-		4. Creating encrypted VM without EncryptionClass and attached encrypted PVC
-		5. Validate VM and attached volume are encrypted with default EncryptionClass
+		Steps:
+		1. Generate encryption key
+		2. Create default EncryptionClass with encryption key [1]
+		3. Create PVC with encrypted StorageClass
+		4. Create VM with encrypted StorageClass and PVC [3]
+		5. Validate VM [4] is encrypted with encryption key [1]
+		6. Validate PVC [3] is encrypted with encryption key [1]
 	*/
-	ginkgo.It("Verify VM and attached PVC are encrypted with default EncryptionClass", func() {
+	ginkgo.It("Verify VM and associated PVC are encrypted with default EncryptionClass", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		ginkgo.By("1. Generating encryption key")
-		keyID, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("1. Generate encryption key")
+		keyID := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("2. Creating default EncryptionClass")
+		ginkgo.By("2. Create default EncryptionClass with encryption key [1]")
 		encClass := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID, true)
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass)
 
-		ginkgo.By("3. Creating encrypted PVC without EncryptionClass")
-		pvc := createPersistentVolumeClaimWithCrypto(ctx, client, namespace, encryptedStorageClass.Name, "", true)
+		ginkgo.By("3. Create PVC with encrypted StorageClass")
+		pvc := createPersistentVolumeClaim(ctx, client, PersistentVolumeClaimOptions{
+			Namespace:        namespace,
+			StorageClassName: encryptedStorageClass.Name,
+		})
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
-		ginkgo.By("4. Validate volume is encrypted")
-		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID)
-
-		ginkgo.By("5. Creating encrypted VM without EncryptionClass and attached encrypted PVC")
+		ginkgo.By("4. Create VM with encrypted StorageClass and PVC [3]")
 		vm := createVmServiceVmV3(ctx, vmopClient, CreateVmOptionsV3{
 			Namespace:          namespace,
 			VmClass:            vmClass,
@@ -485,55 +468,55 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		})
 		defer deleteVmServiceVm(ctx, vmopClient, namespace, vm.Name)
 
-		ginkgo.By("6. Validate VM and attached volume are encrypted with default EncryptionClass")
+		ginkgo.By("5. Validate VM [4] is encrypted with encryption key [1]")
 		validateVmToBeEncryptedWithKey(vm, keyProviderID, keyID)
+
+		ginkgo.By("6. Validate PVC [3] is encrypted with encryption key [1]")
 		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID)
 	})
 
 	/*
-		Verify VM and attached PVC are encrypted with different keys
-		Expectation: PVC attachment to VM should succeed.
-
+		Steps:
 		1. Generate first encryption key
 		2. Generate second encryption key
-		3. Create first EncryptionClass with generated encryption key (1)
-		4. Create secord EncryptionClass with generated encryption key (2)
-		5. Creating encrypted PVC with EncryptionClass (3)
-		6. Creating encrypted VM with EncryptionClass (4) and attached encrypted PVC
-		7. Validate VM is encrypted with key (2) and attached volume is encrypted with key (1)
+		3. Create first EncryptionClass with encryption key [1]
+		4. Create second EncryptionClass with encryption key [2]
+		5. Create PVC with first EncryptionClass [3]
+		6. Create VM with second EncryptionClass [4] and encrypted PVC [5]
+		7. Validate PVC [5] is encrypted with first encryption key [1]
+		8. Validate VM [6] is encrypted with second encryption key [2]
+		9. Update first EncryptionClass [3] with second encryption key [2]
+		10. Update second EncryptionClass [4] with first encryption key [1]
+		11. Validate PVC [5] is encrypted with second encryption key [2]
+		12. Validate VM [6] is encrypted with first encryption key [1]
 	*/
-	ginkgo.It("Verify VM and attached PVC are encrypted with different keys", func() {
+	ginkgo.It("Verify VM and attached PVC are encrypted/recrypted with different keys", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		ginkgo.By("1. Generating first encryption key")
-		keyID1, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("1. Generate first encryption key")
+		keyID1 := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("2. Generating second encryption key")
-		keyID2, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("2. Generate second encryption key")
+		keyID2 := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("3. Create secord EncryptionClass with generated encryption key (2)")
+		ginkgo.By("3. Create first EncryptionClass with encryption key [1]")
 		encClass1 := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID1, false)
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass1)
 
-		ginkgo.By("4. Creating second EncryptionClass")
+		ginkgo.By("4. Create second EncryptionClass with encryption key [2]")
 		encClass2 := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID2, false)
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass2)
 
-		ginkgo.By("5. Creating encrypted PVC with EncryptionClass (3)")
-		pvc := createPersistentVolumeClaimWithCrypto(
-			ctx,
-			client,
-			namespace,
-			encryptedStorageClass.Name,
-			encClass1.Name,
-			true,
-		)
+		ginkgo.By("5. Create PVC with first EncryptionClass [3]")
+		pvc := createPersistentVolumeClaim(ctx, client, PersistentVolumeClaimOptions{
+			Namespace:           namespace,
+			StorageClassName:    encryptedStorageClass.Name,
+			EncryptionClassName: encClass1.Name,
+		})
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
-		ginkgo.By("6. Creating encrypted VM with EncryptionClass (4) and attached encrypted PVC")
+		ginkgo.By("6. Create VM with second EncryptionClass [4] and encrypted PVC [5]")
 		vm := createVmServiceVmV3(ctx, vmopClient, CreateVmOptionsV3{
 			Namespace:        namespace,
 			VmClass:          vmClass,
@@ -547,134 +530,22 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		})
 		defer deleteVmServiceVm(ctx, vmopClient, namespace, vm.Name)
 
-		ginkgo.By("7. Validate VM is encrypted with key (2) and attached volume is encrypted with key (1)")
-		validateVmToBeEncryptedWithKey(vm, keyProviderID, keyID2)
+		ginkgo.By("7. Validate PVC [5] is encrypted with first encryption key [1]")
 		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID1)
-	})
 
-	/*
-		Verify VM and attached PVC are encrypted with EncryptionClass, key is rotated.
-		Expectation: VM and PVC should be shallow re-crypted with the new key.
-
-		1. Generate encryption key
-		2. Create EncryptionClass with generated encryption key
-		3. Creating encrypted PVC with EncryptionClass
-		4. Creating encrypted VM with EncryptionClass and attached encrypted PVC
-		5. Valida
-		7. Validate VM is encrypted with key (2) and attached volume is encrypted with key (1)
-	*/
-	ginkgo.It("Verify VM and attached PVC are encrypted with different keys", func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		ginkgo.By("1. Generating first encryption key")
-		keyID1, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("2. Generating second encryption key")
-		keyID2, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("3. Create secord EncryptionClass with generated encryption key (2)")
-		encClass1 := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID1, false)
-		defer deleteEncryptionClass(ctx, cryptoClient, encClass1)
-
-		ginkgo.By("4. Creating second EncryptionClass")
-		encClass2 := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID2, false)
-		defer deleteEncryptionClass(ctx, cryptoClient, encClass2)
-
-		ginkgo.By("5. Creating encrypted PVC with EncryptionClass (3)")
-		pvc := createPersistentVolumeClaimWithCrypto(
-			ctx,
-			client,
-			namespace,
-			encryptedStorageClass.Name,
-			encClass1.Name,
-			true,
-		)
-		defer deletePersistentVolumeClaim(ctx, client, pvc)
-
-		ginkgo.By("6. Creating encrypted VM with EncryptionClass (4) and attached encrypted PVC")
-		vm := createVmServiceVmV3(ctx, vmopClient, CreateVmOptionsV3{
-			Namespace:        namespace,
-			VmClass:          vmClass,
-			VMI:              vmi,
-			StorageClassName: encryptedStorageClass.Name,
-			CryptoSpec: &vmopv3.VirtualMachineCryptoSpec{
-				EncryptionClassName: encClass2.Name,
-			},
-			PVCs:               []*v1.PersistentVolumeClaim{pvc},
-			WaitForReadyStatus: true,
-		})
-		defer deleteVmServiceVm(ctx, vmopClient, namespace, vm.Name)
-
-		ginkgo.By("7. Validate VM is encrypted with key (2) and attached volume is encrypted with key (1)")
+		ginkgo.By("8. Validate VM [6] is encrypted with second encryption key [2]")
 		validateVmToBeEncryptedWithKey(vm, keyProviderID, keyID2)
-		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID1)
-	})
 
-	/*
-		Verify attached PVC is shallow recrypted when VM is powered-on.
-		Expectation: Attached PVC should be shallow re-crypted with the new key.
+		ginkgo.By("9. Update first EncryptionClass [3] with second encryption key [2]")
+		updateEncryptionClass(ctx, cryptoClient, encClass1, keyProviderID, keyID2, false)
 
-		1. Generating encryption key
-		2. Creating EncryptionClass
-		3. Creating encrypted PVC
-		4. Creating encrypted VM with PVC
-		5. Validate VM and attached volume are encrypted
-		6. Generating new encryption key
-		7. Update EncryptionClass with key (6)
-		8. Validate attached volume is encrypted with the new key
-	*/
-	ginkgo.It("Verify attached PVC is shallow recrypted when VM is powered-on", func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ginkgo.By("10. Update second EncryptionClass [4] with first encryption key [1]")
+		updateEncryptionClass(ctx, cryptoClient, encClass2, keyProviderID, keyID1, false)
 
-		ginkgo.By("1. Generating encryption key")
-		keyID, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("2. Creating EncryptionClass")
-		encClass := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID, false)
-		defer deleteEncryptionClass(ctx, cryptoClient, encClass)
-
-		ginkgo.By("3. Creating encrypted PVC")
-		pvc := createPersistentVolumeClaimWithCrypto(
-			ctx,
-			client,
-			namespace,
-			encryptedStorageClass.Name,
-			encClass.Name,
-			true,
-		)
-		defer deletePersistentVolumeClaim(ctx, client, pvc)
-
-		ginkgo.By("4. Creating encrypted VM with PVC")
-		vm := createVmServiceVmV3(ctx, vmopClient, CreateVmOptionsV3{
-			Namespace:        namespace,
-			VmClass:          vmClass,
-			VMI:              vmi,
-			StorageClassName: encryptedStorageClass.Name,
-			PVCs:             []*v1.PersistentVolumeClaim{pvc},
-			CryptoSpec: &vmopv3.VirtualMachineCryptoSpec{
-				EncryptionClassName: encClass.Name,
-			},
-			WaitForReadyStatus: true,
-		})
-		defer deleteVmServiceVm(ctx, vmopClient, namespace, vm.Name)
-
-		ginkgo.By("5. Validate VM and attached volume are encrypted")
-		validateVmToBeEncryptedWithKey(vm, keyProviderID, keyID)
-		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID)
-
-		ginkgo.By("6. Generating new encryption key")
-		keyID2, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("7. Update EncryptionClass with key (6)")
-		updateEncryptionClass(ctx, cryptoClient, encClass, keyProviderID, keyID2, false)
-
-		ginkgo.By("8. Validate attached volume is encrypted with the new key")
+		ginkgo.By("11. Validate PVC [5] is encrypted with second encryption key [2]")
 		validateVolumeToBeUpdatedWithEncryptedKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID2)
+
+		ginkgo.By("12. Validate VM [6] is encrypted with first encryption key [1]")
+		validateVmToBeUpdatedWithEncryptedKey(ctx, vmopClient, vm.Namespace, vm.Name, keyProviderID, keyID1)
 	})
 })

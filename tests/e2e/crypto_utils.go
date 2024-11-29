@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -31,12 +32,10 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/kubernetes/test/e2e/framework"
-	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 )
 
@@ -95,7 +94,7 @@ func findVolumeCryptoKey(ctx context.Context, volumeName string) *types.CryptoKe
 
 func validateEncryptedStorageClass(ctx context.Context, cryptoClient crypto.Client, scName string, expected bool) {
 	var storageClass storagev1.StorageClass
-	err := cryptoClient.Get(ctx, client.ObjectKey{Name: scName}, &storageClass)
+	err := cryptoClient.Get(ctx, ctlrclient.ObjectKey{Name: scName}, &storageClass)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	actual, _, err := cryptoClient.IsEncryptedStorageClass(ctx, scName)
@@ -129,24 +128,60 @@ func validateVolumeNotToBeEncrypted(ctx context.Context, volumeName string) {
 }
 
 func validateVolumeToBeUpdatedWithEncryptedKey(ctx context.Context, volumeName, keyProviderID, keyID string) {
-	poll := framework.Poll
-	for start := time.Now(); time.Since(start) < VolumeCryptoUpdateTimeout; time.Sleep(poll) {
-		cryptoKey := findVolumeCryptoKey(ctx, volumeName)
-		if cryptoKey != nil &&
-			cryptoKey.ProviderId != nil &&
-			cryptoKey.ProviderId.Id == keyProviderID &&
-			cryptoKey.KeyId == keyID {
-			return
-		}
+	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			cryptoKey := findVolumeCryptoKey(ctx, volumeName)
+			if cryptoKey != nil &&
+				cryptoKey.ProviderId != nil &&
+				cryptoKey.ProviderId.Id == keyProviderID &&
+				cryptoKey.KeyId == keyID {
+				return true, nil
+			}
+			return false, nil
+		})
+
+	var err error
+	if waitErr != nil {
+		err = fmt.Errorf("expected volume to be encrypted with %s/%s: %w",
+			keyProviderID, keyID, waitErr)
 	}
 
-	validateVolumeToBeEncryptedWithKey(ctx, volumeName, keyProviderID, keyID)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 func validateVmToBeEncryptedWithKey(vm *vmopv3.VirtualMachine, keyProviderID, keyID string) {
 	gomega.Expect(vm.Status.Crypto).NotTo(gomega.BeNil())
 	gomega.Expect(vm.Status.Crypto.KeyID).To(gomega.Equal(keyID))
 	gomega.Expect(vm.Status.Crypto.ProviderID).To(gomega.Equal(keyProviderID))
+}
+
+func validateVmToBeUpdatedWithEncryptedKey(ctx context.Context, vmopClient ctlrclient.Client,
+	namespace, name, keyProviderID, keyID string) {
+
+	vmKey := ctlrclient.ObjectKey{Name: name, Namespace: namespace}
+
+	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			vm := &vmopv3.VirtualMachine{}
+			if err := vmopClient.Get(ctx, vmKey, vm); err != nil {
+				return false, err
+			}
+			cryptoStatus := vm.Status.Crypto
+			if cryptoStatus != nil &&
+				cryptoStatus.ProviderID == keyProviderID &&
+				cryptoStatus.KeyID == keyID {
+				return true, nil
+			}
+			return false, nil
+		})
+
+	var err error
+	if waitErr != nil {
+		err = fmt.Errorf("expected VM to be encrypted with %s/%s: %w",
+			keyProviderID, keyID, waitErr)
+	}
+
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 func createEncryptionClass(ctx context.Context,
@@ -207,69 +242,6 @@ func deleteEncryptionClass(
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func buildPersistentVolumeClaimWithCryptoSpec(namespace, scName, encClassName string) *corev1.PersistentVolumeClaim {
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "pvc-",
-			Namespace:    namespace,
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes: []corev1.PersistentVolumeAccessMode{
-				corev1.ReadWriteOnce,
-			},
-			Resources: corev1.VolumeResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceName(corev1.ResourceStorage): resource.MustParse("50Mi"),
-				},
-			},
-		},
-	}
-	if scName != "" {
-		pvc.Spec.StorageClassName = &scName
-	}
-	if encClassName != "" {
-		pvc.Annotations = map[string]string{
-			crypto.PVCEncryptionClassAnnotationName: encClassName,
-		}
-	}
-
-	return pvc
-}
-
-func createPersistentVolumeClaimWithCrypto(
-	ctx context.Context,
-	client clientset.Interface,
-	namespace, scName, encClassName string,
-	waitBoundPhase bool) *corev1.PersistentVolumeClaim {
-
-	pvc := buildPersistentVolumeClaimWithCryptoSpec(namespace, scName, encClassName)
-
-	var err error
-	pvc, err = client.
-		CoreV1().
-		PersistentVolumeClaims(namespace).
-		Create(ctx, pvc, metav1.CreateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	if waitBoundPhase {
-		_, err = fpv.WaitForPVClaimBoundPhase(
-			ctx,
-			client,
-			[]*corev1.PersistentVolumeClaim{pvc},
-			framework.ClaimProvisionTimeout*2)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
-
-	pvc, err = client.
-		CoreV1().
-		PersistentVolumeClaims(namespace).
-		Get(ctx, pvc.Name, metav1.GetOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(pvc.Spec.VolumeName).NotTo(gomega.BeEmpty())
-
-	return pvc
-}
-
 func updatePersistentVolumeClaimWithCrypto(
 	ctx context.Context,
 	client clientset.Interface,
@@ -290,19 +262,4 @@ func updatePersistentVolumeClaimWithCrypto(
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return pvc
-}
-
-func deletePersistentVolumeClaim(
-	ctx context.Context,
-	client clientset.Interface,
-	pvc *corev1.PersistentVolumeClaim) {
-
-	if pvc != nil {
-		err := client.
-			CoreV1().
-			PersistentVolumeClaims(pvc.Namespace).
-			Delete(ctx, pvc.Name, metav1.DeleteOptions{})
-
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
 }
