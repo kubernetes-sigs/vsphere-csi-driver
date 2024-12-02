@@ -249,9 +249,10 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
-	log.Debugf("Found virtualMachine instance for VM: %q/%q: +%v", instance.Namespace, instance.Spec.VMName, vm)
+	log.Debugf("Found virtualMachine instance for VM: %q/%q: %+v", instance.Namespace, instance.Spec.VMName, vm)
 
 	if instance.DeletionTimestamp != nil {
+		log.Infof("CnsFileAccessConfig instance %q has deletion timestamp set", instance.Name)
 		volumeID, err := cnsoperatorutil.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
 		if err != nil {
 			msg := fmt.Sprintf("Failed to get volumeID from pvcName: %q. Error: %+v", instance.Spec.PvcName, err)
@@ -285,6 +286,8 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	// and not deleted by the user, remove the instance from the queue.
 	if instance.Status.Done {
 		// Cleanup instance entry from backOffDuration map.
+		log.Infof("CnsFileAccessConfig instance: %q on namespace: %q has status marked as done. Skipping reconcile.",
+			instance.Name, instance.Namespace)
 		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, instance.Name)
 		backOffDurationMapMutex.Unlock()
@@ -369,7 +372,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 			msg := fmt.Sprintf("CNS Volume: %s is not RWX volume", volumeID)
 			err = logger.LogNewError(log, msg)
 			setInstanceError(ctx, r, instance, msg)
-			return reconcile.Result{RequeueAfter: timeout}, err
+			return reconcile.Result{RequeueAfter: timeout}, reconcile.TerminalError(err)
 		}
 		vSANFileBackingDetails := volume.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
 		accessPoints := make(map[string]string)
@@ -431,6 +434,8 @@ func (r *ReconcileCnsFileAccessConfig) configureNetPermissionsForFileVolume(ctx 
 	if err != nil {
 		return logger.LogNewErrorf(log, "Failed to get the list of clients VMs for IP %q. Error: %+v", tkgVMIP, err)
 	}
+	log.Infof("CNSFileVolumeClient for PVC %s/%s has the following ClientVMs registered: %v for IP: %q",
+		instance.Namespace, instance.Spec.PvcName, clientVms, tkgVMIP)
 	if !removePermission {
 		if len(clientVms) == 0 {
 			err = r.configureVolumeACLs(ctx, volumeID, tkgVMIP, false)
@@ -445,7 +450,7 @@ func (r *ReconcileCnsFileAccessConfig) configureNetPermissionsForFileVolume(ctx 
 			return logger.LogNewErrorf(log, "Failed to add VM %q with IP %q to IPList. Error: %+v",
 				vm.Name, tkgVMIP, err)
 		}
-		log.Debugf("Successfully added VM IP %q to IPList for CnsFileAccessConfig request with name: %q on namespace: %q",
+		log.Infof("Successfully added VM IP %q to IPList for CnsFileAccessConfig request with name: %q on namespace: %q",
 			tkgVMIP, instance.Name, instance.Namespace)
 		return nil
 	}
@@ -462,7 +467,7 @@ func (r *ReconcileCnsFileAccessConfig) configureNetPermissionsForFileVolume(ctx 
 	if err != nil {
 		return logger.LogNewErrorf(log, "Failed to remove VM %q with IP %q to IPList. Error: %+v", vm.Name, tkgVMIP, err)
 	}
-	log.Debugf("Successfully removed VM IP %q to IPList for CnsFileAccessConfig request with name: %q on namespace: %q",
+	log.Infof("Successfully removed VM IP %q from IPList for CnsFileAccessConfig request with name: %q on namespace: %q",
 		tkgVMIP, instance.Name, instance.Namespace)
 	return nil
 }
@@ -498,7 +503,7 @@ func (r *ReconcileCnsFileAccessConfig) configureVolumeACLs(ctx context.Context,
 	if err != nil {
 		return logger.LogNewErrorf(log, "Failed to configure ACLs for volume: %q. Error: %+v", volumeID, err)
 	}
-	log.Debugf("Successfully configured ACLs for volume %q", volumeID)
+	log.Infof("Successfully configured ACLs for volume %q", volumeID)
 	return nil
 }
 
@@ -540,7 +545,7 @@ func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 		return "", logger.LogNewErrorf(log, "Failed to get external facing IP address for VM %q/%q. Err: %+v",
 			vm.Namespace, vm.Name, err)
 	}
-	log.Debugf("Found tkg VMIP %q for VM %q in namespace %q", tkgVMIP, vm.Name, vm.Namespace)
+	log.Infof("Found tkg VMIP %q for VM %q in namespace %q", tkgVMIP, vm.Name, vm.Namespace)
 	return tkgVMIP, nil
 }
 
