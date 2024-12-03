@@ -175,7 +175,14 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass)
 
 		ginkgo.By("3. Creating encrypted PVC")
-		pvc := createPersistentVolumeClaimWithCrypto(ctx, client, namespace, encryptedStorageClass.Name, encClass.Name, true)
+		pvc := createPersistentVolumeClaimWithCrypto(
+			ctx,
+			client,
+			namespace,
+			encryptedStorageClass.Name,
+			encClass.Name,
+			true,
+		)
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
 		ginkgo.By("4. Validate volume is encrypted with EC")
@@ -244,7 +251,14 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass2)
 
 		ginkgo.By("5. Creating encrypted PVC")
-		pvc := createPersistentVolumeClaimWithCrypto(ctx, client, namespace, encryptedStorageClass.Name, encClass1.Name, true)
+		pvc := createPersistentVolumeClaimWithCrypto(
+			ctx,
+			client,
+			namespace,
+			encryptedStorageClass.Name,
+			encClass1.Name,
+			true,
+		)
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
 		ginkgo.By("6. Validate volume is encrypted with first key")
@@ -285,7 +299,14 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass)
 
 		ginkgo.By("4. Creating encrypted PVC")
-		pvc := createPersistentVolumeClaimWithCrypto(ctx, client, namespace, encryptedStorageClass.Name, encClass.Name, true)
+		pvc := createPersistentVolumeClaimWithCrypto(
+			ctx,
+			client,
+			namespace,
+			encryptedStorageClass.Name,
+			encClass.Name,
+			true,
+		)
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
 		ginkgo.By("5. Validate volume is encrypted with first encryption key")
@@ -395,7 +416,14 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass)
 
 		ginkgo.By("3. Creating encrypted PVC")
-		pvc := createPersistentVolumeClaimWithCrypto(ctx, client, namespace, encryptedStorageClass.Name, encClass.Name, true)
+		pvc := createPersistentVolumeClaimWithCrypto(
+			ctx,
+			client,
+			namespace,
+			encryptedStorageClass.Name,
+			encClass.Name,
+			true,
+		)
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
 		ginkgo.By("4. Creating encrypted VM with PVC")
@@ -495,7 +523,14 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass2)
 
 		ginkgo.By("5. Creating encrypted PVC with EncryptionClass (3)")
-		pvc := createPersistentVolumeClaimWithCrypto(ctx, client, namespace, encryptedStorageClass.Name, encClass1.Name, true)
+		pvc := createPersistentVolumeClaimWithCrypto(
+			ctx,
+			client,
+			namespace,
+			encryptedStorageClass.Name,
+			encClass1.Name,
+			true,
+		)
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
 		ginkgo.By("6. Creating encrypted VM with EncryptionClass (4) and attached encrypted PVC")
@@ -519,7 +554,7 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 
 	/*
 		Verify VM and attached PVC are encrypted with EncryptionClass, key is rotated.
-		Expectation: VM and PVC should be shallow re-crypted with the new key..
+		Expectation: VM and PVC should be shallow re-crypted with the new key.
 
 		1. Generate encryption key
 		2. Create EncryptionClass with generated encryption key
@@ -549,7 +584,14 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass2)
 
 		ginkgo.By("5. Creating encrypted PVC with EncryptionClass (3)")
-		pvc := createPersistentVolumeClaimWithCrypto(ctx, client, namespace, encryptedStorageClass.Name, encClass1.Name, true)
+		pvc := createPersistentVolumeClaimWithCrypto(
+			ctx,
+			client,
+			namespace,
+			encryptedStorageClass.Name,
+			encClass1.Name,
+			true,
+		)
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
 		ginkgo.By("6. Creating encrypted VM with EncryptionClass (4) and attached encrypted PVC")
@@ -569,5 +611,70 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		ginkgo.By("7. Validate VM is encrypted with key (2) and attached volume is encrypted with key (1)")
 		validateVmToBeEncryptedWithKey(vm, keyProviderID, keyID2)
 		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID1)
+	})
+
+	/*
+		Verify attached PVC is shallow recrypted when VM is powered-on.
+		Expectation: Attached PVC should be shallow re-crypted with the new key.
+
+		1. Generating encryption key
+		2. Creating EncryptionClass
+		3. Creating encrypted PVC
+		4. Creating encrypted VM with PVC
+		5. Validate VM and attached volume are encrypted
+		6. Generating new encryption key
+		7. Update EncryptionClass with key (6)
+		8. Validate attached volume is encrypted with the new key
+	*/
+	ginkgo.It("Verify attached PVC is shallow recrypted when VM is powered-on", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("1. Generating encryption key")
+		keyID, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("2. Creating EncryptionClass")
+		encClass := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID, false)
+		defer deleteEncryptionClass(ctx, cryptoClient, encClass)
+
+		ginkgo.By("3. Creating encrypted PVC")
+		pvc := createPersistentVolumeClaimWithCrypto(
+			ctx,
+			client,
+			namespace,
+			encryptedStorageClass.Name,
+			encClass.Name,
+			true,
+		)
+		defer deletePersistentVolumeClaim(ctx, client, pvc)
+
+		ginkgo.By("4. Creating encrypted VM with PVC")
+		vm := createVmServiceVmV3(ctx, vmopClient, CreateVmOptionsV3{
+			Namespace:        namespace,
+			VmClass:          vmClass,
+			VMI:              vmi,
+			StorageClassName: encryptedStorageClass.Name,
+			PVCs:             []*v1.PersistentVolumeClaim{pvc},
+			CryptoSpec: &vmopv3.VirtualMachineCryptoSpec{
+				EncryptionClassName: encClass.Name,
+			},
+			WaitForReadyStatus: true,
+		})
+		defer deleteVmServiceVm(ctx, vmopClient, namespace, vm.Name)
+
+		ginkgo.By("5. Validate VM and attached volume are encrypted")
+		validateVmToBeEncryptedWithKey(vm, keyProviderID, keyID)
+		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID)
+
+		ginkgo.By("6. Generating new encryption key")
+		keyID2, err := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("7. Update EncryptionClass with key (6)")
+		updateEncryptionClass(ctx, cryptoClient, encClass, keyProviderID, keyID2, false)
+
+		ginkgo.By("8. Validate attached volume is encrypted with the new key")
+		validateVolumeToBeUpdatedWithEncryptedKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID2)
 	})
 })
