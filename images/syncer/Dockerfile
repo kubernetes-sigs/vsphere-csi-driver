@@ -41,8 +41,8 @@ ENV CGO_ENABLED=0
 
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 
-RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
-
+##RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
+RUN go test -v -c -coverpkg=./... ./cmd/syncer/ -o /build/vsphere-syncer.test
 ################################################################################
 ##                               MAIN STAGE                                   ##
 ################################################################################
@@ -56,9 +56,19 @@ LABEL git_commit=$GIT_COMMIT
 
 RUN tdnf -y upgrade
 
-COPY --from=builder /build/vsphere-syncer /bin/vsphere-syncer
+##COPY --from=builder /build/vsphere-syncer /bin/vsphere-syncer
 
 # Remove cached data
 RUN tdnf clean all
 
-ENTRYPOINT ["/bin/vsphere-syncer"]
+##ENTRYPOINT ["/bin/vsphere-syncer"]
+RUN mkdir -p /tmp/cloud
+
+RUN chmod 777 /tmp/cloud
+
+RUN touch /tmp/cloud/contr-syncer-dump.out
+
+COPY --from=builder /build/vsphere-syncer.test /bin/vsphere-syncer.test
+
+ENTRYPOINT ["/bin/sh", "-c", "/bin/vsphere-syncer.test -test.coverprofile=/tmp/cloud/contr-syncer-dump.out"]
+
