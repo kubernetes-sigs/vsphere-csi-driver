@@ -62,6 +62,9 @@ LINUX_IMAGE_OUTPUT="type=docker"
 
 REGISTRY=
 
+# Base image if not given already
+BASE_IMAGE=photon:4.0
+
 # The manifest command is still experimental as of Docker 18.09.3
 export DOCKER_CLI_EXPERIMENTAL=enabled
 
@@ -138,6 +141,7 @@ function build_driver_images_linux() {
    --build-arg "GOPROXY=${GOPROXY}" \
    --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
    --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
+   --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
    .
 }
 
@@ -150,7 +154,8 @@ function build_syncer_image_linux() {
       --build-arg "GOPROXY=${GOPROXY}" \
       --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
       --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
-  .
+      --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
+      .
 
   if [ "${LATEST}" ]; then
     echo "tagging image ${SYNCER_IMAGE_NAME}:${VERSION} as latest"
