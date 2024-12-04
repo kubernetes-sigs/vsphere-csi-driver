@@ -688,8 +688,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 
 	var cryptoKeyID *common.CryptoKeyID
-
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK) {
+	isByokEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK)
+	if isByokEnabled {
 		if encClass, err := c.manager.CryptoClient.GetEncryptionClassForPVC(
 			ctx,
 			pvcName,
@@ -717,14 +717,21 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		ContentSourceSnapshotID: contentSourceSnapshotID,
 		CryptoKeyID:             cryptoKeyID,
 	}
+
+	createVolumeOpts := common.CreateBlockVolumeOptions{
+		FilterSuspendedDatastores:     filterSuspendedDatastores,
+		UseSupervisorId:               isTKGSHAEnabled,
+		IsVdppOnStretchedSvFssEnabled: isVdppOnStretchedSVEnabled,
+		IsByokEnabled:                 isByokEnabled,
+	}
+
 	var (
 		volumeInfo *cnsvolume.CnsVolumeInfo
 		faultType  string
 	)
 	if isPodVMOnStretchSupervisorFSSEnabled {
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
-			c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores,
-			isTKGSHAEnabled, isVdppOnStretchedSVEnabled,
+			c.manager, &createVolumeSpec, candidateDatastores, createVolumeOpts,
 			&cnsvolume.CreateVolumeExtraParams{
 				VolSizeBytes:                         volSizeBytes,
 				StorageClassName:                     req.Parameters[common.AttributeStorageClassName],
@@ -733,8 +740,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			})
 	} else {
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
-			c.manager, &createVolumeSpec, candidateDatastores, filterSuspendedDatastores,
-			isTKGSHAEnabled, isVdppOnStretchedSVEnabled, nil)
+			c.manager, &createVolumeSpec, candidateDatastores, createVolumeOpts, nil)
 	}
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,

@@ -1356,7 +1356,7 @@ func (vs *vSphere) getAllVms(ctx context.Context) []*object.VirtualMachine {
 	return vms
 }
 
-func (vs *vSphere) generateEncryptionKey(ctx context.Context, keyProviderID string) (string, error) {
+func (vs *vSphere) generateEncryptionKey(ctx context.Context, keyProviderID string) string {
 	vimClient := vs.Client.Client
 	cm := vimClient.ServiceContent.CryptoManager
 	resp, err := methods.GenerateKey(ctx, vimClient, &vim25types.GenerateKey{
@@ -1365,15 +1365,12 @@ func (vs *vSphere) generateEncryptionKey(ctx context.Context, keyProviderID stri
 			Id: keyProviderID,
 		},
 	})
-	if err != nil {
-		return "", err
-	}
 
-	if !resp.Returnval.Success || resp.Returnval.KeyId.KeyId == "" {
-		return "", fmt.Errorf("failed to generate encryption key in key provider %s", keyProviderID)
-	}
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(resp.Returnval.Success).To(gomega.BeTrue())
+	gomega.Expect(resp.Returnval.KeyId.KeyId).NotTo(gomega.BeEmpty())
 
-	return resp.Returnval.KeyId.KeyId, nil
+	return resp.Returnval.KeyId.KeyId
 }
 
 func (vs *vSphere) findKeyProvier(ctx context.Context, keyProviderID string) (*vim25types.KmipClusterInfo, error) {

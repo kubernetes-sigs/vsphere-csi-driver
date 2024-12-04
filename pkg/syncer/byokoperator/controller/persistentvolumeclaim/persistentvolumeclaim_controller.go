@@ -18,7 +18,6 @@ package persistentvolumeclaim
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 
 	byokv1 "github.com/vmware-tanzu/vm-operator/external/byok/api/v1alpha1"
@@ -108,7 +107,7 @@ func (r *reconciler) reconcileNormal(ctx context.Context, pvc *corev1.Persistent
 		return nil
 	}
 
-	existingKeyID, err := r.findVolumeCryptoKeyID(ctx, volume)
+	existingKeyID, err := csicommon.QueryVolumeCryptoKeyByID(ctx, r.volumeManager, volume.VolumeId.Id)
 	if err != nil {
 		return err
 	}
@@ -180,30 +179,4 @@ func (r *reconciler) findVolume(ctx context.Context, pvc *corev1.PersistentVolum
 	}
 
 	return &result.Volumes[0], nil
-}
-
-func (r *reconciler) findVolumeCryptoKeyID(
-	ctx context.Context,
-	volume *cnstypes.CnsVolume,
-) (*vimtypes.CryptoKeyId, error) {
-	volumeIDList := []cnstypes.CnsVolumeId{volume.VolumeId}
-
-	result, err := r.volumeManager.QueryVolumeInfo(ctx, volumeIDList)
-	if err != nil {
-		return nil, err
-	}
-
-	blockVolumeInfo, ok := result.VolumeInfo.(*cnstypes.CnsBlockVolumeInfo)
-	if !ok {
-		return nil, fmt.Errorf("failed to retrieve CNS volume info")
-	}
-
-	storageObj := blockVolumeInfo.VStorageObject
-
-	diskFileBackingInfo, ok := storageObj.Config.Backing.(*vimtypes.BaseConfigInfoDiskFileBackingInfo)
-	if !ok {
-		return nil, fmt.Errorf("failed to retrieve FCD backing info")
-	}
-
-	return diskFileBackingInfo.KeyId, nil
 }

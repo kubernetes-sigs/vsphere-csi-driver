@@ -780,7 +780,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
-			c.manager, &createVolumeSpec, sharedDatastores, filterSuspendedDatastores, false, false, nil)
+			c.manager, &createVolumeSpec, sharedDatastores,
+			common.CreateBlockVolumeOptions{
+				FilterSuspendedDatastores: filterSuspendedDatastores,
+			},
+			nil)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create volume. Error: %+v", err)

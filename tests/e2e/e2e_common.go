@@ -60,6 +60,7 @@ const (
 	destinationDatastoreURL                    = "DESTINATION_VSPHERE_DATASTORE_URL"
 	disklibUnlinkErr                           = "DiskLib_Unlink"
 	diskSize                                   = "2Gi"
+	diskSizeSmall                              = "100Mi"
 	diskSizeLarge                              = "100Gi"
 	diskSizeInMb                               = int64(2048)
 	diskSizeInMinMb                            = int64(200)
