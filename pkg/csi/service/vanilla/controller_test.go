@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/vmware/govmomi/cns"
@@ -33,6 +34,7 @@ import (
 	"github.com/vmware/govmomi/pbm/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/simulator"
@@ -216,11 +218,20 @@ func getControllerTest(t *testing.T) *controllerTest {
 			t.Fatal(err)
 		}
 
-		volumeManager, err := cnsvolume.GetManager(ctx, vcenter,
-			fakeOpStore, true, false,
-			false, cnstypes.CnsClusterFlavorVanilla)
+		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, fakeOpStore,
+			true, false, false,
+			cnstypes.CnsClusterFlavorVanilla, true)
 		if err != nil {
 			t.Fatalf("failed to create an instance of volume manager. err=%v", err)
+		}
+
+		// wait till property collector has been started
+		err = wait.PollUntilContextTimeout(ctx, 1*time.Second, 10*time.Second, false,
+			func(ctx context.Context) (done bool, err error) {
+				return volumeManager.IsListViewReady(), nil
+			})
+		if err != nil {
+			t.Fatalf("listview not ready. err=%v", err)
 		}
 
 		manager := &common.Manager{
