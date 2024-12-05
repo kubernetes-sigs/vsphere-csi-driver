@@ -994,7 +994,6 @@ func initStorageQuotaPeriodicSync(ctx context.Context, metadataSyncer *metadataS
 		return nil
 	}
 	// create storagequotaperiodicsync CR
-
 	log.Info("initStorageQuotaPeriodicSync: Initialize the storage quota periodic sync")
 	restConfig, err := config.GetConfig()
 	if err != nil {
