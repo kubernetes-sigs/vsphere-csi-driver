@@ -60,9 +60,6 @@ const (
 	statusSuccess = "success"
 	// failed request
 	statusFailUnknown = "fail-unknown"
-
-	// cnsDevVersion is the CNS API development version
-	cnsDevVersion = "dev.version"
 )
 
 // VirtualCenter holds details of a virtual center instance.
@@ -100,9 +97,6 @@ var (
 	vCenterInstanceLock = &sync.RWMutex{}
 	// vCenterInstancesLock makes sure only one vCenter being initialized for specific host
 	vCenterInstancesLock = &sync.RWMutex{}
-
-	// UseCnsAPIDevVersion sets dev.version on CNS vim25 and CNS soap clients
-	UseCnsAPIDevVersion bool
 )
 
 func (vc *VirtualCenter) String() string {
@@ -317,12 +311,6 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 			return err
 		}
 		log.Infof("VirtualCenter.connect() successfully created new client")
-
-		// TODO: remove code to add version to CNS API, once CNS releases the next version.
-		if UseCnsAPIDevVersion && vc.Client != nil {
-			log.Infof("CNS vim25 client was nil, setting dev.version on new CNS vim25 client")
-			vc.Client.Version = cnsDevVersion
-		}
 		return nil
 	}
 	if !requestNewSession {
@@ -362,10 +350,6 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 			log.Errorf("failed to connect to vCenter using CA file: %q", vc.Config.CAFile)
 		}
 		return err
-	}
-	if UseCnsAPIDevVersion && vc.Client != nil {
-		log.Infof("Setting dev.version on new CNS vim25 client")
-		vc.Client.Version = cnsDevVersion
 	}
 	// Recreate PbmClient if created using timed out VC Client.
 	if vc.PbmClient != nil {
