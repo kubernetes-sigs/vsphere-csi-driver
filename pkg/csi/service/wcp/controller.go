@@ -118,11 +118,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		config.Global.CAFile = cnsconfig.SupervisorCAFilePath
 	}
 
-	// TODO: remove code to add version to CNS API, once CNS releases the next version.
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2) {
-		cnsvsphere.UseCnsAPIDevVersion = true
-	}
-
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 		clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
 		if err != nil {
