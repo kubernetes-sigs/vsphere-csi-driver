@@ -325,12 +325,6 @@ func InitCommonModules(ctx context.Context, clusterFlavor cnstypes.CnsClusterFla
 		return err
 	}
 
-	// TODO: remove code to add version to CNS API, once CNS releases the next version.
-	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2) {
-		cnsvsphere.UseCnsAPIDevVersion = true
-	}
-
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TriggerCsiFullSync) {
 		log.Infof("Triggerfullsync feature enabled")
 		err := k8s.CreateCustomResourceDefinitionFromManifest(ctx, internalapiscnsoperatorconfig.EmbedTriggerCsiFullSync,
