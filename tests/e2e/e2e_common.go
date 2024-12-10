@@ -257,6 +257,14 @@ const (
 	podVMOnStretchedSupervisor               = "stretched-svc"
 	stretchedSVCTopologyLevels               = 1
 	envZonalStoragePolicyName2               = "ZONAL2_STORAGECLASS"
+	volExtensionName                         = "volume.cns.vsphere.vmware.com"
+	snapshotExtensionName                    = "snapshot.cns.vsphere.vmware.com"
+	vmServiceExtensionName                   = "vmservice.cns.vsphere.vmware.com"
+	pvcUsage                                 = "-pvc-usage"
+	snapshotUsage                            = "-snapshot-usage"
+	vmUsage                                  = "-vm-usage"
+	diskSize1Gi                              = int64(1024)
+	storageQuotaWebhookPrefix                = "storage-quota-webhook"
 	envStoragePolicyNameForVsanNfsDatastores = "STORAGE_POLICY_FOR_VSAN_NFS_DATASTORES"
 )
 
