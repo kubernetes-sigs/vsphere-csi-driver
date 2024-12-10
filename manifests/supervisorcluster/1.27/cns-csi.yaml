@@ -467,7 +467,7 @@ data:
   "tkgs-ha": "true"
   "list-volumes": "true"
   "cnsmgr-suspend-create-volume": "true"
-  "storage-quota-m2": "false"
+  "storage-quota-m2": "true"
   "vdpp-on-stretched-supervisor": "false"
   "cns-unregister-volume": "false"
   "workload-domain-isolation": "false"
