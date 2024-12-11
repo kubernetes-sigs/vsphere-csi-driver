@@ -62,8 +62,10 @@ LINUX_IMAGE_OUTPUT="type=docker"
 
 REGISTRY=
 
-# Base image if not given already
-BASE_IMAGE=photon:4.0
+# set base image if not given already
+if [ ! "${BASE_IMAGE}" ]; then
+	BASE_IMAGE=photon:4.0
+fi
 
 # The manifest command is still experimental as of Docker 18.09.3
 export DOCKER_CLI_EXPERIMENTAL=enabled
