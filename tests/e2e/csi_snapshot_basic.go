@@ -169,12 +169,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			guestClusterRestConfig = getRestConfigClientForGuestCluster(guestClusterRestConfig)
 			snapc, err = snapclient.NewForConfig(guestClusterRestConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			setStoragePolicyQuota(ctx, guestClusterRestConfig, storagePolicyName, namespace, rqLimit)
+			//setStoragePolicyQuota(ctx, guestClusterRestConfig, storagePolicyName, namespace, rqLimit)
 		} else {
 			restConfig = getRestConfigClient()
 			snapc, err = snapclient.NewForConfig(restConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
+			//setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 		}
 
 		var datacenters []string
