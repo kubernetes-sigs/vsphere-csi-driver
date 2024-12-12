@@ -72,7 +72,8 @@ var ErrListViewTaskAddition = errors.New("failure to add task to listview")
 var ErrSessionNotAuthenticated = errors.New("session is not authenticated")
 
 // NewListViewImpl creates a new listView object and starts a goroutine to listen to property collector task updates
-func NewListViewImpl(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter) (*ListViewImpl, error) {
+func NewListViewImpl(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter, isUnitTestRun bool) (*ListViewImpl,
+	error) {
 	log := logger.GetLogger(ctx)
 	t := &ListViewImpl{
 		taskMap:       NewTaskMap(),
@@ -84,7 +85,9 @@ func NewListViewImpl(ctx context.Context, virtualCenter *cnsvsphere.VirtualCente
 		return nil, logger.LogNewErrorf(log, "failed to create a ListView. error: %+v", err)
 	}
 	go t.listenToTaskUpdates()
-	go t.restartContainer()
+	if !isUnitTestRun {
+		go t.restartContainer()
+	}
 	return t, nil
 }
 
