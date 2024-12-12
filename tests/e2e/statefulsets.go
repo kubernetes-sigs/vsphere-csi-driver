@@ -68,19 +68,20 @@ var _ = ginkgo.Describe("statefulset", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		namespace            string
-		client               clientset.Interface
-		storagePolicyName    string
-		scParameters         map[string]string
-		storageClassName     string
-		zonalPolicy          string
-		zonalWffcPolicy      string
-		categories           []string
-		labels_ns            map[string]string
-		allowedTopologyHAMap map[string][]string
-		nodeList             *v1.NodeList
-		stsReplicas          int32
-		allowedTopologies    []v1.TopologySelectorLabelRequirement
+		namespace                string
+		client                   clientset.Interface
+		storagePolicyName        string
+		scParameters             map[string]string
+		storageClassName         string
+		zonalPolicy              string
+		zonalWffcPolicy          string
+		categories               []string
+		labels_ns                map[string]string
+		allowedTopologyHAMap     map[string][]string
+		nodeList                 *v1.NodeList
+		stsReplicas              int32
+		allowedTopologies        []v1.TopologySelectorLabelRequirement
+		isStorageQuotaFSSEnabled bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -128,6 +129,10 @@ var _ = ginkgo.Describe("statefulset", func() {
 			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
 			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		}
+		//Remove this code once the FSS is enabled
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+
 	})
 
 	ginkgo.AfterEach(func() {
@@ -166,6 +171,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		"testing with default podManagementPolicy", ginkgo.Label(p0, vanilla, block, wcp, core), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
 
 		ginkgo.By("Creating StorageClass for Statefulset")
 		// decide which test setup is available to run
@@ -177,7 +183,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
-				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+				err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}()
 		} else {
@@ -185,6 +191,13 @@ var _ = ginkgo.Describe("statefulset", func() {
 			ginkgo.By("Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
+		}
+
+		restConfig := getRestConfigClient()
+		if supervisorCluster && isStorageQuotaFSSEnabled {
+			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
+				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storagePolicyName, namespace, pvcUsage, volExtensionName)
 		}
 
 		ginkgo.By("Creating service")
@@ -235,6 +248,14 @@ var _ = ginkgo.Describe("statefulset", func() {
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
+		}
+
+		if supervisorCluster && isStorageQuotaFSSEnabled {
+			validateQuotaUsageAfterResourceCreation(ctx, restConfig,
+				storagePolicyName, namespace, pvcUsage, volExtensionName,
+				diskSize1Gi*3, totalQuotaUsedBefore, storagePolicyQuotaBefore,
+				storagePolicyUsageBefore)
+
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas-1))
