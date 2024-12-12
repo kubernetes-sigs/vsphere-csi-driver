@@ -677,7 +677,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("PSOD all host in remote cluster4 and when psod is triggered, create new set of rwx pvc")
 		for i := 0; i < len(hostListCluster4); i++ {
-			err = psodHost(hostListCluster4[i])
+			err = psodHost(hostListCluster4[i], "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			if i == 0 {
@@ -729,7 +729,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ginkgo.By("PSOD again all host in remote cluster4 and perform scaleup " +
 			"operation on deployment and statefulset")
 		for i := 0; i < len(hostListCluster4); i++ {
-			err = psodHost(hostListCluster4[i])
+			err = psodHost(hostListCluster4[i], "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			if i == 0 {
@@ -1873,7 +1873,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("PSOD all host in local cluster2 and when psod is triggered, create new set of rwx pvc")
 		for i := 0; i < len(hostListCluster2); i++ {
-			err = psodHost(hostListCluster2[i])
+			err = psodHost(hostListCluster2[i], "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			if i == 0 {
@@ -1929,7 +1929,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ginkgo.By("PSOD all host in local cluster3 and perform scaleup " +
 			"operation on deployment and statefulset")
 		for i := 0; i < len(hostListCluster3); i++ {
-			err = psodHost(hostListCluster3[i])
+			err = psodHost(hostListCluster3[i], "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			if i == 0 {

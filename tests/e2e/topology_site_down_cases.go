@@ -214,7 +214,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Wait for k8s cluster to be healthy
 		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		wait4AllK8sNodesToBeUp(nodeList)
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -266,7 +266,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		}
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		wait4AllK8sNodesToBeUp(nodeList)
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -423,7 +423,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		powerOffHostsList = append(powerOffHostsList, powerOffHostsList1...)
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		wait4AllK8sNodesToBeUp(nodeList)
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -475,7 +475,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		}
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		wait4AllK8sNodesToBeUp(nodeList)
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -630,7 +630,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Wait for k8s cluster to be healthy
 		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		wait4AllK8sNodesToBeUp(nodeList)
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -651,7 +651,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Wait for k8s cluster to be healthy
 		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		wait4AllK8sNodesToBeUp(nodeList)
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -869,7 +869,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		}
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		wait4AllK8sNodesToBeUp(nodeList)
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1018,7 +1018,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Wait for k8s cluster to be healthy
 		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		wait4AllK8sNodesToBeUp(nodeList)
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1068,7 +1068,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		}
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(ctx, client, nodeList)
+		wait4AllK8sNodesToBeUp(nodeList)
 		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
