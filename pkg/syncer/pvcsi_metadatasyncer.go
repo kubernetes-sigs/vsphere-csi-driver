@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
 	v1 "k8s.io/api/core/v1"
@@ -87,13 +88,35 @@ func pvcsiVolumeUpdated(ctx context.Context, resourceType interface{},
 
 // pvcsiVolumeDeleted deletes pvc/pv CnsVolumeMetadata on supervisor cluster
 // when pvc/pv has been deleted on K8s cluster.
-func pvcsiVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadataSyncInformer) {
+func pvcsiVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadataSyncInformer,
+	pv *v1.PersistentVolume) {
 	log := logger.GetLogger(ctx)
 	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace(ctx)
 	if err != nil {
 		log.Errorf("pvCSI VolumeDeleted: Unable to fetch supervisor namespace. Err: %v", err)
 		return
 	}
+	if pv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimRetain {
+		svPVC, err := metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).
+			Get(ctx, pv.Spec.CSI.VolumeHandle, metav1.GetOptions{})
+		if err == nil {
+			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
+				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
+			if _, ok := svPVC.Labels[key]; ok {
+				delete(svPVC.Labels, key)
+				_, err = metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).Update(
+					ctx, svPVC, metav1.UpdateOptions{})
+				if err != nil {
+					log.Errorf("failed to update supervisor PVC: %q in %q namespace. Error: %+v",
+						pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
+				}
+			}
+		} else {
+			log.Warnf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v",
+				pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
+		}
+	}
+
 	volumeMetadataName := cnsvolumemetadatav1alpha1.GetCnsVolumeMetadataName(
 		metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID, uID)
 	log.Debugf("pvCSI VolumeDeleted: Invoking delete on CnsVolumeMetadata : %v", volumeMetadataName)
