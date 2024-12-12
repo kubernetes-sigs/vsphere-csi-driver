@@ -421,3 +421,52 @@ func createStoragePolicyWithSharedVmfsNVsand(ctx context.Context, pbmClient *pbm
 
 	return profileID, profileName
 }
+
+/* createVsanStoragePolicy create a vsan policy with given allocation type and category/tag map
+func createVsanStoragePolicy(ctx context.Context, pbmClient *pbm.Client, categoryTagMap map[string]string) (*pbmtypes.PbmProfileId, string) {
+	s1 := rand.NewSource(time.Now().UnixNano())
+	r1 := rand.New(s1)
+	profileName := fmt.Sprintf("vsan-policy-%v-%v", time.Now().UnixNano(), strconv.Itoa(r1.Intn(1000)))
+	pbmCreateSpec := pbm.CapabilityProfileCreateSpec{
+		Name:        profileName,
+		Description: "VSAN test policy",
+		Category:    "REQUIREMENT",
+		CapabilityList: []pbm.Capability{
+			{
+				ID:        "hostFailuresToTolerate",
+				Namespace: "VSAN",
+				PropertyList: []pbm.Property{
+					{
+						ID:       "hostFailuresToTolerate",
+						Value:    "true",
+						Operator: "unset",
+						DataType: "anyType",
+					},
+				},
+			},
+		},
+	}
+	for k, v := range categoryTagMap {
+
+		pbmCreateSpec.CapabilityList = append(pbmCreateSpec.CapabilityList, pbm.Capability{
+			ID:        k,
+			Namespace: "http://www.vmware.com/storage/tag",
+			PropertyList: []pbm.Property{
+				{
+					ID:       "com.vmware.storage.tag." + k + ".property",
+					Value:    v,
+					DataType: "set",
+				},
+			},
+		})
+	}
+	createSpecVSAN, err := pbm.CreateCapabilityProfileSpec(pbmCreateSpec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	profileID, err := pbmClient.CreateProfile(ctx, *createSpecVSAN)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("VSAN profile with id: %v and name: '%v' created", profileID.UniqueId, profileName)
+
+	return profileID, profileName
+}*/
