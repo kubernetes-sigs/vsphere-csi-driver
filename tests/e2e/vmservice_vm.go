@@ -49,15 +49,15 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	f.SkipNamespaceCreation = true // tests will create their own namespaces
 	var (
-		client                     clientset.Interface
-		namespace                  string
-		datastoreURL               string
-		storagePolicyName          string
-		storagePolicyName4kn       string
-		storageClassName           string
-		storageProfileId           string
-		storageProfileId4kn        string
-		vcRestSessionId            string
+		client               clientset.Interface
+		namespace            string
+		datastoreURL         string
+		storagePolicyName    string
+		storagePolicyName4kn string
+		storageClassName     string
+		//storageProfileId           string
+		//storageProfileId4kn        string
+		//vcRestSessionId            string
 		vmi                        string
 		vmClass                    string
 		vmopC                      ctlrclient.Client
@@ -71,6 +71,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		client = f.ClientSet
+		namespace = getNamespaceToRunTests(f)
 		var err error
 		topologyFeature := os.Getenv(topologyFeature)
 		if topologyFeature != topologyTkgHaName {
@@ -90,7 +91,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		isVsanHealthServiceStopped = false
 		isSPSserviceStopped = false
 		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		vcRestSessionId = createVcSession4RestApis(ctx)
+		//vcRestSessionId = createVcSession4RestApis(ctx)
 
 		storageClassName = strings.ReplaceAll(storagePolicyName, "_", "-") // since this is a wcp setup
 
@@ -98,10 +99,10 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		dsRef := getDsMoRefFromURL(ctx, datastoreURL)
 		framework.Logf("dsmoId: %v", dsRef.Value)
 
-		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-		storageProfileId4kn = e2eVSphere.GetSpbmPolicyID(storagePolicyName4kn)
-		contentLibId := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
-			dsRef.Value, GetAndExpectStringEnvVar(envContentLibraryUrlSslThumbprint))
+		//storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+		//storageProfileId4kn = e2eVSphere.GetSpbmPolicyID(storagePolicyName4kn)
+		// contentLibId := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
+		// 	dsRef.Value, GetAndExpectStringEnvVar(envContentLibraryUrlSslThumbprint))
 
 		framework.Logf("Create a WCP namespace for the test")
 		vmClass = os.Getenv(envVMClass)
@@ -110,12 +111,12 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		}
 		framework.Logf("VM Class used for 4kn: %s", vmClass)
 
-		namespace = createTestWcpNs(
-			vcRestSessionId,
-			fmt.Sprintf("%s,%s", storageProfileId, storageProfileId4kn),
-			vmClass,
-			contentLibId,
-			getSvcId(vcRestSessionId))
+		// namespace = createTestWcpNs(
+		// 	vcRestSessionId,
+		// 	fmt.Sprintf("%s,%s", storageProfileId, storageProfileId4kn),
+		// 	vmClass,
+		// 	contentLibId,
+		// 	getSvcId(vcRestSessionId))
 
 		vmopScheme := runtime.NewScheme()
 		gomega.Expect(vmopv1.AddToScheme(vmopScheme)).Should(gomega.Succeed())
@@ -147,8 +148,8 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isSPSserviceStopped)
 		}
 		dumpSvcNsEventsOnTestFailure(client, namespace)
-		delTestWcpNs(vcRestSessionId, namespace)
-		gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+		// delTestWcpNs(vcRestSessionId, namespace)
+		// gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 	})
 
 	/*
