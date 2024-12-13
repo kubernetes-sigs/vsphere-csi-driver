@@ -315,7 +315,11 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		ginkgo.By("Create a Pod with PVC created in previous step mounted as a volume")
 		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc},
 			admissionapi.LevelBaseline, "")
-		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+		if windowsEnv {
+			pod.Spec.Containers[0].Image = windowsImageOnMcr
+		} else {
+			pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+		}
 		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -410,7 +414,9 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		// Waiting for pods status to be Ready.
 		ginkgo.By("Wait for all Pods are Running state")
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		if !windowsEnv {
+			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+		}
 		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
