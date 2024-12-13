@@ -5764,9 +5764,11 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 	if guestCluster {
 		k8sMasterIP = GetAndExpectStringEnvVar(svcMasterIP)
 		kubeConfigPath = GetAndExpectStringEnvVar(gcKubeConfigPath)
-	} else {
+	} else if vanillaCluster {
 		k8sMasterIPs := getK8sMasterIPs(ctx, client)
 		k8sMasterIP = k8sMasterIPs[0]
+	} else {
+		k8sMasterIP = GetAndExpectStringEnvVar(svcMasterIP)
 	}
 	for _, csiPod := range csiPods {
 		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) {
