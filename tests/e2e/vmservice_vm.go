@@ -49,13 +49,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	f.SkipNamespaceCreation = true // tests will create their own namespaces
 	var (
-		client               clientset.Interface
-		namespace            string
-		datastoreURL         string
-		storagePolicyName    string
-		storagePolicyName4kn string
-		storageClassName     string
-		//storageProfileId           string
+		client                     clientset.Interface
+		namespace                  string
+		datastoreURL               string
+		storagePolicyName          string
+		storagePolicyName4kn       string
+		storageClassName           string
+		storageProfileId           string
 		storageProfileId4kn        string
 		vcRestSessionId            string
 		vmi                        string
@@ -98,7 +98,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		dsRef := getDsMoRefFromURL(ctx, datastoreURL)
 		framework.Logf("dsmoId: %v", dsRef.Value)
 
-		//storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 		storageProfileId4kn = e2eVSphere.GetSpbmPolicyID(storagePolicyName4kn)
 		contentLibId := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
 			dsRef.Value, GetAndExpectStringEnvVar(envContentLibraryUrlSslThumbprint))
@@ -111,7 +111,11 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		framework.Logf("VM Class used for 4kn: %s", vmClass)
 
 		namespace = createTestWcpNs(
-			vcRestSessionId, storageProfileId4kn, vmClass, contentLibId, getSvcId(vcRestSessionId))
+			vcRestSessionId,
+			fmt.Sprintf("%s,%s", storageProfileId, storageProfileId4kn),
+			vmClass,
+			contentLibId,
+			getSvcId(vcRestSessionId))
 
 		vmopScheme := runtime.NewScheme()
 		gomega.Expect(vmopv1.AddToScheme(vmopScheme)).Should(gomega.Succeed())
