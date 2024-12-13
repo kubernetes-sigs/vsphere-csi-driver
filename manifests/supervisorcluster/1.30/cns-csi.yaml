@@ -281,7 +281,7 @@ spec:
             - "--leader-election-lease-duration=120s"
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
-            - "--enable-vdpp-on-stretched-supervisor=false"
+            - "--enable-vdpp-on-stretched-supervisor=true"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -505,7 +505,7 @@ data:
   "list-volumes": "true"
   "cnsmgr-suspend-create-volume": "true"
   "storage-quota-m2": "true"
-  "vdpp-on-stretched-supervisor": "false"
+  "vdpp-on-stretched-supervisor": "true"
   "cns-unregister-volume": "false"
   "workload-domain-isolation": "false"
   "WCP_VMService_BYOK": "false"
