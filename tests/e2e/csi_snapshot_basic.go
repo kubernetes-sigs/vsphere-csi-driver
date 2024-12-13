@@ -53,7 +53,7 @@ import (
 
 var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	f := framework.NewDefaultFramework("volume-snapshot")
-	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	f.Volume snapshot creation when resize is in progress = admissionapi.LevelPrivileged
 	var (
 		client                     clientset.Interface
 		clientNewGc                clientset.Interface
