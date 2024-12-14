@@ -84,6 +84,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		// client connection
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
+		framework.Logf("Namespace %s", namespace)
 		bootstrap()
 
 		// fetch the testbed type for executing testcases
