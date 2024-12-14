@@ -150,6 +150,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		dumpSvcNsEventsOnTestFailure(client, namespace)
 		// delTestWcpNs(vcRestSessionId, namespace)
 		// gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+
+		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
+		if secretName != "" {
+			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 	})
 
 	/*
