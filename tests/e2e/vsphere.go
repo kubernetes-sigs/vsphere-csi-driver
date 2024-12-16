@@ -59,6 +59,8 @@ var (
 const (
 	providerPrefix  = "vsphere://"
 	virtualDiskUUID = "virtualDiskUUID"
+	// cnsDevVersion is the CNS API development version
+	cnsDevVersion = "dev.version"
 )
 
 // queryCNSVolumeWithResult Call CnsQueryVolume and returns CnsQueryResult to client
@@ -87,10 +89,12 @@ func (vs *vSphere) queryCNSVolumeWithResult(fcdID string) (*cnstypes.CnsQueryRes
 	if err != nil {
 		return nil, err
 	}
+
 	res, err := cnsmethods.CnsQueryVolume(ctx, vs.CnsClient.Client, &req)
 	if err != nil {
 		return nil, err
 	}
+
 	return &res.Returnval, nil
 }
 
@@ -1391,4 +1395,19 @@ func (vs *vSphere) findKeyProvier(ctx context.Context, keyProviderID string) (*v
 	}
 
 	return nil, nil
+}
+
+// getAggregatedSnapshotCapacityInMb - get the cnsvolumeinfo aggregated value of snapshot
+func getAggregatedSnapshotCapacityInMb(e2eVSphere vSphere, volHandle string) int64 {
+	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+	queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+	ginkgo.By(fmt.Sprintf(" queryResult :%v", queryResult.Volumes[0]))
+
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())
+	ginkgo.By(fmt.Sprintf("volume Name:%s , aggregatorValue:%v",
+		queryResult.Volumes[0].Name,
+		queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).AggregatedSnapshotCapacityInMb))
+
+	return queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).AggregatedSnapshotCapacityInMb
 }

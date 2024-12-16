@@ -88,7 +88,6 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 			guestClusterRestConfig = getRestConfigClientForGuestCluster(guestClusterRestConfig)
 			snapc, err = snapclient.NewForConfig(guestClusterRestConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			setStoragePolicyQuota(ctx, guestClusterRestConfig, storagePolicyName, namespace, rqLimit)
 		} else {
 			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 			restConfig = getRestConfigClient()
