@@ -68,8 +68,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	var err error
 	// Fetch CSI migration feature state, before performing full sync operations.
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) &&
-			len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
+		if metadataSyncer.coCommonInterface.IsCSIMigrationEnabled(ctx, metadataSyncer.configInfo.Cfg) {
 			migrationFeatureStateForFullSync = true
 		}
 	}

@@ -223,7 +223,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		isMultiVCenterFssEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
-		IsMigrationEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
+		IsMigrationEnabled = commonco.ContainerOrchestratorUtility.IsCSIMigrationEnabled(ctx, configInfo.Cfg)
 	}
 	isStorageQuotaM2FSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2)
 	// Create the kubernetes client from config.
