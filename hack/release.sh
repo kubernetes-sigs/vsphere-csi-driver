@@ -52,7 +52,7 @@ BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
 GOLANG_IMAGE=${CUSTOM_REPO_FOR_GOLANG:-}golang:1.22
 
 ARCH=amd64
-OSVERSION=1809
+OSVERSION=${OSVERSION:=1809}
 # OS Version for the Windows images: 1809, 20H2, ltsc2022
 OSVERSION_WIN=(1809 20H2 ltsc2022)
 # The output type could either be docker (local), or registry.
@@ -61,6 +61,9 @@ WINDOWS_IMAGE_OUTPUT="type=tar,dest=.build/windows-driver.tar"
 LINUX_IMAGE_OUTPUT="type=docker"
 
 REGISTRY=
+
+# set windows buildkit image if not given already
+WIN_BUILDKIT_IMAGE="${WIN_BUILDKIT_IMAGE:=moby/buildkit:v0.10.6}"
 
 # set base image if not given already
 BASE_IMAGE="${BASE_IMAGE:=photon:4.0}"
@@ -108,7 +111,7 @@ function fatal() {
 
 
 function build_driver_images_windows() {
-  docker buildx use vsphere-csi-builder-win || docker buildx create --driver-opt image=moby/buildkit:v0.10.6 --name vsphere-csi-builder-win --platform windows/amd64 --use
+  docker buildx use vsphere-csi-builder-win || docker buildx create --driver-opt image=${WIN_BUILDKIT_IMAGE} --name vsphere-csi-builder-win --platform windows/amd64 --use
   echo "building ${CSI_IMAGE_NAME}:${VERSION} for windows"
   # some registry do not allow uppercase tags
   osv=$(lcase "${OSVERSION}")
