@@ -41,8 +41,7 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
-	"[csi-guest] [csi-supervisor] Improved CSI Idempotency Tests", func() {
+var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 	f := framework.NewDefaultFramework("idempotency-csi")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	const defaultVolumeOpsScale = 30
@@ -179,7 +178,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		7. Verify no orphan volumes are left (using cnsctl tool)
 	*/
 
-	ginkgo.It("Reduce external provisioner timeout and create volumes - idempotency", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla][csi-guest] [csi-supervisor] "+
+		"Reduce external provisioner timeout and create volumes - idempotency", func() {
 		createVolumesByReducingProvisionerTime(namespace, client, storagePolicyName, scParameters,
 			volumeOpsScale, shortProvisionerTimeout, c)
 	})
@@ -203,7 +203,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		5. Delete PVCs and SC
 		6. Verify no orphan volumes are left
 	*/
-	ginkgo.It("create volume when hostd service goes down - idempotency", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla][csi-guest] [csi-supervisor]"+
+		"create volume when hostd service goes down - idempotency", func() {
 		serviceName = hostdServiceName
 		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
 			scParameters, volumeOpsScale, isServiceStopped, c)
@@ -219,7 +220,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		6. Delete pvcs and SC
 		7. Verify no orphan volumes are left
 	*/
-	ginkgo.It("create volume when CNS goes down - idempotency", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla][csi-guest] [csi-supervisor]"+
+		"create volume when CNS goes down - idempotency", func() {
 		serviceName = vsanhealthServiceName
 		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
 			scParameters, volumeOpsScale, isServiceStopped, c)
@@ -235,7 +237,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		6. Delete pvcs and SC
 		7. Verify no orphan volumes are left
 	*/
-	ginkgo.It("create volume when VPXD goes down - idempotency", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla][csi-guest] [csi-supervisor]"+
+		"create volume when VPXD goes down - idempotency", func() {
 		serviceName = vpxdServiceName
 		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
 			scParameters, volumeOpsScale, isServiceStopped, c)
@@ -251,7 +254,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		6. Delete pvcs and SC
 		7. Verify no orphan volumes are left
 	*/
-	ginkgo.It("create volume when SPS goes down - idempotency", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla][csi-guest] [csi-supervisor]"+
+		"create volume when SPS goes down - idempotency", func() {
 		serviceName = spsServiceName
 		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
 			scParameters, volumeOpsScale, isServiceStopped, c)
@@ -266,7 +270,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		5. Delete PVCs and SC
 		6. Verify no orphan volumes are left
 	*/
-	ginkgo.It("create volume when CSI restarts - idempotency", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla][csi-guest] [csi-supervisor]"+
+		"create volume when CSI restarts - idempotency", func() {
 		serviceName = "CSI"
 		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
 			scParameters, volumeOpsScale, isServiceStopped, c)
@@ -282,7 +287,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		6. Delete pvcs and SC
 		7. Verify no orphan volumes are left
 	*/
-	ginkgo.It("extend volume when csi restarts - idempotency", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla][csi-guest] [csi-supervisor] "+
+		"extend volume when csi restarts - idempotency", func() {
 		serviceName = "CSI"
 		extendVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName, scParameters,
 			volumeOpsScale, true, isServiceStopped, c)
@@ -299,7 +305,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 		7. Delete pvcs and SC
 		8. Verify no orphan volumes are left
 	*/
-	ginkgo.It("extend volume when CNS goes down - idempotency", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla][csi-guest] [csi-supervisor] "+
+		"extend volume when CNS goes down - idempotency", func() {
 		serviceName = vsanhealthServiceName
 		extendVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName, scParameters,
 			volumeOpsScale, true, isServiceStopped, c)
@@ -507,7 +514,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 	}()
 
 	var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
-	if !vanillaCluster {
+	if supervisorCluster {
 		restConfig := getRestConfigClient()
 		totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 			getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
@@ -690,7 +697,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		}
 	}()
 
-	if !vanillaCluster {
+	if supervisorCluster {
 		validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 			storageclass.Name, namespace, pvcUsage, volExtensionName,
 			diskSizeInMb*int64(volumeOpsScale), totalQuotaUsedBefore, storagePolicyQuotaBefore,
@@ -774,7 +781,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 	var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
 
-	if !vanillaCluster {
+	if supervisorCluster {
 		restConfig := getRestConfigClient()
 		totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 			getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
@@ -814,7 +821,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		}
 	}()
 
-	if !vanillaCluster {
+	if supervisorCluster {
 		validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 			storageclass.Name, namespace, pvcUsage, volExtensionName,
 			diskSizeInMb*int64(volumeOpsScale), totalQuotaUsedBefore, storagePolicyQuotaBefore,
@@ -925,7 +932,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 	}
 
-	if !vanillaCluster {
+	if supervisorCluster {
 		totalquotaAfterExpansion, _ := getTotalQuotaConsumedByStoragePolicy(ctx,
 			restConfig, storageclass.Name, namespace)
 		framework.Logf("totalquotaAfterExpansion :%v", totalquotaAfterExpansion)
