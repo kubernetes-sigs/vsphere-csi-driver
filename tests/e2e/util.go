@@ -7000,6 +7000,7 @@ func setStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config,
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	time.Sleep(7 * time.Minute)
 	spq := &storagepolicyv1alpha2.StoragePolicyQuota{}
 	err = cnsOperatorClient.Get(ctx,
 		pkgtypes.NamespacedName{Name: scName + storagePolicyQuota, Namespace: namespace}, spq)
@@ -7020,6 +7021,7 @@ func removeStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	spq := &storagepolicyv1alpha2.StoragePolicyQuota{}
+	time.Sleep(7 * time.Minute)
 	err = cnsOperatorClient.Get(ctx,
 		pkgtypes.NamespacedName{Name: scName + storagePolicyQuota, Namespace: namespace}, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
