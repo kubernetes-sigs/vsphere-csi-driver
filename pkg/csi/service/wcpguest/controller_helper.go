@@ -28,7 +28,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	snap "github.com/kubernetes-csi/external-snapshotter/client/v6/apis/volumesnapshot/v1"
+	snap "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"google.golang.org/grpc/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"

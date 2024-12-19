@@ -27,7 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"google.golang.org/grpc/codes"
