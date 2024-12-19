@@ -1209,6 +1209,11 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		isPVCSIFSSEnabled := c.IsPVCSIFSSEnabled(ctx, featureName)
 		if isPVCSIFSSEnabled {
+			// Skip SV FSS check for Windows Support since there is no dependency on supervisor
+			if featureName == common.CSIWindowsSupport {
+				log.Info("CSI Windows Suppport is set to true in pvcsi fss configmap. Skipping SV FSS check")
+				return true
+			}
 			return c.IsCNSCSIFSSEnabled(ctx, featureName)
 		}
 		return false
