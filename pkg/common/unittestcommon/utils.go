@@ -118,6 +118,11 @@ func (c *FakeK8SOrchestrator) EnableFSS(ctx context.Context, featureName string)
 	c.featureStates[featureName] = "true"
 	return nil
 }
+
+func (c *FakeK8SOrchestrator) IsCSIMigrationEnabled(ctx context.Context, cfg *config.Config) bool {
+	return c.IsFSSEnabled(ctx, common.CSIMigration)
+}
+
 func (c *FakeK8SOrchestrator) DisableFSS(ctx context.Context, featureName string) error {
 	c.featureStates[featureName] = "false"
 	return nil
