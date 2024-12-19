@@ -462,7 +462,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 		}()
 
 		ginkgo.By("Wait for 5-10 mins, verify that the k8s-worker is restarted and brought up on another host")
-		wait4AllK8sNodesToBeUp(ctx, client, nodes)
+		wait4AllK8sNodesToBeUp(nodes)
 		gomega.Expect(waitForAllNodes2BeReady(ctx, client)).To(gomega.Succeed())
 
 		ginkgo.By("Scale up statefulset2 and scale down statefulset1 to 2 replicas")
