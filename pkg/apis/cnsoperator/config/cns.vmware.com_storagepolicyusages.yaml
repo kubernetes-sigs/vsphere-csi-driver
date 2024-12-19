@@ -128,6 +128,11 @@ spec:
           spec:
             description: StoragePolicyUsageSpec defines the desired state of StoragePolicyUsage
             properties:
+              caBundle:
+                description: caBundle is a PEM encoded CA bundle which will be used
+                  to validate the extension service's server certificate.
+                format: byte
+                type: string
               resourceApiGroup:
                 description: APIGroup is the group for the resource being referenced.
                   If it is not specified, the specified ResourceKind must be in the
