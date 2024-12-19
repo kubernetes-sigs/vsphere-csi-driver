@@ -61,19 +61,33 @@ type subscribedContentLibBasic struct {
 
 // createTestWcpNs create a wcp namespace with given storage policy, vm class and content lib via REST API
 func createTestWcpNs(
-	vcRestSessionId string, storagePolicyId string, vmClass string, contentLibId string,
-	supervisorId string) string {
+	vcRestSessionId string, storagePolicyIds string, vmClass string, contentLibId string, supervisorId string) string {
 
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 
 	namespace := fmt.Sprintf("csi-vmsvcns-%v", r.Intn(10000))
 	nsCreationUrl := "https://" + vcIp + "/api/vcenter/namespaces/instances/v2"
+
+	// Split the comma-separated storagePolicyIds string into a slice
+	storagePolicies := strings.Split(storagePolicyIds, ",")
+
+	// Construct the storage_specs part dynamically based on the number of storage policies
+	var storageSpecs []string
+	for _, policy := range storagePolicies {
+		policy = strings.TrimSpace(policy) // Trim spaces in case of badly formatted input
+		if policy != "" {
+			storageSpecs = append(storageSpecs, fmt.Sprintf(`{"policy": "%s"}`, policy))
+		}
+	}
+
+	// Join the storageSpecs entries into a JSON array
+	storageSpecsJson := strings.Join(storageSpecs, ",")
+
+	// Format the JSON body with storage policies
 	reqBody := fmt.Sprintf(`{
         "namespace": "%s",
-        "storage_specs": [  {
-            "policy": "%s"
-        } ],
+        "storage_specs": [%s],
         "vm_service_spec":  {
             "vm_classes": [
                 "%s"
@@ -83,11 +97,11 @@ func createTestWcpNs(
             ]
         },
         "supervisor": "%s"
-    }`, namespace, storagePolicyId, vmClass, contentLibId, supervisorId)
+    }`, namespace, storageSpecsJson, vmClass, contentLibId, supervisorId)
 
 	_, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, nsCreationUrl, reqBody)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
-	framework.Logf("Successfully created namepsace %v in SVC.", namespace)
+	framework.Logf("Successfully created namespace %v in SVC.", namespace)
 	return namespace
 }
 

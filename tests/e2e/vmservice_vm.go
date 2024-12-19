@@ -53,13 +53,15 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	f.SkipNamespaceCreation = true // tests will create their own namespaces
 	var (
-		client                     clientset.Interface
-		namespace                  string
-		datastoreURL               string
-		storagePolicyName          string
-		storageClassName           string
-		storageProfileId           string
-		vcRestSessionId            string
+		client               clientset.Interface
+		namespace            string
+		datastoreURL         string
+		storagePolicyName    string
+		storagePolicyName4kn string
+		storageClassName     string
+		//storageProfileId           string
+		//storageProfileId4kn        string
+		//vcRestSessionId            string
 		vmi                        string
 		vmClass                    string
 		vmopC                      ctlrclient.Client
@@ -75,6 +77,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		client = f.ClientSet
+		namespace = getNamespaceToRunTests(f)
 		var err error
 		topologyFeature := os.Getenv(topologyFeature)
 		if topologyFeature != topologyTkgHaName {
@@ -84,14 +87,17 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 				framework.Failf("Unable to find ready and schedulable Node")
 			}
 			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+			storagePolicyName4kn = GetAndExpectStringEnvVar(envStoragePolicyNameFor4kn)
 		} else {
 			storagePolicyName = GetAndExpectStringEnvVar(envZonalStoragePolicyName)
 		}
+		framework.Logf("Storage policy used for 4kn: %s", storagePolicyName4kn)
+
 		bootstrap()
 		isVsanHealthServiceStopped = false
 		isSPSserviceStopped = false
 		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		vcRestSessionId = createVcSession4RestApis(ctx)
+		//vcRestSessionId = createVcSession4RestApis(ctx)
 
 		storageClassName = strings.ReplaceAll(storagePolicyName, "_", "-") // since this is a wcp setup
 
@@ -99,17 +105,24 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		dsRef := getDsMoRefFromURL(ctx, datastoreURL)
 		framework.Logf("dsmoId: %v", dsRef.Value)
 
-		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-		contentLibId := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
-			dsRef.Value, GetAndExpectStringEnvVar(envContentLibraryUrlSslThumbprint))
+		//storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+		//storageProfileId4kn = e2eVSphere.GetSpbmPolicyID(storagePolicyName4kn)
+		// contentLibId := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
+		// 	dsRef.Value, GetAndExpectStringEnvVar(envContentLibraryUrlSslThumbprint))
 
 		framework.Logf("Create a WCP namespace for the test")
 		vmClass = os.Getenv(envVMClass)
 		if vmClass == "" {
 			vmClass = vmClassBestEffortSmall
 		}
-		namespace = createTestWcpNs(
-			vcRestSessionId, storageProfileId, vmClass, contentLibId, getSvcId(vcRestSessionId))
+		framework.Logf("VM Class used for 4kn: %s", vmClass)
+
+		// namespace = createTestWcpNs(
+		// 	vcRestSessionId,
+		// 	fmt.Sprintf("%s,%s", storageProfileId, storageProfileId4kn),
+		// 	vmClass,
+		// 	contentLibId,
+		// 	getSvcId(vcRestSessionId))
 
 		vmopScheme := runtime.NewScheme()
 		gomega.Expect(vmopv1.AddToScheme(vmopScheme)).Should(gomega.Succeed())
@@ -166,8 +179,15 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isSPSserviceStopped)
 		}
 		dumpSvcNsEventsOnTestFailure(client, namespace)
-		delTestWcpNs(vcRestSessionId, namespace)
-		gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+		// delTestWcpNs(vcRestSessionId, namespace)
+		// gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+
+		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
+		if secretName != "" {
+			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 	})
 
 	/*
@@ -233,10 +253,14 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create a storageclass")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		// storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		storageclass4kn, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName4kn, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By("Create a PVC")
-		pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
+		pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass4kn, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Waiting for all claims to be in bound state")
 		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc, staticPvc}, pollTimeout)
@@ -323,10 +347,15 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		defer cancel()
 
 		ginkgo.By("Create a storageclass")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		// storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create a storageclass")
+		storageclass4kn, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName4kn, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By("Create a PVC")
-		pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
+		pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass4kn, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Waiting for all claims to be in bound state")
 		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
@@ -514,12 +543,16 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		defer cancel()
 
 		ginkgo.By("Create a storageclass")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		// storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		storageclass4kn, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName4kn, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By("Create a PVC")
-		pvc1, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
+		pvc1, err := createPVC(ctx, client, namespace, nil, "", storageclass4kn, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pvc2, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
+		pvc2, err := createPVC(ctx, client, namespace, nil, "", storageclass4kn, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvcs := []*v1.PersistentVolumeClaim{pvc1, pvc2}
 		ginkgo.By("Waiting for all claims to be in bound state")
@@ -946,10 +979,14 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		defer cancel()
 
 		ginkgo.By("Create a storageclass")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		// storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		storageclass4kn, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName4kn, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By("Create a PVC")
-		pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
+		pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass4kn, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Waiting for all claims to be in bound state")
 		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
@@ -1084,11 +1121,15 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vmlbsvcs := []*vmopv1.VirtualMachineService{}
 
 		ginkgo.By("Create a storageclass")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		// storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		storageclass4kn, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName4kn, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By("Create a PVC")
 		for i := 0; i < 3; i++ {
-			pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
+			pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass4kn, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvcs = append(pvcs, pvc)
 		}
@@ -1278,10 +1319,14 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		defer cancel()
 
 		ginkgo.By("Create a storageclass")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		// storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		storageclass4kn, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName4kn, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By("Create a PVC")
-		pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
+		pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass4kn, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Waiting for all claims to be in bound state")
 		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
