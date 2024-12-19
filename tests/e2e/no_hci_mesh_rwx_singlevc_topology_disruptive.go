@@ -752,7 +752,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 
 		ginkgo.By("PSOD all host")
 		for i := 0; i < len(hostList); i++ {
-			err = psodHost(hostList[i])
+			err = psodHost(hostList[i], "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			if i == 2 {
