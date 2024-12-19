@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -1357,6 +1358,22 @@ func (c *K8sOrchestrator) IsFakeAttachAllowed(ctx context.Context, volumeID stri
 	log.Debugf("Annotation %s not found or not set to true on pvc for volume %s",
 		common.AnnIgnoreInaccessiblePV, volumeID)
 	return false, nil
+}
+
+func (c *K8sOrchestrator) IsCSIMigrationEnabled(ctx context.Context, cfg *config.Config) bool {
+	log := logger.GetLogger(ctx)
+	isMultiVCenterFssEnabled := c.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
+	isMigrationEnabled := c.IsFSSEnabled(ctx, common.CSIMigration)
+
+	if !isMultiVCenterFssEnabled {
+		return isMigrationEnabled
+	} else {
+		if len(cfg.VirtualCenter) > 1 {
+			log.Infof("Disabling CSI migration in multi-vc clusters")
+			return false
+		}
+		return isMigrationEnabled
+	}
 }
 
 // MarkFakeAttached updates the pvc corresponding to volume to have a fake
