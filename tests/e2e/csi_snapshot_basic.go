@@ -153,7 +153,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		} else if guestCluster {
 			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 			scParameters[svStorageClassName] = storagePolicyName
-			scName = ""
+			scName = storagePolicyName
 		} else if supervisorCluster {
 			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
