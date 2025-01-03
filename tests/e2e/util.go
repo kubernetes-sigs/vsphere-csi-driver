@@ -3618,18 +3618,8 @@ func psodHostWithPv(ctx context.Context, vs *vSphere, pvName string) string {
 	framework.Logf("hostIP %v", hostIP)
 	gomega.Expect(hostIP).NotTo(gomega.BeEmpty())
 
-	ginkgo.By("PSOD")
-	sshCmd := fmt.Sprintf("vsish -e set /config/Misc/intOpts/BlueScreenTimeout %s", psodTime)
-	op, err := runCommandOnESX("root", hostIP, sshCmd)
-	framework.Logf(op)
+	err := psodHost(hostIP, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	ginkgo.By("Injecting PSOD ")
-	psodCmd := "vsish -e set /reliability/crashMe/Panic 1"
-	op, err = runCommandOnESX("root", hostIP, psodCmd)
-	framework.Logf(op)
-	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
-
 	return hostIP
 }
 

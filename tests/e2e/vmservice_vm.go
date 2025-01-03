@@ -124,7 +124,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
 		framework.Logf("Waiting for virtual machine image list to be available in namespace '%s' for image '%s'",
 			namespace, vmImageName)
-		vmi = waitNGetVmiForImageName(ctx, vmopC, namespace, vmImageName)
+		vmi = waitNGetVmiForImageName(ctx, vmopC, vmImageName)
 		gomega.Expect(vmi).NotTo(gomega.BeEmpty())
 
 		//Remove this code once the FSS is enabled

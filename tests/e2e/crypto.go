@@ -121,7 +121,7 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
 		framework.Logf("Waiting for virtual machine image list to be available in namespace '%s' for image '%s'",
 			namespace, vmImageName)
-		vmi = waitNGetVmiForImageName(ctx, vmopClient, namespace, vmImageName)
+		vmi = waitNGetVmiForImageName(ctx, vmopClient, vmImageName)
 		gomega.Expect(vmi).NotTo(gomega.BeEmpty())
 	})
 

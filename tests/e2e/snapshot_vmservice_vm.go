@@ -145,7 +145,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
 		framework.Logf("Waiting for virtual machine image list to be available in namespace '%s' for image '%s'",
 			namespace, vmImageName)
-		vmi = waitNGetVmiForImageName(ctx, vmopC, namespace, vmImageName)
+		vmi = waitNGetVmiForImageName(ctx, vmopC, vmImageName)
 		gomega.Expect(vmi).NotTo(gomega.BeEmpty())
 
 		// Get snapshot client using the rest config
