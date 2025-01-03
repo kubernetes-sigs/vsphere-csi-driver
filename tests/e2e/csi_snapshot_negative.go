@@ -337,7 +337,11 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	} else {
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, storagePolicyName)
+		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+		scParameters[svStorageClassName] = storagePolicyName
+		ginkgo.By("Create storage class")
+		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
