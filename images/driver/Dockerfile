@@ -19,7 +19,7 @@
 ARG GOLANG_IMAGE=golang:1.22
 
 # This build arg allows the specification of a custom base image.
-ARG BASE_IMAGE=photon:4.0
+ARG BASE_IMAGE=photon:5.0
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
