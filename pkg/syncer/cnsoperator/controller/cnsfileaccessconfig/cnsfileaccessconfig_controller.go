@@ -246,6 +246,54 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v",
 			instance.Spec.VMName, err)
 		log.Error(msg)
+		// If virtualmachine instance is NotFound and if deletion timestamp is set on CnsFileAccessConfig instance,
+		// then proceed with the deletion of CnsFileAccessConfig instance.
+		if apierrors.IsNotFound(err) && instance.DeletionTimestamp != nil {
+			log.Infof("CnsFileAccessConfig instance %q has deletion timestamp set, but VM instance with "+
+				"name %q is not found. Processing the deletion of CnsFileAccessConfig instance.",
+				instance.Name, instance.Spec.VMName)
+			// Fetch the PVC and PV instance and get volume ID
+			skipConfigureVolumeACL := false
+			volumeID, err := cnsoperatorutil.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					// If PVC instance is NotFound (deleted), then there is no need to configure ACL on file volume.
+					// TODO: When we support PV with retain policy on supervisor, then we need to configure ACL
+					// in cases where PVC is deleted but PV is not deleted.
+					skipConfigureVolumeACL = true
+				} else {
+					msg := fmt.Sprintf("Failed to get volumeID from pvcName: %q. Error: %+v", instance.Spec.PvcName, err)
+					log.Error(msg)
+					setInstanceError(ctx, r, instance, msg)
+					return reconcile.Result{RequeueAfter: timeout}, nil
+				}
+			}
+			if !skipConfigureVolumeACL {
+				err = r.removePermissionsForFileVolume(ctx, volumeID, instance)
+				if err != nil {
+					msg := fmt.Sprintf("Failed to remove file volume permissions with error: %+v", err)
+					log.Error(msg)
+					setInstanceError(ctx, r, instance, msg)
+					return reconcile.Result{RequeueAfter: timeout}, nil
+				}
+			}
+
+			// Remove finalizer from CnsFileAccessConfig CRD
+			removeFinalizerFromCRDInstance(ctx, instance)
+			err = updateCnsFileAccessConfig(ctx, r.client, instance)
+			if err != nil {
+				msg := fmt.Sprintf("failed to update CnsFileAccessConfig instance: %q on namespace: %q. Error: %+v",
+					instance.Name, instance.Namespace, err)
+				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+			// Cleanup instance entry from backOffDuration map.
+			backOffDurationMapMutex.Lock()
+			delete(backOffDuration, instance.Name)
+			backOffDurationMapMutex.Unlock()
+			return reconcile.Result{}, nil
+		}
+
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
@@ -410,6 +458,44 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	delete(backOffDuration, instance.Name)
 	backOffDurationMapMutex.Unlock()
 	return reconcile.Result{}, nil
+}
+
+// removePermissionsForFileVolume helps to remove net permissions for a given file volume.
+// This method is used when we don't have VM instance. It fetches the VM IP from CNSFileVolumeClient
+// instance for the VM name associated with CnsFileAccessConfig.
+func (r *ReconcileCnsFileAccessConfig) removePermissionsForFileVolume(ctx context.Context,
+	volumeID string, instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig) error {
+	log := logger.GetLogger(ctx)
+	cnsFileVolumeClientInstance, err := cnsfilevolumeclient.GetFileVolumeClientInstance(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "Failed to get CNSFileVolumeClient instance. Error: %+v", err)
+	}
+
+	vmIP, vmsAssociatedWithIP, err := cnsFileVolumeClientInstance.GetVMIPFromVMName(ctx,
+		instance.Namespace+"/"+instance.Spec.PvcName, instance.Spec.VMName)
+	if err != nil {
+		return logger.LogNewErrorf(log, "Failed to get VM IP from VM name in CNSFileVolumeClient instance. "+
+			"Error: %+v", err)
+	}
+	if vmsAssociatedWithIP == 1 {
+		// In case of VDS setup, we will always have 1 VM associated with IP. But, in case of
+		// SNAT setup, we may have multiple VMs associated with same IP. We will remove ACL
+		// permission only when it is the last VM associated with IP.
+		err = r.configureVolumeACLs(ctx, volumeID, vmIP, true)
+		if err != nil {
+			return logger.LogNewErrorf(log, "Failed to remove net permissions for file volume %q. Error: %+v",
+				volumeID, err)
+		}
+	}
+	err = cnsFileVolumeClientInstance.RemoveClientVMFromIPList(ctx,
+		instance.Namespace+"/"+instance.Spec.PvcName, instance.Spec.VMName, vmIP)
+	if err != nil {
+		return logger.LogNewErrorf(log, "Failed to remove VM %q with IP %q from IPList. Error: %+v",
+			instance.Spec.VMName, vmIP, err)
+	}
+	log.Infof("Successfully removed VM IP %q from IPList for CnsFileAccessConfig request with name: %q on "+
+		"namespace: %q", vmIP, instance.Name, instance.Namespace)
+	return nil
 }
 
 // configureNetPermissionsForFileVolume helps to add or remove net permissions

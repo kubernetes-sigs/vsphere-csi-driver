@@ -47,7 +47,7 @@ rules:
     verbs: ["create", "get", "list", "update", "watch"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsfilevolumeclients"]
-    verbs: ["get", "update", "create", "delete"]
+    verbs: ["get", "list", "update", "create", "delete"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsregistervolumes", "cnsunregistervolumes"]
     verbs: ["get", "list", "watch", "update", "delete"]

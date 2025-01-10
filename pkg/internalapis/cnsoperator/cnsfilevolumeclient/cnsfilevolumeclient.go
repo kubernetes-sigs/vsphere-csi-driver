@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/cnsfilevolumeclient/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 // FileVolumeClient exposes an interface to support
@@ -49,6 +50,9 @@ type FileVolumeClient interface {
 	// clientVMIP for a given file volume. fileVolumeName is used
 	// to uniquely identify CnsFileVolumeClient instances.
 	RemoveClientVMFromIPList(ctx context.Context, fileVolumeName, clientVMName, clientVMIP string) error
+	// GetVMIPFromVMName returns the VMIP associated with a
+	// given client VM name.
+	GetVMIPFromVMName(ctx context.Context, fileVolumeName string, clientVMName string) (string, int, error)
 }
 
 // fileVolumeClient maintains a client to the API
@@ -186,6 +190,8 @@ func (f *fileVolumeClient) AddClientVMToIPList(ctx context.Context,
 				ObjectMeta: v1.ObjectMeta{
 					Name:      instanceName,
 					Namespace: instanceNamespace,
+					// Add finalizer so that CnsFileVolumeClient instance doesn't get deleted abruptly
+					Finalizers: []string{cnsoperatortypes.CNSFinalizer},
 				},
 				Spec: v1alpha1.CnsFileVolumeClientSpec{
 					ExternalIPtoClientVms: map[string][]string{
@@ -282,9 +288,24 @@ func (f *fileVolumeClient) RemoveClientVMFromIPList(ctx context.Context,
 				delete(instance.Spec.ExternalIPtoClientVms, clientVMIP)
 			}
 			if len(instance.Spec.ExternalIPtoClientVms) == 0 {
-				log.Debugf("Deleting cnsfilevolumeclient instance %s from API server", fileVolumeName)
+				log.Infof("Deleting cnsfilevolumeclient instance %s from API server", fileVolumeName)
+				// Remove finalizer from CnsFileVolumeClient instance
+				err = removeFinalizer(ctx, f.client, instance)
+				if err != nil {
+					log.Errorf("failed to remove finalizer from cnsfilevolumeclient instance %s with error: %+v",
+						fileVolumeName, err)
+				}
 				err = f.client.Delete(ctx, instance)
 				if err != nil {
+					// In case of namespace deletion, we will have deletion timestamp added on the
+					// CnsFileVolumeClient instance. So, as soon as we delete finalizer, instance might
+					// get deleted immediately. In such cases we will get NotFound error here, return success
+					// if instance is already deleted.
+					if errors.IsNotFound(err) {
+						log.Infof("cnsfilevolumeclient instance %s seems to be already deleted.", fileVolumeName)
+						f.volumeLock.Delete(fileVolumeName)
+						return nil
+					}
 					log.Errorf("failed to delete cnsfilevolumeclient instance %s with error: %+v", fileVolumeName, err)
 					return err
 				}
@@ -300,5 +321,78 @@ func (f *fileVolumeClient) RemoveClientVMFromIPList(ctx context.Context,
 		}
 	}
 	log.Debugf("Could not find VM %s in list. Returning.", clientVMName)
+	return nil
+}
+
+// GetVMIPFromVMName returns the VM IP associated with a
+// given client VM name.
+// Callers need to specify fileVolumeName as a combination of
+// "<SV-namespace>/<SV-PVC-name>". This combination is used to uniquely
+// identify CnsFileVolumeClient instances.
+// Returns an empty string if the instance doesn't exist OR if the
+// input VM name is not present in this instance.
+// Returns an error if any operations fails.
+func (f *fileVolumeClient) GetVMIPFromVMName(ctx context.Context,
+	fileVolumeName string, clientVMName string) (string, int, error) {
+	log := logger.GetLogger(ctx)
+
+	log.Infof("Fetching VM IP from cnsfilevolumeclient %s for VM name %s", fileVolumeName, clientVMName)
+	actual, _ := f.volumeLock.LoadOrStore(fileVolumeName, &sync.Mutex{})
+	instanceLock, ok := actual.(*sync.Mutex)
+	if !ok {
+		return "", 0, fmt.Errorf("failed to cast lock for cnsfilevolumeclient instance: %s", fileVolumeName)
+	}
+	instanceLock.Lock()
+	defer instanceLock.Unlock()
+
+	instance := &v1alpha1.CnsFileVolumeClient{}
+	instanceNamespace, instanceName, err := cache.SplitMetaNamespaceKey(fileVolumeName)
+	if err != nil {
+		log.Errorf("failed to split key %s with error: %+v", fileVolumeName, err)
+		return "", 0, err
+	}
+	instanceKey := types.NamespacedName{
+		Namespace: instanceNamespace,
+		Name:      instanceName,
+	}
+	err = f.client.Get(ctx, instanceKey, instance)
+	if err != nil {
+		log.Errorf("failed to get cnsfilevolumeclient instance %s with error: %+v", fileVolumeName, err)
+		return "", 0, err
+	}
+
+	// Verify if input VM name exists in Spec.ExternalIPtoClientVms
+	log.Debugf("Verifying if ExternalIPtoClientVms list has VM name: %s", clientVMName)
+	for vmIP, vmNames := range instance.Spec.ExternalIPtoClientVms {
+		for _, vmName := range vmNames {
+			if vmName == clientVMName {
+				return vmIP, len(vmNames), nil
+			}
+		}
+	}
+	return "", 0, err
+}
+
+// removeFinalizer will remove the CNS Finalizer = cns.vmware.com,
+// from a given CnsFileVolumeClient instance.
+func removeFinalizer(ctx context.Context, client client.Client,
+	instance *v1alpha1.CnsFileVolumeClient) error {
+	log := logger.GetLogger(ctx)
+	for i, finalizer := range instance.Finalizers {
+		if finalizer == cnsoperatortypes.CNSFinalizer {
+			log.Debugf("Removing %q finalizer from CnsFileVolumeClient instance with name: %q on namespace: %q",
+				cnsoperatortypes.CNSFinalizer, instance.Name, instance.Namespace)
+			instance.Finalizers = append(instance.Finalizers[:i], instance.Finalizers[i+1:]...)
+			// Update the instance after removing finalizer
+			err := client.Update(ctx, instance)
+			if err != nil {
+				log.Errorf("failed to update CnsFileVolumeClient instance with name: %q on namespace: %q",
+					instance.Name, instance.Namespace)
+				return err
+			}
+			break
+		}
+	}
+
 	return nil
 }
