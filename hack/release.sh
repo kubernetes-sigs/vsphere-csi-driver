@@ -136,7 +136,6 @@ function build_driver_images_linux() {
    --output "${LINUX_IMAGE_OUTPUT}" \
    --file images/driver/Dockerfile \
    --tag "${tag}" \
-   --build-arg ARCH=amd64 \
    --build-arg "VERSION=${VERSION}" \
    --build-arg "GOPROXY=${GOPROXY}" \
    --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
@@ -150,7 +149,9 @@ function build_syncer_image_linux() {
   docker build \
       -f images/syncer/Dockerfile \
       -t "${SYNCER_IMAGE_NAME}":"${VERSION}" \
+      --platform "linux/$ARCH" \
       --build-arg "VERSION=${VERSION}" \
+      --build-arg "ARCH=linux/amd64" \
       --build-arg "GOPROXY=${GOPROXY}" \
       --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
       --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
