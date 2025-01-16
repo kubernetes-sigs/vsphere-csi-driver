@@ -2396,7 +2396,7 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Invoke volume deleted method for pvCSI.
-		pvcsiVolumeDeleted(ctx, string(pvc.GetUID()), metadataSyncer)
+		pvcsiVolumeDeleted(ctx, string(pvc.GetUID()), metadataSyncer, pv)
 	} else {
 		csiPVCDeleted(ctx, pvc, pv, metadataSyncer)
 	}
@@ -2535,7 +2535,7 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Invoke volume deleted method for pvCSI.
-		pvcsiVolumeDeleted(ctx, string(pv.GetUID()), metadataSyncer)
+		pvcsiVolumeDeleted(ctx, string(pv.GetUID()), metadataSyncer, pv)
 	} else {
 		csiPVDeleted(ctx, pv, metadataSyncer)
 	}
