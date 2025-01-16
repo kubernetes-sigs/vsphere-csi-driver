@@ -4887,11 +4887,12 @@ func createAllowedTopolgies(topologyMapStr string) []v1.TopologySelectorLabelReq
 	topologyMap, _ := createTopologyMapLevel5(topologyMapStr)
 	allowedTopologies := []v1.TopologySelectorLabelRequirement{}
 	topoKey := ""
-	if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor {
+	if topologyFeature == topologyTkgHaName ||
+		topologyFeature == podVMOnStretchedSupervisor ||
+		topologyFeature == topologyDomainIsolation {
 		topoKey = tkgHATopologyKey
-	} else {
-		topoKey = topologykey
 	}
+
 	for key, val := range topologyMap {
 		allowedTopology := v1.TopologySelectorLabelRequirement{
 			Key:    topoKey + "/" + key,
@@ -4945,7 +4946,9 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 			if val, ok := allowedTopologiesMap[topology.Key]; ok {
 				framework.Logf("pv.Spec.NodeAffinity: %v, nodeSelector: %v", pv.Spec.NodeAffinity, nodeSelector)
 				if !compareStringLists(val, topology.Values) {
-					if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor {
+					if topologyFeature == topologyTkgHaName ||
+						topologyFeature == podVMOnStretchedSupervisor ||
+						topologyFeature == topologyDomainIsolation {
 						return false, fmt.Errorf("pv node affinity details: %v does not match"+
 							"with: %v in the allowed topologies", topology.Values, val)
 					} else {
@@ -4954,7 +4957,9 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 					}
 				}
 			} else {
-				if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor {
+				if topologyFeature == topologyTkgHaName ||
+					topologyFeature == podVMOnStretchedSupervisor ||
+					topologyFeature == topologyDomainIsolation {
 					return false, fmt.Errorf("pv node affinity key: %v does not does not exist in the"+
 						"allowed topologies map: %v", topology.Key, allowedTopologiesMap)
 				} else {
@@ -7395,5 +7400,4 @@ func validateQuotaUsageAfterCleanUp(ctx context.Context, restConfig *rest.Config
 	gomega.Expect(reservedQuota).NotTo(gomega.BeFalse())
 	framework.Logf("quotavalidationStatus :%v reservedQuota:%v", quotavalidationStatusAfterCleanup,
 		reservedQuota)
-
 }
