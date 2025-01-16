@@ -24,11 +24,11 @@ Ensure that block-volume-snapshot feature is enabled.
 1. Deploys the VolumeSnapshot CRDs
 2. Creates RBAC rules to support VolumeSnapshot
 3. Deploys snapshot-controller in kube-system namespace
-4. Deploys the snapshot validation webhook
+4. Cleans up the snapshot validation webhook deployment if previously deployed, since it is removed from snapshotter version v8.2.0
 5. Patches vSphere CSI driver to deploy the csi-snapshotter sidecar
 
-The script fails if there is existing snapshot-controller or snapshot validation webhook with unqualified versions
-Deleting the unqualified snapshot-controller or snapshot validation webhook running the script again deploys the qualified version
+The script fails if there is an existing snapshot-controller with unqualified versions
+Deleting the unqualified snapshot-controller and running the script again deploys the qualified version
 
 The script fails if incorrect version VolumeSnapshot CRDs exists. Deleting the CRDs will deploy the correct version
 of the CRDs.
@@ -50,10 +50,13 @@ if ! command -v kubectl > /dev/null; then
   exit 1
 fi
 
-qualified_version="v7.0.2"
+qualified_version="v8.2.0"
 volumesnapshotclasses_crd="volumesnapshotclasses.snapshot.storage.k8s.io"
 volumesnapshotcontents_crd="volumesnapshotcontents.snapshot.storage.k8s.io"
 volumesnapshots_crd="volumesnapshots.snapshot.storage.k8s.io"
+volumegroupsnapshotclasses_crd="volumegroupsnapshotclasses.groupsnapshot.storage.k8s.io"
+volumegroupsnapshotcontents_crd="volumegroupsnapshotcontents.groupsnapshot.storage.k8s.io"
+volumegroupsnapshots_crd="volumegroupsnapshots.groupsnapshot.storage.k8s.io"
 
 is_deployment_available(){
 	if ! output=$(kubectl get deployment "$1" -n "$2" 2>&1); then
@@ -144,6 +147,33 @@ check_and_deploy_crds(){
 		kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml 2>/dev/null || true
 		echo -e "✅ Created CRD ${volumesnapshots_crd}"
 	fi
+
+	volumegroupsnapshotclasses_crd_available=$(is_crd_available $volumegroupsnapshotclasses_crd)
+	if [ "$volumegroupsnapshotclasses_crd_available" = "true" ]
+	then
+		check_crd_version ${volumegroupsnapshotclasses_crd}
+	else
+		kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/client/config/crd/groupsnapshot.storage.k8s.io_volumegroupsnapshotclasses.yaml 2>/dev/null || true
+		echo -e "✅ Created CRD ${volumegroupsnapshotclasses_crd}"
+	fi
+
+	volumegroupsnapshotcontents_crd_available=$(is_crd_available $volumegroupsnapshotcontents_crd)
+	if [ "$volumegroupsnapshotcontents_crd_available" = "true" ]
+	then
+		check_crd_version ${volumegroupsnapshotcontents_crd}
+	else
+		kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/client/config/crd/groupsnapshot.storage.k8s.io_volumegroupsnapshotcontents.yaml 2>/dev/null || true
+		echo -e "✅ Created CRD ${volumegroupsnapshotcontents_crd}"
+	fi
+
+	volumegroupsnapshots_crd_available=$(is_crd_available $volumegroupsnapshots_crd)
+	if [ "$volumegroupsnapshots_crd_available" = "true" ]
+	then
+		check_crd_version ${volumegroupsnapshots_crd}
+	else
+		kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/"${qualified_version}"/client/config/crd/groupsnapshot.storage.k8s.io_volumegroupsnapshots.yaml 2>/dev/null || true
+		echo -e "✅ Created CRD ${volumegroupsnapshots_crd}"
+	fi
 	echo  -e "\n✅ Deployed VolumeSnapshot CRDs\n"
 }
 
@@ -160,66 +190,19 @@ deploy_snapshot_controller(){
 	echo -e "\n✅ Successfully deployed snapshot-controller\n"
 }
 
-deploy_validation_webhook() {
+remove_validation_webhook() {
 	service=snapshot-validation-service
 	secret=snapshot-webhook-certs
 	namespace=kube-system
-	if [ ! -x "$(command -v openssl)" ]; then
-		echo "❌ ERROR: openssl not found"
-		exit 1
-	fi
-	tmpdir=$(mktemp -d)
-	echo "creating certs in tmpdir ${tmpdir} "
-	cat <<EOF >> "${tmpdir}"/server.conf
-	[req]
-	req_extensions = v3_req
-	distinguished_name = req_distinguished_name
-	prompt = no
-	[req_distinguished_name]
-	CN = ${service}.${namespace}.svc
-	[ v3_req ]
-	basicConstraints = CA:FALSE
-	keyUsage = nonRepudiation, digitalSignature, keyEncipherment
-	extendedKeyUsage = clientAuth, serverAuth
-	subjectAltName = @alt_names
-	[alt_names]
-	DNS.1 = ${service}
-	DNS.2 = ${service}.${namespace}
-	DNS.3 = ${service}.${namespace}.svc
-EOF
-
-	# Default webhook server and ca certificate validity
-	validity=180
- 
-	openssl req -nodes -new -x509 -keyout "${tmpdir}"/ca.key -days ${validity} -out "${tmpdir}"/ca.crt -subj "/CN=vSphere CSI Admission Controller Webhook CA"
-	openssl genrsa -out "${tmpdir}"/webhook-server-tls.key 2048
-	openssl req -new -key "${tmpdir}"/webhook-server-tls.key -subj "/CN=${service}.${namespace}.svc" -config "${tmpdir}"/server.conf \
-	| openssl x509 -req -CA "${tmpdir}"/ca.crt -CAkey "${tmpdir}"/ca.key -days $((validity-1)) -CAcreateserial -out "${tmpdir}"/webhook-server-tls.crt -extensions v3_req -extfile "${tmpdir}"/server.conf
-	cat <<EOF >"${tmpdir}"/webhook.config
-	[WebHookConfig]
-	port = "8443"
-	cert-file = "/run/secrets/tls/tls.crt"
-	key-file = "/run/secrets/tls/tls.key"
-EOF
 	kubectl delete secret ${secret} --namespace "${namespace}" 2>/dev/null || true
-	# create the secret with CA cert and server cert/key
-	kubectl create secret generic "${secret}" \
-        --from-file=tls.key="${tmpdir}"/webhook-server-tls.key \
-        --from-file=tls.crt="${tmpdir}"/webhook-server-tls.crt \
-        --from-file=webhook.config="${tmpdir}"/webhook.config \
-        --dry-run=client -o yaml |
-    kubectl -n "${namespace}" apply -f -
-    CA_BUNDLE="$(openssl base64 -A <"${tmpdir}/ca.crt")"
-
-	# clean-up previously created service and validatingwebhookconfiguration.
+	# clean-up previously created service, deployment, validatingwebhookconfiguration and RBACs etc.
 	kubectl delete service "${service}" --namespace "${namespace}" 2>/dev/null || true
-	kubectl delete validation-webhook.snapshot.storage.k8s.io --namespace "${namespace}" 2>/dev/null || true
 	kubectl delete deployment snapshot-validation-deployment --namespace "${namespace}" 2>/dev/null || true
-	# patch csi-snapshot-validatingwebhook.yaml with CA_BUNDLE and create service and validatingwebhookconfiguration
-	curl https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/master/manifests/vanilla/csi-snapshot-validatingwebhook.yaml | sed "s/caBundle: .*$/caBundle: ${CA_BUNDLE}/g" | kubectl apply -f -
-	kubectl patch deployment -n kube-system snapshot-validation-deployment --patch '{"spec": {"template": {"spec": {"nodeSelector": {"node-role.kubernetes.io/control-plane": ""}, "tolerations": [{"key":"node-role.kubernetes.io/master","operator":"Exists", "effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","operator":"Exists", "effect":"NoSchedule"}]}}}}'
-	kubectl -n kube-system rollout status deploy/snapshot-validation-deployment
-	echo -e "\n✅ Successfully deployed snapshot-validation-deployment\n"
+	kubectl delete validatingwebhookconfiguration validation-webhook.snapshot.storage.k8s.io  2>/dev/null || true
+	kubectl delete clusterrole snapshot-webhook-runner  2>/dev/null || true
+	kubectl delete clusterrolebinding snapshot-webhook-role  2>/dev/null || true
+	kubectl delete serviceaccount snapshot-webhook --namespace "${namespace}" 2>/dev/null || true
+	echo -e "\n✅ Successfully cleaned-up snapshot validating webhook deployment\n"
 }
 
 patch_vsphere_csi_driver(){
@@ -305,15 +288,8 @@ else
   deploy_snapshot_controller
 fi
 
-snap_validation_webhook_available=$(is_deployment_available snapshot-validation-deployment kube-system)
-if [ "$snap_validation_webhook_available" = "true" ]
-then
-	echo -e "snapshot-validation-deployment Deployment already exists, verifying version.."
-	validate_version snapshot-validation-deployment kube-system
-else
-  echo -e "No existing snapshot-validation-deployment Deployment found, deploying it now.."
-  deploy_validation_webhook
-fi
+# Snapshot validating webhook has been deprecated and removed from v8.2.0, hence remove the webhook
+remove_validation_webhook
 
-# Check if vSphere CSI Driver has the snapshotter sidecar, if not patch the deployment
+# Check if vSphere CSI Driver has the snapshotter sidecar with correct version, if not patch the deployment
 check_snapshotter_sidecar
