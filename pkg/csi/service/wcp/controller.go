@@ -546,10 +546,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
 					"volume provisioning request received without topologyRequirement.")
 			}
-			if isVdppOnStretchedSVEnabled {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-					"volume provisioning request received without topologyRequirement.")
-			}
 			if len(clusterComputeResourceMoIds) > 1 {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 					"stretched supervisor cluster does not support creating volumes "+
