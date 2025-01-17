@@ -311,12 +311,17 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && isStorageQuotaM2FSSEnabled {
-		cnsVolumeMap := make(map[string]cnstypes.CnsVolume)
+		cnsBlockVolumeMap := make(map[string]cnstypes.CnsVolume)
 		for _, vol := range queryAllResult.Volumes {
-			cnsVolumeMap[vol.VolumeId.Id] = vol
+			// We do not support file volume snapshot, filtering out block volume only.
+			// cnsvolumeinfo snapshot details will be validated for volumes in cnsBlockVolumeMap
+			if vol.VolumeType == common.BlockVolumeType {
+				cnsBlockVolumeMap[vol.VolumeId.Id] = vol
+			}
 		}
-		log.Infof("calling validateAndCorrectVolumeInfoSnapshotDetails with %d volumes", len(cnsVolumeMap))
-		validateAndCorrectVolumeInfoSnapshotDetails(ctx, cnsVolumeMap)
+		log.Infof("calling validateAndCorrectVolumeInfoSnapshotDetails with %d volumes",
+			len(cnsBlockVolumeMap))
+		validateAndCorrectVolumeInfoSnapshotDetails(ctx, cnsBlockVolumeMap)
 	}
 	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vc]
 	if !vcHostObjFound {
@@ -764,7 +769,7 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 // in cns with the size in cnsvolumeinfo. if found discrepancy in order to correct the values
 // update the cnsvolumeinfo.
 func validateAndCorrectVolumeInfoSnapshotDetails(ctx context.Context,
-	cnsVolumeMap map[string]cnstypes.CnsVolume) {
+	cnsBlockVolumeMap map[string]cnstypes.CnsVolume) {
 	log := logger.GetLogger(ctx)
 	volumeInfoCRList := volumeInfoService.ListAllVolumeInfos()
 	alreadySyncedVolumeCount := 0
@@ -777,7 +782,7 @@ func validateAndCorrectVolumeInfoSnapshotDetails(ctx context.Context,
 			log.Errorf("Failed to parse cnsvolumeinfo object: %v, err: %v", cnsvolumeinfo, err)
 			continue
 		}
-		if cnsVol, ok := cnsVolumeMap[cnsvolumeinfo.Spec.VolumeID]; ok {
+		if cnsVol, ok := cnsBlockVolumeMap[cnsvolumeinfo.Spec.VolumeID]; ok {
 			log.Debugf("validate volume info for storage details for volume %s", cnsVol.VolumeId.Id)
 			var aggregatedSnapshotCapacityInMB int64
 			if cnsVol.BackingObjectDetails != nil &&
