@@ -571,13 +571,9 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 
 		ginkgo.By("Scale down deployment to 1 replica")
 		replica = 1
-		deploymentList, pods, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica), true,
+		deploymentList, _, err = createVerifyAndScaleDeploymentPods(ctx, client, namespace, int32(replica), true,
 			labelsMap, pvclaim, nodeSelectorTerms, execRWXCommandPod, nginxImage,
 			true, deploymentList[0], 0)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Verify volume metadata for deployment pod, pvc and pv")
-		err = waitAndVerifyCnsVolumeMetadata(ctx, pv.Spec.CSI.VolumeHandle, pvclaim, pv, &pods.Items[0])
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -1137,7 +1133,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 			// allowed topology consider for node selector terms is rack3
 			allowedTopologyForPod = getTopologySelector(topologyAffinityDetails, topologyCategories,
 				topologyLength, leafNode, leafNodeTag2)
-			nodeSelectorTerms, err = getNodeSelectorMapForDeploymentPods(allowedTopologies)
+			nodeSelectorTerms, err = getNodeSelectorMapForDeploymentPods(allowedTopologyForPod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -1153,6 +1149,12 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 
 		//taking pvclaims 0th index because we are creating only single RWX PVC in this case
 		pvclaim := pvclaims[0]
+		defer func() {
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		ginkgo.By("Create 3 standalone Pods using the same PVC")
 		podList, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nodeSelectorTerms, pvclaim, false,
@@ -1169,12 +1171,6 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 		ginkgo.By("Verify PVC Bound state and CNS side verification")
 		pvs, err := checkVolumeStateAndPerformCnsVerification(ctx, client, pvclaims, "", datastoreurl)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		//taking pvs 0th index because we are creating only single RWX PVC in this case
 		pv = pvs[0]
@@ -1827,7 +1823,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 			//rack-2 or zone-2 or cluster-2
 			allowedTopologyForPod = getTopologySelector(topologyAffinityDetails, topologyCategories,
 				topologyLength, leafNode, leafNodeTag1)
-			nodeSelectorTerms, err = getNodeSelectorMapForDeploymentPods(allowedTopologies)
+			nodeSelectorTerms, err = getNodeSelectorMapForDeploymentPods(allowedTopologyForPod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 

@@ -667,10 +667,12 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vm2.Spec.Volumes = vm2.Spec.Volumes[:1]
 		err = vmopC.Update(ctx, vm2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Power on vm2")
+		framework.Logf("sleeping for a min...")
+		time.Sleep(time.Minute)
+		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vm2 = setVmPowerState(ctx, vmopC, vm2, vmopv1.VirtualMachinePoweredOn)
 		vm2, err = wait4Vm2ReachPowerStateInSpec(ctx, vmopC, vm2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1419,10 +1421,10 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		}
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 
-		ginkgo.By("create resource quota")
+		ginkgo.By("Sleeping for a minute for storage policy to get " +
+			"refresh and added to namespace")
+		time.Sleep(1 * time.Minute)
 		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
-
-		//restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
 		if isStorageQuotaFSSEnabled {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =

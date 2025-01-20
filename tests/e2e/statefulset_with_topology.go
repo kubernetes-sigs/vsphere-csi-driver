@@ -92,7 +92,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		}()
 
 		ginkgo.By("Creating statefulset with single replica")
-		statefulset, service := createStatefulSetWithOneReplica(client, manifestPath, namespace)
+		statefulset, service, err := createStatefulSetWithOneReplica(client, manifestPath, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			deleteService(namespace, client, service)
 		}()

@@ -8059,17 +8059,26 @@ func invokeSnapshotOperationsOnSharedDatastore(client clientset.Interface, ctx c
 		scParameters[scParamDatastoreURL] = sharedDatastoreURL
 		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
-	} else {
+	} else if supervisorCluster {
 		ginkgo.By("Get storage class and create PVC")
 		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+	} else {
+		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+		scParameters[svStorageClassName] = storagePolicyName
+		ginkgo.By("Create storage class")
+		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 	}
 	ginkgo.By("Create PVC")
 	pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
