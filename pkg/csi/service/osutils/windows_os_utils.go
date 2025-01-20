@@ -135,6 +135,14 @@ func (osUtils *OsUtils) haveMountPoint(ctx context.Context, target string) (bool
 	// check if disk is mounted and formatted correctly, here the path should exist as it is created by CO and already checked
 	notMounted, err := mounter.IsLikelyNotMountPoint(target)
 	if err != nil && !os.IsNotExist(err) {
+		if mounter.IsCorruptedMount(target) {
+			notMounted = false
+			log.Warnf("detected corrupted mount for target [%s]", target)
+		} else {
+			return !notMounted, err
+		}
+	}
+	if err != nil && !os.IsNotExist(err) {
 		return false, logger.LogNewErrorCodef(log, codes.Internal,
 			"Could not determine if staging path is already mounted, err: %v", err)
 	}

@@ -84,6 +84,8 @@ type CSIProxyMounter interface {
 	StatFS(ctx context.Context, path string) (available, capacity, used, inodesFree, inodes, inodesUsed int64, err error)
 	// GetBIOSSerialNumber - Get bios serial number
 	GetBIOSSerialNumber(ctx context.Context) (string, error)
+	// IsCorruptedMount - check for mount point corruption
+	IsCorruptedMount(path string) bool
 }
 
 // NewSafeMounter returns mounter with exec
@@ -221,21 +223,27 @@ func (mounter *csiProxyMounter) GetDiskNumber(ctx context.Context, diskID string
 // IsLikelyMountPoint - If the directory does not exists, the function will return error.
 // If the path exists, will check if it is a symlink.
 func (mounter *csiProxyMounter) IsLikelyNotMountPoint(path string) (bool, error) {
-	// Check if directory path given exists already
-	stat, err := os.Lstat(path)
+	isExists, err := mounter.ExistsPath(context.Background(), path)
 	if err != nil {
-		return true, err
-	}
-	// Check if directory path is a symlink by checking file mode.
-	// Note: Not using CSI proxy IsSymlink() function to check for symlink for Windows,
-	//		 as it tries to read the link. In case of corrupted mount point, reading link
-	//		 might fail, thereby failing the volume attach operation indefinitely.
-	//       Refer https://bugzilla.eng.vmware.com/show_bug.cgi?id=3364853 for details
-	if stat.Mode()&os.ModeSymlink != 0 {
 		return false, err
 	}
-	return true, nil
+	if !isExists {
+		return true, os.ErrNotExist
+	}
+	response, err := mounter.FsClient.IsSymlink(context.Background(),
+		&fs.IsSymlinkRequest{
+			Path: normalizeWindowsPath(path),
+		})
+	if err != nil {
+		return false, err
+	}
+	return !response.IsSymlink, nil
 	//TODO check if formatted else error out
+}
+
+func (mounter *csiProxyMounter) IsCorruptedMount(path string) bool {
+	_, err := mount.PathExists(path)
+	return err != nil && mount.IsCorruptedMnt(err)
 }
 
 // CanSafelySkipMountPointCheck always returns false on Windows
