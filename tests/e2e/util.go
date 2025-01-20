@@ -985,6 +985,13 @@ func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath st
 	service, err := manifest.SvcFromManifest(mkpath("service.yaml"))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	service, err = client.CoreV1().Services(namespace).Create(ctx, service, metav1.CreateOptions{})
+	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			framework.Logf("services 'nginx' already exists")
+		} else {
+			fmt.Errorf("Failed to create nginx service")
+		}
+	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	*statefulSet.Spec.Replicas = 1
 	_, err = client.AppsV1().StatefulSets(namespace).Create(ctx, statefulSet, metav1.CreateOptions{})
@@ -2268,8 +2275,8 @@ func verifyPodLocation(pod *v1.Pod, nodeList *v1.NodeList, zoneValue string, reg
 func getTopologyFromPod(pod *v1.Pod, nodeList *v1.NodeList) (string, string, error) {
 	for _, node := range nodeList.Items {
 		if pod.Spec.NodeName == node.Name {
-			podRegion := node.Labels[v1.LabelZoneRegion]
-			podZone := node.Labels[v1.LabelZoneFailureDomain]
+			podRegion := node.Labels[regionKey]
+			podZone := node.Labels[zoneKey]
 			return podRegion, podZone, nil
 		}
 	}
@@ -4851,12 +4858,12 @@ func createAllowedTopolgies(topologyMapStr string) []v1.TopologySelectorLabelReq
 	topologyMap, _ := createTopologyMapLevel5(topologyMapStr)
 	allowedTopologies := []v1.TopologySelectorLabelRequirement{}
 	topoKey := ""
-	if topologyFeature == topologyTkgHaName ||
-		topologyFeature == podVMOnStretchedSupervisor ||
+	if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor ||
 		topologyFeature == topologyDomainIsolation {
 		topoKey = tkgHATopologyKey
+	} else {
+		topoKey = topologykey
 	}
-
 	for key, val := range topologyMap {
 		allowedTopology := v1.TopologySelectorLabelRequirement{
 			Key:    topoKey + "/" + key,
