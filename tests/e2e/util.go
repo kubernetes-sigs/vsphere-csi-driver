@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -88,6 +89,7 @@ import (
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
+	cnsunregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -101,6 +103,7 @@ var (
 	svcNamespace1          string
 	vsanHealthClient       *VsanClient
 	clusterComputeResource []*object.ClusterComputeResource
+	hosts                  []*object.HostSystem
 	defaultDatastore       *object.Datastore
 	restConfig             *rest.Config
 	pvclaims               []*v1.PersistentVolumeClaim
@@ -1192,8 +1195,7 @@ func updateCSIDeploymentProvisionerTimeout(client clientset.Interface, namespace
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Waiting for a min for update operation on deployment to take effect...")
 	time.Sleep(1 * time.Minute)
-	err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(num_csi_pods),
-		time.Duration(2*pollTimeout))
+	err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(num_csi_pods), time.Duration(2*pollTimeout))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
@@ -1444,9 +1446,6 @@ func invokeVCenterServiceControl(ctx context.Context, command, service, host str
 	return nil
 }
 
-/*
-isFssEnabled invokes the given command to check if vCenter has a particular FSS enabled or not
-*/
 func isFssEnabled(ctx context.Context, host, fss string) bool {
 	sshCmd := fmt.Sprintf("python /usr/sbin/feature-state-wrapper.py %s", fss)
 	framework.Logf("Checking if fss is enabled on vCenter host %v", host)
@@ -1923,7 +1922,6 @@ func getWCPSessionId(hostname string, username string, password string) string {
 // getWindowsFileSystemSize finds the windowsWorkerIp and returns the size of the volume
 func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, error) {
 	var err error
-	var output fssh.Result
 	var windowsWorkerIP, size string
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1936,32 +1934,17 @@ func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, e
 			break
 		}
 	}
-	cmd := "Get-Disk | Format-List -Property Manufacturer,Size"
-	if guestCluster {
-		svcMasterIp := GetAndExpectStringEnvVar(svcMasterIP)
-		svcMasterPwd := GetAndExpectStringEnvVar(svcMasterPassword)
-		svcNamespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-		sshWcpConfig := &ssh.ClientConfig{
-			User: rootUser,
-			Auth: []ssh.AuthMethod{
-				ssh.Password(svcMasterPwd),
-			},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		}
-		output, err = execCommandOnGcWorker(sshWcpConfig, svcMasterIp, windowsWorkerIP,
-			svcNamespace, cmd)
-	} else {
-		nimbusGeneratedWindowsVmPwd := GetAndExpectStringEnvVar(envWindowsPwd)
-		windowsUser := GetAndExpectStringEnvVar(envWindowsUser)
-		sshClientConfig := &ssh.ClientConfig{
-			User: windowsUser,
-			Auth: []ssh.AuthMethod{
-				ssh.Password(nimbusGeneratedWindowsVmPwd),
-			},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		}
-		output, err = sshExec(sshClientConfig, windowsWorkerIP, cmd)
+	nimbusGeneratedWindowsVmPwd := GetAndExpectStringEnvVar(envWindowsPwd)
+	windowsUser := GetAndExpectStringEnvVar(envWindowsUser)
+	sshClientConfig := &ssh.ClientConfig{
+		User: windowsUser,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(nimbusGeneratedWindowsVmPwd),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
+	cmd := "Get-Disk | Format-List -Property Manufacturer,Size"
+	output, err := sshExec(sshClientConfig, windowsWorkerIP, cmd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	fullStr := strings.Split(strings.TrimSuffix(string(output.Stdout), "\n"), "\n")
 	var originalSizeInbytes int64
@@ -1973,19 +1956,37 @@ func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, e
 			if err != nil {
 				return -1, fmt.Errorf("failed to parse size %s into int size", size)
 			}
-			if guestCluster {
-				if originalSizeInbytes < 42949672960 {
-					break
-				}
-			} else {
-				if originalSizeInbytes < 96636764160 {
-					break
-				}
+			if originalSizeInbytes < 96636764160 {
+				break
 			}
 		}
 	}
 	framework.Logf("disk size is  %d", originalSizeInbytes)
 	return originalSizeInbytes, nil
+}
+
+// replacePasswordRotationTime invokes the given command to replace the password
+// rotation time to 0, so that password roation happens immediately on the given
+// vCenter over SSH. Vmon-cli is used to restart the wcp service after changing
+// the time.
+func replacePasswordRotationTime(ctx context.Context, file, host string) error {
+	sshCmd := fmt.Sprintf("sed -i '3 c\\0' %s", file)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+
+	sshCmd = fmt.Sprintf("vmon-cli -r %s", wcpServiceName)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err = fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
+	time.Sleep(sleepTimeOut)
+	if err != nil || result.Code != 0 {
+		fssh.LogResult(result)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
+	}
+	return nil
 }
 
 // performPasswordRotationOnSupervisor invokes the given command to replace the password
@@ -2010,14 +2011,13 @@ func performPasswordRotationOnSupervisor(client clientset.Interface, ctx context
 	currentTimestamp := time.Now()
 	twelveHoursAgoTimestamp := (currentTimestamp.Add(-12 * time.Hour)).Unix()
 	sshCmd = fmt.Sprintf("cd /etc/vmware/wcp; sudo -u wcp psql -U wcpuser -d VCDB -c "+
-		"\"update vcenter_svc_accounts set last_pwd_rotation_timestamp=%v "+
+		"\"update cluster_db_configs set last_storage_pwd_rotation_timestamp=%v "+
 		"where instance_id='%s'\"", twelveHoursAgoTimestamp, vsphereCfg.Global.SupervisorID)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
 	result, err = fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		return false, fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
-
 	// Starting wcp service
 	sshCmd = fmt.Sprintf("vmon-cli --start %s", wcpServiceName)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
@@ -3237,6 +3237,27 @@ func getCNSRegisterVolumeSpec(ctx context.Context, namespace string, fcdID strin
 	return cnsRegisterVolume
 }
 
+// Function to create CNS UnregisterVolume spec, with given FCD ID
+func getCNSUnregisterVolumeSpec(namespace string,
+	fcdID string) *cnsunregistervolumev1alpha1.CnsUnregisterVolume {
+	var (
+		cnsUnRegisterVolume *cnsunregistervolumev1alpha1.CnsUnregisterVolume
+	)
+	framework.Logf("get CNS UnregisterVolume API spec")
+
+	cnsUnRegisterVolume = &cnsunregistervolumev1alpha1.CnsUnregisterVolume{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "cnsunregvol-",
+			Namespace:    namespace,
+		},
+		Spec: cnsunregistervolumev1alpha1.CnsUnregisterVolumeSpec{
+			VolumeID: fcdID,
+		},
+	}
+	return cnsUnRegisterVolume
+}
+
 // Create CNS register volume.
 func createCNSRegisterVolume(ctx context.Context, restConfig *rest.Config,
 	cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume) error {
@@ -3245,6 +3266,30 @@ func createCNSRegisterVolume(ctx context.Context, restConfig *rest.Config,
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Create CNSRegisterVolume")
 	err = cnsOperatorClient.Create(ctx, cnsRegisterVolume)
+
+	return err
+}
+
+// Create CNS Unregister volume.
+func createCNSUnRegisterVolume(ctx context.Context, restConfig *rest.Config,
+	cnsUnRegisterVolume *cnsunregistervolumev1alpha1.CnsUnregisterVolume) error {
+
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Create CNSUnRegisterVolume")
+	err = cnsOperatorClient.Create(ctx, cnsUnRegisterVolume)
+
+	return err
+}
+
+// Delete CNS Unregister volume.
+func deleteCNSUnRegisterVolume(ctx context.Context, restConfig *rest.Config,
+	cnsUnRegisterVolume *cnsunregistervolumev1alpha1.CnsUnregisterVolume) error {
+
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Delete CNSUnRegisterVolume")
+	err = cnsOperatorClient.Delete(ctx, cnsUnRegisterVolume)
 
 	return err
 }
@@ -3267,6 +3312,31 @@ func queryCNSRegisterVolume(ctx context.Context, restClientConfig *rest.Config,
 	err = cnsOperatorClient.Get(ctx, pkgtypes.NamespacedName{Name: cnsRegistervolumeName, Namespace: namespace}, cns)
 	if err == nil {
 		framework.Logf("CNS RegisterVolume %s Found in the namespace  %s:", cnsRegistervolumeName, namespace)
+		isPresent = true
+	}
+
+	return isPresent
+
+}
+
+// Query CNS Unregister volume. Returns true if the CNSUnregisterVolume is
+// available otherwise false.
+func queryCNSUnregisterVolume(ctx context.Context, restClientConfig *rest.Config,
+	cnsUnregistervolumeName string, namespace string) bool {
+	isPresent := false
+	framework.Logf("cleanUpCnsUnregisterVolumeInstances: start")
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Get list of CnsUnregisterVolume instances from all namespaces.
+	cnsUnregisterVolumesList := &cnsunregistervolumev1alpha1.CnsUnregisterVolumeList{}
+	err = cnsOperatorClient.List(ctx, cnsUnregisterVolumesList)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	cns := &cnsunregistervolumev1alpha1.CnsUnregisterVolume{}
+	err = cnsOperatorClient.Get(ctx, pkgtypes.NamespacedName{Name: cnsUnregistervolumeName, Namespace: namespace}, cns)
+	if err == nil {
+		framework.Logf("CNS UnregisterVolume %s Found in the namespace  %s:", cnsUnregistervolumeName, namespace)
 		isPresent = true
 	}
 
@@ -3320,6 +3390,20 @@ func getCNSRegistervolume(ctx context.Context, restClientConfig *rest.Config,
 		pkgtypes.NamespacedName{Name: cnsRegisterVolume.Name, Namespace: cnsRegisterVolume.Namespace}, cns)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	return cns
+}
+
+// Get CNS Unregister volume.
+func getCNSUnRegistervolume(ctx context.Context,
+	restClientConfig *rest.Config, cnsUnRegisterVolume *cnsunregistervolumev1alpha1.
+		CnsUnregisterVolume) *cnsunregistervolumev1alpha1.CnsUnregisterVolume {
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	cns := &cnsunregistervolumev1alpha1.CnsUnregisterVolume{}
+	err = cnsOperatorClient.Get(ctx,
+		pkgtypes.NamespacedName{Name: cnsUnRegisterVolume.Name, Namespace: cnsUnRegisterVolume.Namespace}, cns)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return cns
 }
 
@@ -3413,18 +3497,16 @@ func GetPodSpecByUserID(ns string, nodeSelector map[string]string, pvclaims []*v
 
 // writeDataOnFileFromPod writes specified data from given Pod at the given.
 func writeDataOnFileFromPod(namespace string, podName string, filePath string, data string) {
-	var shellExec, cmdArg, syncCmd string
+	var shellExec, cmdArg string
 	if windowsEnv {
 		shellExec = "Powershell.exe"
 		cmdArg = "-Command"
 	} else {
 		shellExec = "/bin/sh"
 		cmdArg = "-c"
-		syncCmd = fmt.Sprintf("echo '%s' >> %s && sync", data, filePath)
 	}
-
-	// Command to write data and sync it
-	wrtiecmd := []string{"exec", podName, "--namespace=" + namespace, "--", shellExec, cmdArg, syncCmd}
+	wrtiecmd := []string{"exec", podName, "--namespace=" + namespace, "--", shellExec, cmdArg,
+		fmt.Sprintf(" echo '%s' >  %s ", data, filePath)}
 	e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
 }
 
@@ -3550,6 +3632,52 @@ func getClusterComputeResource(ctx context.Context, vs *vSphere) ([]*object.Clus
 	return clusterComputeResource, vsanHealthClient
 }
 
+// findIP returns the IP from the input string.
+func findIP(input string) string {
+	numBlock := "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])"
+	regexPattern := numBlock + "\\." + numBlock + "\\." + numBlock + "\\." + numBlock
+	regEx := regexp.MustCompile(regexPattern)
+	return regEx.FindString(input)
+}
+
+// getHosts returns list of hosts and it takes clusterComputeResource as input.
+// This method is used by WCP and GC tests.
+func getHosts(ctx context.Context, clusterComputeResource []*object.ClusterComputeResource) []*object.HostSystem {
+	var err error
+	if hosts == nil {
+		computeCluster := os.Getenv(envComputeClusterName)
+		if computeCluster == "" {
+			if guestCluster {
+				computeCluster = "compute-cluster"
+			} else if supervisorCluster {
+				computeCluster = "wcp-app-platform-sanity-cluster"
+			}
+			framework.Logf("Default cluster is chosen for test")
+		}
+		for _, cluster := range clusterComputeResource {
+			framework.Logf("clusterComputeResource %v", clusterComputeResource)
+			if strings.Contains(cluster.Name(), computeCluster) {
+				hosts, err = cluster.Hosts(ctx)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+	}
+	gomega.Expect(hosts).NotTo(gomega.BeNil())
+	return hosts
+}
+
+// waitForAllHostsToBeUp will check and wait till the host is reachable.
+func waitForAllHostsToBeUp(ctx context.Context, vs *vSphere) {
+	clusterComputeResource, _ = getClusterComputeResource(ctx, vs)
+	hosts = getHosts(ctx, clusterComputeResource)
+	framework.Logf("host information %v", hosts)
+	for index := range hosts {
+		ip := findIP(hosts[index].String())
+		err := waitForHostToBeUp(ip)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
 // psodHostWithPv methods finds the esx host where pv is residing and psods it.
 // It uses VsanObjIndentities and QueryVsanObjects apis to achieve it and
 // returns the host ip.
@@ -3568,8 +3696,18 @@ func psodHostWithPv(ctx context.Context, vs *vSphere, pvName string) string {
 	framework.Logf("hostIP %v", hostIP)
 	gomega.Expect(hostIP).NotTo(gomega.BeEmpty())
 
-	err := psodHost(hostIP, "")
+	ginkgo.By("PSOD")
+	sshCmd := fmt.Sprintf("vsish -e set /config/Misc/intOpts/BlueScreenTimeout %s", psodTime)
+	op, err := runCommandOnESX("root", hostIP, sshCmd)
+	framework.Logf(op)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Injecting PSOD ")
+	psodCmd := "vsish -e set /reliability/crashMe/Panic 1"
+	op, err = runCommandOnESX("root", hostIP, psodCmd)
+	framework.Logf(op)
+	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+
 	return hostIP
 }
 
@@ -3818,7 +3956,7 @@ func getPVCSpecWithPVandStorageClass(pvcName string, namespace string, labels ma
 // object name.
 func waitForEvent(ctx context.Context, client clientset.Interface,
 	namespace string, substr string, name string) error {
-	waitErr := wait.PollUntilContextTimeout(ctx, poll, 2*pollTimeout, true,
+	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
 		func(ctx context.Context) (bool, error) {
 			eventList, err := client.CoreV1().Events(namespace).List(ctx,
 				metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
@@ -3975,8 +4113,7 @@ func waitForNamespaceToGetDeleted(ctx context.Context, c clientset.Interface,
 // created or until timeout occurs, whichever comes first.
 func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.Config, namespace string,
 	cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume, Poll, timeout time.Duration) error {
-	framework.Logf("Waiting up to %v for CnsRegisterVolume %v, namespace: %s,  to get created",
-		timeout, cnsRegisterVolume, namespace)
+	framework.Logf("Waiting up to %v for CnsRegisterVolume %v to get created", timeout, cnsRegisterVolume)
 
 	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
 	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
@@ -3989,7 +4126,47 @@ func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.
 		}
 	}
 
-	return fmt.Errorf("cnsRegisterVolume %s creation is failed within %v", cnsRegisterVolumeName, timeout)
+	return fmt.Errorf("cnsRegisterVolume %v creation is failed within %v", cnsRegisterVolumeName, timeout)
+}
+
+// waitForCNSUnRegisterVolumeToGetUnregistered waits for a cnsUnRegisterVolume to get
+// created or until timeout occurs, whichever comes first.
+func waitForCNSUnRegisterVolumeToGetUnregistered(ctx context.Context, restConfig *rest.Config,
+	cnsUnRegisterVolume *cnsunregistervolumev1alpha1.CnsUnregisterVolume, Poll, timeout time.Duration) error {
+	framework.Logf("Waiting up to %v for CnsUnRegisterVolume %v to get created", timeout, cnsUnRegisterVolume)
+
+	cnsUnRegisterVolumeName := cnsUnRegisterVolume.GetName()
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+		cnsUnRegisterVolume = getCNSUnRegistervolume(ctx, restConfig, cnsUnRegisterVolume)
+		flag := cnsUnRegisterVolume.Status.Unregistered
+		if !flag {
+			continue
+		} else {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("cnsRegisterVolume %s unregister is failed within %v", cnsUnRegisterVolumeName, timeout)
+}
+
+// waitForCNSUnRegisterVolumeFailToUnregistered waits for a cnsUnRegisterVolume to get
+// fail or until timeout occurs, whichever comes first.
+func waitForCNSUnRegisterVolumeFailToUnregistered(ctx context.Context, restConfig *rest.Config,
+	cnsUnRegisterVolume *cnsunregistervolumev1alpha1.CnsUnregisterVolume, Poll, timeout time.Duration) error {
+	framework.Logf("Waiting up to %v for CnsUnRegisterVolume %v to get created", timeout, cnsUnRegisterVolume)
+
+	cnsUnRegisterVolumeName := cnsUnRegisterVolume.GetName()
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+		cnsUnRegisterVolume = getCNSUnRegistervolume(ctx, restConfig, cnsUnRegisterVolume)
+		flag := cnsUnRegisterVolume.Status.Unregistered
+		if flag {
+			continue
+		} else {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("cnsRegisterVolume %s unregister is failed within %v", cnsUnRegisterVolumeName, timeout)
 }
 
 // waitForCNSRegisterVolumeToGetDeleted waits for a cnsRegisterVolume to get
@@ -4002,7 +4179,7 @@ func waitForCNSRegisterVolumeToGetDeleted(ctx context.Context, restConfig *rest.
 	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
 		flag := queryCNSRegisterVolume(ctx, restConfig, cnsRegisterVolumeName, namespace)
 		if flag {
-			framework.Logf("CnsRegisterVolume %s is not yet deleted. Deletion flag status  =%t (%v)",
+			framework.Logf("CnsRegisterVolume %v is not yet deleted. Deletion flag status  =%v (%v)",
 				cnsRegisterVolumeName, flag, time.Since(start))
 			continue
 		}
@@ -4267,28 +4444,14 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	podLabels map[string]string, nodeSelector map[string]string, namespace string,
 	pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool, image string) (*appsv1.Deployment, error) {
 	if len(command) == 0 {
-		if windowsEnv {
-			command = windowsExecCmd
-		} else {
-			command = "trap exit TERM; while true; do sleep 1; done"
-		}
+		command = "trap exit TERM; while true; do sleep 1; done"
 	}
 	deploymentSpec := getDeploymentSpec(ctx, client, replicas, podLabels, nodeSelector, namespace,
 		pvclaims, command, isPrivileged, image)
 	if windowsEnv {
-		var commands []string
-		if (len(command) == 0) || (command == execCommand) {
-			commands = []string{windowsExecCmd}
-		} else if command == execRWXCommandPod {
-			commands = []string{windowsExecRWXCommandPod}
-		} else if command == execRWXCommandPod1 {
-			commands = []string{windowsExecRWXCommandPod1}
-		} else {
-			commands = []string{command}
-		}
 		deploymentSpec.Spec.Template.Spec.Containers[0].Image = windowsImageOnMcr
 		deploymentSpec.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
-		deploymentSpec.Spec.Template.Spec.Containers[0].Args = commands
+		deploymentSpec.Spec.Template.Spec.Containers[0].Args = []string{"-Command", command}
 	}
 	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
 	if err != nil {
@@ -4542,8 +4705,7 @@ func toggleCSIMigrationFeatureGatesOnK8snodes(ctx context.Context, client client
 		}
 		pods, err := fpod.GetPodsInNamespace(ctx, client, namespace, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int(len(pods)),
-			time.Duration(pollTimeout*2))
+		err = fpod.WaitForPodsRunningReady(ctx, client, namespace, int(len(pods)), time.Duration(pollTimeout*2))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -4851,12 +5013,11 @@ func createAllowedTopolgies(topologyMapStr string) []v1.TopologySelectorLabelReq
 	topologyMap, _ := createTopologyMapLevel5(topologyMapStr)
 	allowedTopologies := []v1.TopologySelectorLabelRequirement{}
 	topoKey := ""
-	if topologyFeature == topologyTkgHaName ||
-		topologyFeature == podVMOnStretchedSupervisor ||
-		topologyFeature == topologyDomainIsolation {
+	if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor {
 		topoKey = tkgHATopologyKey
+	} else {
+		topoKey = topologykey
 	}
-
 	for key, val := range topologyMap {
 		allowedTopology := v1.TopologySelectorLabelRequirement{
 			Key:    topoKey + "/" + key,
@@ -4910,9 +5071,7 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 			if val, ok := allowedTopologiesMap[topology.Key]; ok {
 				framework.Logf("pv.Spec.NodeAffinity: %v, nodeSelector: %v", pv.Spec.NodeAffinity, nodeSelector)
 				if !compareStringLists(val, topology.Values) {
-					if topologyFeature == topologyTkgHaName ||
-						topologyFeature == podVMOnStretchedSupervisor ||
-						topologyFeature == topologyDomainIsolation {
+					if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor {
 						return false, fmt.Errorf("pv node affinity details: %v does not match"+
 							"with: %v in the allowed topologies", topology.Values, val)
 					} else {
@@ -4921,9 +5080,7 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 					}
 				}
 			} else {
-				if topologyFeature == topologyTkgHaName ||
-					topologyFeature == podVMOnStretchedSupervisor ||
-					topologyFeature == topologyDomainIsolation {
+				if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor {
 					return false, fmt.Errorf("pv node affinity key: %v does not does not exist in the"+
 						"allowed topologies map: %v", topology.Key, allowedTopologiesMap)
 				} else {
@@ -5966,8 +6123,7 @@ func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
 		}
 	}
 	// wait for csi Pods to be in running ready state
-	err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(num_csi_pods),
-		time.Duration(pollTimeout))
+	err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(num_csi_pods), time.Duration(pollTimeout))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return nil
 }
@@ -6163,8 +6319,7 @@ func enableFullSyncTriggerFss(ctx context.Context, client clientset.Interface, n
 			for _, pod := range csipods.Items {
 				fpod.DeletePodOrFail(ctx, client, csiSystemNamespace, pod.Name)
 			}
-			err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(csipods.Size()),
-				time.Duration(pollTimeout))
+			err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(csipods.Size()), time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			break
 		} else if fss == k && v == "true" {
@@ -6834,7 +6989,7 @@ func checkVcServicesHealthPostReboot(ctx context.Context, host string, timeout .
 		pollTime = timeout[0]
 	}
 	//list of default stopped services in VC
-	var defaultStoppedServicesList = []string{"vmcam", "vmware-imagebuilder", "vmware-netdumper",
+	var defaultStoppedServicesList = []string{"vmcam", "vmonapi", "vmware-imagebuilder", "vmware-netdumper",
 		"vmware-rbd-watchdog", "vmware-vcha"}
 	waitErr := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pollTime, true,
 		func(ctx context.Context) (bool, error) {
@@ -7364,47 +7519,5 @@ func validateQuotaUsageAfterCleanUp(ctx context.Context, restConfig *rest.Config
 	gomega.Expect(reservedQuota).NotTo(gomega.BeFalse())
 	framework.Logf("quotavalidationStatus :%v reservedQuota:%v", quotavalidationStatusAfterCleanup,
 		reservedQuota)
-}
 
-// execCommandOnGcWorker logs into gc worker node using ssh private key and executes command
-func execCommandOnGcWorker(sshClientConfig *ssh.ClientConfig, svcMasterIP string, gcWorkerIp string,
-	svcNamespace string, cmd string) (fssh.Result, error) {
-	result := fssh.Result{Host: gcWorkerIp, Cmd: cmd}
-	// get the cluster ssh key
-	sshSecretName := GetAndExpectStringEnvVar(sshSecretName)
-	cmdToGetPrivateKey := fmt.Sprintf("kubectl get secret %s -n %s -o"+
-		"jsonpath={'.data.ssh-privatekey'} | base64 -d > key", sshSecretName, svcNamespace)
-	framework.Logf("Invoking command '%v' on host %v", cmdToGetPrivateKey,
-		svcMasterIP)
-	cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
-		cmdToGetPrivateKey)
-	if err != nil || cmdResult.Code != 0 {
-		fssh.LogResult(cmdResult)
-		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			cmdToGetPrivateKey, svcMasterIP, err)
-	}
-
-	enablePermissionCmd := "chmod 600 key"
-	framework.Logf("Invoking command '%v' on host %v", enablePermissionCmd,
-		svcMasterIP)
-	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		enablePermissionCmd)
-	if err != nil || cmdResult.Code != 0 {
-		fssh.LogResult(cmdResult)
-		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			enablePermissionCmd, svcMasterIP, err)
-	}
-
-	cmdToGetContainerInfo := fmt.Sprintf("ssh -o StrictHostKeyChecking=no -i key %s@%s "+
-		"'%s' | grep -v 'Warning'", gcNodeUser, gcWorkerIp, cmd)
-	framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerInfo,
-		svcMasterIP)
-	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmdToGetContainerInfo)
-	if err != nil || cmdResult.Code != 0 {
-		fssh.LogResult(cmdResult)
-		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-			cmdToGetContainerInfo, svcMasterIP, err)
-	}
-	return cmdResult, nil
 }
