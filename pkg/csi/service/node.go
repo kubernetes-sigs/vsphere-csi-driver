@@ -21,6 +21,8 @@ import (
 	"os"
 	"strconv"
 
+	"google.golang.org/protobuf/encoding/prototext"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/units"
@@ -52,7 +54,7 @@ func (driver *vsphereCSIDriver) NodeStageVolume(
 	*csi.NodeStageVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("NodeStageVolume: called with args %+v", *req)
+	log.Infof("NodeStageVolume: called with args %+v", prototext.Format(req))
 
 	volumeID := req.GetVolumeId()
 	volCap := req.GetVolumeCapability()
@@ -113,7 +115,7 @@ func (driver *vsphereCSIDriver) NodeUnstageVolume(
 	*csi.NodeUnstageVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("NodeUnstageVolume: called with args %+v", *req)
+	log.Infof("NodeUnstageVolume: called with args %+v", prototext.Format(req))
 
 	// Validate arguments
 	volumeID := req.GetVolumeId()
@@ -178,7 +180,7 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 	*csi.NodePublishVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("NodePublishVolume: called with args %+v", *req)
+	log.Infof("NodePublishVolume: called with args %+v", prototext.Format(req))
 	var err error
 	volumeID := req.GetVolumeId()
 	if len(volumeID) == 0 {
@@ -246,7 +248,7 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 	*csi.NodeUnpublishVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("NodeUnpublishVolume: called with args %+v", *req)
+	log.Infof("NodeUnpublishVolume: called with args %+v", prototext.Format(req))
 
 	volID := req.GetVolumeId()
 	target := req.GetTargetPath()
@@ -276,7 +278,7 @@ func (driver *vsphereCSIDriver) NodeGetVolumeStats(
 	*csi.NodeGetVolumeStatsResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("NodeGetVolumeStats: called with args %+v", *req)
+	log.Infof("NodeGetVolumeStats: called with args %+v", prototext.Format(req))
 
 	var err error
 	targetPath := req.GetVolumePath()
@@ -378,7 +380,7 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 	*csi.NodeGetInfoResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("NodeGetInfo: called with args %+v", *req)
+	log.Infof("NodeGetInfo: called with args %+v", prototext.Format(req))
 
 	driver.osUtils.ShouldContinue(ctx)
 
@@ -514,7 +516,7 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 	*csi.NodeExpandVolumeResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("NodeExpandVolume: called with args %+v", *req)
+	log.Infof("NodeExpandVolume: called with args %+v", prototext.Format(req))
 
 	volumeID := req.GetVolumeId()
 	if len(volumeID) == 0 {

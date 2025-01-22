@@ -30,25 +30,17 @@ var (
 	// BlockVolumeCaps represents how the block volume could be accessed.
 	// CNS block volumes support only SINGLE_NODE_WRITER where the volume is
 	// attached to a single node at any given time.
-	BlockVolumeCaps = []csi.VolumeCapability_AccessMode{
-		{
-			Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
-		},
+	BlockVolumeCaps = []csi.VolumeCapability_AccessMode_Mode{
+		csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
 	}
 
 	// FileVolumeCaps represents how the file volume could be accessed.
 	// CNS file volumes supports MULTI_NODE_READER_ONLY, MULTI_NODE_SINGLE_WRITER
 	// and MULTI_NODE_MULTI_WRITER
-	FileVolumeCaps = []csi.VolumeCapability_AccessMode{
-		{
-			Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
-		},
-		{
-			Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER,
-		},
-		{
-			Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
-		},
+	FileVolumeCaps = []csi.VolumeCapability_AccessMode_Mode{
+		csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
+		csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER,
+		csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
 	}
 
 	// ErrNotFound represents not found error

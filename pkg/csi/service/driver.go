@@ -67,6 +67,8 @@ type vsphereCSIDriver struct {
 	// A map storing all volumes with ongoing operations so that additional operations
 	// for that same volume (as defined by VolumeID) return an Aborted error
 	volumeLocks *node.VolumeLocks
+	csi.UnimplementedNodeServer
+	csi.UnimplementedIdentityServer
 }
 
 // If k8s node died unexpectedly in an earlier run, the unix socket is left

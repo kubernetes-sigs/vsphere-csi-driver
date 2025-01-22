@@ -27,6 +27,8 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/encoding/prototext"
+
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
@@ -100,6 +102,7 @@ type controller struct {
 	manager     *common.Manager
 	authMgr     common.AuthorizationService
 	topologyMgr commoncotypes.ControllerTopologyService
+	csi.UnimplementedControllerServer
 }
 
 // New creates a CNS controller.
@@ -1158,7 +1161,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	createVolumeInternal := func() (
 		*csi.CreateVolumeResponse, string, error) {
-		log.Infof("CreateVolume: called with args %+v", *req)
+		log.Infof("CreateVolume: called with args %+v", prototext.Format(req))
 		isWorkloadDomainIsolationEnabled := commonco.ContainerOrchestratorUtility.
 			IsFSSEnabled(ctx, common.WorkloadDomainIsolation)
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
@@ -1177,7 +1180,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		// Validate create request.
 		err := validateWCPCreateVolumeRequest(ctx, req, isBlockRequest)
 		if err != nil {
-			msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v", *req, err)
+			msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v",
+				prototext.Format(req), err)
 			log.Error(msg)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
@@ -1239,14 +1243,14 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	cnsVolumeType := common.UnknownVolumeType
 
 	deleteVolumeInternal := func() (*csi.DeleteVolumeResponse, string, error) {
-		log.Infof("DeleteVolume: called with args: %+v", *req)
+		log.Infof("DeleteVolume: called with args: %+v", prototext.Format(req))
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
 		// Later we may need to define different csi faults.
 		err := validateWCPDeleteVolumeRequest(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("Validation for DeleteVolume Request: %+v has failed. Error: %+v", *req, err)
+			msg := fmt.Sprintf("Validation for DeleteVolume Request: %+v has failed. Error: %+v", prototext.Format(req), err)
 			log.Error(msg)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
@@ -1330,7 +1334,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 
 	controllerPublishVolumeInternal := func() (
 		*csi.ControllerPublishVolumeResponse, string, error) {
-		log.Infof("ControllerPublishVolume: called with args %+v", *req)
+		log.Infof("ControllerPublishVolume: called with args %+v", prototext.Format(req))
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
@@ -1339,7 +1343,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		// Later we may need to define different csi faults.
 		err := validateWCPControllerPublishVolumeRequest(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", *req, err)
+			msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", prototext.Format(req), err)
 			log.Errorf(msg)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
@@ -1488,7 +1492,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	controllerUnpublishVolumeInternal := func() (
 		*csi.ControllerUnpublishVolumeResponse, string, error) {
-		log.Infof("ControllerUnpublishVolume: called with args %+v", *req)
+		log.Infof("ControllerUnpublishVolume: called with args %+v", prototext.Format(req))
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
@@ -1497,7 +1501,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		// Later we may need to define different csi faults.
 		err := validateWCPControllerUnpublishVolumeRequest(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", *req, err)
+			msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", prototext.Format(req), err)
 			log.Error(msg)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
@@ -1752,7 +1756,7 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	*csi.ValidateVolumeCapabilitiesResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
+	log.Infof("ControllerGetCapabilities: called with args %+v", prototext.Format(req))
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
 	if err := common.IsValidVolumeCapabilities(ctx, volCaps); err == nil {
@@ -1776,7 +1780,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		return nil, status.Error(codes.Unimplemented, "list volumes FSS disabled")
 	}
 	controllerListVolumeInternal := func() (*csi.ListVolumesResponse, string, error) {
-		log.Debugf("ListVolumes called with args %+v, expectedStartingIndex %v", *req, expectedStartingIndex)
+		log.Debugf("ListVolumes called with args %+v, expectedStartingIndex %v", prototext.Format(req), expectedStartingIndex)
 		k8sVolumeIDs := commonco.ContainerOrchestratorUtility.GetAllVolumes()
 
 		startingIdx := 0
@@ -1887,7 +1891,7 @@ func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityReques
 	*csi.GetCapacityResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("GetCapacity: called with args %+v", *req)
+	log.Infof("GetCapacity: called with args %+v", prototext.Format(req))
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
@@ -1896,7 +1900,7 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
+	log.Infof("ControllerGetCapabilities: called with args %+v", prototext.Format(req))
 	var caps []*csi.ControllerServiceCapability
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
 		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
@@ -1921,7 +1925,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("WCP CreateSnapshot: called with args %+v", *req)
+	log.Infof("WCP CreateSnapshot: called with args %+v", prototext.Format(req))
 	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	if !isBlockVolumeSnapshotWCPEnabled {
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "createSnapshot")
@@ -1931,7 +1935,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// Validate CreateSnapshotRequest
 		if err := validateWCPCreateSnapshotRequest(ctx, req); err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"validation for CreateSnapshot Request: %+v has failed. Error: %v", *req, err)
+				"validation for CreateSnapshot Request: %+v has failed. Error: %v", prototext.Format(req), err)
 		}
 		volumeID := req.GetSourceVolumeId()
 
@@ -2067,7 +2071,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("DeleteSnapshot: called with args %+v", *req)
+	log.Infof("DeleteSnapshot: called with args %+v", prototext.Format(req))
 	volumeType := prometheus.PrometheusBlockVolumeType
 	start := time.Now()
 	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
@@ -2145,7 +2149,7 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusBlockVolumeType
-	log.Infof("ListSnapshots: called with args %+v", *req)
+	log.Infof("ListSnapshots: called with args %+v", prototext.Format(req))
 	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	if !isBlockVolumeSnapshotWCPEnabled {
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listSnapshot")
@@ -2205,7 +2209,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
 				"expandVolume feature is disabled on the cluster")
 		}
-		log.Infof("ControllerExpandVolume: called with args %+v", *req)
+		log.Infof("ControllerExpandVolume: called with args %+v", prototext.Format(req))
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
@@ -2242,7 +2246,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
 		err = validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, isOnlineExpansionEnabled)
 		if err != nil {
-			log.Errorf("validation for ExpandVolume Request: %+v has failed. Error: %v", *req, err)
+			log.Errorf("validation for ExpandVolume Request: %+v has failed. Error: %v", prototext.Format(req), err)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
