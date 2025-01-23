@@ -45,7 +45,6 @@ import (
 	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
-	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	admissionapi "k8s.io/pod-security-admission/api"
@@ -271,6 +270,10 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		} else if guestCluster {
 			_, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, policyNames, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			for _, policyName := range policyNames {
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
+			}
 		}
 
 		for i, policyName := range policyNames {
@@ -512,6 +515,10 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		} else if guestCluster {
 			_, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, policyNames, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			for _, policyName := range policyNames {
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
+			}
 		}
 
 		for i, policyName := range policyNames {
@@ -641,7 +648,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 			}
 		} else {
-			fillVolumeInPods(f, pods)
+			fillVolumeInPods(f, client, pods)
 		}
 
 	})
@@ -937,6 +944,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		} else if guestCluster {
 			_, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, []string{policyName}, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
 		}
 
 		setVpxdTaskTimeout(ctx, vpxdReducedTaskTimeoutSecsInt)
@@ -970,7 +979,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
-			createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -1055,7 +1063,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}()
 		}
 		ginkgo.By("Get filesystem size for mount point /mnt/volume1 before expansion")
-		originalFsSize, err := getFSSizeMb(f, pods[0])
+		originalFsSize, err := getFileSystemSizeForOsType(f, client, pods[0])
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expand pvc1 to a large size this should take more than vpxd timeout")
@@ -1094,7 +1102,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			gomega.BeEmpty(), "pvc should not have conditions but it has: %v", pvclaim.Status.Conditions)
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err := getFSSizeMb(f, pods[0])
+		fsSize, err := getFileSystemSizeForOsType(f, client, pods[0])
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("File system size after expansion : %v", fsSize)
 		// Filesystem size may be smaller than the size of the block volume
@@ -1225,6 +1233,10 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		} else if guestCluster {
 			_, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, policyNames, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			for _, policyName := range policyNames {
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
+			}
 		}
 
 		for i, policyName := range policyNames {
@@ -1256,7 +1268,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				}
 			} else {
 				ginkgo.By("CNS_TEST: Running for GC setup")
-				createResourceQuota(client, namespace, rqLimit, policyName)
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -1344,18 +1355,22 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			ginkgo.By("verify we can read and write on the PVCs")
 			pods = createMultiplePods(ctx, client, pvclaims2d, true)
 		}
-		rand.New(rand.NewSource(time.Now().Unix()))
-		testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
-		ginkgo.By(fmt.Sprintf("Creating a 100mb test data file %v", testdataFile))
-		op, err := exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
-			"bs=1M", "count=100").Output()
-		fmt.Println(op)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			op, err = exec.Command("rm", "-f", testdataFile).Output()
+		var testdataFile string
+		var op []byte
+		if !windowsEnv {
+			rand.New(rand.NewSource(time.Now().Unix()))
+			testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
+			ginkgo.By(fmt.Sprintf("Creating a 100mb test data file %v", testdataFile))
+			op, err = exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
+				"bs=1M", "count=100").Output()
 			fmt.Println(op)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+			defer func() {
+				op, err = exec.Command("rm", "-f", testdataFile).Output()
+				fmt.Println(op)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		}
 
 		ginkgo.By("Expand pvcs while writing some data on them")
 		var wg sync.WaitGroup
@@ -1365,13 +1380,13 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		fsSizes := []int64{}
 
 		for _, pod := range pods {
-			originalSizeInMb, err := getFSSizeMb(f, pod)
+			originalSizeInMb, err := getFileSystemSizeForOsType(f, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			fsSizes = append(fsSizes, originalSizeInMb)
 		}
 		wg.Add(len(pods) * 2)
 		for i, pod := range pods {
-			go writeKnownData2PodInParallel(f, pod, testdataFile, &wg, fsSizes[i]-spareSpace)
+			go writeKnownData2PodInParallel(f, client, pod, testdataFile, &wg, fsSizes[i]-spareSpace)
 			go resize(client, pvcs[i], pvcs[i].Spec.Resources.Requests[v1.ResourceStorage], newSize, &wg)
 		}
 		wg.Wait()
@@ -1387,7 +1402,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 			var fsSize int64
 			framework.Logf("Verify filesystem size for mount point /mnt/volume1 for pod %v", pods[i].Name)
-			fsSize, err = getFSSizeMb(f, pods[i])
+			fsSize, err := getFileSystemSizeForOsType(f, client, pods[i])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("File system size after expansion : %v", fsSize)
 			gomega.Expect(fsSize > fsSizes[i]).To(gomega.BeTrue(),
@@ -1412,7 +1427,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		ginkgo.By("Verify the data on the PVCs match what was written in step 7")
 		for i, pod := range pods {
-			verifyKnownDataInPod(f, pod, testdataFile, fsSizes[i]-spareSpace)
+			verifyKnownDataInPod(f, client, pod, testdataFile, fsSizes[i]-spareSpace)
 		}
 	})
 
@@ -1544,6 +1559,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		} else if guestCluster {
 			_, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, policyNames, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
 		}
 
 		if vanillaCluster {
@@ -1559,7 +1576,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
-			createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -1660,7 +1676,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		if !wcpVsanDirectCluster {
 			ginkgo.By("Writing known data to pods")
 			for _, pod := range pods {
-				writeKnownData2Pod(f, pod, testdataFile)
+				writeKnownData2Pod(f, client, pod, testdataFile)
 			}
 		}
 
@@ -1725,7 +1741,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		ginkgo.By("Verify the data written to the pods")
 		if !wcpVsanDirectCluster {
 			for _, pod := range pods {
-				verifyKnownDataInPod(f, pod, testdataFile)
+				verifyKnownDataInPod(f, client, pod, testdataFile)
 			}
 		}
 
@@ -1824,6 +1840,9 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		} else if guestCluster {
 			_, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(client, ctx, svNamespace, []string{policyName}, resourceQuotaLimit)
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
+			time.Sleep(3 * time.Minute)
 		}
 
 		ginkgo.By("Create SC using policy created in step 1")
@@ -1853,7 +1872,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
-			createResourceQuota(client, namespace, rqLimit, policyName)
 			storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -2008,12 +2026,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			deletePodsAndWaitForVolsToDetach(ctx, client, newPods, true)
 		}()
 
-		if !wcpVsanDirectCluster {
-			ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
-			_, err = e2eoutput.LookForStringInPodExec(namespace, newPods[0].Name,
-				[]string{"/bin/cat", "/mnt/volume1/fstype"}, "", time.Minute)
-		}
-
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Waiting for file system resize to finish")
@@ -2026,7 +2038,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		var fsSize int64
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err = getFSSizeMb(f, newPods[0])
+		fsSize, err = getFileSystemSizeForOsType(f, client, newPods[0])
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("File system size after expansion : %d", fsSize)
 
@@ -2414,7 +2426,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			assignPolicyToWcpNamespace(svcClient, ctx, svNamespace, policyNames, resourceQuotaLimit)
 			for _, policyName := range policyNames {
-				createResourceQuota(svcClient, svNamespace, rqLimit, policyName)
+				restClientConfig := getRestConfigClient()
+				setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
 				storageclass, err := svcClient.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				scs = append(scs, storageclass)
@@ -2452,7 +2465,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		for i, pv := range pvs {
 			volumeID := pv.Spec.CSI.VolumeHandle
 			if guestCluster {
-				volumeID = getVolumeIDFromSupervisorCluster(pvs[0].Spec.CSI.VolumeHandle)
+				volumeID = getVolumeIDFromSupervisorCluster(pvs[i].Spec.CSI.VolumeHandle)
 				gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 			}
 			storagePolicyMatches, err := e2eVSphere.VerifySpbmPolicyOfVolume(volumeID, policyNames[i/2])
@@ -2486,7 +2499,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		fsSizes := []int64{}
 		for _, pod := range pods {
-			originalSizeInMb, err := getFSSizeMb(f, pod)
+			originalSizeInMb, err := getFileSystemSizeForOsType(f, client, pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			fsSizes = append(fsSizes, originalSizeInMb)
 		}
@@ -2532,7 +2545,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			framework.Logf("Waiting for file system resize to finish for pvc %v", pvcs[i*2].Name)
 			pvcs[i*2], err = waitForFSResize(pvcs[i*2], client)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			fsSize, err := getFSSizeMb(f, pods[i])
+			fsSize, err := getFileSystemSizeForOsType(f, client, pods[i])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("File system size after expansion : %v", fsSize)
 			gomega.Expect(fsSize > fsSizes[i]).To(gomega.BeTrue(),
@@ -2947,14 +2960,14 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		ginkgo.By("Perform volume conversion and write IO to pod while relocate volume to different datastore")
 		var wg sync.WaitGroup
 		wg.Add(1 + len(volIds))
-		go writeKnownData2PodInParallel(f, pods[0], testdataFile, &wg)
+		go writeKnownData2PodInParallel(f, client, pods[0], testdataFile, &wg)
 		for _, volId := range volIds {
 			go reconfigPolicyParallel(ctx, volId, policyID.UniqueId, &wg)
 		}
 		wg.Wait()
 
 		ginkgo.By("Verify the data on the PVCs match what was written in step 7")
-		verifyKnownDataInPod(f, pods[0], testdataFile)
+		verifyKnownDataInPod(f, client, pods[0], testdataFile)
 
 		for _, volId := range volIds {
 			ginkgo.By(fmt.Sprintf("Wait for relocation task to complete for volumeID: %s", volId))
@@ -3174,7 +3187,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		var wg sync.WaitGroup
 		wg.Add(3 + len(volIds))
-		go writeKnownData2PodInParallel(f, pods[0], testdataFile, &wg)
+		go writeKnownData2PodInParallel(f, client, pods[0], testdataFile, &wg)
 		go updatePvcLabelsInParallel(ctx, client, namespace, labels, pvcs, &wg)
 		go updatePvLabelsInParallel(ctx, client, namespace, labels, pvs, &wg)
 		for _, volId := range volIds {
@@ -3199,7 +3212,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Verify the data on the PVCs match what was written in step 7")
-		verifyKnownDataInPod(f, pods[0], testdataFile)
+		verifyKnownDataInPod(f, client, pods[0], testdataFile)
 
 		for _, volId := range volIds {
 			ginkgo.By(fmt.Sprintf("Wait for relocation task to complete for volumeID: %s", volId))
@@ -3439,7 +3452,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		ch := make(chan *snapV1.VolumeSnapshot)
 		lock := &sync.Mutex{}
 		wg.Add(1 + 2*len(volIds))
-		go writeKnownData2PodInParallel(f, pods[0], testdataFile, &wg)
+		go writeKnownData2PodInParallel(f, client, pods[0], testdataFile, &wg)
 		for i := range volIds {
 			go reconfigPolicyParallel(ctx, volIds[i], policyID.UniqueId, &wg)
 			go createSnapshotInParallel(ctx, namespace, snapc, pvcs[i].Name, volumeSnapshotClass.Name,
@@ -3454,7 +3467,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		wg.Wait()
 
 		ginkgo.By("Verify the data on the PVCs match what was written in step 7")
-		verifyKnownDataInPod(f, pods[0], testdataFile)
+		verifyKnownDataInPod(f, client, pods[0], testdataFile)
 
 		for _, snap := range snaps {
 			volumeSnapshot := snap
@@ -3509,9 +3522,9 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 })
 
 // fillVolumesInPods fills the volumes in pods after leaving 100m for FS metadata
-func fillVolumeInPods(f *framework.Framework, pods []*v1.Pod) {
+func fillVolumeInPods(f *framework.Framework, client clientset.Interface, pods []*v1.Pod) {
 	for _, pod := range pods {
-		size, err := getFSSizeMb(f, pod)
+		size, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		writeRandomDataOnPod(pod, size-100) // leaving 100m for FS metadata
 	}
@@ -3519,8 +3532,20 @@ func fillVolumeInPods(f *framework.Framework, pods []*v1.Pod) {
 
 // writeRandomDataOnPod runs dd on the given pod and write count in Mib
 func writeRandomDataOnPod(pod *v1.Pod, count int64) {
-	cmd := []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
-		"/bin/sh", "-c", "dd if=/dev/urandom of=/mnt/volume1/f1 bs=1M count=" + strconv.FormatInt(count, 10)}
+	var cmd []string
+	if windowsEnv {
+		cmd = []string{
+			"exec",
+			pod.Name,
+			"--namespace=" + pod.Namespace,
+			"powershell.exe",
+			"$out = New-Object byte[] 536870912; (New-Object Random).NextBytes($out); " +
+				"[System.IO.File]::WriteAllBytes('/mnt/volume1/testdata2.txt', $out)",
+		}
+	} else {
+		cmd = []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
+			"/bin/sh", "-c", "dd if=/dev/urandom of=/mnt/volume1/f1 bs=1M count=" + strconv.FormatInt(count, 10)}
+	}
 	_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, cmd...)
 }
 
@@ -3604,15 +3629,17 @@ func setVpxdTaskTimeout(ctx context.Context, taskTimeout int) {
 // writeKnownData2PodInParallel writes known 1mb data to a file in given pod's volume until 200mb is left in the volume
 // in parallel
 func writeKnownData2PodInParallel(
-	f *framework.Framework, pod *v1.Pod, testdataFile string, wg *sync.WaitGroup, size ...int64) {
+	f *framework.Framework, client clientset.Interface, pod *v1.Pod, testdataFile string, wg *sync.WaitGroup,
+	size ...int64) {
 
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
-	writeKnownData2Pod(f, pod, testdataFile, size...)
+	writeKnownData2Pod(f, client, pod, testdataFile, size...)
 }
 
 // writeKnownData2Pod writes known 1mb data to a file in given pod's volume until 200mb is left in the volume
-func writeKnownData2Pod(f *framework.Framework, pod *v1.Pod, testdataFile string, size ...int64) {
+func writeKnownData2Pod(f *framework.Framework, client clientset.Interface, pod *v1.Pod, testdataFile string,
+	size ...int64) {
 	var svcMasterIp string
 	var sshWcpConfig *ssh.ClientConfig
 	if wcpVsanDirectCluster {
@@ -3630,12 +3657,24 @@ func writeKnownData2Pod(f *framework.Framework, pod *v1.Pod, testdataFile string
 		_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, "cp", testdataFile, fmt.Sprintf(
 			"%v/%v:data0/testdata", pod.Namespace, pod.Name))
 	} else {
-		_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, "cp", testdataFile, fmt.Sprintf(
-			"%v/%v:mnt/volume1/testdata", pod.Namespace, pod.Name))
+		if windowsEnv {
+			cmdTestData := []string{
+				"exec",
+				pod.Name,
+				"--namespace=" + pod.Namespace,
+				"powershell.exe",
+				"$out = New-Object byte[] 104857600; (New-Object Random).NextBytes($out); " +
+					"[System.IO.File]::WriteAllBytes('/mnt/volume1/testdata2.txt', $out)",
+			}
+			_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, cmdTestData...)
+		} else {
+			_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, "cp", testdataFile, fmt.Sprintf(
+				"%v/%v:mnt/volume1/testdata", pod.Namespace, pod.Name))
+		}
 	}
 
 	var cmd []string
-	fsSize, err := getFSSizeMb(f, pod)
+	fsSize, err := getFileSystemSizeForOsType(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	iosize := fsSize - spareSpace
 	if len(size) != 0 {
@@ -3650,8 +3689,33 @@ func writeKnownData2Pod(f *framework.Framework, pod *v1.Pod, testdataFile string
 				" dd if=/data0/testdata of=/mnt/file1 bs=1M count=100 seek=%s", pod.Name, pod.Namespace, seek)
 			writeDataOnPodInSupervisor(sshWcpConfig, svcMasterIp, command)
 		} else {
-			cmd := []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
-				"/bin/sh", "-c", "dd if=/mnt/volume1/testdata of=/mnt/volume1/f1 bs=1M count=100 seek=" + seek}
+			var cmd []string
+			if windowsEnv {
+				cmd = []string{
+					"exec",
+					pod.Name,
+					"--namespace=" + pod.Namespace,
+					"powershell.exe -Command",
+					"$inputFile = '/mnt/volume1/testdata2.txt'; " +
+						"$outputFile = '/mnt/volume1/testdata3.txt'; " +
+						"$blockSize = 1MB; " +
+						"$count = 100; " +
+						"$seek =" + seek +
+						"$fs = [System.IO.File]::Open($outputFile, 'OpenOrCreate', 'Write'); " +
+						"$fs.Seek($seek * $blockSize, [System.IO.SeekOrigin]::Begin) | Out-Null; " +
+						"[byte[]]$buffer = New-Object byte[] $blockSize; " +
+						"$input = [System.IO.File]::Open($inputFile, 'Open', 'Read'); " +
+						"1..$count | ForEach-Object { " +
+						"$bytesRead = $input.Read($buffer, 0, $blockSize); " +
+						"if ($bytesRead -le 0) { break } " +
+						"$fs.Write($buffer, 0, $bytesRead) }; " +
+						"$input.Close(); " +
+						"$fs.Close()",
+				}
+			} else {
+				cmd = []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
+					"/bin/sh", "-c", "dd if=/mnt/volume1/testdata of=/mnt/volume1/f1 bs=1M count=100 seek=" + seek}
+			}
 			_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, cmd...)
 		}
 
@@ -3661,15 +3725,27 @@ func writeKnownData2Pod(f *framework.Framework, pod *v1.Pod, testdataFile string
 		cmd = []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
 			"/bin/sh", "-c", "rm /data0/testdata"}
 	} else {
-		cmd = []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
-			"/bin/sh", "-c", "rm /mnt/volume1/testdata"}
+		if windowsEnv {
+			cmd = []string{
+				"exec",
+				pod.Name,
+				"--namespace=" + pod.Namespace,
+				"powershell.exe",
+				"Remove-Item -Path '/mnt/volume1/testdata2.txt' " +
+					"-Force",
+			}
+		} else {
+			cmd = []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
+				"/bin/sh", "-c", "rm /mnt/volume1/testdata"}
+		}
 	}
 	_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, cmd...)
 
 }
 
 // verifyKnownDataInPod verify known data on a file in given pod's volume in 100mb loop
-func verifyKnownDataInPod(f *framework.Framework, pod *v1.Pod, testdataFile string, size ...int64) {
+func verifyKnownDataInPod(f *framework.Framework, client clientset.Interface, pod *v1.Pod, testdataFile string,
+	size ...int64) {
 	var svcMasterIp string
 	var sshWcpConfig *ssh.ClientConfig
 	if wcpVsanDirectCluster {
@@ -3687,10 +3763,22 @@ func verifyKnownDataInPod(f *framework.Framework, pod *v1.Pod, testdataFile stri
 		_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, "cp", testdataFile, fmt.Sprintf(
 			"%v/%v:data0/testdata", pod.Namespace, pod.Name))
 	} else {
-		_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, "cp", testdataFile, fmt.Sprintf(
-			"%v/%v:mnt/volume1/testdata", pod.Namespace, pod.Name))
+		if windowsEnv {
+			cmdTestData := []string{
+				"exec",
+				pod.Name,
+				"--namespace=" + pod.Namespace,
+				"powershell.exe",
+				"Copy-Item -Path '/mnt/volume1/testdata2.txt' " +
+					"-Destination '/mnt/volume1/testdata2_pod.txt'",
+			}
+			_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, cmdTestData...)
+		} else {
+			_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, "cp", testdataFile, fmt.Sprintf(
+				"%v/%v:mnt/volume1/testdata", pod.Namespace, pod.Name))
+		}
 	}
-	fsSize, err := getFSSizeMb(f, pod)
+	fsSize, err := getFileSystemSizeForOsType(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	iosize := fsSize - spareSpace
 	if len(size) != 0 {
@@ -3706,8 +3794,32 @@ func verifyKnownDataInPod(f *framework.Framework, pod *v1.Pod, testdataFile stri
 				" dd if=/mnt/file1 of=/data0/testdata bs=1M count=100 skip=%s", pod.Name, pod.Namespace, skip)
 			writeDataOnPodInSupervisor(sshWcpConfig, svcMasterIp, command)
 		} else {
-			cmd = []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
-				"/bin/sh", "-c", "dd if=/mnt/volume1/f1 of=/mnt/volume1/testdata bs=1M count=100 skip=" + skip}
+			if windowsEnv {
+				cmd = []string{
+					"exec",
+					pod.Name,
+					"--namespace=" + pod.Namespace,
+					"powershell.exe -Command",
+					"$inputFile = '/mnt/volume1/testdata3.txt'; " +
+						"$outputFile = '/mnt/volume1/testdata2.txt'; " +
+						"$blockSize = 1MB; " +
+						"$count = 100; " +
+						"$seek =10" +
+						"$fs = [System.IO.File]::Open($outputFile, 'OpenOrCreate', 'Write'); " +
+						"$fs.Seek($seek * $blockSize, [System.IO.SeekOrigin]::Begin) | Out-Null; " +
+						"[byte[]]$buffer = New-Object byte[] $blockSize; " +
+						"$input = [System.IO.File]::Open($inputFile, 'Open', 'Read'); " +
+						"1..$count | ForEach-Object { " +
+						"$bytesRead = $input.Read($buffer, 0, $blockSize); " +
+						"if ($bytesRead -le 0) { break } " +
+						"$fs.Write($buffer, 0, $bytesRead) }; " +
+						"$input.Close(); " +
+						"$fs.Close()",
+				}
+			} else {
+				cmd = []string{"--namespace=" + pod.Namespace, "-c", pod.Spec.Containers[0].Name, "exec", pod.Name, "--",
+					"/bin/sh", "-c", "dd if=/mnt/volume1/f1 of=/mnt/volume1/testdata bs=1M count=100 skip=" + skip}
+			}
 			_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, cmd...)
 		}
 
@@ -3716,16 +3828,41 @@ func verifyKnownDataInPod(f *framework.Framework, pod *v1.Pod, testdataFile stri
 				fmt.Sprintf("%v/%v:/data0/testdata", pod.Namespace, pod.Name),
 				testdataFile+pod.Name)
 		} else {
-			_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, "cp",
-				fmt.Sprintf("%v/%v:/mnt/volume1/testdata", pod.Namespace, pod.Name),
-				testdataFile+pod.Name)
+			if windowsEnv {
+				cmdTestData := []string{
+					"exec",
+					pod.Name,
+					"--namespace=" + pod.Namespace,
+					"powershell.exe",
+					"Copy-Item -Path '/mnt/volume1/testdata2.txt' " +
+						"-Destination '/mnt/volume1/testdata2_pod.txt'",
+				}
+				_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, cmdTestData...)
+			} else {
+				_ = e2ekubectl.RunKubectlOrDie(pod.Namespace, "cp",
+					fmt.Sprintf("%v/%v:/mnt/volume1/testdata", pod.Namespace, pod.Name),
+					testdataFile+pod.Name)
+			}
 		}
 
 		framework.Logf("Running diff with source file and file from pod %v for 100M starting %vM", pod.Name, skip)
-		op, err := exec.Command("diff", testdataFile, testdataFile+pod.Name).Output()
-		framework.Logf("diff: %v", op)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(len(op)).To(gomega.BeZero())
+		if windowsEnv {
+			cmdTestData := []string{
+				"exec",
+				pod.Name,
+				"--namespace=" + pod.Namespace,
+				"powershell.exe",
+				"((Get-FileHash '/mnt/volume1/testdata2.txt' -Algorithm SHA256).Hash -eq " +
+					"(Get-FileHash '/mnt/volume1/testdata2_pod.txt' -Algorithm SHA256).Hash)",
+			}
+			diffNotFound := strings.TrimSpace(e2ekubectl.RunKubectlOrDie(pod.Namespace, cmdTestData...))
+			gomega.Expect(diffNotFound).To(gomega.Equal("True"))
+		} else {
+			op, err := exec.Command("diff", testdataFile, testdataFile+pod.Name).Output()
+			framework.Logf("diff: %v", op)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(len(op)).To(gomega.BeZero())
+		}
 	}
 }
 

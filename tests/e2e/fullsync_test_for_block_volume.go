@@ -841,8 +841,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		// TODO: Replace static wait with polling
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
-			vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+			oneMinuteWaitTimeInSeconds))
+		time.Sleep(time.Duration(oneMinuteWaitTimeInSeconds) * time.Second)
 
 		ginkgo.By("when vsan-health is stopped, delete pod1")
 		err = fpod.DeletePodWithWait(ctx, client, pod)

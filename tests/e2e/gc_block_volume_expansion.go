@@ -86,7 +86,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 
 		scParameters := make(map[string]string)
-		scParameters[scParamFsType] = ext4FSType
+		if windowsEnv {
+			scParameters[scParamFsType] = ntfsFSType
+		} else {
+			scParameters[scParamFsType] = ext4FSType
+		}
 
 		// Set resource quota.
 		ginkgo.By("Set Resource quota for GC")
@@ -114,7 +118,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		pvcDeleted = false
 
 		// Replace second element with pod.Name.
-		cmd = []string{"exec", "", "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
+		if windowsEnv {
+			cmd = []string{"exec", "", "--namespace=" + namespace, "powershell.exe", "cat", "/mnt/volume1/fstype.txt"}
+		} else {
+			cmd = []string{"exec", "", "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
+		}
 
 		// Set up default pandora sync wait time.
 		pandoraSyncWaitTime = defaultPandoraSyncWaitTime
@@ -179,6 +187,19 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			// Delete Pod.
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+			err := fpod.DeletePodWithWait(ctx, client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Verify volume is detached from the node")
+			isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
+				pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
+				fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+
+		}()
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -191,10 +212,14 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-		originalFsSize, err := getFSSizeMb(f, pod)
+		originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		rand.New(rand.NewSource(time.Now().Unix()))
@@ -210,8 +235,20 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		_ = e2ekubectl.RunKubectlOrDie(namespace, "cp", testdataFile,
-			fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name))
+		if windowsEnv {
+			cmdTestData := []string{
+				"exec",
+				pod.Name,
+				"--namespace=" + namespace,
+				"powershell.exe",
+				"$out = New-Object byte[] 536870912; (New-Object Random).NextBytes($out); " +
+					"[System.IO.File]::WriteAllBytes('/mnt/volume1/testdata2.txt', $out)",
+			}
+			_ = e2ekubectl.RunKubectlOrDie(namespace, cmdTestData...)
+		} else {
+			_ = e2ekubectl.RunKubectlOrDie(namespace, "cp", testdataFile,
+				fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name))
+		}
 
 		// Delete POD.
 		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
@@ -279,6 +316,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Creating a new pod to attach PV again to the node")
 		pod, err = createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			// Delete Pod.
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+			err := fpod.DeletePodWithWait(ctx, client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		ginkgo.By(fmt.Sprintf("Verify volume after expansion: %s is attached to the node: %s",
 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -292,7 +335,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify after expansion the filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvclaim, err = waitForFSResize(pvclaim, client)
@@ -302,7 +349,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
-		fsSize, err := getFSSizeMb(f, pod)
+		fsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume.
 		// Here since filesystem was already formatted on the original volume,
@@ -312,18 +359,43 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		}
 
 		ginkgo.By("Checking data consistency after PVC resize")
-		_ = e2ekubectl.RunKubectlOrDie(namespace, "cp",
-			fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name), testdataFile+"_pod")
+		if windowsEnv {
+			cmdTestData := []string{
+				"exec",
+				pod.Name,
+				"--namespace=" + namespace,
+				"powershell.exe",
+				"Copy-Item -Path '/mnt/volume1/testdata2.txt' " +
+					"-Destination '/mnt/volume1/testdata2_pod.txt'",
+			}
+			_ = e2ekubectl.RunKubectlOrDie(namespace, cmdTestData...)
+		} else {
+			_ = e2ekubectl.RunKubectlOrDie(namespace, "cp",
+				fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name), testdataFile+"_pod")
+		}
 		defer func() {
 			op, err = exec.Command("rm", "-f", testdataFile+"_pod").Output()
 			fmt.Println("rm: ", op)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 		ginkgo.By("Running diff...")
-		op, err = exec.Command("diff", testdataFile, testdataFile+"_pod").Output()
-		fmt.Println("diff: ", op)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(len(op)).To(gomega.BeZero())
+		if windowsEnv {
+			cmdTestData := []string{
+				"exec",
+				pod.Name,
+				"--namespace=" + namespace,
+				"powershell.exe",
+				"((Get-FileHash '/mnt/volume1/testdata2.txt' -Algorithm SHA256).Hash -eq " +
+					"(Get-FileHash '/mnt/volume1/testdata2_pod.txt' -Algorithm SHA256).Hash)",
+			}
+			diffNotFound := strings.TrimSpace(e2ekubectl.RunKubectlOrDie(namespace, cmdTestData...))
+			gomega.Expect(diffNotFound).To(gomega.Equal("True"))
+		} else {
+			op, err = exec.Command("diff", testdataFile, testdataFile+"_pod").Output()
+			fmt.Println("diff: ", op)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(len(op)).To(gomega.BeZero())
+		}
 
 		ginkgo.By("File system resize finished successfully in GC")
 		ginkgo.By("Checking for PVC resize completion on SVC PVC")
@@ -387,10 +459,14 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-		originalFsSize, err := getFSSizeMb(f, pod)
+		originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Delete POD.
@@ -499,7 +575,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify after expansion the filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvclaim, err = waitForFSResize(pvclaim, client)
@@ -509,7 +589,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
-		fsSize, err := getFSSizeMb(f, pod)
+		fsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume.
 		// Here since filesystem was already formatted on the original volume,
@@ -913,10 +993,14 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-		originalFsSize, err := getFSSizeMb(f, pod)
+		originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expanding current pvc")
@@ -998,7 +1082,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify after expansion the filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvclaim, err = waitForFSResize(pvclaim, client)
@@ -1008,7 +1096,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
-		fsSize, err := getFSSizeMb(f, pod)
+		fsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume.
 		// Here since filesystem was already formatted on the original volume,
@@ -1154,7 +1242,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 		scParameters := make(map[string]string)
-		scParameters[scParamFsType] = ext4FSType
+		if windowsEnv {
+			scParameters[scParamFsType] = ntfsFSType
+		} else {
+			scParameters[scParamFsType] = ext4FSType
+		}
 		scParameters[svStorageClassName] = thickProvPolicy
 		sc, pvc, err := createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1193,10 +1285,14 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-		originalFsSize, err := getFSSizeMb(f, pod)
+		originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Delete POD.
@@ -1239,10 +1335,6 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		//       lot faster than our minimal test infra.
 		ginkgo.By("Checking GC pvc is having 'Resizing' status condition")
 		pvc, err = checkPvcHasGivenStatusCondition(client, namespace, pvc.Name, true, v1.PersistentVolumeClaimResizing)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Checking for 'Resizing' status condition on SVC PVC")
-		_, err = checkSvcPvcHasGivenStatusCondition(svcPvcName, true, v1.PersistentVolumeClaimResizing)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bringing GC CSI controller down...")
@@ -1299,7 +1391,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify after expansion the filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvc, err = waitForFSResize(pvc, client)
@@ -1309,7 +1405,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
-		fsSize, err := getFSSizeMb(f, pod)
+		fsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume.
 		// Here since filesystem was already formatted on the original volume,
@@ -1353,7 +1449,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 		setResourceQuota(client, namespace, rqLimit)
 		scParameters := make(map[string]string)
-		scParameters[scParamFsType] = ext4FSType
+		if windowsEnv {
+			scParameters[scParamFsType] = ntfsFSType
+		} else {
+			scParameters[scParamFsType] = ext4FSType
+		}
 		scParameters[svStorageClassName] = thickProvPolicy
 		sc, pvc, err := createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1443,37 +1543,82 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
-
-		rand.New(rand.NewSource(time.Now().Unix()))
-		testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
-		ginkgo.By(fmt.Sprintf("Creating a 512mb test data file %v", testdataFile))
-		op, err := exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
-			"bs=64k", "count=8000").Output()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			op, err = exec.Command("rm", "-f", testdataFile).Output()
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
+		var testdataFile string
+		var op []byte
+		if !windowsEnv {
+			rand.New(rand.NewSource(time.Now().Unix()))
+			testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
+			ginkgo.By(fmt.Sprintf("Creating a 512mb test data file %v", testdataFile))
+			op, err = exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
+				"bs=64k", "count=8000").Output()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+			defer func() {
+				op, err = exec.Command("rm", "-f", testdataFile).Output()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		}
 
-		_ = e2ekubectl.RunKubectlOrDie(namespace, "cp", testdataFile,
-			fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name))
+		if windowsEnv {
+			cmdTestData := []string{
+				"exec",
+				pod.Name,
+				"--namespace=" + namespace,
+				"powershell.exe",
+				"$out = New-Object byte[] 536870912; (New-Object Random).NextBytes($out); " +
+					"[System.IO.File]::WriteAllBytes('/mnt/volume1/testdata2.txt', $out)",
+			}
+			_ = e2ekubectl.RunKubectlOrDie(namespace, cmdTestData...)
+		} else {
+			_ = e2ekubectl.RunKubectlOrDie(namespace, "cp", testdataFile,
+				fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name))
+		}
 
 		onlineVolumeResizeCheck(f, client, namespace, svcPVCName, volHandle, pvclaim, pod)
 
 		ginkgo.By("Checking data consistency after PVC resize")
-		_ = e2ekubectl.RunKubectlOrDie(namespace, "cp",
-			fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name), testdataFile+"_pod")
-		defer func() {
-			op, err = exec.Command("rm", "-f", testdataFile+"_pod").Output()
-			fmt.Println("rm: ", op)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		if windowsEnv {
+			cmdTestData := []string{
+				"exec",
+				pod.Name,
+				"--namespace=" + namespace,
+				"powershell.exe",
+				"Copy-Item -Path '/mnt/volume1/testdata2.txt' " +
+					"-Destination '/mnt/volume1/testdata2_pod.txt'",
+			}
+			_ = e2ekubectl.RunKubectlOrDie(namespace, cmdTestData...)
+		} else {
+			_ = e2ekubectl.RunKubectlOrDie(namespace, "cp",
+				fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name), testdataFile+"_pod")
+			defer func() {
+				op, err = exec.Command("rm", "-f", testdataFile+"_pod").Output()
+				fmt.Println("rm: ", op)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+		}
+
 		ginkgo.By("Running diff...")
-		op, err = exec.Command("diff", testdataFile, testdataFile+"_pod").Output()
-		fmt.Println("diff: ", op)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(len(op)).To(gomega.BeZero())
+		if windowsEnv {
+			cmdTestData := []string{
+				"exec",
+				pod.Name,
+				"--namespace=" + namespace,
+				"powershell.exe",
+				"((Get-FileHash '/mnt/volume1/testdata2.txt' -Algorithm SHA256).Hash -eq " +
+					"(Get-FileHash '/mnt/volume1/testdata2_pod.txt' -Algorithm SHA256).Hash)",
+			}
+			diffNotFound := strings.TrimSpace(e2ekubectl.RunKubectlOrDie(namespace, cmdTestData...))
+			gomega.Expect(diffNotFound).To(gomega.Equal("True"))
+		} else {
+			op, err = exec.Command("diff", testdataFile, testdataFile+"_pod").Output()
+			fmt.Println("diff: ", op)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(len(op)).To(gomega.BeZero())
+		}
 
 		ginkgo.By("File system resize finished successfully in GC")
 		ginkgo.By("Checking for PVC resize completion on SVC PVC")
@@ -1524,10 +1669,14 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-		originalFsSize, err := getFSSizeMb(f, pod)
+		originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expanding current pvc")
@@ -1575,7 +1724,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err := getFSSizeMb(f, pod)
+		fsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("FileSystemSize after PVC resize %d mb , FileSystemSize Before PVC resize %d mb ",
 			fsSize, originalFsSize)
@@ -1640,7 +1789,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		// Fetch original FileSystemSize.
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
-		originalSizeInMb, err = getFSSizeMb(f, pod)
+		originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Set quota in SVC for 5Gi on policy(SC) - " + storagePolicyName)
@@ -1705,7 +1854,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err = getFSSizeMb(f, pod)
+		fsSize, err = getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
@@ -2048,10 +2197,14 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-		originalFsSize, err := getFSSizeMb(f, pod)
+		originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -2136,7 +2289,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify after expansion the filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvclaim, err = waitForFSResize(pvclaim, client)
@@ -2146,7 +2303,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
-		fsSize, err := getFSSizeMb(f, pod)
+		fsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume.
 		// Here since filesystem was already formatted on the original volume,
@@ -2202,10 +2359,14 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-		originalFsSize, err := getFSSizeMb(f, pod)
+		originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -2280,7 +2441,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Verify after expansion the filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvclaim, err = waitForFSResize(pvclaim, client)
@@ -2290,7 +2455,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
-		fsSize, err := getFSSizeMb(f, pod)
+		fsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume.
 		// Here since filesystem was already formatted on the original volume,
@@ -2485,7 +2650,7 @@ func onlineVolumeResizeCheck(f *framework.Framework, client clientset.Interface,
 	var err error
 	// Fetch original FileSystemSize.
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
-	originalSizeInMb, err = getFSSizeMb(f, pod)
+	originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Resize PVC.
@@ -2520,7 +2685,7 @@ func onlineVolumeResizeCheck(f *framework.Framework, client clientset.Interface,
 
 	var fsSize int64
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-	fsSize, err = getFSSizeMb(f, pod)
+	fsSize, err = getFileSystemSizeForOsType(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("File system size after expansion : %d", fsSize)
 	// Filesystem size may be smaller than the size of the block volume

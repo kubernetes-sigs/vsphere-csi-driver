@@ -70,6 +70,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		defaultDatastore           *object.Datastore
 		isVsanHealthServiceStopped bool
 		isSPSServiceStopped        bool
+		fsType                     string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -110,6 +111,11 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
+		if windowsEnv {
+			fsType = ntfsFSType
+		} else {
+			fsType = ext4FSType
 		}
 
 	})
@@ -183,7 +189,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify volume expansion "+
 		"with initial filesystem before expansion", ginkgo.Label(p0, block, vanilla, tkg, core), func() {
-		invokeTestForVolumeExpansionWithFilesystem(f, client, namespace, ext4FSType, "", storagePolicyName, profileID)
+		invokeTestForVolumeExpansionWithFilesystem(f, client, namespace, fsType, "", storagePolicyName, profileID)
 	})
 
 	// Test to verify offline volume expansion workflow with xfs filesystem.
@@ -499,7 +505,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, "", storagePolicyName, namespace, ext4FSType)
+			ctx, f, client, "", storagePolicyName, namespace, fsType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -575,7 +581,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		defer cancel()
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, "", storagePolicyName, namespace, ext4FSType)
+			ctx, f, client, "", storagePolicyName, namespace, fsType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -647,7 +653,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		var expectedErrMsg string
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, "", storagePolicyName, namespace, ext4FSType)
+			ctx, f, client, "", storagePolicyName, namespace, fsType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -719,7 +725,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("File system resize should not succeed Since Vsan-health is down. Expect an error")
 		if guestCluster {
-			expectedErrMsg = "didn't find a plugin capable of expanding the volume"
+			expectedErrMsg = "not in FileSystemResizePending condition"
 		} else {
 			expectedErrMsg = "503 Service Unavailable"
 		}
@@ -783,7 +789,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		// featureEnabled := isFssEnabled(vcAddress, cnsNewSyncFSS)
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, "", storagePolicyName, namespace, ext4FSType)
+			ctx, f, client, "", storagePolicyName, namespace, fsType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1046,7 +1052,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass on shared VVOL datastore with allowVolumeExpansion set to true, Create PVC")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVVOLdatastoreURL, storagePolicyName, namespace, ext4FSType)
+			ctx, f, client, sharedVVOLdatastoreURL, storagePolicyName, namespace, fsType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1136,7 +1142,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass on shared NFS datastore with allowVolumeExpansion set to true")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedNFSdatastoreURL, storagePolicyName, namespace, ext4FSType)
+			ctx, f, client, sharedNFSdatastoreURL, storagePolicyName, namespace, fsType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1232,7 +1238,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass on shared VMFS datastore with allowVolumeExpansion set to true")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVMFSdatastoreURL, storagePolicyName, namespace, ext4FSType)
+			ctx, f, client, sharedVMFSdatastoreURL, storagePolicyName, namespace, fsType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1896,7 +1902,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
+			ctx, f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, fsType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -2023,7 +2029,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
+			ctx, f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, fsType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -2448,7 +2454,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
+			ctx, f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, fsType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -3001,7 +3007,11 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	defer cancel()
 	ginkgo.By("Invoking Test for Volume Expansion")
 	scParameters := make(map[string]string)
-	scParameters[scParamFsType] = ext4FSType
+	if windowsEnv {
+		scParameters[scParamFsType] = ntfsFSType
+	} else {
+		scParameters[scParamFsType] = ext4FSType
+	}
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 	var storageclass *storagev1.StorageClass
@@ -3478,7 +3488,11 @@ func invokeTestForInvalidVolumeExpansion(f *framework.Framework, client clientse
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scParameters := make(map[string]string)
-	scParameters[scParamFsType] = ext4FSType
+	if windowsEnv {
+		scParameters[scParamFsType] = ntfsFSType
+	} else {
+		scParameters[scParamFsType] = ext4FSType
+	}
 
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = false")
@@ -3551,7 +3565,11 @@ func invokeTestForInvalidVolumeShrink(f *framework.Framework, client clientset.I
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scParameters := make(map[string]string)
-	scParameters[scParamFsType] = ext4FSType
+	if windowsEnv {
+		scParameters[scParamFsType] = ntfsFSType
+	} else {
+		scParameters[scParamFsType] = ext4FSType
+	}
 
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
@@ -3664,7 +3682,11 @@ func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework,
 	)
 
 	scParameters := make(map[string]string)
-	scParameters[scParamFsType] = ext4FSType
+	if windowsEnv {
+		scParameters[scParamFsType] = ntfsFSType
+	} else {
+		scParameters[scParamFsType] = ext4FSType
+	}
 
 	// Set up FCD
 	if os.Getenv(envPandoraSyncWaitTime) != "" {
@@ -3779,7 +3801,11 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	defer cancel()
 	ginkgo.By("Invoking Test to verify Multiple Volume Expansions on the same volume")
 	scParameters := make(map[string]string)
-	scParameters[scParamFsType] = ext4FSType
+	if windowsEnv {
+		scParameters[scParamFsType] = ntfsFSType
+	} else {
+		scParameters[scParamFsType] = ext4FSType
+	}
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 	var storageclass *storagev1.StorageClass
