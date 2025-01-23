@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"reflect"
 	"strconv"
@@ -89,12 +90,10 @@ func (vs *vSphere) queryCNSVolumeWithResult(fcdID string) (*cnstypes.CnsQueryRes
 	if err != nil {
 		return nil, err
 	}
-
 	res, err := cnsmethods.CnsQueryVolume(ctx, vs.CnsClient.Client, &req)
 	if err != nil {
 		return nil, err
 	}
-
 	return &res.Returnval, nil
 }
 
@@ -1410,4 +1409,66 @@ func getAggregatedSnapshotCapacityInMb(e2eVSphere vSphere, volHandle string) int
 		queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).AggregatedSnapshotCapacityInMb))
 
 	return queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails).AggregatedSnapshotCapacityInMb
+}
+
+// renameDs renames a datastore to the given name
+func (vs *vSphere) renameDs(ctx context.Context, datastoreName string,
+	dsRef *vim25types.ManagedObjectReference) {
+
+	s1 := rand.NewSource(time.Now().UnixNano())
+	r1 := rand.New(s1)
+	randomStr := strconv.Itoa(r1.Intn(1000))
+	req := vim25types.RenameDatastore{
+		This:    *dsRef,
+		NewName: datastoreName + randomStr,
+	}
+
+	_, err := methods.RenameDatastore(ctx, e2eVSphere.Client.Client, &req)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// fetchDatastoreNameFromDatastoreUrl fetches datastore name and datastore reference
+// from a given datastore url by querying volumeID and a list of datastore present in vCenter
+func (vs *vSphere) fetchDatastoreNameFromDatastoreUrl(ctx context.Context,
+	volumeID string) (string, vim25types.ManagedObjectReference, error) {
+
+	dsUrl := fetchDsUrl4CnsVol(*vs, volumeID)
+	datastoreName := ""
+	var dsRef vim25types.ManagedObjectReference
+	finder := find.NewFinder(vs.Client.Client, false)
+	dcString := e2eVSphere.Config.Global.Datacenters
+	dc, err := finder.Datacenter(ctx, dcString)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	finder.SetDatacenter(dc)
+	datastores, err := finder.DatastoreList(ctx, "*")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var dsList []vim25types.ManagedObjectReference
+	for _, ds := range datastores {
+		dsList = append(dsList, ds.Reference())
+	}
+	var dsMoList []mo.Datastore
+	pc := property.DefaultCollector(vs.Client.Client)
+	properties := []string{"info"}
+	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, mo := range dsMoList {
+		if mo.Info.GetDatastoreInfo().Url == dsUrl {
+			dsRef = mo.Reference()
+			datastoreName = mo.Info.GetDatastoreInfo().Name
+			break
+		}
+	}
+
+	if datastoreName == "" {
+		return "", dsRef, fmt.Errorf("failed to find datastoreName with datastore url: %s", dsUrl)
+	}
+
+	return datastoreName, dsRef, nil
+}
+
+// renameDsInParallel renames a datastore to the given name in parallel
+func (vs *vSphere) renameDsInParallel(ctx context.Context, datastoreName string,
+	dsRef *vim25types.ManagedObjectReference, wg *sync.WaitGroup) {
+	defer wg.Done()
+	vs.renameDs(ctx, datastoreName, dsRef)
 }

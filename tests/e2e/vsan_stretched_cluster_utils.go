@@ -27,6 +27,8 @@ import (
 	"sync"
 	"time"
 
+	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/find"
@@ -125,7 +127,7 @@ func powerOffHostParallel(ctx context.Context, hostsToPowerOff []string) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	for _, host := range hostsToPowerOff {
-		_ = waitForHostToBeDown(ctx, host)
+		err = waitForHostToBeDown(ctx, host)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -154,7 +156,7 @@ func powerOnHostParallel(hostsToPowerOn []string) {
 	err := vMPowerMgmt(tbinfo.user, tbinfo.location, tbinfo.podname, hostlist, true)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for _, host := range hostsToPowerOn {
-		_ = waitForHostToBeUp(host, time.Minute*40)
+		err = waitForHostToBeUp(host, time.Minute*40)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -442,7 +444,7 @@ func createPodsInParallel(client clientset.Interface, namespace string, pvclaims
 	defer wg.Done()
 	var pod *v1.Pod
 
-	for i := 0; i < volumeOpsScale; i++ {
+	for i := 0; i < len(pvclaims); i++ {
 		if rwxAccessMode {
 			pod = fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaims[i]}, api.LevelBaseline, "")
 
@@ -453,6 +455,7 @@ func createPodsInParallel(client clientset.Interface, namespace string, pvclaims
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err := client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("pod name : %s", pod.Name)
 		lock.Lock()
 		ch <- pod
 		lock.Unlock()
@@ -647,12 +650,9 @@ func toggleWitnessPowerState(ctx context.Context, witnessHostDown bool) {
 
 }
 
-// checkVmStorageCompliance checks VM and storage compliance of a storage policy
-// using govmomi
 func checkVmStorageCompliance(storagePolicy string) bool {
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
 	cmd := govcLoginCmd()
 	cmd += fmt.Sprintf("govc storage.policy.info -c -s %s;", storagePolicy)
 	framework.Logf("Running command: %s", cmd)
@@ -1318,4 +1318,23 @@ func createStaticPvAndPvcInGuestClusterInParallel(client clientset.Interface, ct
 		ch <- gcPVC
 		lock.Unlock()
 	}
+}
+
+// createDynamicSnapshotInParallel creates dynamic volumesnapshots from
+// a list of PVCs in a given namespace in parallel
+func createDynamicSnapshotInParallel(ctx context.Context, namespace string,
+	snapc *snapclient.Clientset, pvcList []*v1.PersistentVolumeClaim, volumeSnapshotClassName string,
+	ch chan *snapV1.VolumeSnapshot, lock *sync.Mutex, wg *sync.WaitGroup) {
+	defer wg.Done()
+	ginkgo.By("Create a volume snapshot")
+	for _, pvc := range pvcList {
+		snapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+			getVolumeSnapshotSpec(namespace, volumeSnapshotClassName, pvc.Name), metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		lock.Lock()
+		ch <- snapshot
+		lock.Unlock()
+		framework.Logf("Volume snapshot name is : %s", snapshot.Name)
+	}
+
 }

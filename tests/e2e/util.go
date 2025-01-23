@@ -7408,3 +7408,25 @@ func execCommandOnGcWorker(sshClientConfig *ssh.ClientConfig, svcMasterIP string
 	}
 	return cmdResult, nil
 }
+
+// expandVolumeInParallel resizes a list of volumes to a new size in parallel
+func expandVolumeInParallel(client clientset.Interface, pvclaims []*v1.PersistentVolumeClaim,
+	wg *sync.WaitGroup, resizeValue string) {
+
+	defer wg.Done()
+	for _, pvclaim := range pvclaims {
+		ginkgo.By("Expanding current pvc")
+		currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+		newSize := currentPvcSize.DeepCopy()
+		newSize.Add(resource.MustParse(resizeValue))
+		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+		pvclaim, err := expandPVCSize(pvclaim, newSize, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+
+		pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
+		if pvcSize.Cmp(newSize) != 0 {
+			framework.Failf("error updating pvc size %q", pvclaim.Name)
+		}
+	}
+}

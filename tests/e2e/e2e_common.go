@@ -59,6 +59,7 @@ const (
 	defaultK8sNodesUpWaitTime                  = 25
 	destinationDatastoreURL                    = "DESTINATION_VSPHERE_DATASTORE_URL"
 	disklibUnlinkErr                           = "DiskLib_Unlink"
+	diskSize1GB                                = "1Gi"
 	diskSize                                   = "2Gi"
 	diskSizeSmall                              = "100Mi"
 	diskSizeLarge                              = "100Gi"
