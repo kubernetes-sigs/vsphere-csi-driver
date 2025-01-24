@@ -4887,12 +4887,12 @@ func createAllowedTopolgies(topologyMapStr string) []v1.TopologySelectorLabelReq
 	topologyMap, _ := createTopologyMapLevel5(topologyMapStr)
 	allowedTopologies := []v1.TopologySelectorLabelRequirement{}
 	topoKey := ""
-	if topologyFeature == topologyTkgHaName ||
-		topologyFeature == podVMOnStretchedSupervisor ||
+	if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor ||
 		topologyFeature == topologyDomainIsolation {
 		topoKey = tkgHATopologyKey
+	} else {
+		topoKey = topologykey
 	}
-
 	for key, val := range topologyMap {
 		allowedTopology := v1.TopologySelectorLabelRequirement{
 			Key:    topoKey + "/" + key,
