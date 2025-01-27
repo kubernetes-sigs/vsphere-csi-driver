@@ -6266,9 +6266,7 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 	curlCmd := fmt.Sprintf(`curl -s -o /dev/null -w "%s" -k -X PATCH`+
 		` 'https://%s/api/vcenter/namespaces/instances/%s' -H `+
 		`'vmware-api-session-id: %s' -H 'Content-type: application/json' -d `+
-		`'{ "access_list": [ { "domain": "", "role": "OWNER", "subject": "", "subject_type": "USER" } ], `+
-		`"description": "", "resource_spec": { }, "storage_specs": [ %s ], `+
-		`"vm_service_spec": { } }'`, httpCodeStr, vcIp, namespace, sessionId, curlStr)
+		`'{"storage_specs": [ %s ]}'`, httpCodeStr, vcIp, namespace, sessionId, curlStr)
 
 	framework.Logf("Running command: %s", curlCmd)
 	result, err := fssh.SSH(ctx, curlCmd, vcAddress, framework.TestContext.Provider)
