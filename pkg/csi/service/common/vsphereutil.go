@@ -1248,17 +1248,10 @@ func QueryVolumeCryptoKeyByID(
 	volumeManager cnsvolume.Manager,
 	volumeID string) (*vim25types.CryptoKeyId, error) {
 
-	result, err := volumeManager.QueryVolumeInfo(ctx, []cnstypes.CnsVolumeId{{Id: volumeID}})
+	storageObj, err := volumeManager.RetrieveVStorageObject(ctx, volumeID)
 	if err != nil {
 		return nil, err
 	}
-
-	blockVolumeInfo, ok := result.VolumeInfo.(*cnstypes.CnsBlockVolumeInfo)
-	if !ok {
-		return nil, fmt.Errorf("failed to retrieve CNS volume info")
-	}
-
-	storageObj := blockVolumeInfo.VStorageObject
 
 	diskFileBackingInfo, ok := storageObj.Config.Backing.(*vim25types.BaseConfigInfoDiskFileBackingInfo)
 	if !ok {
