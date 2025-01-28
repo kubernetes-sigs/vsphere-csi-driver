@@ -29,17 +29,18 @@ import (
 
 	"github.com/akutz/gofsutil"
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/codes"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8svol "k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util/fs"
 	"k8s.io/mount-utils"
-
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/mounter"
+	utilexec "k8s.io/utils/exec"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/mounter"
 )
 
 const (
@@ -63,6 +64,153 @@ func NewOsUtils(ctx context.Context) (*OsUtils, error) {
 	return &OsUtils{
 		Mounter: mounter,
 	}, nil
+}
+
+// getKernelVersion gets the current kernel and major version.
+func getKernelVersion(ctx context.Context) (int, int, error) {
+	log := logger.GetLogger(ctx)
+	uts := &unix.Utsname{}
+	if err := unix.Uname(uts); err != nil {
+		log.Errorf("getKernelVersion: error while getting uname output, err %v", err)
+		return 0, 0, err
+	}
+
+	return parseRelease(ctx, unix.ByteSliceToString(uts.Release[:]))
+}
+
+// parseRelease parses a release string and returns kernel and major version.
+func parseRelease(ctx context.Context, release string) (int, int, error) {
+	log := logger.GetLogger(ctx)
+	var (
+		kernel, major, parsed int
+		partial               string
+	)
+
+	parsed, _ = fmt.Sscanf(release, "%d.%d%s", &kernel, &major, &partial)
+	if parsed < 2 {
+		log.Errorf("parseRelease: error while parsing kernel version %s", release)
+		return 0, 0, errors.New("Can't parse kernel version " + release)
+	}
+
+	return kernel, major, nil
+}
+
+// getDiskFormat uses 'blkid' to see if the given disk is unformatted
+func (osUtils *OsUtils) getDiskFormat(ctx context.Context, disk string) (string, error) {
+	log := logger.GetLogger(ctx)
+
+	args := []string{"-p", "-s", "TYPE", "-s", "PTTYPE", "-o", "export", disk}
+	log.Infof("getDiskFormat: Attempting to determine if disk %q is formatted using blkid with args: (%v)",
+		disk, args)
+	dataOut, err := osUtils.Mounter.Exec.Command("blkid", args...).CombinedOutput()
+	if err != nil {
+		if exit, ok := err.(utilexec.ExitError); ok {
+			if exit.ExitStatus() == 2 {
+				// Disk device is unformatted.
+				// For `blkid`, if the specified token (TYPE/PTTYPE, etc) was
+				// not found, or no (specified) devices could be identified, an
+				// exit code of 2 is returned.
+				return "", nil
+			}
+		}
+		log.Errorf("Could not determine if disk %q is formatted (%v)", disk, err)
+		return "", err
+	}
+
+	output := string(dataOut)
+	log.Debugf("getDiskFormat: blkid output: %q", output)
+	var fstype, pttype string
+	lines := strings.Split(output, "\n")
+	for _, l := range lines {
+		if len(l) <= 0 {
+			// Ignore empty line.
+			continue
+		}
+		cs := strings.Split(l, "=")
+		if len(cs) != 2 {
+			return "", fmt.Errorf("blkid returns invalid output: %s", output)
+		}
+		// TYPE is filesystem type, and PTTYPE is partition table type, according
+		// to https://www.kernel.org/pub/linux/utils/util-linux/v2.21/libblkid-docs/.
+		if cs[0] == "TYPE" {
+			fstype = cs[1]
+		} else if cs[0] == "PTTYPE" {
+			pttype = cs[1]
+		}
+	}
+
+	if len(pttype) > 0 {
+		log.Infof("getDiskFormat: disk %s detected partition table type: %s", disk, pttype)
+		// Returns a special non-empty string as filesystem type, then kubelet
+		// will not format it.
+		return "unknown data, probably partitions", nil
+	}
+
+	return fstype, nil
+}
+
+// xfsFormatAndMount mounts volume to the staging path for xfs fstype
+func (osUtils *OsUtils) xfsFormatAndMount(ctx context.Context, source string, target string,
+	fstype string, opts ...string) error {
+	log := logger.GetLogger(ctx)
+	// Check if the disk is already formatted
+	existingFormat, err := osUtils.getDiskFormat(ctx, source)
+	if err != nil {
+		errStr := fmt.Sprintf("failed to get disk format of disk %s: %v", source, err)
+		return errors.New(errStr)
+	}
+
+	if existingFormat == "" {
+		// Disk is unformatted so format it.
+		// XFS filesystem as part of xfsprogs v6.0.0 (min version in photon5 image) supports following two new features,
+		// each of which is enabled by default by mkfs.xfs.
+		// 1. Timestamp support beyond the year 2038 (bigtime).
+		// 2. Inode btree counters (inobtcount), to reduce mount time on large filesystems.
+		// These options are compatible with Linux kernel versions 5.10 and later.
+		// To create a new filesystem that will be compatible with the older kernel versions, we need to disable
+		// these new features by adding -m bigtime=0,inobtcount=0 to the mkfs.xfs command.
+		kernel, major, err := getKernelVersion(ctx)
+		if err != nil {
+			log.Errorf("xfsFormatAndMount: error while getting kernel version, err: %v", err)
+			return err
+		}
+		var args []string
+		if kernel >= 5 && major >= 10 {
+			args = []string{
+				source,
+			}
+		} else {
+			args = []string{
+				"-m",
+				"bigtime=0",
+				"-m",
+				"inobtcount=0",
+				source,
+			}
+		}
+
+		log.Infof("xfsFormatAndMount: Disk %q appears to be unformatted, attempting to format as type: %q "+
+			"with options: %v", source, fstype, args)
+		output, err := osUtils.Mounter.Exec.Command("mkfs."+fstype, args...).CombinedOutput()
+		if err != nil {
+			detailedErr := fmt.Sprintf("format of disk %q failed: type:(%q) errcode:(%v) output:(%v)",
+				source, fstype, err, string(output))
+			log.Errorf(detailedErr)
+			return errors.New(detailedErr)
+		}
+
+		log.Infof("xfsFormatAndMount: Disk successfully formatted (mkfs): %s - %s %s", fstype, source, target)
+	}
+
+	// Mount the disk
+	log.Infof("xfsFormatAndMount: Attempting to mount disk %s in %s format at %s", source, fstype, target)
+	err = osUtils.Mounter.Mount(source, target, fstype, opts)
+	if err != nil {
+		log.Errorf("xfsFormatAndMount: mount of disk %s failed: type:(%q) target:(%q) errcode:(%v)",
+			source, fstype, target, err)
+		return errors.New(err.Error())
+	}
+	return nil
 }
 
 // NodeStageBlockVolume mounts mount volume or file volume to staging target
@@ -133,10 +281,20 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 		// Format and mount the device.
 		log.Debugf("nodeStageBlockVolume: Format and mount the device %q at %q with mount flags %v",
 			dev.FullPath, params.StagingTarget, params.MntFlags)
-		err := gofsutil.FormatAndMount(ctx, dev.FullPath, params.StagingTarget, params.FsType, params.MntFlags...)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"error in formating and mounting volume. Parameters: %v err: %v", params, err)
+		if params.FsType == "xfs" {
+			// use internal function for XFS mount, as we want to provide few parameters for mkfs command
+			// which are specific to XFS filesystem
+			err := osUtils.xfsFormatAndMount(ctx, dev.FullPath, params.StagingTarget, params.FsType, params.MntFlags...)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"error in formating and mounting volume. Parameters: %v err: %v", params, err)
+			}
+		} else {
+			err := gofsutil.FormatAndMount(ctx, dev.FullPath, params.StagingTarget, params.FsType, params.MntFlags...)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"error in formating and mounting volume. Parameters: %v err: %v", params, err)
+			}
 		}
 	} else {
 		// If Device is already mounted. Need to ensure that it is already.
