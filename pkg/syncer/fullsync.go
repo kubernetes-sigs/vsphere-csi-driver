@@ -221,78 +221,89 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
 		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 		// Replace Volume Metadata using old cluster ID and replace with the new SupervisorID
+		var volumeIDsWithOldClusterID []cnstypes.CnsVolumeId
 		if len(queryAllResult.Volumes) > 0 {
-			var updateMetadataSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec
 			for _, volume := range queryAllResult.Volumes {
-				var updatedContainerClusterArray []cnstypes.CnsContainerCluster
-				var updatedContainerCluster cnstypes.CnsContainerCluster
-				for _, containercluster := range volume.Metadata.ContainerClusterArray {
-					if containercluster.ClusterId == metadataSyncer.configInfo.Cfg.Global.ClusterID {
-						containercluster.ClusterId = metadataSyncer.configInfo.Cfg.Global.SupervisorID
-						updatedContainerCluster = containercluster
-					}
-					updatedContainerClusterArray = append(updatedContainerClusterArray, containercluster)
-				}
-				updateSpecToDeleteMetadata := cnstypes.CnsVolumeMetadataUpdateSpec{
-					VolumeId: cnstypes.CnsVolumeId{
-						Id: volume.VolumeId.Id,
-					},
-					Metadata: cnstypes.CnsVolumeMetadata{
-						ContainerCluster:      volume.Metadata.ContainerCluster,
-						ContainerClusterArray: volume.Metadata.ContainerClusterArray,
-					},
-				}
-				updateSpecToAddMetadata := cnstypes.CnsVolumeMetadataUpdateSpec{
-					VolumeId: cnstypes.CnsVolumeId{
-						Id: volume.VolumeId.Id,
-					},
-					Metadata: cnstypes.CnsVolumeMetadata{
-						ContainerCluster:      updatedContainerCluster,
-						ContainerClusterArray: updatedContainerClusterArray,
-					},
-				}
-				for _, entityMetadata := range volume.Metadata.EntityMetadata {
-					if entityMetadata.GetCnsEntityMetadata().ClusterID ==
-						metadataSyncer.configInfo.Cfg.Global.ClusterID {
-						// Delete metadata for associated with old cluster ID
-						oldk8sEntityMetadata := *entityMetadata.(*cnstypes.CnsKubernetesEntityMetadata)
-						oldk8sEntityMetadata.Delete = true
-						// add metadata for new supervisor id
-						newk8sEntityMetadata := *entityMetadata.(*cnstypes.CnsKubernetesEntityMetadata)
-						newk8sEntityMetadata.ClusterID = metadataSyncer.configInfo.Cfg.Global.SupervisorID
-						for index, referredEntity := range newk8sEntityMetadata.ReferredEntity {
-							if referredEntity.ClusterID == metadataSyncer.configInfo.Cfg.Global.ClusterID {
-								referredEntity.ClusterID = metadataSyncer.configInfo.Cfg.Global.SupervisorID
-							}
-							newk8sEntityMetadata.ReferredEntity[index] = referredEntity
+				volumeIDsWithOldClusterID = append(volumeIDsWithOldClusterID, volume.VolumeId)
+			}
+			queryAllResult, err := fullSyncGetQueryResults(ctx, volumeIDsWithOldClusterID,
+				metadataSyncer.configInfo.Cfg.Global.ClusterID, volManager, metadataSyncer)
+			if err != nil {
+				log.Errorf("FullSync for VC %s: fullSyncGetQueryResults failed to query volume metadata from vc. Err: %v", vc, err)
+				return err
+			}
+			var updateMetadataSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec
+			for _, queryResult := range queryAllResult {
+				for _, volume := range queryResult.Volumes {
+					log.Infof("observed volume %q with old cluster Id: %q", volume.VolumeId,
+						metadataSyncer.configInfo.Cfg.Global.ClusterID)
+					var containerClusterArrayToAdd []cnstypes.CnsContainerCluster
+					var containerClusterArrayToDelete []cnstypes.CnsContainerCluster
+					var updatedContainerCluster cnstypes.CnsContainerCluster
+					for _, containerCluster := range volume.Metadata.ContainerClusterArray {
+						if containerCluster.ClusterId == metadataSyncer.configInfo.Cfg.Global.ClusterID {
+							updatedContainerCluster = containerCluster
+							updatedContainerCluster.ClusterId = metadataSyncer.configInfo.Cfg.Global.SupervisorID
+							containerClusterArrayToAdd = append(containerClusterArrayToAdd, updatedContainerCluster)
+							containerCluster.Delete = true
+							containerClusterArrayToDelete = append(containerClusterArrayToDelete, containerCluster)
 						}
-						updateSpecToDeleteMetadata.Metadata.EntityMetadata =
-							append(updateSpecToDeleteMetadata.Metadata.EntityMetadata, &oldk8sEntityMetadata)
-						updateSpecToAddMetadata.Metadata.EntityMetadata =
-							append(updateSpecToAddMetadata.Metadata.EntityMetadata, &newk8sEntityMetadata)
 					}
-				}
-				if len(updateSpecToDeleteMetadata.Metadata.EntityMetadata) > 0 {
+					updateSpecToDeleteMetadata := cnstypes.CnsVolumeMetadataUpdateSpec{
+						VolumeId: cnstypes.CnsVolumeId{
+							Id: volume.VolumeId.Id,
+						},
+						Metadata: cnstypes.CnsVolumeMetadata{
+							ContainerCluster:      volume.Metadata.ContainerCluster,
+							ContainerClusterArray: containerClusterArrayToDelete,
+						},
+					}
+					updateSpecToDeleteMetadata.Metadata.ContainerCluster.Delete = true
+					updateSpecToAddMetadata := cnstypes.CnsVolumeMetadataUpdateSpec{
+						VolumeId: cnstypes.CnsVolumeId{
+							Id: volume.VolumeId.Id,
+						},
+						Metadata: cnstypes.CnsVolumeMetadata{
+							ContainerCluster:      updatedContainerCluster,
+							ContainerClusterArray: containerClusterArrayToAdd,
+						},
+					}
+					for _, entityMetadata := range volume.Metadata.EntityMetadata {
+						if entityMetadata.GetCnsEntityMetadata().ClusterID ==
+							metadataSyncer.configInfo.Cfg.Global.ClusterID {
+							// Delete metadata for associated with old cluster ID
+							oldk8sEntityMetadata := *entityMetadata.(*cnstypes.CnsKubernetesEntityMetadata)
+							oldk8sEntityMetadata.Delete = true
+							// add metadata for new supervisor id
+							newk8sEntityMetadata := *entityMetadata.(*cnstypes.CnsKubernetesEntityMetadata)
+							newk8sEntityMetadata.ClusterID = metadataSyncer.configInfo.Cfg.Global.SupervisorID
+							for index, referredEntity := range newk8sEntityMetadata.ReferredEntity {
+								if referredEntity.ClusterID == metadataSyncer.configInfo.Cfg.Global.ClusterID {
+									referredEntity.ClusterID = metadataSyncer.configInfo.Cfg.Global.SupervisorID
+								}
+								newk8sEntityMetadata.ReferredEntity[index] = referredEntity
+							}
+							updateSpecToDeleteMetadata.Metadata.EntityMetadata =
+								append(updateSpecToDeleteMetadata.Metadata.EntityMetadata, &oldk8sEntityMetadata)
+							updateSpecToAddMetadata.Metadata.EntityMetadata =
+								append(updateSpecToAddMetadata.Metadata.EntityMetadata, &newk8sEntityMetadata)
+						}
+					}
+					updateMetadataSpecArray = append(updateMetadataSpecArray, updateSpecToAddMetadata)
 					updateMetadataSpecArray = append(updateMetadataSpecArray, updateSpecToDeleteMetadata)
 				}
-				// TODO: Remove this check after CNS resolve issue regarding removal of old cluster-id
-				// from ContainerClusterArray. This will allow replacing cluster-id for volume which does not have any
-				// entity metadata.
-				if len(updateSpecToAddMetadata.Metadata.EntityMetadata) > 0 {
-					updateMetadataSpecArray = append(updateMetadataSpecArray, updateSpecToAddMetadata)
+				if len(updateMetadataSpecArray) > 0 {
+					log.Infof("FullSync for VC %s: Replacing ClusterID: %q with new SupervisorID: %q",
+						vc, metadataSyncer.configInfo.Cfg.Global.ClusterID,
+						metadataSyncer.configInfo.Cfg.Global.SupervisorID)
 				}
-			}
-			if len(updateMetadataSpecArray) > 0 {
-				log.Infof("FullSync for VC %s: Replacing ClusterID: %q with new SupervisorID: %q",
-					vc, metadataSyncer.configInfo.Cfg.Global.ClusterID,
-					metadataSyncer.configInfo.Cfg.Global.SupervisorID)
-			}
-			for _, updateSpec := range updateMetadataSpecArray {
-				log.Debugf("Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v",
-					updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
-				if err := volManager.UpdateVolumeMetadata(ctx, &updateSpec); err != nil {
-					log.Warnf("FullSync for VC %s: UpdateVolumeMetadata failed while replacing clusterID "+
-						"with supervisorID. Error: %+v", vc, err)
+				for _, updateSpec := range updateMetadataSpecArray {
+					log.Debugf("Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v",
+						updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
+					if err := volManager.UpdateVolumeMetadata(ctx, &updateSpec); err != nil {
+						log.Warnf("FullSync for VC %s: UpdateVolumeMetadata failed while replacing clusterID "+
+							"with supervisorID. Error: %+v", vc, err)
+					}
 				}
 			}
 		}
