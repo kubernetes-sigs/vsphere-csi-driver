@@ -129,8 +129,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if guestCluster {
-			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, rqLimit)
+			// Get a config to talk to the apiserver
+			restConfig := getRestConfigClient()
+			_, svNamespace := getSvcClientAndNamespace()
+			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, svNamespace, rqLimit)
 		}
 
 		if os.Getenv(envFullSyncWaitTime) != "" {

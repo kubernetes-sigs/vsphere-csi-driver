@@ -92,7 +92,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 
 		scParameters := make(map[string]string)
-		scParameters[scParamFsType] = ext4FSType
+		if windowsEnv {
+			scParameters[scParamFsType] = ntfsFSType
+		} else {
+			scParameters[scParamFsType] = ext4FSType
+		}
 		// Set resource quota.
 		ginkgo.By("Set Resource quota for GC")
 		svcClient, svNamespace := getSvcClientAndNamespace()
@@ -122,8 +126,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		pvDeleted = false
 
 		// Replace second element with pod.Name.
-		cmd = []string{"exec", "", fmt.Sprintf("--namespace=%v", namespace),
-			"--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
+		if windowsEnv {
+			cmd = []string{"exec", "", "--namespace=" + namespace, "powershell.exe", "cat", "/mnt/volume1/fstype.txt"}
+		} else {
+			cmd = []string{"exec", "", "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
+		}
 
 		// Set up default pandora sync wait time.
 		pandoraSyncWaitTime = defaultPandoraSyncWaitTime
@@ -219,10 +226,14 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-		originalFsSize, err := getFSSizeMb(f, pod)
+		originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Delete POD.
@@ -337,7 +348,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		ginkgo.By("Verify after expansion the filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvclaim, err = waitForFSResize(pvclaim, client)
@@ -347,7 +362,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
-		fsSize, err := getFSSizeMb(f, pod)
+		fsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume.
 		// Here since filesystem was already formatted on the original volume,
@@ -435,7 +450,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		_ = getPVCFromSupervisorCluster(svcPVCName)
 
 		scParameters := make(map[string]string)
-		scParameters[scParamFsType] = ext4FSType
+		if windowsEnv {
+			scParameters[scParamFsType] = ntfsFSType
+		} else {
+			scParameters[scParamFsType] = ext4FSType
+		}
 		scParameters[svStorageClassName] = storagePolicyName
 		storageclassNewGC, err := createStorageClass(clientNewGc,
 			scParameters, nil, v1.PersistentVolumeReclaimDelete, "", true, "")
@@ -468,7 +487,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 
 		ginkgo.By("Creating the PV")
-		pvNew := getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, nil, ext4FSType)
+		var pvNew *v1.PersistentVolume
+		if windowsEnv {
+			pvNew = getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, nil, ntfsFSType)
+		} else {
+			pvNew = getPersistentVolumeSpec(svcPVCName, v1.PersistentVolumeReclaimDelete, nil, ext4FSType)
+		}
 		pvNew.Annotations = pvtemp.Annotations
 		pvNew.Spec.StorageClassName = pvtemp.Spec.StorageClassName
 		pvNew.Spec.CSI = pvtemp.Spec.CSI
@@ -557,10 +581,32 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 			framework.TestContext.KubeConfig = oldKubeConfig
 		}()
 
-		cmd2 = []string{"exec", pod.Name, fmt.Sprintf("--namespace=%v", namespaceNewGC),
-			"--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
+		if windowsEnv {
+			cmd2 = []string{
+				"exec",
+				pod.Name,
+				"--namespace=" + namespaceNewGC,
+				"powershell.exe",
+				"cat",
+				"/mnt/volume1/fstype.txt",
+			}
+		} else {
+			cmd2 = []string{
+				"exec",
+				pod.Name,
+				"--namespace=" + namespaceNewGC,
+				"--",
+				"/bin/sh",
+				"-c",
+				"df -Tkm | grep /mnt/volume1",
+			}
+		}
 		lastOutput := e2ekubectl.RunKubectlOrDie(namespaceNewGC, cmd2...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Waiting for file system resize to finish")
 		pvcNew, err = waitForFSResize(pvcNew, clientNewGc)
@@ -676,10 +722,14 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 		cmd[1] = pod.Name
 		lastOutput := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		if windowsEnv {
+			gomega.Expect(strings.Contains(lastOutput, ntfsFSType)).NotTo(gomega.BeFalse())
+		} else {
+			gomega.Expect(strings.Contains(lastOutput, ext4FSType)).NotTo(gomega.BeFalse())
+		}
 
 		ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-		originalFsSize, err := getFSSizeMb(f, pod)
+		originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -743,7 +793,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
-		fsSize, err := getFSSizeMb(f, pod)
+		fsSize, err := getFileSystemSizeForOsType(f, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume.
 		// Here since filesystem was already formatted on the original volume,
@@ -884,7 +934,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		isGC2PVCreated = false
 
 		scParameters := make(map[string]string)
-		scParameters[scParamFsType] = ext4FSType
+		if windowsEnv {
+			scParameters[scParamFsType] = ntfsFSType
+		} else {
+			scParameters[scParamFsType] = ext4FSType
+		}
 		scParameters[svStorageClassName] = storagePolicyName
 		storageclassInGC1, err := createStorageClass(client,
 			scParameters, nil, v1.PersistentVolumeReclaimDelete, "", true, "")

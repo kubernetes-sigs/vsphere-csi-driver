@@ -729,13 +729,24 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		cmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"cat /mnt/volume1/Pod1.html "}
+		var cmd []string
+		if windowsEnv {
+			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe", "cat ", filePathPod1}
+		} else {
+			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+				"cat ", filePathPod1}
+		}
 		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
-		wrtiecmd := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"echo 'Hello message from test into Pod1' >> /mnt/volume1/Pod1.html"}
+		var wrtiecmd []string
+		if windowsEnv {
+			wrtiecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe",
+				"Add-Content /mnt/volume1/Pod1.html 'Hello message from test into Pod1'"}
+		} else {
+			wrtiecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+				"echo 'Hello message from test into Pod1' >> /mnt/volume1/Pod1.html"}
+		}
 		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
 		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())

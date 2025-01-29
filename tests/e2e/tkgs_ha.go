@@ -1923,7 +1923,9 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		// Waiting for pods status to be Ready
 		for _, statefulset := range stsList {
 			fss.WaitForStatusReadyReplicas(ctx, client, statefulset, statefulSetReplicaCount)
-			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+			if !windowsEnv {
+				gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
+			}
 			ssPods = fss.GetPodList(ctx, client, statefulset)
 			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
@@ -2167,14 +2169,14 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
-			originalSizeInMb, err := getFSSizeMb(f, podList[i])
+			originalSizeInMb, err := getFileSystemSizeForOsType(f, client, podList[i])
 			framework.Logf("original size : %d", originalSizeInMb)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			originalSizes = append(originalSizes, originalSizeInMb)
 
 			// File system resize should not succeed Since Vsan-health is down. Expect an error
 			ginkgo.By("File system resize should not succeed Since Vsan-health is down. Expect an error")
-			expectedErrMsg := "didn't find a plugin capable of expanding the volume"
+			expectedErrMsg := "not in FileSystemResizePending condition"
 			framework.Logf("Expected failure message: %+q", expectedErrMsg)
 			err = waitForEvent(ctx, client, namespace, expectedErrMsg, pvclaim.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2229,7 +2231,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 			var fsSize int64
 			ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-			fsSize, err = getFSSizeMb(f, podList[i])
+			fsSize, err = getFileSystemSizeForOsType(f, client, podList[i])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("File system size after expansion : %d", fsSize)
 			// Filesystem size may be smaller than the size of the block volume

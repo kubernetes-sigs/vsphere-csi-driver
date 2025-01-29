@@ -32,7 +32,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -102,7 +101,6 @@ var (
 	svcNamespace1          string
 	vsanHealthClient       *VsanClient
 	clusterComputeResource []*object.ClusterComputeResource
-	hosts                  []*object.HostSystem
 	defaultDatastore       *object.Datastore
 	restConfig             *rest.Config
 	pvclaims               []*v1.PersistentVolumeClaim
@@ -1925,6 +1923,7 @@ func getWCPSessionId(hostname string, username string, password string) string {
 // getWindowsFileSystemSize finds the windowsWorkerIp and returns the size of the volume
 func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, error) {
 	var err error
+	var output fssh.Result
 	var windowsWorkerIP, size string
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1937,17 +1936,32 @@ func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, e
 			break
 		}
 	}
-	nimbusGeneratedWindowsVmPwd := GetAndExpectStringEnvVar(envWindowsPwd)
-	windowsUser := GetAndExpectStringEnvVar(envWindowsUser)
-	sshClientConfig := &ssh.ClientConfig{
-		User: windowsUser,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(nimbusGeneratedWindowsVmPwd),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
 	cmd := "Get-Disk | Format-List -Property Manufacturer,Size"
-	output, err := sshExec(sshClientConfig, windowsWorkerIP, cmd)
+	if guestCluster {
+		svcMasterIp := GetAndExpectStringEnvVar(svcMasterIP)
+		svcMasterPwd := GetAndExpectStringEnvVar(svcMasterPassword)
+		svcNamespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
+		sshWcpConfig := &ssh.ClientConfig{
+			User: rootUser,
+			Auth: []ssh.AuthMethod{
+				ssh.Password(svcMasterPwd),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		}
+		output, err = execCommandOnGcWorker(sshWcpConfig, svcMasterIp, windowsWorkerIP,
+			svcNamespace, cmd)
+	} else {
+		nimbusGeneratedWindowsVmPwd := GetAndExpectStringEnvVar(envWindowsPwd)
+		windowsUser := GetAndExpectStringEnvVar(envWindowsUser)
+		sshClientConfig := &ssh.ClientConfig{
+			User: windowsUser,
+			Auth: []ssh.AuthMethod{
+				ssh.Password(nimbusGeneratedWindowsVmPwd),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		}
+		output, err = sshExec(sshClientConfig, windowsWorkerIP, cmd)
+	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	fullStr := strings.Split(strings.TrimSuffix(string(output.Stdout), "\n"), "\n")
 	var originalSizeInbytes int64
@@ -1959,37 +1973,19 @@ func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, e
 			if err != nil {
 				return -1, fmt.Errorf("failed to parse size %s into int size", size)
 			}
-			if originalSizeInbytes < 96636764160 {
-				break
+			if guestCluster {
+				if originalSizeInbytes < 42949672960 {
+					break
+				}
+			} else {
+				if originalSizeInbytes < 96636764160 {
+					break
+				}
 			}
 		}
 	}
 	framework.Logf("disk size is  %d", originalSizeInbytes)
 	return originalSizeInbytes, nil
-}
-
-// replacePasswordRotationTime invokes the given command to replace the password
-// rotation time to 0, so that password roation happens immediately on the given
-// vCenter over SSH. Vmon-cli is used to restart the wcp service after changing
-// the time.
-func replacePasswordRotationTime(ctx context.Context, file, host string) error {
-	sshCmd := fmt.Sprintf("sed -i '3 c\\0' %s", file)
-	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
-	result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
-	if err != nil || result.Code != 0 {
-		fssh.LogResult(result)
-		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
-	}
-
-	sshCmd = fmt.Sprintf("vmon-cli -r %s", wcpServiceName)
-	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
-	result, err = fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
-	time.Sleep(sleepTimeOut)
-	if err != nil || result.Code != 0 {
-		fssh.LogResult(result)
-		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
-	}
-	return nil
 }
 
 // performPasswordRotationOnSupervisor invokes the given command to replace the password
@@ -3554,52 +3550,6 @@ func getClusterComputeResource(ctx context.Context, vs *vSphere) ([]*object.Clus
 	return clusterComputeResource, vsanHealthClient
 }
 
-// findIP returns the IP from the input string.
-func findIP(input string) string {
-	numBlock := "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])"
-	regexPattern := numBlock + "\\." + numBlock + "\\." + numBlock + "\\." + numBlock
-	regEx := regexp.MustCompile(regexPattern)
-	return regEx.FindString(input)
-}
-
-// getHosts returns list of hosts and it takes clusterComputeResource as input.
-// This method is used by WCP and GC tests.
-func getHosts(ctx context.Context, clusterComputeResource []*object.ClusterComputeResource) []*object.HostSystem {
-	var err error
-	if hosts == nil {
-		computeCluster := os.Getenv(envComputeClusterName)
-		if computeCluster == "" {
-			if guestCluster {
-				computeCluster = "compute-cluster"
-			} else if supervisorCluster {
-				computeCluster = "wcp-app-platform-sanity-cluster"
-			}
-			framework.Logf("Default cluster is chosen for test")
-		}
-		for _, cluster := range clusterComputeResource {
-			framework.Logf("clusterComputeResource %v", clusterComputeResource)
-			if strings.Contains(cluster.Name(), computeCluster) {
-				hosts, err = cluster.Hosts(ctx)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}
-	}
-	gomega.Expect(hosts).NotTo(gomega.BeNil())
-	return hosts
-}
-
-// waitForAllHostsToBeUp will check and wait till the host is reachable.
-func waitForAllHostsToBeUp(ctx context.Context, vs *vSphere) {
-	clusterComputeResource, _ = getClusterComputeResource(ctx, vs)
-	hosts = getHosts(ctx, clusterComputeResource)
-	framework.Logf("host information %v", hosts)
-	for index := range hosts {
-		ip := findIP(hosts[index].String())
-		err := waitForHostToBeUp(ip)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
-}
-
 // psodHostWithPv methods finds the esx host where pv is residing and psods it.
 // It uses VsanObjIndentities and QueryVsanObjects apis to achieve it and
 // returns the host ip.
@@ -3868,7 +3818,7 @@ func getPVCSpecWithPVandStorageClass(pvcName string, namespace string, labels ma
 // object name.
 func waitForEvent(ctx context.Context, client clientset.Interface,
 	namespace string, substr string, name string) error {
-	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
+	waitErr := wait.PollUntilContextTimeout(ctx, poll, 2*pollTimeout, true,
 		func(ctx context.Context) (bool, error) {
 			eventList, err := client.CoreV1().Events(namespace).List(ctx,
 				metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
@@ -4317,14 +4267,28 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	podLabels map[string]string, nodeSelector map[string]string, namespace string,
 	pvclaims []*v1.PersistentVolumeClaim, command string, isPrivileged bool, image string) (*appsv1.Deployment, error) {
 	if len(command) == 0 {
-		command = "trap exit TERM; while true; do sleep 1; done"
+		if windowsEnv {
+			command = windowsExecCmd
+		} else {
+			command = "trap exit TERM; while true; do sleep 1; done"
+		}
 	}
 	deploymentSpec := getDeploymentSpec(ctx, client, replicas, podLabels, nodeSelector, namespace,
 		pvclaims, command, isPrivileged, image)
 	if windowsEnv {
+		var commands []string
+		if (len(command) == 0) || (command == execCommand) {
+			commands = []string{windowsExecCmd}
+		} else if command == execRWXCommandPod {
+			commands = []string{windowsExecRWXCommandPod}
+		} else if command == execRWXCommandPod1 {
+			commands = []string{windowsExecRWXCommandPod1}
+		} else {
+			commands = []string{command}
+		}
 		deploymentSpec.Spec.Template.Spec.Containers[0].Image = windowsImageOnMcr
 		deploymentSpec.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
-		deploymentSpec.Spec.Template.Spec.Containers[0].Args = []string{"-Command", command}
+		deploymentSpec.Spec.Template.Spec.Containers[0].Args = commands
 	}
 	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
 	if err != nil {
@@ -7400,4 +7364,47 @@ func validateQuotaUsageAfterCleanUp(ctx context.Context, restConfig *rest.Config
 	gomega.Expect(reservedQuota).NotTo(gomega.BeFalse())
 	framework.Logf("quotavalidationStatus :%v reservedQuota:%v", quotavalidationStatusAfterCleanup,
 		reservedQuota)
+}
+
+// execCommandOnGcWorker logs into gc worker node using ssh private key and executes command
+func execCommandOnGcWorker(sshClientConfig *ssh.ClientConfig, svcMasterIP string, gcWorkerIp string,
+	svcNamespace string, cmd string) (fssh.Result, error) {
+	result := fssh.Result{Host: gcWorkerIp, Cmd: cmd}
+	// get the cluster ssh key
+	sshSecretName := GetAndExpectStringEnvVar(sshSecretName)
+	cmdToGetPrivateKey := fmt.Sprintf("kubectl get secret %s -n %s -o"+
+		"jsonpath={'.data.ssh-privatekey'} | base64 -d > key", sshSecretName, svcNamespace)
+	framework.Logf("Invoking command '%v' on host %v", cmdToGetPrivateKey,
+		svcMasterIP)
+	cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
+		cmdToGetPrivateKey)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmdToGetPrivateKey, svcMasterIP, err)
+	}
+
+	enablePermissionCmd := "chmod 600 key"
+	framework.Logf("Invoking command '%v' on host %v", enablePermissionCmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		enablePermissionCmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			enablePermissionCmd, svcMasterIP, err)
+	}
+
+	cmdToGetContainerInfo := fmt.Sprintf("ssh -o StrictHostKeyChecking=no -i key %s@%s "+
+		"'%s' | grep -v 'Warning'", gcNodeUser, gcWorkerIp, cmd)
+	framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerInfo,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmdToGetContainerInfo)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmdToGetContainerInfo, svcMasterIP, err)
+	}
+	return cmdResult, nil
 }
