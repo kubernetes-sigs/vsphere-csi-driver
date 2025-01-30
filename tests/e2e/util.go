@@ -4851,11 +4851,12 @@ func createAllowedTopolgies(topologyMapStr string) []v1.TopologySelectorLabelReq
 	topologyMap, _ := createTopologyMapLevel5(topologyMapStr)
 	allowedTopologies := []v1.TopologySelectorLabelRequirement{}
 	topoKey := ""
-	if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor {
+	if topologyFeature == topologyTkgHaName ||
+		topologyFeature == podVMOnStretchedSupervisor ||
+		topologyFeature == topologyDomainIsolation {
 		topoKey = tkgHATopologyKey
-	} else {
-		topoKey = topologykey
 	}
+
 	for key, val := range topologyMap {
 		allowedTopology := v1.TopologySelectorLabelRequirement{
 			Key:    topoKey + "/" + key,
@@ -4909,7 +4910,9 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 			if val, ok := allowedTopologiesMap[topology.Key]; ok {
 				framework.Logf("pv.Spec.NodeAffinity: %v, nodeSelector: %v", pv.Spec.NodeAffinity, nodeSelector)
 				if !compareStringLists(val, topology.Values) {
-					if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor {
+					if topologyFeature == topologyTkgHaName ||
+						topologyFeature == podVMOnStretchedSupervisor ||
+						topologyFeature == topologyDomainIsolation {
 						return false, fmt.Errorf("pv node affinity details: %v does not match"+
 							"with: %v in the allowed topologies", topology.Values, val)
 					} else {
@@ -4918,7 +4921,9 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 					}
 				}
 			} else {
-				if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor {
+				if topologyFeature == topologyTkgHaName ||
+					topologyFeature == podVMOnStretchedSupervisor ||
+					topologyFeature == topologyDomainIsolation {
 					return false, fmt.Errorf("pv node affinity key: %v does not does not exist in the"+
 						"allowed topologies map: %v", topology.Key, allowedTopologiesMap)
 				} else {
@@ -7359,7 +7364,49 @@ func validateQuotaUsageAfterCleanUp(ctx context.Context, restConfig *rest.Config
 	gomega.Expect(reservedQuota).NotTo(gomega.BeFalse())
 	framework.Logf("quotavalidationStatus :%v reservedQuota:%v", quotavalidationStatusAfterCleanup,
 		reservedQuota)
+}
 
+// execCommandOnGcWorker logs into gc worker node using ssh private key and executes command
+func execCommandOnGcWorker(sshClientConfig *ssh.ClientConfig, svcMasterIP string, gcWorkerIp string,
+	svcNamespace string, cmd string) (fssh.Result, error) {
+	result := fssh.Result{Host: gcWorkerIp, Cmd: cmd}
+	// get the cluster ssh key
+	sshSecretName := GetAndExpectStringEnvVar(sshSecretName)
+	cmdToGetPrivateKey := fmt.Sprintf("kubectl get secret %s -n %s -o"+
+		"jsonpath={'.data.ssh-privatekey'} | base64 -d > key", sshSecretName, svcNamespace)
+	framework.Logf("Invoking command '%v' on host %v", cmdToGetPrivateKey,
+		svcMasterIP)
+	cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
+		cmdToGetPrivateKey)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmdToGetPrivateKey, svcMasterIP, err)
+	}
+
+	enablePermissionCmd := "chmod 600 key"
+	framework.Logf("Invoking command '%v' on host %v", enablePermissionCmd,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		enablePermissionCmd)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			enablePermissionCmd, svcMasterIP, err)
+	}
+
+	cmdToGetContainerInfo := fmt.Sprintf("ssh -o StrictHostKeyChecking=no -i key %s@%s "+
+		"'%s' | grep -v 'Warning'", gcNodeUser, gcWorkerIp, cmd)
+	framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerInfo,
+		svcMasterIP)
+	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
+		cmdToGetContainerInfo)
+	if err != nil || cmdResult.Code != 0 {
+		fssh.LogResult(cmdResult)
+		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+			cmdToGetContainerInfo, svcMasterIP, err)
+	}
+	return cmdResult, nil
 }
 
 // execCommandOnGcWorker logs into gc worker node using ssh private key and executes command

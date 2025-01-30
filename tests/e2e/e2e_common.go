@@ -464,6 +464,13 @@ var (
 	envTopologySetupType           = "TOPOLOGY_SETUP_TYPE"
 )
 
+// For management workload domain isolation
+var (
+	envZonal2StoragePolicyName = "ZONAL2_STORAGECLASS"
+	envWrkldDomain1ZoneName    = "WORKLOAD_1_ZONE_NAME"
+	topologyDomainIsolation    = "Workload_Management_Isolation"
+)
+
 // GetAndExpectStringEnvVar parses a string from env variable.
 func GetAndExpectStringEnvVar(varName string) string {
 	varValue := os.Getenv(varName)
