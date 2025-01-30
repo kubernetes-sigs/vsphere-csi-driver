@@ -104,6 +104,8 @@ const (
 	TKCAPIVersion = "run.tanzu.vmware.com/v1alpha1"
 	// ClusterIDConfigMapName refers to the name of the immutable ConfigMap used to store cluster ID
 	ClusterIDConfigMapName = "vsphere-csi-cluster-id"
+	// ClusterVersionv1beta1 refers to the api version of non-legacy cluster
+	ClusterVersionv1beta1 = "cluster.x-k8s.io/v1beta1"
 )
 
 // Errors
