@@ -1464,28 +1464,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 				storagePolicyUsageBefore)
 		}
 
-		// ginkgo.By("Create a PVC")
-		// pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// ginkgo.By("Waiting for all claims to be in bound state")
-		// pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc, staticPvc}, pollTimeout)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// pv := pvs[0]
-		// volHandle := pv.Spec.CSI.VolumeHandle
-		// gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-		// defer func() {
-		// 	ginkgo.By("Delete PVCs")
-		// 	err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// 	err = fpv.DeletePersistentVolumeClaim(ctx, client, staticPvc.Name, namespace)
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// 	ginkgo.By("Waiting for CNS volumes to be deleted")
-		// 	err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// 	err = e2eVSphere.waitForCNSVolumeToBeDeleted(staticPv.Spec.CSI.VolumeHandle)
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// }()
-
 		ginkgo.By("Creating VM bootstrap data")
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
 		defer func() {

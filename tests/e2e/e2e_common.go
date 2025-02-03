@@ -163,7 +163,7 @@ const (
 	passorwdFilePath                          = "/etc/vmware/wcp/.storageUser"
 	podContainerCreatingState                 = "ContainerCreating"
 	poll                                      = 2 * time.Second
-	pollTimeout                               = 5 * time.Minute
+	pollTimeout                               = 10 * time.Minute
 	pollTimeoutShort                          = 1 * time.Minute
 	pollTimeoutSixMin                         = 6 * time.Minute
 	healthStatusPollTimeout                   = 20 * time.Minute
@@ -269,6 +269,7 @@ const (
 	diskSize1Gi                              = int64(1024)
 	storageQuotaWebhookPrefix                = "storage-quota-webhook"
 	envStoragePolicyNameForVsanNfsDatastores = "STORAGE_POLICY_FOR_VSAN_NFS_DATASTORES"
+	devopsKubeConf                           = "DEV_OPS_USER_KUBECONFIG"
 )
 
 /*
