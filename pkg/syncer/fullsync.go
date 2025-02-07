@@ -720,26 +720,33 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 			} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
 				IsPodVMOnStretchSupervisorFSSEnabled {
 				pv := volumeIdTok8sPVMap[volumeID]
-				pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(
-					pv.Spec.ClaimRef.Namespace).Get(pv.Spec.ClaimRef.Name)
-				if err != nil {
-					log.Warnf("Failed to get pvc for namespace %s and name %s. err=%+v",
-						pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name, err)
+				// claimref will be nil when volume is static provisioned or any available/released pv
+				// which are not claimed by pvc. added a check to handle such cases.
+				if pv.Spec.ClaimRef == nil {
+					log.Warnf("Claimref is not available for pv %s", pv.Name)
 					continue
-				}
-				pvcCapacity := pvc.Status.Capacity[v1.ResourceStorage]
-				if pvc.Spec.StorageClassName != nil {
-					err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, pvc.Namespace,
-						scNameToPolicyIdMap[*pvc.Spec.StorageClassName], *pvc.Spec.StorageClassName, vc, &pvcCapacity)
+				} else {
+					pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(
+						pv.Spec.ClaimRef.Namespace).Get(pv.Spec.ClaimRef.Name)
 					if err != nil {
-						log.Warnf("FullSync for VC %s: failed to create VolumeInfo CR for volume %s."+
-							"Error: %+v", vc, volumeID, err)
+						log.Warnf("Failed to get pvc for namespace %s and name %s. err=%+v",
+							pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name, err)
 						continue
 					}
-				} else {
-					log.Warnf("FullSync for VC %s: failed to create VolumeInfo CR for volume %s."+
-						"StorageClassName not found in the PVC spec %v.", vc, volumeID, pvc.Spec)
-					continue
+					pvcCapacity := pvc.Status.Capacity[v1.ResourceStorage]
+					if pvc.Spec.StorageClassName != nil {
+						err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, pvc.Namespace,
+							scNameToPolicyIdMap[*pvc.Spec.StorageClassName], *pvc.Spec.StorageClassName, vc, &pvcCapacity)
+						if err != nil {
+							log.Warnf("FullSync for VC %s: failed to create VolumeInfo CR for volume %s."+
+								"Error: %+v", vc, volumeID, err)
+							continue
+						}
+					} else {
+						log.Warnf("FullSync for VC %s: failed to create VolumeInfo CR for volume %s."+
+							"StorageClassName not found in the PVC spec %v.", vc, volumeID, pvc.Spec)
+						continue
+					}
 				}
 			}
 		}

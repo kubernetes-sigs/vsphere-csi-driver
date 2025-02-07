@@ -1265,7 +1265,7 @@ func calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx context.Contex
 			}
 			if storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage == nil {
 				log.Infof("calculateVMServiceStoragePolicyUsageReservedForNamespace: StoragePolicyUsage"+
-					" status not populated, continuing processing others Name: %q, Namespace: %q",
+					" status not populated, continue processing other PVCs Name: %q, Namespace: %q",
 					storagePolicyUsage.Name, storagePolicyUsage.Namespace)
 				continue
 			}
@@ -1305,6 +1305,11 @@ func calculatePVCReservedForNamespace(ctx context.Context, volumeMap map[string]
 		if pvc.Status.Phase == "" {
 			log.Infof("calculatePVCReservedForNamespace: pvc status not populated, continuing processing others"+
 				" Name: %q, Namespace: %q", pvc.Name, pvc.Namespace)
+			continue
+		}
+		if pvc.Spec.StorageClassName == nil {
+			log.Infof("calculatePVCReservedForNamespace: storageclass is not provided for pvc,"+
+				" continue processing other PVCs Name: %q, Namespace: %q", pvc.Name, pvc.Namespace)
 			continue
 		}
 		if storagePolicyID, ok := scToStoragePolicyIDMap[*pvc.Spec.StorageClassName]; ok {
