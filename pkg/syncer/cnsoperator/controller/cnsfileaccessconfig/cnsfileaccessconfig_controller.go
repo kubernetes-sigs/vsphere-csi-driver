@@ -268,14 +268,12 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 					return reconcile.Result{RequeueAfter: timeout}, nil
 				}
 			}
-			if !skipConfigureVolumeACL {
-				err = r.removePermissionsForFileVolume(ctx, volumeID, instance)
-				if err != nil {
-					msg := fmt.Sprintf("Failed to remove file volume permissions with error: %+v", err)
-					log.Error(msg)
-					setInstanceError(ctx, r, instance, msg)
-					return reconcile.Result{RequeueAfter: timeout}, nil
-				}
+			err = r.removePermissionsForFileVolume(ctx, volumeID, instance, skipConfigureVolumeACL)
+			if err != nil {
+				msg := fmt.Sprintf("Failed to remove file volume permissions with error: %+v", err)
+				log.Error(msg)
+				setInstanceError(ctx, r, instance, msg)
+				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
 
 			// Remove finalizer from CnsFileAccessConfig CRD
@@ -463,8 +461,8 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 // removePermissionsForFileVolume helps to remove net permissions for a given file volume.
 // This method is used when we don't have VM instance. It fetches the VM IP from CNSFileVolumeClient
 // instance for the VM name associated with CnsFileAccessConfig.
-func (r *ReconcileCnsFileAccessConfig) removePermissionsForFileVolume(ctx context.Context,
-	volumeID string, instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig) error {
+func (r *ReconcileCnsFileAccessConfig) removePermissionsForFileVolume(ctx context.Context, volumeID string,
+	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, skipConfigureVolumeACL bool) error {
 	log := logger.GetLogger(ctx)
 	cnsFileVolumeClientInstance, err := cnsfilevolumeclient.GetFileVolumeClientInstance(ctx)
 	if err != nil {
@@ -477,7 +475,9 @@ func (r *ReconcileCnsFileAccessConfig) removePermissionsForFileVolume(ctx contex
 		return logger.LogNewErrorf(log, "Failed to get VM IP from VM name in CNSFileVolumeClient instance. "+
 			"Error: %+v", err)
 	}
-	if vmsAssociatedWithIP == 1 {
+	// If PVC is not found, then skipConfigureVolumeACL will be true.
+	// There is no need to configure volume ACL on volume if PVC is already deleted.
+	if !skipConfigureVolumeACL && (vmsAssociatedWithIP == 1) {
 		// In case of VDS setup, we will always have 1 VM associated with IP. But, in case of
 		// SNAT setup, we may have multiple VMs associated with same IP. We will remove ACL
 		// permission only when it is the last VM associated with IP.
