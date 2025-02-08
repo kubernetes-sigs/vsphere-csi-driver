@@ -32,6 +32,7 @@ import (
 	"github.com/go-co-op/gocron"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1000,62 +1001,66 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 // addFinalizerOnCnsFileVolumeClientCRs checks and adds finalizer on CnsFileVolumeClient CRs if it is missing.
 func addFinalizerOnCnsFileVolumeClientCRs(ctx context.Context) error {
 	log := logger.GetLogger(ctx).WithOptions()
-	var stretchedSupervisor bool
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-		clusterComputeResourceMoIds, err := common.GetClusterComputeResourceMoIds(ctx)
-		if err != nil {
-			log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+	cfg, err := config.GetConfig()
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get config. Err: %+v", err)
+		log.Error(msg)
+		return err
+	}
+	apiextensionsClientSet, err := apiextensionsclientset.NewForConfig(cfg)
+	if err != nil {
+		log.Errorf("failed to create Kubernetes client using config. Err: %+v", err)
+		return err
+	}
+	_, err = apiextensionsClientSet.ApiextensionsV1().CustomResourceDefinitions().Get(ctx,
+		"cnsfileaccessconfigs.cns.vmware.com", metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Infof("CR instance is not registered. " +
+				"skipping to add finalizer on CNSFileVolumeClient Instances")
+			return nil
+		} else {
+			log.Errorf("failed to check if CnsFileAccessConfig CR is registered. Err: %v", err)
 			return err
-		}
-		if len(clusterComputeResourceMoIds) > 1 {
-			stretchedSupervisor = true
 		}
 	}
-	if !stretchedSupervisor || (stretchedSupervisor && IsWorkloadDomainIsolationSupported) {
-		// Prepare Config and NewClientForGroup for cnsOperatorClient
-		restConfig, err := config.GetConfig()
-		if err != nil {
-			log.Errorf("failed to get Kubernetes k8sconfig. Err: %+v", err)
-			return err
-		}
-		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
-		if err != nil {
-			log.Errorf("failed to create CnsOperator client. Err: %+v", err)
-			return err
-		}
-		// Get the list of all CnsFileVolumeClient CRs from all supervisor namespaces.
-		cnsFileVolumeClientList := &cnsfilevolumeclientv1alpha1.CnsFileVolumeClientList{}
-		err = cnsOperatorClient.List(ctx, cnsFileVolumeClientList)
-		if err != nil {
-			log.Errorf("failed to list CnsFileVolumeClient CRs from all supervisor namespaces. Error: %+v",
-				err)
-			return err
-		}
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, cfg, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		log.Errorf("failed to create CnsOperator client. Err: %+v", err)
+		return err
+	}
+	// Get the list of all CnsFileVolumeClient CRs from all supervisor namespaces.
+	cnsFileVolumeClientList := &cnsfilevolumeclientv1alpha1.CnsFileVolumeClientList{}
+	err = cnsOperatorClient.List(ctx, cnsFileVolumeClientList)
+	if err != nil {
+		log.Errorf("failed to list CnsFileVolumeClient CRs from all supervisor namespaces. Error: %+v",
+			err)
+		return err
+	}
 
-		for _, cnsFileVolumeClient := range cnsFileVolumeClientList.Items {
-			// If cnsFileVolumeClient instance is marked for deletion, then no need to add finalizer
-			if cnsFileVolumeClient.DeletionTimestamp == nil {
-				cnsFinalizerExists := false
-				// Check if finalizer already exists.
-				for _, finalizer := range cnsFileVolumeClient.Finalizers {
-					if finalizer == cnsoperatortypes.CNSFinalizer {
-						cnsFinalizerExists = true
-						break
-					}
+	for _, cnsFileVolumeClient := range cnsFileVolumeClientList.Items {
+		// If cnsFileVolumeClient instance is marked for deletion, then no need to add finalizer
+		if cnsFileVolumeClient.DeletionTimestamp == nil {
+			cnsFinalizerExists := false
+			// Check if finalizer already exists.
+			for _, finalizer := range cnsFileVolumeClient.Finalizers {
+				if finalizer == cnsoperatortypes.CNSFinalizer {
+					cnsFinalizerExists = true
+					break
 				}
-				if !cnsFinalizerExists {
-					// Add finalizer.
-					cnsFileVolumeClient.Finalizers = append(cnsFileVolumeClient.Finalizers,
-						cnsoperatortypes.CNSFinalizer)
-					err = cnsOperatorClient.Update(ctx, &cnsFileVolumeClient)
-					if err != nil {
-						log.Errorf("failed to update CnsFileVolumeClient instance: %q on namespace: %q. Error: %+v",
-							cnsFileVolumeClient.Name, cnsFileVolumeClient.Namespace, err)
-						return err
-					}
-					log.Infof("successfully added finalizer on CnsFileVolumeClient instance: %q on namespace: %q",
-						cnsFileVolumeClient.Name, cnsFileVolumeClient.Namespace)
+			}
+			if !cnsFinalizerExists {
+				// Add finalizer.
+				cnsFileVolumeClient.Finalizers = append(cnsFileVolumeClient.Finalizers,
+					cnsoperatortypes.CNSFinalizer)
+				err = cnsOperatorClient.Update(ctx, &cnsFileVolumeClient)
+				if err != nil {
+					log.Errorf("failed to update CnsFileVolumeClient instance: %q on namespace: %q. Error: %+v",
+						cnsFileVolumeClient.Name, cnsFileVolumeClient.Namespace, err)
+					return err
 				}
+				log.Infof("successfully added finalizer on CnsFileVolumeClient instance: %q on namespace: %q",
+					cnsFileVolumeClient.Name, cnsFileVolumeClient.Namespace)
 			}
 		}
 	}
