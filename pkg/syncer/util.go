@@ -49,8 +49,8 @@ const (
 
 	// allowedRetriesToPatchStoragePolicyUsage indicates number of retries allowed for patching StoragePolicyUsage CR
 	allowedRetriesToPatchStoragePolicyUsage = 5
-	// volumdIDLimitPerQuery is set to 10000
-	volumdIDLimitPerQuery = 10000
+	// volumdIDLimitPerQuery is set to 1000
+	volumdIDLimitPerQuery = 1000
 )
 
 // getPVsInBoundAvailableOrReleased return PVs in Bound, Available or Released

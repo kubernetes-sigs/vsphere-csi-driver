@@ -118,8 +118,14 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch,
 
 		for {
 			log.Infof("Starting property collector...")
-			p := property.DefaultCollector(spController.vc.Client.Client)
-			err := property.WaitForUpdatesEx(ctx, p, filter, func(updates []types.ObjectUpdate) bool {
+
+			pc, pcErr := property.DefaultCollector(spController.vc.Client.Client).Create(ctx)
+			if err != nil {
+				log.Errorf("Not able to create property collector. Restarting property collector. error: %+v", pcErr)
+				return
+			}
+
+			err := property.WaitForUpdatesEx(ctx, pc, filter, func(updates []types.ObjectUpdate) bool {
 				ctx := logger.NewContextWithLogger(ctx)
 				log = logger.GetLogger(ctx)
 				log.Debugf("Got %d property collector update(s)", len(updates))
@@ -159,6 +165,12 @@ func initListener(ctx context.Context, scWatchCntlr *StorageClassWatch,
 				log.Debugf("Done processing %d property collector update(s)", len(updates))
 				return false
 			})
+
+			// Attempt to clean up the property collector using a new context to
+			// ensure it goes through. This call *might* fail if the session's
+			// auth has expired, but it is worth trying.
+			_ = pc.Destroy(context.Background())
+
 			if err != nil {
 				log.Infof("Property collector session needs to be reestablished due to err: %v", err)
 				err = spController.vc.Connect(ctx)

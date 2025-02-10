@@ -25,7 +25,6 @@ import (
 	"os/signal"
 	"regexp"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -35,7 +34,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection"
 	rl "k8s.io/client-go/tools/leaderelection/resourcelock"
-	"k8s.io/sample-controller/pkg/signals"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -250,19 +248,11 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		log := logger.GetLogger(ctx)
 		// Disconnect vCenter sessions on restart
 		defer func() {
+			log.Info("Cleaning up vc sessions syncer components")
 			if r := recover(); r != nil {
-				fmt.Printf("panic: %+v", r)
 				cleanupSessions(ctx, r)
 			}
 		}()
-
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithCancel(ctx)
-		defer cancel()
-
-		errChan := make(chan error, 4)
-		defer close(errChan)
-
 		if err := manager.InitCommonModules(ctx, clusterFlavor, coInitParams); err != nil {
 			log.Errorf("Error initializing common modules for all flavors. Error: %+v", err)
 			os.Exit(1)
@@ -284,13 +274,9 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}
 		}
 
-		wg := sync.WaitGroup{}
-
 		// Initialize CNS Operator for Supervisor clusters.
 		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-			wg.Add(1)
 			go func() {
-				defer wg.Done()
 				defer func() {
 					log.Info("Cleaning up vc sessions storage pool service")
 					if r := recover(); r != nil {
@@ -362,64 +348,43 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}
 		}
 
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			defer func() {
+				log.Info("Cleaning up vc sessions cns operator")
 				if r := recover(); r != nil {
 					cleanupSessions(ctx, r)
 				}
 			}()
 			if err := manager.InitCnsOperator(ctx, clusterFlavor, configInfo, coInitParams); err != nil {
-				errChan <- fmt.Errorf("failed to initialize CNS operator: %w", err)
+				log.Errorf("Error initializing Cns Operator. Error: %+v", err)
+				utils.LogoutAllvCenterSessions(ctx)
+				os.Exit(0)
 			}
 		}()
+
 		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
 			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK) {
 			// Start BYOK Operator for Supervisor clusters.
-			wg.Add(1)
 			go func() {
-				defer wg.Done()
 				defer func() {
+					log.Info("Cleaning up vc sessions BYOK operator")
 					if r := recover(); r != nil {
 						cleanupSessions(ctx, r)
 					}
 				}()
 				if err := startByokOperator(ctx, clusterFlavor, configInfo); err != nil {
-					errChan <- fmt.Errorf("failed to run BYOK operator: %w", err)
+					log.Errorf("Error initializing BYOK Operator. Error: %+v", err)
+					utils.LogoutAllvCenterSessions(ctx)
+					os.Exit(0)
 				}
 			}()
 		}
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			defer func() {
-				if r := recover(); r != nil {
-					cleanupSessions(ctx, r)
-				}
-			}()
-			syncer.PeriodicSyncIntervalInMin = *periodicSyncIntervalInMin
-			if err := syncer.InitMetadataSyncer(ctx, clusterFlavor, configInfo); err != nil {
-				errChan <- fmt.Errorf("failed to initialize Metadata Syncer: %w", err)
-			}
-		}()
-
-		defer func() {
-			utils.LogoutAllvCenterSessions(context.Background())
-		}()
-
-		defer func() {
-			log.Info("Terminating syncer components")
-			cancel()
-			wg.Wait()
-		}()
-
-		select {
-		case <-ctx.Done():
-		case <-signals.SetupSignalHandler().Done():
-		case err := <-errChan:
-			log.Error(err)
+		syncer.PeriodicSyncIntervalInMin = *periodicSyncIntervalInMin
+		if err := syncer.InitMetadataSyncer(ctx, clusterFlavor, configInfo); err != nil {
+			log.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
+			utils.LogoutAllvCenterSessions(ctx)
+			os.Exit(0)
 		}
 	}
 }
