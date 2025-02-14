@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/go-logr/zapr"
 	"github.com/onsi/ginkgo/v2"
@@ -48,15 +49,16 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 	cr_log.SetLogger(zapr.NewLogger(log.Desugar()))
 
 	var (
-		client                clientset.Interface
-		cryptoClient          crypto.Client
-		vmopClient            ctlrclient.Client
-		vmi                   string
-		vmClass               string
-		namespace             string
-		standardStorageClass  *storagev1.StorageClass
-		encryptedStorageClass *storagev1.StorageClass
-		keyProviderID         string
+		client                     clientset.Interface
+		cryptoClient               crypto.Client
+		vmopClient                 ctlrclient.Client
+		vmi                        string
+		vmClass                    string
+		namespace                  string
+		standardStorageClass       *storagev1.StorageClass
+		encryptedStorageClass      *storagev1.StorageClass
+		keyProviderID              string
+		isVsanHealthServiceStopped bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -64,6 +66,7 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
 		restConfig = getRestConfigClient()
+		isVsanHealthServiceStopped = false
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -145,6 +148,15 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 					Delete(ctx, encryptedStorageClass.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
+		}
+
+		if isVsanHealthServiceStopped {
+			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+			err := invokeVCenterServiceControl(ctx, startOperation, vsanhealthServiceName, vcAddress)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
+			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 		}
 
 		svcClient, svNamespace := getSvcClientAndNamespace()
@@ -548,4 +560,76 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		ginkgo.By("12. Validate VM [6] is encrypted with first encryption key [1]")
 		validateVmToBeUpdatedWithEncryptedKey(ctx, vmopClient, vm.Namespace, vm.Name, keyProviderID, keyID1)
 	})
+
+	/*
+		Steps:
+			1. Generate first encryption key
+			2. Generate second encryption key
+			3. Create first EncryptionClass with encryption key [1]
+			4. Create second EncryptionClass with encryption key [2]
+			5. Creating PVC with first EncryptionClass [3]
+			6. Validate PVC volume [5] is encrypted with first encryption key [1]
+			7. Bring vsan-service down
+			8. Update PVC with second EncryptionClass [4]
+		    9. Bring vsan-service up
+			10. Validate PVC volume [5] is encrypted with second encryption key [2]
+	*/
+	ginkgo.It("Verify PVC encryption when vsan-health is down", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("1. Generate first encryption key")
+		keyID1 := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
+
+		ginkgo.By("2. Generate second encryption key")
+		keyID2 := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
+
+		ginkgo.By("3. Create first EncryptionClass with encryption key [1]")
+		encClass1 := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID1, false)
+		defer deleteEncryptionClass(ctx, cryptoClient, encClass1)
+
+		ginkgo.By("4. Create second EncryptionClass with encryption key [2]")
+		encClass2 := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID2, false)
+		defer deleteEncryptionClass(ctx, cryptoClient, encClass2)
+
+		ginkgo.By("5. Creating PVC with first EncryptionClass [3]")
+		pvc := createPersistentVolumeClaim(ctx, client, PersistentVolumeClaimOptions{
+			Namespace:           namespace,
+			StorageClassName:    encryptedStorageClass.Name,
+			EncryptionClassName: encClass1.Name,
+		})
+		defer deletePersistentVolumeClaim(ctx, client, pvc)
+
+		ginkgo.By("6. Validate PVC volume [5] is encrypted with first encryption key [1]")
+		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID1)
+
+		ginkgo.By("7. Stop Vsan-health service")
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
+		isVsanHealthServiceStopped = true
+		err := invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			if isVsanHealthServiceStopped {
+				ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
+				err := invokeVCenterServiceControl(ctx, startOperation, vsanhealthServiceName, vcAddress)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
+				time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+			}
+		}()
+
+		ginkgo.By("8. Update PVC with second EncryptionClass [4]")
+		pvc = updatePersistentVolumeClaimWithCrypto(ctx, client, pvc, encryptedStorageClass.Name, encClass2.Name)
+
+		ginkgo.By("9. Start Vsan-health service on the vCenter host")
+		err = invokeVCenterServiceControl(ctx, startOperation, vsanhealthServiceName, vcAddress)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
+		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+
+		ginkgo.By("10. Validate PVC volume [5] is encrypted with second encryption key [2]")
+		validateVolumeToBeUpdatedWithEncryptedKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID2)
+	})
+
 })
