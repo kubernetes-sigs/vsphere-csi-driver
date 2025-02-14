@@ -131,7 +131,12 @@ const (
 	CnsOperatorEntityTypePOD = CnsOperatorEntityType(cnstypes.CnsKubernetesEntityTypePOD)
 )
 
-type CnsOperatorEntityReference cnstypes.CnsKubernetesEntityReference
+type CnsOperatorEntityReference struct {
+	EntityType string
+	EntityName string
+	Namespace  string
+	ClusterID  string
+}
 
 // CreateCnsVolumeMetadataSpec returns a cnsvolumemetadata object from the
 // input parameters.
