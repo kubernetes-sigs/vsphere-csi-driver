@@ -107,10 +107,11 @@ func (m *volumeIDToPvcMap) remove(volumeHandle string) {
 }
 
 // Returns the namespaced pvc name corresponding to volumeHandle.
-func (m *volumeIDToPvcMap) get(volumeHandle string) string {
+func (m *volumeIDToPvcMap) get(volumeHandle string) (string, bool) {
 	m.RLock()
 	defer m.RUnlock()
-	return m.items[volumeHandle]
+	pvcname, found := m.items[volumeHandle]
+	return pvcname, found
 }
 
 // Map of the volumeName which refers to the PVName, to the list of node names in the cluster.
@@ -1791,4 +1792,9 @@ func (c *K8sOrchestrator) CreateConfigMap(ctx context.Context, name string, name
 // GetPVNameFromCSIVolumeID retrieves the pv name from volumeID using volumeIDToNameMap.
 func (c *K8sOrchestrator) GetPVNameFromCSIVolumeID(volumeID string) (string, bool) {
 	return c.volumeIDToNameMap.get(volumeID)
+}
+
+// GetPVCNameFromCSIVolumeID retrieves the pvc name from volumeID using volumeIDToPvcMap.
+func (c *K8sOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (string, bool) {
+	return c.volumeIDToPvcMap.get(volumeID)
 }
