@@ -159,8 +159,28 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 		return err
 	}
 
+	cleanUpCnsVolumeMetadata(ctx, metadataSyncer, guestCnsVolumeMetadataList)
 	log.Infof("FullSync: End")
 	return nil
+}
+
+// cleanUpCnsVolumeMetadata deletes the cnsvolumemetadata created on legacy kubernetes releases,
+// which are left unused as customer have migrated to non-legacy kubernetes releases
+func cleanUpCnsVolumeMetadata(ctx context.Context, metadataSyncer *metadataSyncInformer,
+	cnsVolumeMetadataList cnsvolumemetadatav1alpha1.CnsVolumeMetadataList) {
+	log := logger.GetLogger(ctx)
+	log.Info("delete the cnsvolumemetadata created on legacy kubernetes releases")
+	toDeleteCnsVolumeMetadataList := cnsvolumemetadatav1alpha1.CnsVolumeMetadataList{}
+	for _, object := range cnsVolumeMetadataList.Items {
+		if object.APIVersion != "cluster.x-k8s.io/v1beta1" {
+			toDeleteCnsVolumeMetadataList.Items = append(toDeleteCnsVolumeMetadataList.Items, object)
+		}
+	}
+	for _, cnsVolumeMetadata := range toDeleteCnsVolumeMetadataList.Items {
+		if err := metadataSyncer.cnsOperatorClient.Delete(ctx, &cnsVolumeMetadata); err != nil {
+			log.Warnf("FullSync: Failed to delete CnsVolumeMetadata %v. Err: %v", cnsVolumeMetadata.Name, err)
+		}
+	}
 }
 
 // createCnsVolumeMetadataList creates cnsvolumemetadata objects from the API
