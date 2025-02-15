@@ -1336,5 +1336,76 @@ func createDynamicSnapshotInParallel(ctx context.Context, namespace string,
 		lock.Unlock()
 		framework.Logf("Volume snapshot name is : %s", snapshot.Name)
 	}
+}
 
+// makeHostLoseStorageWithOtherHosts causes or removes network fault on a particular host
+func makeHostLoseStorageConnectivityWithOtherHosts(esxHosts []string, causeNetworkFailure bool) {
+	var wg sync.WaitGroup
+	if causeNetworkFailure {
+		framework.Logf("Creating a Network Failure with other hosts")
+		sshCmd := "localcli network firewall set --enabled true;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id cmmds;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id rdt;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id fdm;"
+
+		wg.Add(len(esxHosts))
+		for _, host := range esxHosts {
+			go runCmdOnHostsInParallel(host, sshCmd, &wg)
+		}
+		wg.Wait()
+
+		for i := range esxHosts {
+			sshCmd = ""
+			remainingHosts := append(esxHosts[:i], esxHosts[i+1:]...)
+			for _, host := range remainingHosts {
+				sshCmd = fmt.Sprintf("localcli network firewall ruleset allowedip add -i %s -r rdt;", host)
+				sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip add -i %s -r cmmds;", host)
+				sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip add -i %s -r fdm;", host)
+			}
+			_, err := runCommandOnESX(rootUser, esxHosts[i], sshCmd)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		sshCmd = "vsish -e set /vmkModules/esxfw/globaloptions 1 0 0 0 1"
+
+		wg.Add(len(esxHosts))
+		for _, host := range esxHosts {
+			go runCmdOnHostsInParallel(host, sshCmd, &wg)
+		}
+		wg.Wait()
+
+	} else {
+		framework.Logf("Removing network Failure with other hosts")
+		sshCmd := "localcli network firewall set --enabled false;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id cmmds;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id rdt;"
+		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id fdm;"
+
+		wg.Add(len(esxHosts))
+		for _, host := range esxHosts {
+			go runCmdOnHostsInParallel(host, sshCmd, &wg)
+		}
+		wg.Wait()
+
+		for i := range esxHosts {
+			sshCmd = ""
+			remainingHosts := append(esxHosts[:i], esxHosts[i+1:]...)
+			for _, host := range remainingHosts {
+				sshCmd = fmt.Sprintf("localcli network firewall ruleset allowedip remove -i %s -r rdt;", host)
+				sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip remove -i %s -r cmmds;", host)
+				sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip remove -i %s -r fdm;", host)
+			}
+			_, err := runCommandOnESX(rootUser, esxHosts[i], sshCmd)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		sshCmd = "vsish -e set /vmkModules/esxfw/globaloptions 1 1 0 1 1"
+
+		wg.Add(len(esxHosts))
+		for _, host := range esxHosts {
+			go runCmdOnHostsInParallel(host, sshCmd, &wg)
+		}
+		wg.Wait()
+
+	}
 }
