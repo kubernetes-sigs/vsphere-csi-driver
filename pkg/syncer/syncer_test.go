@@ -110,6 +110,8 @@ func TestSyncerWorkflows(t *testing.T) {
 
 	// CNS based CSI requires a valid cluster name.
 	csiConfig.Global.ClusterID = testClusterName
+	// Normally set by InitMetadataSyncer
+	clusterIDforVolumeMetadata = testClusterName
 
 	// Init VC configuration.
 	cnsVCenterConfig, err = cnsvsphere.GetVirtualCenterConfig(ctx, csiConfig)
