@@ -278,6 +278,23 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
+	if instance.Spec.DiskURLPath != "" {
+		// if CNS Register Volume Instance is created with diskURLPath,
+		// confirm using CNS Volume ID, if another PV is already present with same volume ID
+		// If yes then fail.
+		pvName, found := commonco.ContainerOrchestratorUtility.GetPVNameFromCSIVolumeID(volInfo.VolumeID.Id)
+		if found {
+			if pvName != staticPvNamePrefix+volInfo.VolumeID.Id {
+				msg := fmt.Sprintf("PV: %q with the volume ID: %q for volume path: %q"+
+					"is already present. Can not create multiple PV with same disk.", pvName, volInfo.VolumeID.Id,
+					instance.Spec.DiskURLPath)
+				log.Errorf(msg)
+				setInstanceError(ctx, r, instance, msg)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+		}
+	}
+
 	volumeID = volInfo.VolumeID.Id
 	log.Infof("Created CNS volume with volumeID: %s", volumeID)
 
@@ -684,6 +701,15 @@ func validateCnsRegisterVolumeSpec(ctx context.Context, instance *cnsregistervol
 	} else if instance.Spec.DiskURLPath != "" && instance.Spec.AccessMode != "" &&
 		instance.Spec.AccessMode != v1.ReadWriteOnce {
 		msg = fmt.Sprintf("DiskURLPath cannot be used with accessMode: %q", instance.Spec.AccessMode)
+	}
+	if instance.Spec.VolumeID != "" {
+		pvName, found := commonco.ContainerOrchestratorUtility.GetPVNameFromCSIVolumeID(instance.Spec.VolumeID)
+		if found {
+			if pvName != staticPvNamePrefix+instance.Spec.VolumeID {
+				msg = fmt.Sprintf("PV: %q with the volume ID: %q "+
+					"is already present. Can not create multiple PV with same volume Id.", pvName, instance.Spec.VolumeID)
+			}
+		}
 	}
 	if msg != "" {
 		return errors.New(msg)
