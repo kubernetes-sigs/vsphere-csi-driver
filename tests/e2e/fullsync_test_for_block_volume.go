@@ -235,7 +235,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			restClientConfig := getRestConfigClient()
-			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName, namespace, defaultrqLimit)
+			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName, namespace, rqLimit)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
 				scParameters, "", nil, "", true, "", storagePolicyName)
 
@@ -323,7 +323,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			restClientConfig := getRestConfigClient()
-			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName, namespace, defaultrqLimit)
+			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName, namespace, rqLimit)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
 				scParameters, "", nil, "", true, "", storagePolicyName)
 		}
