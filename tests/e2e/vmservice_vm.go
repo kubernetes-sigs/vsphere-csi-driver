@@ -100,14 +100,16 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		framework.Logf("dsmoId: %v", dsRef.Value)
 
 		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-		contentLibId := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
-			dsRef.Value, GetAndExpectStringEnvVar(envContentLibraryUrlSslThumbprint))
+		contentLibId, err := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
+			dsRef.Value)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Create a WCP namespace for the test")
 		vmClass = os.Getenv(envVMClass)
 		if vmClass == "" {
 			vmClass = vmClassBestEffortSmall
 		}
+
 		namespace = createTestWcpNs(
 			vcRestSessionId, storageProfileId, vmClass, contentLibId, getSvcId(vcRestSessionId))
 

@@ -117,15 +117,24 @@ func getSvcId(vcRestSessionId string) string {
 
 // createAndOrGetContentlibId4Url fetches ID of a content lib that matches the given URL, if none are found it creates a
 // new content lib with the given URL and returns its ID
-func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string, dsMoId string,
-	sslThumbPrint string) string {
-
+func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string, dsMoId string) (string, error) {
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 	contentlibName := fmt.Sprintf("csi-vmsvc-%v", r.Intn(10000))
+
+	// Try to get the existing Content Library ID
 	contentLibId, err := getContentLibId4Url(vcRestSessionId, contentLibUrl)
 	if err == nil {
-		gomega.Expect(contentLibId).NotTo(gomega.BeEmpty())
-		return contentLibId
+		if contentLibId == "" {
+			return "", fmt.Errorf("existing content library ID is empty")
+		}
+		return contentLibId, nil
+	}
+
+	// Get SSL Thumbprint
+	sslThumbPrint, err := getSslThumbprintForContentLibraryCreation(vcRestSessionId,
+		contentLibUrl)
+	if err != nil {
+		return "", fmt.Errorf("failed to get SSL thumbprint: %w", err)
 	}
 
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
@@ -147,13 +156,56 @@ func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string
     }`, contentlibName, dsMoId, contentLibUrl, sslThumbPrint)
 
 	resp, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, contentlbCreationUrl, reqBody)
-	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 201))
+	if statusCode != 201 {
+		return "", fmt.Errorf("API call failed with status code %d", statusCode)
+	}
 
-	gomega.Expect(json.Unmarshal(resp, &contentLibId)).NotTo(gomega.HaveOccurred())
-	gomega.Expect(contentLibId).NotTo(gomega.BeEmpty())
-	framework.Logf("Successfully created content library %s for the test(id: %v)", contentlibName, contentLibId)
+	// Unmarshal response to get Content Library ID
+	if err := json.Unmarshal(resp, &contentLibId); err != nil {
+		return "", fmt.Errorf("failed to parse response JSON: %w", err)
+	}
 
-	return contentLibId
+	/* Check if the content library ID is empty after creation, as a successful API
+	call (201) may still result in an empty ID */
+	if contentLibId == "" {
+		return "", fmt.Errorf("content library ID is empty after creation")
+	}
+
+	framework.Logf("Successfully created content library %s for the test (id: %v)", contentlibName, contentLibId)
+	return contentLibId, nil
+}
+
+/*
+getSslThumbprintForContentLibraryCreation util will fetch the thumbprint
+required to create a content library
+*/
+func getSslThumbprintForContentLibraryCreation(vcRestSessionId string, contentLibUrl string) (string, error) {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	contentlbCreationUrl := "https://" + vcIp + "/api/content/subscribed-library?action=probe"
+
+	reqBody := fmt.Sprintf(`{
+        "subscription_info": {
+            "subscription_url": "%s"
+        }
+    }`, contentLibUrl)
+
+	resp, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, contentlbCreationUrl, reqBody)
+
+	if statusCode == 200 {
+		var responseData map[string]interface{}
+		if err := json.Unmarshal(resp, &responseData); err != nil {
+			return "", fmt.Errorf("failed to parse response JSON: %w", err)
+		}
+
+		if sslThumbprint, ok := responseData["ssl_thumbprint"].(string); ok {
+			fmt.Println("SSL Thumbprint:", sslThumbprint)
+			return sslThumbprint, nil
+		}
+
+		return "", fmt.Errorf("ssl_thumbprint not found in response")
+	}
+
+	return "", fmt.Errorf("API call failed with status code: %d", statusCode)
 }
 
 // getContentLibId4Url fetches ID of a content lib that matches the given URL
