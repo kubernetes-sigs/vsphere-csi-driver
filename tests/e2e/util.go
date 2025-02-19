@@ -974,22 +974,35 @@ func randomPickPVC() *v1.PersistentVolumeClaim {
 
 // createStatefulSetWithOneReplica helps create a stateful set with one replica.
 func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath string,
-	namespace string) (*appsv1.StatefulSet, *v1.Service) {
+	namespace string) (*appsv1.StatefulSet, *v1.Service, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	mkpath := func(file string) string {
 		return filepath.Join(manifestPath, file)
 	}
 	statefulSet, err := manifest.StatefulSetFromManifest(mkpath("statefulset.yaml"), namespace)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		return nil, nil, err
+	}
 	service, err := manifest.SvcFromManifest(mkpath("service.yaml"))
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if err != nil {
+		return nil, nil, err
+	}
 	service, err = client.CoreV1().Services(namespace).Create(ctx, service, metav1.CreateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	*statefulSet.Spec.Replicas = 1
+	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			framework.Logf("services 'nginx' already exists")
+		} else {
+			return nil, nil, fmt.Errorf("failed to create nginx service: %v", err)
+		}
+	}
+	replicas := int32(1)
+	statefulSet.Spec.Replicas = &replicas
 	_, err = client.AppsV1().StatefulSets(namespace).Create(ctx, statefulSet, metav1.CreateOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	return statefulSet, service
+	if err != nil {
+		return nil, nil, err
+	}
+	return statefulSet, service, nil
 }
 
 // updateDeploymentReplicawithWait helps to update the replica for a deployment
@@ -2268,8 +2281,8 @@ func verifyPodLocation(pod *v1.Pod, nodeList *v1.NodeList, zoneValue string, reg
 func getTopologyFromPod(pod *v1.Pod, nodeList *v1.NodeList) (string, string, error) {
 	for _, node := range nodeList.Items {
 		if pod.Spec.NodeName == node.Name {
-			podRegion := node.Labels[v1.LabelZoneRegion]
-			podZone := node.Labels[v1.LabelZoneFailureDomain]
+			podRegion := node.Labels[regionKey]
+			podZone := node.Labels[zoneKey]
 			return podRegion, podZone, nil
 		}
 	}
@@ -4851,12 +4864,12 @@ func createAllowedTopolgies(topologyMapStr string) []v1.TopologySelectorLabelReq
 	topologyMap, _ := createTopologyMapLevel5(topologyMapStr)
 	allowedTopologies := []v1.TopologySelectorLabelRequirement{}
 	topoKey := ""
-	if topologyFeature == topologyTkgHaName ||
-		topologyFeature == podVMOnStretchedSupervisor ||
+	if topologyFeature == topologyTkgHaName || topologyFeature == podVMOnStretchedSupervisor ||
 		topologyFeature == topologyDomainIsolation {
 		topoKey = tkgHATopologyKey
+	} else {
+		topoKey = topologykey
 	}
-
 	for key, val := range topologyMap {
 		allowedTopology := v1.TopologySelectorLabelRequirement{
 			Key:    topoKey + "/" + key,
