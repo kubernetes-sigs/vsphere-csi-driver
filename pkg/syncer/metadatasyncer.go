@@ -1013,10 +1013,10 @@ func addFinalizerOnCnsFileVolumeClientCRs(ctx context.Context) error {
 		return err
 	}
 	_, err = apiextensionsClientSet.ApiextensionsV1().CustomResourceDefinitions().Get(ctx,
-		"cnsfileaccessconfigs.cns.vmware.com", metav1.GetOptions{})
+		"cnsfilevolumeclients.cns.vmware.com", metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Infof("CR instance is not registered. " +
+			log.Infof("CR instance cnsfilevolumeclients.cns.vmware.com is not registered. " +
 				"skipping to add finalizer on CNSFileVolumeClient Instances")
 			return nil
 		} else {
