@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		}
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+			setResourceQuota(svcClient, svNamespace, rqLimit)
 			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 	})
@@ -145,7 +145,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 
 			// create resource quota
 			restClientConfig := getRestConfigClient()
-			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyNameForNonSharedDatastores, namespace, defaultrqLimit)
+			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyNameForNonSharedDatastores, namespace, rqLimit)
 
 			pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", storageclass, nil, accessMode)
 			_, err = fpv.CreatePVC(ctx, client, namespace, pvcspec)

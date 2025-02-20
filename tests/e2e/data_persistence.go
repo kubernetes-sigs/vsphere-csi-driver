@@ -110,7 +110,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 	ginkgo.AfterEach(func() {
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+			setResourceQuota(svcClient, svNamespace, rqLimit)
 			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 		if supervisorCluster {

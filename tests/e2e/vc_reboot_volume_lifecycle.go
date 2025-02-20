@@ -76,7 +76,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		}
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+			setResourceQuota(svcClient, svNamespace, rqLimit)
 			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 		// restarting pending and stopped services after vc reboot if any

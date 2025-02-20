@@ -141,7 +141,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+			setResourceQuota(svcClient, svNamespace, rqLimit)
 			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 
@@ -1505,7 +1505,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		restClientConfig := getRestConfigClient()
-		setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName2, namespace, defaultrqLimit)
+		setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName2, namespace, rqLimit)
 
 		pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1521,6 +1521,9 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Delete existing resource quota")
 		setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName2, namespace, "2Gi")
+		defer func() {
+			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName2, namespace, rqLimit)
+		}()
 
 		// Trigger offline volume expansion when there is no resource quota available
 		ginkgo.By("Expanding current pvc")
