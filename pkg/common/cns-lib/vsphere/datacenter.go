@@ -101,7 +101,8 @@ func (dc *Datacenter) GetVirtualMachineByUUID(ctx context.Context,
 	searchIndex := object.NewSearchIndex(dc.Datacenter.Client())
 	svm, err := searchIndex.FindByUuid(ctx, dc.Datacenter, uuid, true, &instanceUUID)
 	if err != nil {
-		log.Errorf("failed to find VM given uuid %s with err: %v", uuid, err)
+		log.Errorf("couldn't find VM for the given uuid %s. Either VM is not present in the VC "+
+			"or the CSI storage user does not have privileges. err: %v", uuid, err)
 		return nil, err
 	} else if svm == nil {
 		log.Errorf("Couldn't find VM given uuid %s", uuid)

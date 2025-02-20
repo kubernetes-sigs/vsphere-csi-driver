@@ -339,7 +339,12 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 
 		log.Info("Starting listening for task updates...")
 		log.Infof("waitForUpdatesContext %v", l.waitForUpdatesContext)
-		pc := property.DefaultCollector(l.virtualCenter.Client.Client)
+		pc, pcErr := property.DefaultCollector(l.virtualCenter.Client.Client).Create(l.ctx)
+		if pcErr != nil {
+			log.Errorf("failed to create PropertyCollector for WaitForUpdatesEx for ListView. error: %+v", pcErr)
+			l.mu.Unlock()
+			continue
+		}
 		l.isReady = true
 		log.Infof("listview ready state is %v", l.isReady)
 		l.mu.Unlock()
@@ -357,6 +362,12 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 			// we only want this true while running the unit tests so the test can finish
 			return l.shouldStopListening
 		})
+
+		// Attempt to clean up the property collector using a new context to
+		// ensure it goes through. This call *might* fail if the session's
+		// auth has expired, but it is worth trying.
+		_ = pc.Destroy(context.Background())
+
 		// if property collector returns any errors,
 		// we want to immediately return a fault for all the pending tasks in the map
 		// note: this is not a task error but an error from the vc
