@@ -71,7 +71,6 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		restConfig                 *restclient.Config
 		snapc                      *snapclient.Clientset
 		pandoraSyncWaitTime        int
-		err                        error
 		dsRef                      types.ManagedObjectReference
 		labelsMap                  map[string]string
 	)
@@ -117,8 +116,9 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 
 		// creating/reading content library
-		contentLibId := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
-			dsRef.Value, GetAndExpectStringEnvVar(envContentLibraryUrlSslThumbprint))
+		contentLibId, err := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
+			dsRef.Value)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		vmClass = os.Getenv(envVMClass)
 		if vmClass == "" {
