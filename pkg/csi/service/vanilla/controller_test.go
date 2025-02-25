@@ -33,6 +33,7 @@ import (
 	"github.com/vmware/govmomi/pbm/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/prototext"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/simulator"
@@ -766,7 +767,7 @@ func TestExtendVolume(t *testing.T) {
 		},
 		VolumeCapability: capabilities[0],
 	}
-	t.Logf("ControllerExpandVolume will be called with req +%v", *reqExpand)
+	t.Logf("ControllerExpandVolume will be called with req +%v", prototext.Format(reqExpand))
 	respExpand, err := ct.controller.ControllerExpandVolume(ctx, reqExpand)
 	if err != nil {
 		t.Fatal(err)
@@ -824,7 +825,7 @@ func TestMigratedExtendVolume(t *testing.T) {
 			RequiredBytes: 1024,
 		},
 	}
-	t.Logf("ControllerExpandVolume will be called with req +%v", *reqExpand)
+	t.Logf("ControllerExpandVolume will be called with req +%v", prototext.Format(reqExpand))
 	_, err := ct.controller.ControllerExpandVolume(ctx, reqExpand)
 	if err != nil {
 		t.Logf("Expected error received. migrated volume with VMDK path can not be expanded")
@@ -913,7 +914,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 		VolumeCapability: capabilities[0],
 		Readonly:         false,
 	}
-	t.Logf("ControllerPublishVolume will be called with req +%v", *reqControllerPublishVolume)
+	t.Logf("ControllerPublishVolume will be called with req +%v", prototext.Format(reqControllerPublishVolume))
 	respControllerPublishVolume, err := ct.controller.ControllerPublishVolume(ctx, reqControllerPublishVolume)
 	if err != nil {
 		t.Fatal(err)
@@ -926,7 +927,8 @@ func TestCompleteControllerFlow(t *testing.T) {
 		VolumeId: volID,
 		NodeId:   NodeID,
 	}
-	t.Logf("ControllerUnpublishVolume will be called with req +%v", *reqControllerUnpublishVolume)
+	t.Logf("ControllerUnpublishVolume will be called with req +%v",
+		prototext.Format(reqControllerUnpublishVolume))
 	_, err = ct.controller.ControllerUnpublishVolume(ctx, reqControllerUnpublishVolume)
 	if err != nil {
 		t.Fatal(err)
