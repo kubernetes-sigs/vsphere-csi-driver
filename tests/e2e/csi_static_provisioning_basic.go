@@ -145,10 +145,12 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			fullSyncWaitTime = defaultFullSyncWaitTime
 		}
 
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		//if isQuotaValidationSupported is true then quotaValidation is considered in tests
-		vcVersion = getVCversion(ctx, vcAddress)
-		isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
+		if supervisorCluster || stretchedSVC {
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
+			vcVersion = getVCversion(ctx, vcAddress)
+			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
+		}
 
 	})
 

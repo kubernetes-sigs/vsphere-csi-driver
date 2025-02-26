@@ -129,10 +129,12 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vmi = waitNGetVmiForImageName(ctx, vmopC, vmImageName)
 		gomega.Expect(vmi).NotTo(gomega.BeEmpty())
 
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		//if isQuotaValidationSupported is true then quotaValidation is considered in tests
-		vcVersion = getVCversion(ctx, vcAddress)
-		isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
+		if supervisorCluster || stretchedSVC {
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
+			vcVersion = getVCversion(ctx, vcAddress)
+			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
+		}
 
 		var datacenters []string
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)

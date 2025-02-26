@@ -469,9 +469,11 @@ var (
 
 // For management workload domain isolation
 var (
-	envZonal2StoragePolicyName = "ZONAL2_STORAGECLASS"
-	envWrkldDomain1ZoneName    = "WORKLOAD_1_ZONE_NAME"
-	topologyDomainIsolation    = "Workload_Management_Isolation"
+	envZonal2StoragePolicyName            = "ZONAL2_STORAGE_POLICY_IMM"
+	envZonal2StoragePolicyNameLateBidning = "ZONAL2_STORAGE_POLICY_WFFC"
+	envZonal1StoragePolicyName            = "ZONAL1_STORAGE_POLICY_IMM"
+	topologyDomainIsolation               = "Workload_Management_Isolation"
+	envSharedStoragePolicyName            = "SHARED_STORAGE_POLICY"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.
