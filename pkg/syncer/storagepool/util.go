@@ -160,7 +160,7 @@ func findAccessibleNodes(ctx context.Context, datastore *object.Datastore,
 		nodes[thisName] = inMM
 	}
 
-	log.Infof("Accessible nodes in MM for datastore %s: %v", datastore.Reference().Value, nodes)
+	log.Debugf("Accessible nodes in MM for datastore %s: %v", datastore.Reference().Value, nodes)
 	return nodes, nil
 }
 

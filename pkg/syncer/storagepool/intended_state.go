@@ -190,7 +190,7 @@ func isRemoteVsan(ctx context.Context, dsprops *dsProps,
 	log := logger.GetLogger(ctx).Named("isRemoteVsan")
 	// If datastore type is not vsan, then return false.
 	if dsprops.dsType != vsanDsType {
-		log.Infof("Datastore %s is not a vSAN datastore", dsprops.dsName)
+		log.Debugf("Datastore %s is not a vSAN datastore", dsprops.dsName)
 		return false, nil
 	}
 
@@ -213,7 +213,7 @@ func isRemoteVsan(ctx context.Context, dsprops *dsProps,
 	log.Debugf("Verifying whether vSAN Datastore %s with containerID: %s is local to cluster uuid %s",
 		dsprops.dsName, dsContainerID, vsanClsUUID)
 	if dsContainerID == vsanClsUUID {
-		log.Infof("vSAN Datastore %s is not remote to this cluster", dsprops.dsName)
+		log.Debugf("vSAN Datastore %s is not remote to this cluster", dsprops.dsName)
 		return false, nil
 	}
 
