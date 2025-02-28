@@ -197,14 +197,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		// reading fullsync wait time
-		if os.Getenv(envPandoraSyncWaitTime) != "" {
-			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
-		}
-
 		//Remove this code once the FSS is enabled
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
