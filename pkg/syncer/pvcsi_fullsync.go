@@ -89,7 +89,8 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 		log.Warnf("FullSync: Failed to get CnsVolumeMetadatas from supervisor cluster. Err: %v", err)
 		return err
 	}
-
+	// cleanup remaining duplicate cnsvolumemetadata post migration from legacy to non-legacy clusters.
+	cleanUpCnsVolumeMetadata(ctx, metadataSyncer, supervisorNamespaceList)
 	supervisorCnsVolumeMetadataList := cnsvolumemetadatav1alpha1.CnsVolumeMetadataList{}
 	// Remove cnsvolumemetadata object from supervisorCnsVolumeMetadataList that
 	// do not belong to this guest cluster.
@@ -158,9 +159,41 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 		log.Errorf("FullSync: Failed to set Guest Cluster labels on SupervisorPVC. Err: %v", err)
 		return err
 	}
-
 	log.Infof("FullSync: End")
 	return nil
+}
+
+// cleanUpCnsVolumeMetadata deletes the cnsvolumemetadata created on legacy kubernetes releases,
+// which are left unused as customer have migrated to non-legacy kubernetes releases
+func cleanUpCnsVolumeMetadata(ctx context.Context, metadataSyncer *metadataSyncInformer,
+	cnsVolumeMetadataList *cnsvolumemetadatav1alpha1.CnsVolumeMetadataList) {
+	log := logger.GetLogger(ctx)
+	log.Info("cleanUpCnsVolumeMetadata: deleting the CnsVolumeMetadata CRs " +
+		"created on legacy vsphere kubernetes releases")
+	toDeleteCnsVolumeMetadataList := cnsvolumemetadatav1alpha1.CnsVolumeMetadataList{}
+	cnsVolMetadataMap := make(map[string]int)
+	for _, object := range cnsVolumeMetadataList.Items {
+		cnsVolMetadataMap[object.Spec.EntityName+object.Spec.Namespace]++
+		if object.ObjectMeta.OwnerReferences != nil {
+			for _, ownerRef := range object.ObjectMeta.OwnerReferences {
+				if ownerRef.APIVersion != cnsconfig.ClusterVersionv1beta1 {
+					log.Debugf("duplicate cnsvolumemetadata %s from namespace %s is marked for deletion",
+						object.Name, object.Namespace)
+					toDeleteCnsVolumeMetadataList.Items = append(toDeleteCnsVolumeMetadataList.Items, object)
+					break
+				}
+			}
+		}
+	}
+	for _, cvm := range toDeleteCnsVolumeMetadataList.Items {
+		if cnsVolMetadataMap[cvm.Spec.EntityName+cvm.Spec.Namespace] > 1 {
+			if err := metadataSyncer.cnsOperatorClient.Delete(ctx, &cvm); err != nil {
+				log.Warnf("FullSync: Failed to delete CnsVolumeMetadata %v. Err: %v", cvm.Name, err)
+			}
+		}
+	}
+	log.Info("cleanUpCnsVolumeMetadata: cleaned up duplicate CnsVolumeMetadata CRs " +
+		"created on legacy vsphere kubernetes releases")
 }
 
 // createCnsVolumeMetadataList creates cnsvolumemetadata objects from the API
