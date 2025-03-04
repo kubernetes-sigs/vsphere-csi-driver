@@ -153,10 +153,6 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		snapc, err = snapclient.NewForConfig(restConfig)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Sleeping for a minute for storage policy to get " +
-			"refresh and added to namespace")
-		setStoragePolicyQuota(ctx, restConfig, storageClassName, namespace, rqLimit)
-
 		// reading full sync wait time
 		if os.Getenv(envPandoraSyncWaitTime) != "" {
 			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))

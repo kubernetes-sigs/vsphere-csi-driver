@@ -130,7 +130,6 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		restConfig = getRestConfigClient()
 		snapc, err = snapclient.NewForConfig(restConfig)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		setStoragePolicyQuota(ctx, restConfig, zonalPolicy, namespace, rqLimit)
 
 		// fetching default datastore
 		finder := find.NewFinder(e2eVSphere.Client.Client, false)

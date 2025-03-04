@@ -174,7 +174,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			restConfig = getRestConfigClient()
 			snapc, err = snapclient.NewForConfig(restConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 		}
 
 		var datacenters []string
