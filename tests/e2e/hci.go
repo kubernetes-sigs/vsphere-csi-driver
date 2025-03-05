@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/vmware/govmomi/find"
 	v1 "k8s.io/api/core/v1"
@@ -32,14 +33,15 @@ import (
 	vim25types "github.com/vmware/govmomi/vim25/types"
 
 	clientset "k8s.io/client-go/kubernetes"
+	taints "k8s.io/kubernetes/pkg/util/taints"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
-var _ bool = ginkgo.Describe("hci", func() {
-	f := framework.NewDefaultFramework("hci")
+var _ bool = ginkgo.Describe("hci-mesh", func() {
+	f := framework.NewDefaultFramework("hci-mesh")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                  clientset.Interface
@@ -54,6 +56,9 @@ var _ bool = ginkgo.Describe("hci", func() {
 		isTargetHostPoweredOff  bool
 		targetHostSystemName    string
 		remoteDsUrl             string
+		isTargetHostIsolated    bool
+		isK8sNodePoweredOff     bool
+		targetVm                *object.VirtualMachine
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -75,6 +80,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 		err = waitForAllNodes2BeReady(ctx, client)
 		framework.ExpectNoError(err, "cluster not completely healthy")
 
+		migratedVms = getWorkerVmMoRefs(ctx, client)
 		for _, vm := range migratedVms {
 			e2eVSphere.svmotionVM2DiffDs(ctx, object.NewVirtualMachine(e2eVSphere.Client.Client, vm.Reference()),
 				remoteDsUrl)
@@ -84,6 +90,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		migratedVms = getWorkerVmMoRefs(ctx, client)
 		for _, vm := range migratedVms {
 			e2eVSphere.svmotionVM2DiffDs(ctx, object.NewVirtualMachine(e2eVSphere.Client.Client, vm.Reference()),
 				remoteDsUrl)
@@ -308,12 +315,27 @@ var _ bool = ginkgo.Describe("hci", func() {
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, claim := range pvcs.Items {
+				pv := getPvFromClaim(client, namespace, claim.Name)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
+					pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volumeHandle := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeHandle))
+			}
 		}()
 
 		ginkgo.By("Put one of the esx host from the remote cluster in maintenance mode with ensureAccessibility")
 		workervms := getWorkerVmMoRefs(ctx, client)
-		framework.Logf("workervms: %v", workervms)
 		targetHost := e2eVSphere.getHostFromVMReference(ctx, workervms[0].Reference())
 		hostMoRef := vim25types.ManagedObjectReference{Type: "HostSystem", Value: targetHost.Value}
 		targetHostSystem = object.NewHostSystem(e2eVSphere.Client.Client, hostMoRef)
@@ -352,8 +374,8 @@ var _ bool = ginkgo.Describe("hci", func() {
 		A host down in one AZ
 		steps:
 		1	Create an environment as described in the testbed layout above
-		2	Create statefulset2 with 1 replica
-		3	Power off a host which has a k8s-worker with attached PVs in cluster1
+		2	Create 2 statefulsets one with 3 replica and with 1 replica
+		3	power off a host which has a k8s-worker with attached PVs in cluster1
 		4	wait for 5-10 mins, verify that the k8s-worker is restarted and brought up on another host
 		5	scale up statefulset2 and scale down statefulset1 to 2 replicas
 		6	power on the host used in step 3
@@ -385,7 +407,23 @@ var _ bool = ginkgo.Describe("hci", func() {
 			false, nil, false, true, "web-nginx", "", sc, "")
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, claim := range pvcs.Items {
+				pv := getPvFromClaim(client, namespace, claim.Name)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
+					pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volumeHandle := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeHandle))
+			}
 		}()
 
 		nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
@@ -427,6 +465,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(defDc)
 			hosts, err := finder.HostSystemList(ctx, "*")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, host := range hosts {
 				if host.Reference().Reference().Value == targetHost.Value {
@@ -485,6 +524,394 @@ var _ bool = ginkgo.Describe("hci", func() {
 		ssPods1 = fss.GetPodList(ctx, client, sts1)
 		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, sts1, ssPods1, replicas1-2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts1, mountPath)).NotTo(gomega.HaveOccurred())
+
+	})
+
+	/*
+		One host isolation
+		steps:
+		1.	Create an environment as described in the testbed layout above
+		2.  Create statefulset with 1 replica.
+		3.  Isolate a host which has a k8s-worker with attached PVs in cluster1.
+		4.  Wait for 5 mins, verify that the k8s-worker is restarted and brought up on another host.
+		5.  Verify that the replicas on the k8s-worker come up successfully.
+		6.  Scale up statefulset to 3 replicas.
+		7.  Re-integrate the host used in step 3
+		8.  Scale up statefulset to 5 replicas and verify they are successful
+		9.  Cleanup all objects created during the test
+	*/
+	ginkgo.It("HCI mesh - One host isolation", ginkgo.Label(p0, block, vanilla, hci), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var err error
+		var replicas int32 = 1
+		hostIp := ""
+
+		scParameters = map[string]string{}
+		scParameters[scParamStoragePolicyName] = remoteStoragePolicyName
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create a sts with 1 replica")
+		sts := createCustomisedStatefulSets(ctx, client, namespace, false, replicas,
+			false, nil, false, true, "", "", sc, "")
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, claim := range pvcs.Items {
+				pv := getPvFromClaim(client, namespace, claim.Name)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
+					pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volumeHandle := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeHandle))
+			}
+		}()
+
+		nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		pods := fss.GetPodList(ctx, client, sts)
+		targetWorkerName := pods.Items[0].Spec.NodeName
+
+		ginkgo.By("Isolate the host which has a k8s-worker with attached PVs in cluster1")
+		workerNode, err := client.CoreV1().Nodes().Get(ctx, targetWorkerName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		targetHost := e2eVSphere.getHostFromVMReference(ctx, getHostMoref4K8sNode(
+			ctx, client, workerNode))
+		finder := find.NewFinder(e2eVSphere.Client.Client, false)
+		var datacenters []string
+		cfg, err := getConfig()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		dcList := strings.Split(cfg.Global.Datacenters,
+			",")
+		for _, dc := range dcList {
+			dcName := strings.TrimSpace(dc)
+			if dcName != "" {
+				datacenters = append(datacenters, dcName)
+			}
+		}
+
+		for _, dc := range datacenters {
+			defDc, err := finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			finder.SetDatacenter(defDc)
+			hosts, err := finder.HostSystemList(ctx, "*")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, host := range hosts {
+				if host.Reference().Reference().Value == targetHost.Value {
+					hostInfo := host.Common.InventoryPath
+					hostIpInfo := strings.Split(hostInfo, "/")
+					hostIp = hostIpInfo[len(hostIpInfo)-1]
+					break
+				}
+			}
+		}
+
+		framework.Logf("hostIp: %s", hostIp)
+
+		toggleNetworkFailureParallel([]string{hostIp}, true)
+		isTargetHostIsolated = true
+
+		defer func() {
+			if isTargetHostIsolated {
+				ginkgo.By("Re-integrate isolated host back" +
+					" into vsan cluster before terminating test")
+				toggleNetworkFailureParallel([]string{hostIp}, false)
+				isTargetHostIsolated = false
+			}
+		}()
+
+		ginkgo.By("Wait for 5-10 mins, verify that the k8s-worker" +
+			" is restarted and brought up on another host")
+		wait4AllK8sNodesToBeUp(nodes)
+		gomega.Expect(waitForAllNodes2BeReady(ctx, client)).To(gomega.Succeed())
+
+		time.Sleep(5 * time.Minute)
+
+		ginkgo.By("Scale up statefulset to 3 replicas")
+		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts, replicas+2, true, true)
+		gomega.Expect(fss.CheckMount(ctx, client, sts, mountPath)).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Re-integrate isolated host back into vsan cluster")
+		if isTargetHostIsolated {
+			toggleNetworkFailureParallel([]string{hostIp}, false)
+			isTargetHostIsolated = false
+		}
+
+		ginkgo.By("Scale up statefulset to 5 replicas")
+		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts, replicas+2, true, true)
+		gomega.Expect(fss.CheckMount(ctx, client, sts, mountPath)).NotTo(gomega.HaveOccurred())
+
+	})
+
+	/*
+		k8s worker node power off
+		steps:
+		1.	Create an environment as described in the testbed layout above
+		2.  Create statefulset with 3 replica.
+		3.  Isolate a host which has a k8s-worker with attached PVs in cluster1.
+		4.  Wait for 5 mins, verify that the k8s-worker is restarted and brought up on another host.
+		5.  Verify that the replicas on the k8s-worker come up successfully.
+		6.  Scale up statefulset to 3 replicas.
+		7.  Re-integrate the host used in step 3
+		8.  Scale up statefulset to 5 replicas and verify they are successful
+		9.  Cleanup all objects created during the test
+	*/
+	ginkgo.It("Power off k8s worker with attached PVs", ginkgo.Label(p0, block, vanilla, hci), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var err error
+		var replicas int32 = 3
+
+		scParameters = map[string]string{}
+		scParameters[scParamStoragePolicyName] = remoteStoragePolicyName
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create 1 sts with 3 replica")
+		sts := createCustomisedStatefulSets(ctx, client, namespace, false, replicas,
+			false, nil, false, true, "", "", sc, "")
+
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, claim := range pvcs.Items {
+				pv := getPvFromClaim(client, namespace, claim.Name)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
+					pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volumeHandle := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeHandle))
+			}
+		}()
+
+		pods := fss.GetPodList(ctx, client, sts)
+		targetWorkerName := pods.Items[0].Spec.NodeName
+
+		ginkgo.By(fmt.Sprintf("Power off the node: %v", targetWorkerName))
+		vmUUID := getNodeUUID(ctx, client, targetWorkerName)
+		gomega.Expect(vmUUID).NotTo(gomega.BeEmpty())
+		framework.Logf("VM uuid is: %s for node: %s", vmUUID, targetWorkerName)
+		vmRef, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("vmRef: %+v for the VM uuid: %s", vmRef, vmUUID)
+		gomega.Expect(vmRef).NotTo(gomega.BeNil(), "vmRef should not be nil")
+		targetVm = object.NewVirtualMachine(e2eVSphere.Client.Client, vmRef.Reference())
+		_, err = targetVm.PowerOff(ctx)
+		framework.ExpectNoError(err)
+
+		err = targetVm.WaitForPowerState(ctx, vim25types.VirtualMachinePowerStatePoweredOff)
+		framework.ExpectNoError(err, "Unable to power off the node")
+		isK8sNodePoweredOff = true
+
+		defer func() {
+			if isK8sNodePoweredOff {
+				ginkgo.By("Re-integrate isolated host back into vsan cluster before terminating test")
+				_, err = targetVm.PowerOn(ctx)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				isK8sNodePoweredOff = false
+			}
+		}()
+		taint := &v1.Taint{
+			Key:    "node.kubernetes.io/out-of-service",
+			Value:  "nodeshutdown",
+			Effect: v1.TaintEffect("NoExecute"),
+		}
+		node, err := client.CoreV1().Nodes().Get(ctx, targetWorkerName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		taintedNode, isNodeTainted, err := taints.AddOrUpdateTaint(node, taint)
+		gomega.Expect(isNodeTainted).To(gomega.BeTrue())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		_, err = client.CoreV1().Nodes().Update(ctx, taintedNode, metav1.UpdateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			framework.Logf("Removing taint from node: %s", targetWorkerName)
+			node, err = client.CoreV1().Nodes().Get(ctx, targetWorkerName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			untaintedNode, isNodeUntainted, err := taints.RemoveTaint(node, taint)
+			gomega.Expect(isNodeUntainted).To(gomega.BeTrue())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			_, err = client.CoreV1().Nodes().Update(ctx, untaintedNode, metav1.UpdateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Scale up statefulset")
+		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts, replicas+2, true, true)
+		gomega.Expect(fss.CheckMount(ctx, client, sts, mountPath)).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Re-integrate isolated host back into vsan cluster")
+		if isK8sNodePoweredOff {
+			_, err = targetVm.PowerOn(ctx)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			isK8sNodePoweredOff = false
+		}
+
+		ginkgo.By("Scale up statefulset")
+		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts, replicas+2, true, true)
+		gomega.Expect(fss.CheckMount(ctx, client, sts, mountPath)).NotTo(gomega.HaveOccurred())
+
+	})
+
+	/*
+		One host looses storage connectivity to remote cluster
+		steps:
+
+		1. Create an environment as described in the testbed layout above
+		2. Make a host which has a k8s worker with attached PVs in cluster1
+		   looses connectivity to remote datastore
+		3. Vsphere HA will detect storage APD and restart the k8s-worker on another host
+		4. Verify the sts replicas are running and volumes are accessible for the pods
+		5. Restore connection which was disrupted in step 2.
+	*/
+	ginkgo.It("One host looses storage connectivity to remote cluster", ginkgo.Label(p0, block, vanilla, hci), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var err error
+		var replicas int32 = 1
+		hostIp := ""
+		hostIps := []string{}
+
+		scParameters = map[string]string{}
+		scParameters[scParamStoragePolicyName] = remoteStoragePolicyName
+		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", "", false)
+		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Create one statefulset with 1 replica respectively")
+		sts := createCustomisedStatefulSets(ctx, client, namespace, false, replicas,
+			false, nil, false, true, "", "", sc, "")
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+			scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
+			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, claim := range pvcs.Items {
+				pv := getPvFromClaim(client, namespace, claim.Name)
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
+					pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				volumeHandle := pv.Spec.CSI.VolumeHandle
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeHandle))
+			}
+		}()
+
+		nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		pods := fss.GetPodList(ctx, client, sts)
+		targetWorkerName := pods.Items[0].Spec.NodeName
+
+		ginkgo.By("Make the host lose storage connectivity to remote cluster")
+		workerNode, err := client.CoreV1().Nodes().Get(ctx, targetWorkerName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		targetHost := e2eVSphere.getHostFromVMReference(ctx, getHostMoref4K8sNode(
+			ctx, client, workerNode))
+		hostMoRef := vim25types.ManagedObjectReference{Type: "HostSystem", Value: targetHost.Value}
+		targetHostSystem = object.NewHostSystem(e2eVSphere.Client.Client, hostMoRef)
+
+		finder := find.NewFinder(e2eVSphere.Client.Client, false)
+		var datacenters []string
+		cfg, err := getConfig()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		dcList := strings.Split(cfg.Global.Datacenters,
+			",")
+		for _, dc := range dcList {
+			dcName := strings.TrimSpace(dc)
+			if dcName != "" {
+				datacenters = append(datacenters, dcName)
+			}
+		}
+		for _, dc := range datacenters {
+			defDc, err := finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			finder.SetDatacenter(defDc)
+			hosts, err := finder.HostSystemList(ctx, "*")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, host := range hosts {
+				hostInfo := host.Common.InventoryPath
+				hostIpInfo := strings.Split(hostInfo, "/")
+				hostIp = hostIpInfo[len(hostIpInfo)-1]
+				if host.Reference().Reference().Value != targetHost.Value {
+					hostIps = append(hostIps, hostIp)
+				}
+			}
+		}
+
+		for _, esxInfo := range tbinfo.esxHosts {
+			if hostIp == esxInfo["ip"] {
+				makeHostLoseStorageConnectivityWithOtherHosts(hostIps, true)
+				isTargetHostIsolated = true
+			}
+		}
+
+		defer func() {
+			if isTargetHostPoweredOff {
+				ginkgo.By("Re-integrate isolated host back" +
+					" into vsan cluster before terminating test")
+				makeHostLoseStorageConnectivityWithOtherHosts(hostIps, false)
+				isTargetHostIsolated = false
+			}
+		}()
+
+		ginkgo.By("Wait for 5-10 mins, verify that the k8s-worker" +
+			" is restarted and brought up on another host")
+		wait4AllK8sNodesToBeUp(nodes)
+		gomega.Expect(waitForAllNodes2BeReady(ctx, client)).To(gomega.Succeed())
+
+		ginkgo.By("Scale up statefulset")
+		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts, replicas+2, true, true)
+		gomega.Expect(fss.CheckMount(ctx, client, sts, mountPath)).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Re-integrate isolated host back into vsan cluster")
+		if isTargetHostIsolated {
+			makeHostLoseStorageConnectivityWithOtherHosts(hostIps, false)
+			isTargetHostIsolated = false
+		}
+
+		ginkgo.By("Scale up statefulset")
+		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts, replicas+2, true, true)
+		gomega.Expect(fss.CheckMount(ctx, client, sts, mountPath)).NotTo(gomega.HaveOccurred())
 
 	})
 
