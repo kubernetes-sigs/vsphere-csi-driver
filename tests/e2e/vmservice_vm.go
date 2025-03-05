@@ -1423,11 +1423,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		}
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 
-		ginkgo.By("Sleeping for a minute for storage policy to get " +
-			"refresh and added to namespace")
-		time.Sleep(1 * time.Minute)
-		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
-
 		if isStorageQuotaFSSEnabled {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
