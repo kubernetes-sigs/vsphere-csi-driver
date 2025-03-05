@@ -22,9 +22,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/google/uuid"
@@ -33,6 +35,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
+
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -112,11 +115,20 @@ func getControllerTest(t *testing.T) *controllerTest {
 			t.Fatalf("Failed to create co agnostic interface. err=%v", err)
 		}
 
-		volumeManager, err := cnsvolume.GetManager(ctx, vcenter,
-			fakeOpStore, true, false,
-			false, cnstypes.CnsClusterFlavorWorkload)
+		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, fakeOpStore,
+			true, false, false,
+			cnstypes.CnsClusterFlavorWorkload, false)
 		if err != nil {
 			t.Fatalf("failed to create an instance of volume manager. err=%v", err)
+		}
+
+		// wait till property collector has been started
+		err = wait.PollUntilContextTimeout(ctx, 1*time.Second, 10*time.Second, false,
+			func(ctx context.Context) (done bool, err error) {
+				return volumeManager.IsListViewReady(), nil
+			})
+		if err != nil {
+			t.Fatalf("listview not ready. err=%v", err)
 		}
 
 		manager := &common.Manager{
