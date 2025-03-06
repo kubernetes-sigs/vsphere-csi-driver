@@ -27,7 +27,8 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/google/uuid"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	"github.com/vmware/govmomi/simulator"
+	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/vim25/mo"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -185,7 +186,16 @@ func TestSyncerWorkflows(t *testing.T) {
 	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
 		sharedDatastore = v
 	} else {
-		sharedDatastore = simulator.Map.Any("Datastore").(*simulator.Datastore).Info.GetDatastoreInfo().Url
+		datastores, err := find.NewFinder(virtualCenter.Client.Client).DatastoreList(ctx, "*")
+		if err != nil {
+			t.Fatalf("failed to get datastores. Err: %v", err)
+		}
+		var ds mo.Datastore
+		err = virtualCenter.Client.RetrieveOne(ctx, datastores[0].Reference(), []string{"info"}, &ds)
+		if err != nil {
+			t.Fatalf("failed to get datastore info. Err: %v", err)
+		}
+		sharedDatastore = ds.Info.GetDatastoreInfo().Url
 	}
 	dc, err = virtualCenter.GetDatacenters(ctx)
 	if err != nil || len(dc) == 0 {

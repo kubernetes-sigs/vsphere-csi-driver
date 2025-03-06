@@ -28,10 +28,12 @@ import (
 	"github.com/google/uuid"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/view"
+	"github.com/vmware/govmomi/vim25"
+	"github.com/vmware/govmomi/vim25/mo"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/vmware/govmomi/simulator"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
@@ -68,6 +70,32 @@ type FakeTopologyManager struct {
 type FakeNodeManagerTopology struct {
 	cnsNodeManager node.Manager
 	k8sClient      clientset.Interface
+	vimClient      *vim25.Client
+}
+
+func getAllManagedObjects(ctx context.Context, client *vim25.Client, kind string, prop []string, dst any) error {
+	m := view.NewManager(client)
+
+	v, err := m.CreateContainerView(ctx, client.ServiceContent.RootFolder, []string{kind}, true)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = v.Destroy(ctx) }()
+
+	return v.Retrieve(ctx, []string{kind}, prop, dst)
+}
+
+func getAllVirtualMachines(ctx context.Context, client *vim25.Client, props ...string) ([]mo.VirtualMachine, error) {
+	var vms []mo.VirtualMachine
+	err := getAllManagedObjects(ctx, client, "VirtualMachine", props, &vms)
+	if err != nil {
+		return nil, err
+	}
+	if len(vms) == 0 {
+		return nil, fmt.Errorf("no VirtualMachines found")
+	}
+	return vms, nil
 }
 
 func (f *FakeNodeManagerTopology) Initialize(ctx context.Context) error {
@@ -83,12 +111,14 @@ func (f *FakeNodeManagerTopology) Initialize(ctx context.Context) error {
 		t.Errorf("Error occurred while unregistering all nodes, err: %v", err)
 	}
 
-	objVMs := simulator.Map.All("VirtualMachine")
+	objVMs, err := getAllVirtualMachines(ctx, f.vimClient, "config.uuid")
+	if err != nil {
+		return err
+	}
 	var i int
 	for _, vm := range objVMs {
 		i++
-		obj := vm.(*simulator.VirtualMachine)
-		nodeUUID := obj.Config.Uuid
+		nodeUUID := vm.Config.Uuid
 		nodeName := "k8s-node-" + strconv.Itoa(i)
 		// Register new node entry in nodeManager
 		err := f.cnsNodeManager.RegisterNode(ctx, nodeUUID, nodeName)
@@ -141,11 +171,13 @@ func generateNodeLabels(ctx context.Context, vc *cnsvsphere.VirtualCenter) (map[
 	var i int
 
 	finder := find.NewFinder(vc.Client.Client, false)
-	objDCs := simulator.Map.All("Datacenter")
+	objDCs, err := finder.DatacenterList(ctx, "*")
+	if err != nil {
+		return nil, err
+	}
 	for _, dc := range objDCs {
 		i++
-		dcref := dc.(*simulator.Datacenter)
-		dcname := dcref.Name
+		dcname := dc.Name()
 		fmt.Printf("generateNodeLabels for datacenter=%s\n", dcname)
 		datacenter, err := finder.Datacenter(ctx, dcname)
 		if err != nil {
@@ -419,7 +451,9 @@ func getControllerTestWithTopology(t *testing.T) *controllerTestTopology {
 		}
 
 		nodeManager := &FakeNodeManagerTopology{
-			k8sClient: k8sClient}
+			k8sClient: k8sClient,
+			vimClient: vcenter.Client.Client,
+		}
 		err = nodeManager.Initialize(ctxtopology)
 		if err != nil {
 			t.Fatalf("Failed to initialize the node manager, err= =%v", err)
