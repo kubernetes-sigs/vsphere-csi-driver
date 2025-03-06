@@ -55,7 +55,6 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 			featureStatesLock: &sync.RWMutex{},
 			featureStates: map[string]string{
 				"volume-extend":                     "true",
-				"volume-health":                     "true",
 				"csi-migration":                     "true",
 				"file-volume":                       "true",
 				"block-volume-snapshot":             "true",

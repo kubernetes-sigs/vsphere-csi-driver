@@ -44,8 +44,8 @@ func init() {
 // Scenario 2: FSS is disabled both in SV and GC
 func TestIsFSSEnabledInGcWithSync(t *testing.T) {
 	svFSS := map[string]string{
-		"volume-extend": "true",
-		"volume-health": "false",
+		"volume-extend":    "true",
+		"disabled-feature": "false",
 	}
 	svFSSConfigMapInfo := FSSConfigMapInfo{
 		configMapName:      cnsconfig.DefaultSupervisorFSSConfigMapName,
@@ -54,8 +54,8 @@ func TestIsFSSEnabledInGcWithSync(t *testing.T) {
 		featureStatesLock:  &sync.RWMutex{},
 	}
 	internalFSS := map[string]string{
-		"volume-extend": "true",
-		"volume-health": "false",
+		"volume-extend":    "true",
+		"disabled-feature": "false",
 	}
 	internalFSSConfigMapInfo := FSSConfigMapInfo{
 		configMapName:      cnsconfig.DefaultInternalFSSConfigMapName,
@@ -72,9 +72,9 @@ func TestIsFSSEnabledInGcWithSync(t *testing.T) {
 	if !isEnabled {
 		t.Errorf("volume-extend feature state is disabled!")
 	}
-	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "volume-health")
+	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "disabled-feature")
 	if isEnabled {
-		t.Errorf("volume-health feature state is enabled!")
+		t.Errorf("disabled-feature feature state is enabled!")
 	}
 }
 
@@ -83,8 +83,8 @@ func TestIsFSSEnabledInGcWithSync(t *testing.T) {
 // Scenario 2: FSS is disabled in SV but enabled in GC
 func TestIsFSSEnabledInGcWithoutSync(t *testing.T) {
 	svFSS := map[string]string{
-		"volume-extend": "true",
-		"volume-health": "false",
+		"volume-extend":    "true",
+		"disabled-feature": "false",
 	}
 	svFSSConfigMapInfo := FSSConfigMapInfo{
 		configMapName:      cnsconfig.DefaultSupervisorFSSConfigMapName,
@@ -93,8 +93,8 @@ func TestIsFSSEnabledInGcWithoutSync(t *testing.T) {
 		featureStatesLock:  &sync.RWMutex{},
 	}
 	internalFSS := map[string]string{
-		"volume-extend": "false",
-		"volume-health": "true",
+		"volume-extend":    "false",
+		"disabled-feature": "true",
 	}
 	internalFSSConfigMapInfo := FSSConfigMapInfo{
 		configMapName:      cnsconfig.DefaultInternalFSSConfigMapName,
@@ -111,9 +111,9 @@ func TestIsFSSEnabledInGcWithoutSync(t *testing.T) {
 	if isEnabled {
 		t.Errorf("volume-extend feature state is enabled!")
 	}
-	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "volume-health")
+	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "disabled-feature")
 	if isEnabled {
-		t.Errorf("volume-health feature state is enabled!")
+		t.Errorf("disabled-feature feature state is enabled!")
 	}
 }
 
@@ -122,8 +122,8 @@ func TestIsFSSEnabledInGcWithoutSync(t *testing.T) {
 // Scenario 2: Missing feature state
 func TestIsFSSEnabledInGcWrongValues(t *testing.T) {
 	svFSS := map[string]string{
-		"volume-extend": "true",
-		"volume-health": "true",
+		"volume-extend":       "true",
+		"missing-feature-fss": "true",
 	}
 	svFSSConfigMapInfo := FSSConfigMapInfo{
 		configMapName:      cnsconfig.DefaultSupervisorFSSConfigMapName,
@@ -151,18 +151,18 @@ func TestIsFSSEnabledInGcWrongValues(t *testing.T) {
 		t.Errorf("volume-extend feature state is enabled even when it was assigned a wrong value!")
 	}
 	// Feature state missing
-	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "volume-health")
+	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "missing-feature-fss")
 	if isEnabled {
-		t.Errorf("Non existing feature state volume-health is enabled!")
+		t.Errorf("Non existing feature state missing-feature-fss is enabled!")
 	}
 }
 
 // TestIsFSSEnabledInSV tests IsFSSEnabled in Supervisor flavor - all scenarios
 func TestIsFSSEnabledInSV(t *testing.T) {
 	svFSS := map[string]string{
-		"volume-extend": "true",
-		"volume-health": "false",
-		"csi-migration": "enabled",
+		"volume-extend":    "true",
+		"disabled-feature": "false",
+		"csi-migration":    "enabled",
 	}
 	svFSSConfigMapInfo := FSSConfigMapInfo{
 		configMapName:      cnsconfig.DefaultSupervisorFSSConfigMapName,
@@ -178,9 +178,9 @@ func TestIsFSSEnabledInSV(t *testing.T) {
 	if !isEnabled {
 		t.Errorf("volume-extend feature state is disabled!")
 	}
-	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "volume-health")
+	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "disabled-feature")
 	if isEnabled {
-		t.Errorf("volume-health feature state is enabled!")
+		t.Errorf("disabled-feature feature state is enabled!")
 	}
 	// Wrong value given
 	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "csi-migration")
