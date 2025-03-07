@@ -68,20 +68,20 @@ var _ = ginkgo.Describe("statefulset", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		namespace                string
-		client                   clientset.Interface
-		storagePolicyName        string
-		scParameters             map[string]string
-		storageClassName         string
-		zonalPolicy              string
-		zonalWffcPolicy          string
-		categories               []string
-		labels_ns                map[string]string
-		allowedTopologyHAMap     map[string][]string
-		nodeList                 *v1.NodeList
-		stsReplicas              int32
-		allowedTopologies        []v1.TopologySelectorLabelRequirement
-		isStorageQuotaFSSEnabled bool
+		namespace                  string
+		client                     clientset.Interface
+		storagePolicyName          string
+		scParameters               map[string]string
+		storageClassName           string
+		zonalPolicy                string
+		zonalWffcPolicy            string
+		categories                 []string
+		labels_ns                  map[string]string
+		allowedTopologyHAMap       map[string][]string
+		nodeList                   *v1.NodeList
+		stsReplicas                int32
+		allowedTopologies          []v1.TopologySelectorLabelRequirement
+		isQuotaValidationSupported bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -129,10 +129,10 @@ var _ = ginkgo.Describe("statefulset", func() {
 			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
 			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		}
-		//Remove this code once the FSS is enabled
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
-
+		//if isQuotaValidationSupported is true then quotaValidation is considered in tests
+		vcVersion = getVCversion(ctx, vcAddress)
+		isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -194,7 +194,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		}
 
 		restConfig := getRestConfigClient()
-		if supervisorCluster && isStorageQuotaFSSEnabled {
+		if supervisorCluster && isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storagePolicyName, namespace, pvcUsage, volExtensionName)
@@ -250,7 +250,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			}
 		}
 
-		if supervisorCluster && isStorageQuotaFSSEnabled {
+		if supervisorCluster && isQuotaValidationSupported {
 			validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 				storagePolicyName, namespace, pvcUsage, volExtensionName,
 				diskSize1Gi*3, totalQuotaUsedBefore, storagePolicyQuotaBefore,
