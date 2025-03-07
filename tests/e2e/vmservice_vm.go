@@ -130,8 +130,9 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(vmi).NotTo(gomega.BeEmpty())
 
 		//Remove this code once the FSS is enabled
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+		//vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		//isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+		isStorageQuotaFSSEnabled = true
 
 		var datacenters []string
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)

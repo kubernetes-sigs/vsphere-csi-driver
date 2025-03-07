@@ -145,8 +145,9 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			fullSyncWaitTime = defaultFullSyncWaitTime
 		}
 		//Remove this code once the FSS is enabled
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+		//vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		//isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+		isStorageQuotaFSSEnabled = true
 
 	})
 
