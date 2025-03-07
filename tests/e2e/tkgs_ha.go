@@ -143,8 +143,9 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
 		//Remove this code once the FSS is enabled
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+		//vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		//isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+		isStorageQuotaFSSEnabled = true
 
 	})
 

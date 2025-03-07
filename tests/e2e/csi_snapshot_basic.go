@@ -206,8 +206,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		//Remove this code once the FSS is enabled
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+		//vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		//isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+		isStorageQuotaFSSEnabled = true
 	})
 
 	ginkgo.AfterEach(func() {
