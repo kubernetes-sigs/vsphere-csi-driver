@@ -17,15 +17,16 @@
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
 ARG GOLANG_IMAGE=golang:1.22
-ARG OSVERSION
+ARG OSVERSION=${OSVERSION:-1809}
 ARG ARCH=amd64
+ARG TARGET_PLATFORM=linux/amd64
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
 ################################################################################
 # Build the manager as a statically compiled binary so it has no dependencies
 # libc, muscl, etc.
-FROM --platform=linux/amd64 ${GOLANG_IMAGE} as builder
+FROM --platform=${TARGET_PLATFORM} ${GOLANG_IMAGE} AS builder
 
 # This build arg is the version to embed in the CSI binary
 ARG VERSION=unknown
@@ -38,14 +39,14 @@ COPY go.mod go.sum ./
 COPY pkg/    pkg/
 COPY cmd/    cmd/
 ENV CGO_ENABLED=0
-ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
+ENV GOPROXY=${GOPROXY:-https://proxy.golang.org}
 RUN GOOS=windows GOARCH=amd64 go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service.Version=${VERSION}" -o ./bin/vsphere-csi.windows_amd64 cmd/vsphere-csi/main.go
 
 
 ################################################################################
 ##                              MAIN STAGE                                   ##
 ################################################################################
-FROM --platform=linux/amd64 gcr.io/k8s-staging-e2e-test-images/windows-servercore-cache:1.0-linux-${ARCH}-${OSVERSION} as core
+FROM --platform=${TARGET_PLATFORM} gcr.io/k8s-staging-e2e-test-images/windows-servercore-cache:1.0-linux-${ARCH}-${OSVERSION} AS core
 
 FROM mcr.microsoft.com/windows/nanoserver:${OSVERSION}
 COPY --from=core /Windows/System32/netapi32.dll /Windows/System32/netapi32.dll
