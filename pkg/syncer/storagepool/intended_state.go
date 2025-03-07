@@ -323,7 +323,7 @@ func (c *SpController) getVsanHostCapacities(ctx context.Context) (map[string]*c
 			log.Error(err)
 			continue
 		}
-		log.Infof("Host %s has capacity %+v", nodeName, capacity)
+		log.Debugf("Host %s has capacity %+v", nodeName, capacity)
 		out[nodeName] = capacity
 	}
 	return out, nil
