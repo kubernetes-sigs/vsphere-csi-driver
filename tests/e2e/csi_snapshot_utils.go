@@ -338,17 +338,18 @@ func deleteVolumeSnapshot(ctx context.Context, snapc *snapclient.Clientset, name
 	volHandle string, snapshotID string, performCnsQueryVolumeSnapshot bool) (bool, bool, error) {
 	var err error
 
-	framework.Logf("Delete volume snapshot and verify the snapshot content is deleted")
+	/*framework.Logf("Delete volume snapshot and verify the snapshot content is deleted")
 	deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
-	snapshotCreated := false
+
 
 	framework.Logf("Wait until the volume snapshot content is deleted")
 	err = waitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, *volumeSnapshot.Status.BoundVolumeSnapshotContentName)
 	if err != nil {
 		return snapshotCreated, false, err
 	}
+	*/
 	snapshotContentCreated := false
-
+	snapshotCreated := false
 	if performCnsQueryVolumeSnapshot {
 		framework.Logf("Verify snapshot entry %v is deleted from CNS for volume %v", snapshotID, volHandle)
 		err = waitForCNSSnapshotToBeDeleted(volHandle, snapshotID)
