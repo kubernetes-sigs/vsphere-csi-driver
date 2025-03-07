@@ -58,7 +58,6 @@ var (
 	featureGateCsiMigrationEnabled            bool
 	featureGateBlockVolumeSnapshotEnabled     bool
 	featureGateTKGSHaEnabled                  bool
-	featureGateVolumeHealthEnabled            bool
 	featureGateTopologyAwareFileVolumeEnabled bool
 	featureGateByokEnabled                    bool
 )
@@ -143,7 +142,6 @@ func StartWebhookServer(ctx context.Context) error {
 
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		featureGateTKGSHaEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
-		featureGateVolumeHealthEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeHealth)
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		featureGateByokEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK)
 		if err := startCNSCSIWebhookManager(ctx); err != nil {
