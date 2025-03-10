@@ -1175,7 +1175,7 @@ func syncStorageQuotaReserved(ctx context.Context,
 		log.Errorf("syncStorageQuotaReserved: failed to fetch storage policy quota instances, Error: %+v", err)
 		return
 	}
-	log.Infof("syncStorageQuotaReserved: Retrieved StoragePolicyQuota instances for syncing", "Count: %d",
+	log.Debugf("syncStorageQuotaReserved: Retrieved StoragePolicyQuota instances for syncing", "Count: %d",
 		len(spqList.Items))
 	namespaces := make(map[string]string)
 	// create namespace map to be able to calculate reserved namespace wise
@@ -1190,11 +1190,11 @@ func syncStorageQuotaReserved(ctx context.Context,
 	}
 	var totalStoragePolicyReserved map[string]*resource.Quantity
 	expectedReservedValues := []sqperiodicsyncv1alpha1.ExpectedReservedValues{}
-	log.Info("syncStorageQuotaReserved: iterate through namespaces and calcuate reserved values")
+	log.Debug("syncStorageQuotaReserved: iterate through namespaces and calcuate reserved values")
 	// loop over namespaces and calcuate reserved values
 	for ns := range namespaces {
 		totalStoragePolicyReserved = make(map[string]*resource.Quantity)
-		log.Infof("syncStorageQuotaReserved: processing storage quota sync for namespace %q", ns)
+		log.Debugf("syncStorageQuotaReserved: processing storage quota sync for namespace %q", ns)
 		// calculate storagepolicyusage reserved values for given namespace
 		spuVmServiceReserved, err := calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx,
 			cnsOperatorClient, ns)
@@ -1229,7 +1229,7 @@ func syncStorageQuotaReserved(ctx context.Context,
 		})
 	}
 	updateStorageQuotaPeriodicSyncCR(ctx, cnsOperatorClient, expectedReservedValues, lastSyncTime)
-	log.Info("syncStorageQuotaReserved: updated the StorageQuotaPeriodicSync CR")
+	log.Debug("syncStorageQuotaReserved: updated the StorageQuotaPeriodicSync CR")
 }
 
 // mergeStoragePolicyReserved will sum up  and return the total reserved value
@@ -1249,7 +1249,7 @@ func mergeStoragePolicyReserved(storagePolicyReserved,
 func calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx context.Context, cnsOperatorClient client.Client,
 	namespace string) (map[string]*resource.Quantity, error) {
 	log := logger.GetLogger(ctx)
-	log.Infof("calculateVMServiceStoragePolicyUsageReservedForNamespace: Fetching StoragePolicyUsage for namespace %q",
+	log.Debugf("calculateVMServiceStoragePolicyUsageReservedForNamespace: Fetching StoragePolicyUsage for namespace %q",
 		namespace)
 	supList := &storagepolicyv1alpha2.StoragePolicyUsageList{}
 	err := cnsOperatorClient.List(ctx, supList, &client.ListOptions{Namespace: namespace})
@@ -1259,17 +1259,17 @@ func calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx context.Contex
 	storagePolicyToReservedMap := make(map[string]*resource.Quantity)
 	for _, storagePolicyUsage := range supList.Items {
 		if storagePolicyUsage.Spec.ResourceExtensionName == VMServiceExtensionServiceName {
-			log.Infof("calculateVMServiceStoragePolicyUsageReservedForNamespace: Processing StoragePolicyUsage"+
+			log.Debugf("calculateVMServiceStoragePolicyUsageReservedForNamespace: Processing StoragePolicyUsage"+
 				" Name: %q, Namespace: %q", storagePolicyUsage.Name, storagePolicyUsage.Namespace)
 			storagePolicyToReservedMap[storagePolicyUsage.Spec.StoragePolicyId] = resource.NewQuantity(0, resource.BinarySI)
 			if storagePolicyUsage.DeletionTimestamp != nil {
-				log.Infof("calculateVMServiceStoragePolicyUsageReservedForNamespace:"+
+				log.Debugf("calculateVMServiceStoragePolicyUsageReservedForNamespace:"+
 					" StoragePolicyUsage is marked for deletion, ignoring Name: %q, Namespace: %q",
 					storagePolicyUsage.Name, storagePolicyUsage.Namespace)
 				continue
 			}
 			if storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage == nil {
-				log.Infof("calculateVMServiceStoragePolicyUsageReservedForNamespace: StoragePolicyUsage"+
+				log.Debugf("calculateVMServiceStoragePolicyUsageReservedForNamespace: StoragePolicyUsage"+
 					" status not populated, continue processing other PVCs Name: %q, Namespace: %q",
 					storagePolicyUsage.Name, storagePolicyUsage.Namespace)
 				continue
@@ -1355,7 +1355,7 @@ func calculateVolumeSnapshotReservedForNamespace(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("calculateVolumeSnapshotReservedForNamespace: Fetching VolumeSnapshots for namespace %q", namespace)
+	log.Debugf("calculateVolumeSnapshotReservedForNamespace: Fetching VolumeSnapshots for namespace %q", namespace)
 	snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
 	if err != nil {
 		log.Errorf("calculateVolumeSnapshotReservedForNamespace: failed to get snapshotterClient with error: %v", err)
@@ -1373,20 +1373,20 @@ func calculateVolumeSnapshotReservedForNamespace(ctx context.Context,
 	storagePolicyIdToReservedMap := make(map[string]*resource.Quantity)
 	for _, vs := range vsList.Items {
 		if vs.DeletionTimestamp != nil {
-			log.Infof("calculateVolumeSnapshotReservedForNamespace: volumesnapshot is marked for deletion,"+
+			log.Debugf("calculateVolumeSnapshotReservedForNamespace: volumesnapshot is marked for deletion,"+
 				" ignoring Name: %q, Namespace: %q",
 				vs.Name, vs.Namespace)
 			continue
 		}
 		if vs.Status != nil && *vs.Status.ReadyToUse {
-			log.Infof("calculateVolumeSnapshotReservedForNamespace: skipping volumesnapshot"+
+			log.Debugf("calculateVolumeSnapshotReservedForNamespace: skipping volumesnapshot"+
 				" as it is ready to use, ignoring Name: %q, Namespace: %q", vs.Name, vs.Namespace)
 			continue
 		} else {
-			log.Infof("calculateVolumeSnapshotReservedForNamespace: Processing VolumeSnapshot"+
+			log.Debugf("calculateVolumeSnapshotReservedForNamespace: Processing VolumeSnapshot"+
 				" Name: %q, Namespace: %q", vs.Name, vs.Namespace)
 			if len(pvcList.Items) == 0 {
-				log.Infof("calculateVolumeSnapshotReservedForNamespace: Fetching PersistentVolumeClaim "+
+				log.Debugf("calculateVolumeSnapshotReservedForNamespace: Fetching PersistentVolumeClaim "+
 					" for Namespace: %q", vs.Namespace)
 				pvcList, err := metadataSyncer.pvcLister.PersistentVolumeClaims(namespace).List(labels.NewSelector())
 				if err != nil {
@@ -1416,7 +1416,7 @@ func calculateVolumeSnapshotReservedForNamespace(ctx context.Context,
 func updateStorageQuotaPeriodicSyncCR(ctx context.Context, cnsOperatorClient client.Client,
 	expectedReservedvalues []sqperiodicsyncv1alpha1.ExpectedReservedValues, lastSyncTime metav1.Time) {
 	log := logger.GetLogger(ctx)
-	log.Infof("updateStorageQuotaPeriodicSyncCR: Updating StorageQuotaPeriodicSyncCR %s",
+	log.Debugf("updateStorageQuotaPeriodicSyncCR: Updating StorageQuotaPeriodicSyncCR %s",
 		StorageQuotaPeriodicSyncInstanceName)
 	sqPeriodicSync := &sqperiodicsyncv1alpha1.StorageQuotaPeriodicSync{}
 	err := cnsOperatorClient.Get(ctx,
@@ -1470,7 +1470,7 @@ func fetchPVs(ctx context.Context, metadataSyncer *metadataSyncInformer) (map[st
 // fetchStorageClassToStoragePolicyMapping will fetch storageclass and returns mapping with storagepolicy id
 func fetchStorageClassToStoragePolicyMapping(ctx context.Context) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
-	log.Info("fetchStorageClassToStoragePolicyMapping: Fetching StorageClass and create mapping for storageclass" +
+	log.Debug("fetchStorageClassToStoragePolicyMapping: Fetching StorageClass and create mapping for storageclass" +
 		"and storagepolicyid")
 	// Prepare map of storagepolicyID to storageclassnames.
 	k8sconfig, err := k8s.GetKubeConfig(ctx)
