@@ -2627,7 +2627,8 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	}
 }
 
-// podAdded helps register inline vSphere in-tree volumes
+// podAdded helps register inline vSphere in-tree volumes.
+// NOTE: This functionality will be skipped if it is called in a multi-VC environment.
 func podAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
 	ctx, log := logger.GetNewContextWithLogger()
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla && IsMigrationEnabled {
@@ -2635,6 +2636,11 @@ func podAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		pod, ok := obj.(*v1.Pod)
 		if pod == nil || !ok {
 			log.Warnf("podAdded: unrecognized new object %+v", obj)
+			return
+		}
+		if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+			log.Info("podAdded: In-tree vSphere volume are not supported in a multi VC setup. " +
+				"Skipping addition of Pod metadata.")
 			return
 		}
 		// In case if feature state switch is enabled after syncer is
