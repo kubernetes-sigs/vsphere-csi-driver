@@ -267,7 +267,7 @@ func (vc *VirtualCenter) Connect(ctx context.Context) error {
 	defer vc.ClientMutex.Unlock()
 
 	// Set up the vc connection.
-	err := vc.connect(ctx, false)
+	err := vc.connect(ctx)
 	if err != nil {
 		log.Errorf("Cannot connect to vCenter with err: %v", err)
 		// Logging out of the current session to make sure the retry create
@@ -285,7 +285,7 @@ func (vc *VirtualCenter) Connect(ctx context.Context) error {
 }
 
 // connect creates a connection to the virtual center host.
-func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) error {
+func (vc *VirtualCenter) connect(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 
 	// If client was never initialized, initialize one.
@@ -313,18 +313,17 @@ func (vc *VirtualCenter) connect(ctx context.Context, requestNewSession bool) er
 		log.Infof("VirtualCenter.connect() successfully created new client")
 		return nil
 	}
-	if !requestNewSession {
-		// If session hasn't expired, nothing to do.
-		sessionMgr := session.NewManager(vc.Client.Client)
-		// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's
-		// CurrentSession field. Nil is returned if the session is not
-		// authenticated or timed out.
-		if userSession, err := sessionMgr.UserSession(ctx); err != nil {
-			log.Errorf("failed to obtain user session with err: %v", err)
-			return err
-		} else if userSession != nil {
-			return nil
-		}
+
+	// If session hasn't expired, nothing to do.
+	sessionMgr := session.NewManager(vc.Client.Client)
+	// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's
+	// CurrentSession field. Nil is returned if the session is not
+	// authenticated or timed out.
+	if userSession, err := sessionMgr.UserSession(ctx); err != nil {
+		log.Errorf("failed to obtain user session with err: %v", err)
+		return err
+	} else if userSession != nil {
+		return nil
 	}
 
 	log.Infof("logging out current session and clearing idle sessions")
