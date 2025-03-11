@@ -6248,7 +6248,7 @@ func enableFullSyncTriggerFss(ctx context.Context, client clientset.Interface, n
 			for _, pod := range csipods.Items {
 				fpod.DeletePodOrFail(ctx, client, csiSystemNamespace, pod.Name)
 			}
-			err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(len(csipods.Items)),
+			err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, len(csipods.Items),
 				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			break
