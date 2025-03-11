@@ -271,6 +271,7 @@ const (
 	storageQuotaWebhookPrefix                = "storage-quota-webhook"
 	envStoragePolicyNameForVsanNfsDatastores = "STORAGE_POLICY_FOR_VSAN_NFS_DATASTORES"
 	devopsKubeConf                           = "DEV_OPS_USER_KUBECONFIG"
+	quotaSupportedVCVersion                  = "9.0.0"
 )
 
 /*
