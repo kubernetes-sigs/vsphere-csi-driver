@@ -71,7 +71,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		labels_ns                  map[string]string
 		isVcRebooted               bool
 		vcAddress                  string
-		isStorageQuotaFSSEnabled   bool
+		isQuotaValidationSupported bool
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -142,9 +142,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		} else {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
-		//Remove this code once the FSS is enabled
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+		//if isQuotaValidationSupported is true then quotaValidation is considered in tests
+		vcVersion = getVCversion(ctx, vcAddress)
+		isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
 
 	})
 
@@ -216,7 +217,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName)
@@ -237,7 +238,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		svcPVCName := pv.Spec.CSI.VolumeHandle
 		svcPVC := getPVCFromSupervisorCluster(svcPVCName)
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			_, storagePolicyQuotaAfter, storagePolicyUsageAfter =
 				validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName,
@@ -298,7 +299,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			pvclaim, volHandle, diskSize, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			tqAfterSanpshot, _, _, _, _, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName)
@@ -356,7 +357,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			volumeSnapshot, pandoraSyncWaitTime, volHandle, dynamicSnapshotId, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			validateQuotaUsageAfterCleanUp(ctx, restConfig, storageclass.Name, namespace, pvcUsage,
 				volExtensionName, diskSizeInMb, tqAfterSanpshot, storagePolicyQuotaAfter,
 				storagePolicyUsageAfter)
@@ -414,7 +415,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			deleteService(namespace, client, service)
 		}()
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					zonalPolicy, namespace, pvcUsage, volExtensionName)
@@ -430,7 +431,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter =
 				validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName,
@@ -457,7 +458,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 						"kubernetes", volumeHandle))
 			}
 
-			if isStorageQuotaFSSEnabled {
+			if isQuotaValidationSupported {
 				validateQuotaUsageAfterCleanUp(ctx, restConfig, storageclass.Name, namespace, pvcUsage,
 					volExtensionName, diskSizeInMb*3, totalQuotaUsedAfter, storagePolicyQuotaAfter,
 					storagePolicyUsageAfter)
@@ -660,7 +661,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		svcPVCName := pv.Spec.CSI.VolumeHandle
 		svcPVC := getPVCFromSupervisorCluster(svcPVCName)
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName)
@@ -710,7 +711,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		verifyOnlineVolumeExpansionOnGc(client, namespace, svcPVCName, volHandle, pvclaim, pod, f)
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			totalquotaUsedAfterExpansion, _ := getTotalQuotaConsumedByStoragePolicy(ctx, restConfig,
 				storageclass.Name, svNamespace)
 			framework.Logf("totalquotaUsedAfterExpansion :%v", totalquotaUsedAfterExpansion)
@@ -789,7 +790,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		svcPVCName := pv.Spec.CSI.VolumeHandle
 		svcPVC := getPVCFromSupervisorCluster(svcPVCName)
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName)
@@ -839,7 +840,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		verifyOfflineVolumeExpansionOnGc(ctx, client, pvclaim, svcPVCName, namespace, volHandle, pod, pv, f)
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			totalquotaUsedAfterExpansion, _ := getTotalQuotaConsumedByStoragePolicy(ctx, restConfig,
 				storageclass.Name, svNamespace)
 			framework.Logf("totalquotaUsedAfterExpansion :%v", totalquotaUsedAfterExpansion)
@@ -919,7 +920,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName)
@@ -1017,7 +1018,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 					staticPv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}()
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 				storageclass.Name, namespace, pvcUsage, volExtensionName,
 				diskSizeInMb, totalQuotaUsedBefore, storagePolicyQuotaBefore,
