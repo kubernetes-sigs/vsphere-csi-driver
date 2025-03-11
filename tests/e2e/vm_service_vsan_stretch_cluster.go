@@ -464,6 +464,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			ch := make(chan *vmopv1.VirtualMachine)
 			var wg sync.WaitGroup
 			var lock sync.Mutex
+			done := make(chan bool)
 			ginkgo.By("Creating VM in parallel to site failure")
 			wg.Add(2)
 			go createVMServiceVmInParallel(ctx, vmopC, namespace, vmClass, pvclaimsList,
@@ -473,7 +474,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 					vms = append(vms, v)
 				}
 			}()
-			go siteFailureInParallel(ctx, true, &wg)
+			go siteFailureInParallel(ctx, true, &wg, done)
 			wg.Wait()
 			close(ch)
 
@@ -619,9 +620,10 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 
 			var wg sync.WaitGroup
 			ginkgo.By("Deleting VM in parallel to secondary site failure")
+			done := make(chan bool)
 			wg.Add(2)
 			go deleteVMServiceVmInParallel(ctx, vmopC, vms, namespace, &wg)
-			go siteFailureInParallel(ctx, false, &wg)
+			go siteFailureInParallel(ctx, false, &wg, done)
 			wg.Wait()
 
 			defer func() {
