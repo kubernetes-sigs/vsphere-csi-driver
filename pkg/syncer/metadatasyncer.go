@@ -1291,7 +1291,7 @@ func calculatePVCReservedForNamespace(ctx context.Context, volumeMap map[string]
 		return nil, err
 	}
 	// fetch pvc for given namespace
-	log.Infof("calculatePVCReservedForNamespace: Fetching PersistentVolumeClaim for namespace %q", namespace)
+	log.Debugf("calculatePVCReservedForNamespace: Fetching PersistentVolumeClaim for namespace %q", namespace)
 	pvcList, err := metadataSyncer.pvcLister.PersistentVolumeClaims(namespace).List(labels.NewSelector())
 	if err != nil {
 		log.Errorf("calculatePVCReservedForNamespace: unable to fetch all pvc from namespace %q, Error %v",
@@ -1300,20 +1300,20 @@ func calculatePVCReservedForNamespace(ctx context.Context, volumeMap map[string]
 	}
 	storagePolicyToReservedMap := make(map[string]*resource.Quantity)
 	for _, pvc := range pvcList {
-		log.Infof("calculatePVCReservedForNamespace: Processing PersistentVolumeClaim Name: %q, Namespace: %q",
+		log.Debugf("calculatePVCReservedForNamespace: Processing PersistentVolumeClaim Name: %q, Namespace: %q",
 			pvc.Name, pvc.Namespace)
 		if pvc.DeletionTimestamp != nil {
-			log.Infof("calculatePVCReservedForNamespace: pvc is marked for deletion, ignoring Name: %q, Namespace: %q",
+			log.Debugf("calculatePVCReservedForNamespace: pvc is marked for deletion, ignoring Name: %q, Namespace: %q",
 				pvc.Name, pvc.Namespace)
 			continue
 		}
 		if pvc.Status.Phase == "" {
-			log.Infof("calculatePVCReservedForNamespace: pvc status not populated, continuing processing others"+
+			log.Debugf("calculatePVCReservedForNamespace: pvc status not populated, continuing processing others"+
 				" Name: %q, Namespace: %q", pvc.Name, pvc.Namespace)
 			continue
 		}
 		if pvc.Spec.StorageClassName == nil {
-			log.Infof("calculatePVCReservedForNamespace: storageclass is not provided for pvc,"+
+			log.Debugf("calculatePVCReservedForNamespace: storageclass is not provided for pvc,"+
 				" continue processing other PVCs Name: %q, Namespace: %q", pvc.Name, pvc.Namespace)
 			continue
 		}
@@ -1326,7 +1326,7 @@ func calculatePVCReservedForNamespace(ctx context.Context, volumeMap map[string]
 		pvcSize := pvc.Spec.Resources.Requests[v1.ResourceStorage]
 		if pvc.Status.Phase == v1.ClaimPending {
 			if storagePolicyID, ok := scToStoragePolicyIDMap[*pvc.Spec.StorageClassName]; ok {
-				log.Infof("calculatePVCReservedForNamespace: pvc is in pending state,"+
+				log.Debugf("calculatePVCReservedForNamespace: pvc is in pending state,"+
 					" Name: %q, Namespace: %q adding pvc capacity to reserved", pvc.Name, pvc.Namespace)
 				storagePolicyToReservedMap[storagePolicyID].Add(pvcSize)
 			}
@@ -1334,7 +1334,7 @@ func calculatePVCReservedForNamespace(ctx context.Context, volumeMap map[string]
 			pvSize := pv.Spec.Capacity[v1.ResourceStorage]
 			// check if pvc is under expansion
 			if !pvcSize.Equal(pvSize) {
-				log.Infof("calculatePVCReservedForNamespace: pvc size being expanded"+
+				log.Debugf("calculatePVCReservedForNamespace: pvc size being expanded"+
 					" Name: %q, Namespace: %q adding pvc capacity to reserved", pvc.Name, pvc.Namespace)
 				if storagePolicyID, ok := scToStoragePolicyIDMap[*pvc.Spec.StorageClassName]; ok {
 					// get accurate expected reserved value
