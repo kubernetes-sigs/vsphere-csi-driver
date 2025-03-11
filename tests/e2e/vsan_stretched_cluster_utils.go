@@ -95,9 +95,10 @@ func initialiseFdsVar(ctx context.Context) {
 }
 
 // siteFailureInParallel causes site Failure in multiple hosts of the site in parallel
-func siteFailureInParallel(ctx context.Context, primarySite bool, wg *sync.WaitGroup) {
+func siteFailureInParallel(ctx context.Context, primarySite bool, wg *sync.WaitGroup, done chan bool) {
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
+	<-done
 	siteFailover(ctx, primarySite)
 }
 
@@ -433,13 +434,14 @@ func toggleNetworkFailureParallel(hosts []string, causeNetworkFailure bool) {
 
 // deletePVCInParallel deletes PVC in a given namespace in parallel
 func deletePvcInParallel(ctx context.Context, client clientset.Interface, pvclaims []*v1.PersistentVolumeClaim,
-	namespace string, wg *sync.WaitGroup) {
+	namespace string, wg *sync.WaitGroup, done chan bool) {
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	for _, pvclaim := range pvclaims {
 		err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
+	close(done)
 }
 
 // createPodsInParallel creates Pods in a given namespace in parallel
