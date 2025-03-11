@@ -51,11 +51,6 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		clientIndex = 0
 	})
 
-	ginkgo.AfterEach(func() {
-		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
-		}
-	})
 	/*
 		Perform Password change and check if k8s resources can be modified after the password change
 		Steps:

@@ -87,9 +87,6 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Performing test cleanup")
-		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
-		}
 
 		if pvc != nil {
 			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)

@@ -134,9 +134,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
-		}
+
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, rqLimit)

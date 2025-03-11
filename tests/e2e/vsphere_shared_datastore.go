@@ -190,10 +190,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			if supervisorCluster {
-				ginkgo.By("Delete Resource quota")
-				deleteResourceQuota(client, namespace)
-			}
 		}()
 
 		// Waiting for PVC to be bound

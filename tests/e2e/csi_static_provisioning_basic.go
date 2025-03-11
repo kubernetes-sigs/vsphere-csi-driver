@@ -1549,12 +1549,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("storageclass Name :%s", storageclass.GetName())
 
-		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
 		ginkgo.By("Creating Resource quota")
 		setStoragePolicyQuota(ctx, restConfig, nonsharedDatastoreName, namespace, rqLimit)
 
@@ -2056,13 +2050,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			framework.Logf("pvc name :%s", pvcName)
 			namespace = getNamespaceToRunTests(f)
 
-			restConfig, storageclass, _ := staticProvisioningPreSetUpUtilForVMDKTests(ctx)
-
-			defer func() {
-				framework.Logf("Delete storage class")
-				err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}()
+			restConfig, _, _ := staticProvisioningPreSetUpUtilForVMDKTests(ctx)
 
 			vmdk := GetAndExpectStringEnvVar(envVmdkDiskURL)
 			framework.Logf("VMDK path : %s", vmdk)

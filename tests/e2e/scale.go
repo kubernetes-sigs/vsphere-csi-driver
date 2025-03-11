@@ -72,10 +72,6 @@ var _ = ginkgo.Describe("Scale Test", func() {
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
-		}
-
 		for _, pvc := range pvclaims {
 			pvclaimToDelete, err := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(
 				ctx, pvc.Name, metav1.GetOptions{})
