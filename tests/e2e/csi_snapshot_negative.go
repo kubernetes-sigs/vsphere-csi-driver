@@ -60,7 +60,6 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		snapc                  *snapclient.Clientset
 		serviceName            string
 		pandoraSyncWaitTime    int
-		storagePolicyName      string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -84,16 +83,13 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 			snapc, err = snapclient.NewForConfig(restConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else if guestCluster {
-			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 			guestClusterRestConfig = getRestConfigClientForGuestCluster(guestClusterRestConfig)
 			snapc, err = snapclient.NewForConfig(guestClusterRestConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
-			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 			restConfig = getRestConfigClient()
 			snapc, err = snapclient.NewForConfig(restConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 		}
 
 		if os.Getenv(envFullSyncWaitTime) != "" {
