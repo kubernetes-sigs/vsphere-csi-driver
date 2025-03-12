@@ -95,10 +95,9 @@ func initialiseFdsVar(ctx context.Context) {
 }
 
 // siteFailureInParallel causes site Failure in multiple hosts of the site in parallel
-func siteFailureInParallel(ctx context.Context, primarySite bool, wg *sync.WaitGroup, done chan bool) {
+func siteFailureInParallel(ctx context.Context, primarySite bool, wg *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
-	<-done
 	siteFailover(ctx, primarySite)
 }
 
@@ -310,14 +309,17 @@ func deletePodsInParallel(ctx context.Context, client clientset.Interface, names
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	for _, pod := range pods {
-		fpod.DeletePodOrFail(ctx, client, namespace, pod.Name)
+		go func() {
+			fpod.DeletePodOrFail(ctx, client, namespace, pod.Name)
+		}()
 	}
 }
 
 // createPvcInParallel creates number of PVC in a given namespace in parallel
 func createPvcInParallel(ctx context.Context, client clientset.Interface, namespace string,
 	diskSize string, sc *storagev1.StorageClass,
-	ch chan *v1.PersistentVolumeClaim, lock *sync.Mutex, wg *sync.WaitGroup, volumeOpsScale int) {
+	ch chan *v1.PersistentVolumeClaim, lock *sync.Mutex, wg *sync.WaitGroup,
+	volumeOpsScale int) {
 	var err error
 	var pvc *v1.PersistentVolumeClaim
 	defer ginkgo.GinkgoRecover()
@@ -429,14 +431,16 @@ func toggleNetworkFailureParallel(hosts []string, causeNetworkFailure bool) {
 
 // deletePVCInParallel deletes PVC in a given namespace in parallel
 func deletePvcInParallel(ctx context.Context, client clientset.Interface, pvclaims []*v1.PersistentVolumeClaim,
-	namespace string, wg *sync.WaitGroup, done chan bool) {
+	namespace string, wg *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	for _, pvclaim := range pvclaims {
-		err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		go func() {
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
 	}
-	close(done)
 }
 
 // createPodsInParallel creates Pods in a given namespace in parallel
@@ -660,6 +664,7 @@ func checkVmStorageCompliance(storagePolicy string) bool {
 	framework.Logf("Running command: %s", cmd)
 	result, err := exec.Command("/bin/bash", "-c", cmd).Output()
 	framework.Logf("res is: %v", result)
+	framework.Logf("err: %v", err.Error())
 	return strings.Contains(err.Error(), "object references is empty")
 }
 
