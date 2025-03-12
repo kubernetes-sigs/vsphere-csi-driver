@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -45,7 +46,7 @@ import (
 )
 
 var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests", func() {
-
+	const defaultVolumeOpsScale = 10
 	f := framework.NewDefaultFramework("vsan-stretch-vmsvc")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	f.SkipNamespaceCreation = true // tests will create their own namespaces
@@ -65,6 +66,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 		isVsanHealthServiceStopped bool
 		isSPSserviceStopped        bool
 		nodeList                   *v1.NodeList
+		volumeOpsScale             int
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -125,6 +127,14 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			namespace, vmImageName)
 		vmi = waitNGetVmiForImageName(ctx, vmopC, vmImageName)
 		gomega.Expect(vmi).NotTo(gomega.BeEmpty())
+
+		if os.Getenv("VOLUME_OPS_SCALE") != "" {
+			volumeOpsScale, err = strconv.Atoi(os.Getenv(envVolumeOperationsScale))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			volumeOpsScale = defaultVolumeOpsScale
+		}
+		framework.Logf("VOLUME_OPS_SCALE is set to %d", volumeOpsScale)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -464,7 +474,6 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			ch := make(chan *vmopv1.VirtualMachine)
 			var wg sync.WaitGroup
 			var lock sync.Mutex
-			done := make(chan bool)
 			ginkgo.By("Creating VM in parallel to site failure")
 			wg.Add(2)
 			go createVMServiceVmInParallel(ctx, vmopC, namespace, vmClass, pvclaimsList,
@@ -474,7 +483,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 					vms = append(vms, v)
 				}
 			}()
-			go siteFailureInParallel(ctx, true, &wg, done)
+			go siteFailureInParallel(ctx, true, &wg)
 			wg.Wait()
 			close(ch)
 
@@ -506,6 +515,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
+			time.Sleep(5 * time.Minute)
 			// Check if csi pods are running fine after site failure
 			ginkgo.By("Check if csi pods are running fine after site failure")
 			err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
@@ -620,10 +630,9 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 
 			var wg sync.WaitGroup
 			ginkgo.By("Deleting VM in parallel to secondary site failure")
-			done := make(chan bool)
 			wg.Add(2)
 			go deleteVMServiceVmInParallel(ctx, vmopC, vms, namespace, &wg)
-			go siteFailureInParallel(ctx, false, &wg, done)
+			go siteFailureInParallel(ctx, false, &wg)
 			wg.Wait()
 
 			defer func() {
@@ -739,7 +748,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			ginkgo.By("Creating VM in parallel to site failure")
 			wg.Add(2)
 			go createVMServiceVmInParallel(ctx, vmopC, namespace, vmClass,
-				pvclaimsList, vmi, storageClassName, secretName, 10, ch, &wg, &lock)
+				pvclaimsList, vmi, storageClassName, secretName, volumeOpsScale, ch, &wg, &lock)
 			go func() {
 				for v := range ch {
 					vms = append(vms, v)
@@ -886,7 +895,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 
 			ginkgo.By("Check storage compliance")
 			comp := checkVmStorageCompliance(storagePolicyName)
-			if comp {
+			if !comp {
 				framework.Failf("Expected VM and storage compliance to be false but found true")
 			}
 
