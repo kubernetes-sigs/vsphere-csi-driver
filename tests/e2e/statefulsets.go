@@ -129,10 +129,13 @@ var _ = ginkgo.Describe("statefulset", func() {
 			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
 			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		}
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		//if isQuotaValidationSupported is true then quotaValidation is considered in tests
-		vcVersion = getVCversion(ctx, vcAddress)
-		isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
+
+		if supervisorCluster || stretchedSVC {
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
+			vcVersion = getVCversion(ctx, vcAddress)
+			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
+		}
 	})
 
 	ginkgo.AfterEach(func() {
