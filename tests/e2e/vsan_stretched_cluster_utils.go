@@ -660,6 +660,7 @@ func checkVmStorageCompliance(storagePolicy string) bool {
 	framework.Logf("Running command: %s", cmd)
 	result, err := exec.Command("/bin/bash", "-c", cmd).Output()
 	framework.Logf("res is: %v", result)
+	framework.Logf("err: %v", err.Error())
 	return strings.Contains(err.Error(), "object references is empty")
 }
 
