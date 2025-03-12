@@ -142,10 +142,13 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		} else {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		//if isQuotaValidationSupported is true then quotaValidation is considered in tests
-		vcVersion = getVCversion(ctx, vcAddress)
-		isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
+
+		if supervisorCluster || stretchedSVC {
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
+			vcVersion = getVCversion(ctx, vcAddress)
+			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
+		}
 
 	})
 

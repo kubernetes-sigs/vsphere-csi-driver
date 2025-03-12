@@ -18,9 +18,11 @@ package e2e
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"strings"
 	"time"
 
@@ -30,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 )
 
@@ -37,25 +40,44 @@ import (
 This util will verify supervisor pvc annotation, pv affinity rules,
 pod node anotation and cns volume metadata
 */
-func verifyAnnotationsAndNodeAffinityForStatefulsetinSvc(ctx context.Context, client clientset.Interface,
-	statefulset *appsv1.StatefulSet, namespace string,
+func verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx context.Context, client clientset.Interface,
+	statefulset *appsv1.StatefulSet, standalonePod *v1.Pod, deployment *appsv1.Deployment, namespace string,
 	allowedTopologies []v1.TopologySelectorLabelRequirement) error {
+
 	// Read topology mapping
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
 	_, topologyCategories := createTopologyMapLevel5(topologyMap)
 
-	framework.Logf("Reading statefulset pod list for node affinity verification")
-	ssPodsBeforeScaleDown := GetListOfPodsInSts(client, statefulset)
-	for _, sspod := range ssPodsBeforeScaleDown.Items {
-		// Get Pod details
-		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+	var podList *v1.PodList
+	var err error
+
+	// Determine the pod list based on input (StatefulSet, StandalonePod, or Deployment)
+	if statefulset != nil {
+		// If statefulset is provided, get the pod list associated with it
+		podList = GetListOfPodsInSts(client, statefulset)
+	} else if standalonePod != nil {
+		// If standalonePod is provided, create a PodList with that single pod
+		podList = &v1.PodList{Items: []v1.Pod{*standalonePod}}
+	} else if deployment != nil {
+		// If deployment is provided, get the pod list associated with it
+		podList, err = fdep.GetPodsForDeployment(ctx, client, deployment)
 		if err != nil {
-			return fmt.Errorf("failed to get pod %s in namespace %s: %w", sspod.Name, namespace, err)
+			return fmt.Errorf("failed to get pods for deployment %s in namespace %s: %w", deployment.Name, namespace, err)
+		}
+	}
+
+	// Verify annotations and affinity for each pod in the pod list
+	for _, pod := range podList.Items {
+		// Get Pod details
+		_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to get pod %s in namespace %s: %w", pod.Name, namespace, err)
 		}
 
-		framework.Logf("Verifying PVC annotation and PV affinity rules")
-		for _, volumespec := range sspod.Spec.Volumes {
+		framework.Logf("Verifying PVC annotation and PV affinity rules for pod %s", pod.Name)
+
+		for _, volumespec := range pod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				svPvcName := volumespec.PersistentVolumeClaim.ClaimName
 				pv := getPvFromClaim(client, statefulset.Namespace, svPvcName)
@@ -89,15 +111,15 @@ func verifyAnnotationsAndNodeAffinityForStatefulsetinSvc(ctx context.Context, cl
 				}
 
 				// Verify pod node annotation
-				_, err = verifyPodLocationLevel5(&sspod, nodeList, allowedTopologiesMap)
+				_, err = verifyPodLocationLevel5(&pod, nodeList, allowedTopologiesMap)
 				if err != nil {
-					return fmt.Errorf("pod node annotation verification failed for pod %s: %w", sspod.Name, err)
+					return fmt.Errorf("pod node annotation verification failed for pod %s: %w", pod.Name, err)
 				}
 
 				// Verify CNS volume metadata
-				err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, svPvcName, pv.ObjectMeta.Name, sspod.Name)
+				err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, svPvcName, pv.ObjectMeta.Name, pod.Name)
 				if err != nil {
-					return fmt.Errorf("CNS volume metadata verification failed for pod %s: %w", sspod.Name, err)
+					return fmt.Errorf("CNS volume metadata verification failed for pod %s: %w", pod.Name, err)
 				}
 			}
 		}
@@ -202,4 +224,59 @@ func createTestWcpNsWithZones(
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
 	framework.Logf("Successfully created namespace %v in SVC.", namespace)
 	return namespace
+}
+
+func markZoneForRemovalFromWcpNs(vcRestSessionId string, namespace string, zone string) error {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	deleteZoneFromNs := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace + "/zones/" + zone
+	fmt.Println(deleteZoneFromNs)
+	_, statusCode := invokeVCRestAPIDeleteRequest(vcRestSessionId, deleteZoneFromNs)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
+	if statusCode != 204 {
+		return fmt.Errorf("failed to remove zone %s from namespace %s, received status code: %d", zone, namespace, statusCode)
+	}
+	return nil
+}
+
+func addZoneToWcpNs(vcRestSessionId string, namespace string, zoneName string) error {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	AddZoneToNs := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace
+
+	// Create the request body with zone name inside a zones array
+	reqBody := fmt.Sprintf(`{
+        "zones": [{"name": "%s"}]
+    }`, zoneName)
+
+	// Print the request body for debugging
+	fmt.Println(reqBody)
+
+	// Make the API request
+	_, statusCode := invokeVCRestAPIPatchRequest(vcRestSessionId, AddZoneToNs, reqBody)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
+	if statusCode != 204 {
+		return fmt.Errorf("failed to add zone %s to namespace %s, received status code: %d", zoneName, namespace, statusCode)
+	}
+	return nil
+}
+
+/*
+invokeVCRestAPIPatchRequest invokes PATCH call to edit already
+created namespace
+*/
+func invokeVCRestAPIPatchRequest(vcRestSessionId string, url string, reqBody string) ([]byte, int) {
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	httpClient := &http.Client{Transport: transCfg}
+	framework.Logf("Invoking PATCH on url: %s", url)
+
+	req, err := http.NewRequest("PATCH", url, strings.NewReader(reqBody))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	req.Header.Add(vcRestSessionIdHeaderName, vcRestSessionId)
+	req.Header.Add("Content-Type", "application/json")
+
+	resp, statusCode := httpRequest(httpClient, req)
+
+	return resp, statusCode
 }
