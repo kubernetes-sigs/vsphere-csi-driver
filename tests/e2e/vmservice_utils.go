@@ -901,7 +901,6 @@ func copyFileFromVm(vmIp string, vmFilePath string, localFilePath string) {
 
 // getSshClientForVmThroughGatewayVm return a ssh client via gateway host for the given VM
 func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
-	framework.Logf("gateway pwd: %s", GetAndExpectStringEnvVar(envGatewayVmPasswd))
 	gatewayConfig := &ssh.ClientConfig{
 		User: GetAndExpectStringEnvVar(envGatewayVmUser),
 		Auth: []ssh.AuthMethod{
@@ -920,7 +919,6 @@ func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
 	gatewayClient, err := ssh.Dial("tcp", GetAndExpectStringEnvVar(envGatewayVmIp)+":22", gatewayConfig)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	framework.Logf("VM IP: %s", vmIp)
 	conn, err := gatewayClient.Dial("tcp", vmIp+":22")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1162,6 +1160,7 @@ func deleteVMServiceVmInParallel(ctx context.Context, c ctlrclient.Client,
 
 	defer wg.Done()
 	for _, vm := range vms {
+		framework.Logf("Deleting VM: %s", vm.Name)
 		err := c.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
 			Name:      vm.Name,
 			Namespace: namespace,

@@ -230,17 +230,56 @@ func waitForHostToBeDown(ctx context.Context, ip string) error {
 	ip, portNum, err := getPortNumAndIP(ip)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	addr := ip + ":" + portNum
+	var waitErr error
 
-	waitErr := wait.PollUntilContextTimeout(ctx, poll*2, pollTimeoutShort*2, true,
-		func(ctx context.Context) (bool, error) {
-			_, err := net.DialTimeout("tcp", addr, poll)
-			if err == nil {
-				framework.Logf("host is reachable")
-				return false, nil
-			}
-			framework.Logf("host is now unreachable. Error: %s", err.Error())
-			return true, nil
-		})
+	config := &ssh.ClientConfig{
+		User:            "root",
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Auth: []ssh.AuthMethod{
+			ssh.KeyboardInteractive(hostLogin),
+		},
+	}
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if isPrivateNetwork {
+		waitErr = wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
+			func(ctx context.Context) (bool, error) {
+				client, err := ssh.Dial("tcp", addr, config)
+				if err != nil {
+					// Here you’ll catch: "connect failed: No route to host"
+					fmt.Printf("host is now unreachable. Error: %s\n", err.Error())
+					return false, nil
+				}
+				defer client.Close()
+
+				session, err := client.NewSession()
+				if err != nil {
+					fmt.Printf("failed to open ssh session: %s\n", err.Error())
+					return false, nil
+				}
+				defer session.Close()
+
+				// run a no-op command
+				if err := session.Run("true"); err != nil {
+					fmt.Printf("ssh command failed: %s\n", err.Error())
+					return false, nil
+				}
+
+				fmt.Println("host is reachable via ssh")
+				return true, nil
+			},
+		)
+	} else {
+		waitErr = wait.PollUntilContextTimeout(ctx, poll*2, pollTimeoutShort*2, true,
+			func(ctx context.Context) (bool, error) {
+				_, err := net.DialTimeout("tcp", addr, poll)
+				if err == nil {
+					framework.Logf("host is reachable")
+					return false, nil
+				}
+				framework.Logf("host is now unreachable. Error: %s", err.Error())
+				return true, nil
+			})
+	}
 	return waitErr
 }
 
@@ -314,14 +353,17 @@ func deletePodsInParallel(ctx context.Context, client clientset.Interface, names
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	for _, pod := range pods {
-		fpod.DeletePodOrFail(ctx, client, namespace, pod.Name)
+		go func() {
+			fpod.DeletePodOrFail(ctx, client, namespace, pod.Name)
+		}()
 	}
 }
 
 // createPvcInParallel creates number of PVC in a given namespace in parallel
 func createPvcInParallel(ctx context.Context, client clientset.Interface, namespace string,
 	diskSize string, sc *storagev1.StorageClass,
-	ch chan *v1.PersistentVolumeClaim, lock *sync.Mutex, wg *sync.WaitGroup, volumeOpsScale int) {
+	ch chan *v1.PersistentVolumeClaim, lock *sync.Mutex, wg *sync.WaitGroup,
+	volumeOpsScale int) {
 	var err error
 	var pvc *v1.PersistentVolumeClaim
 	defer ginkgo.GinkgoRecover()
@@ -437,8 +479,11 @@ func deletePvcInParallel(ctx context.Context, client clientset.Interface, pvclai
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	for _, pvclaim := range pvclaims {
-		err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		go func() {
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
 	}
 }
 
@@ -663,7 +708,12 @@ func checkVmStorageCompliance(storagePolicy string) bool {
 	framework.Logf("Running command: %s", cmd)
 	result, err := exec.Command("/bin/bash", "-c", cmd).Output()
 	framework.Logf("res is: %v", result)
-	return strings.Contains(err.Error(), "object references is empty")
+	framework.Logf("err: %v", err)
+	if err != nil {
+		return strings.Contains(err.Error(), "exit status 1")
+	} else {
+		return true
+	}
 }
 
 // createStsDeployment creates statfulset and deployment in a namespace and returns

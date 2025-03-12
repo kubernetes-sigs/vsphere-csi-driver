@@ -58,7 +58,7 @@ func vMPowerMgmt(user string, location string, podname string, hostList string, 
 		sshClientConfig := &ssh.ClientConfig{
 			User: "worker",
 			Auth: []ssh.AuthMethod{
-				ssh.Password(GetAndExpectStringEnvVar(vcUIPwd)),
+				ssh.Password(GetAndExpectStringEnvVar(nimbusVcPwd)),
 			},
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
