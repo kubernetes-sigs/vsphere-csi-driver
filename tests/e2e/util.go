@@ -3959,6 +3959,18 @@ func pvcHealthAnnotationWatcher(ctx context.Context, client clientset.Interface,
 // waitForHostToBeUp will check the status of hosts and also wait for
 // pollTimeout minutes to make sure host is reachable.
 func waitForHostToBeUp(ip string, pollInfo ...time.Duration) error {
+	var hostReachableMaxRetries int
+	var err error
+	retries := GetorIgnoreStringEnvVar(hostReachableMaxRetryCount)
+	if retries == "" {
+		hostReachableMaxRetries = 5
+	} else {
+		hostReachableMaxRetries, err = strconv.Atoi(retries)
+		if err != nil {
+			return err
+		}
+	}
+
 	framework.Logf("checking host status of %v", ip)
 	pollTimeOut := healthStatusPollTimeout
 	pollInterval := 30 * time.Second
@@ -3991,8 +4003,8 @@ func waitForHostToBeUp(ip string, pollInfo ...time.Duration) error {
 				hostReachableCount += 1
 			}
 			// checking if host is reachable 5 times
-			if hostReachableCount == 5 {
-				framework.Logf("host %s is reachable atleast 5 times", addr)
+			if hostReachableCount == hostReachableMaxRetries {
+				framework.Logf("host %s is reachable atleast %v times", addr, hostReachableMaxRetries)
 				return true, nil
 			}
 			return false, nil
