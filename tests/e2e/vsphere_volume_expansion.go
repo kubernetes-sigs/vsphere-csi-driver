@@ -3053,10 +3053,6 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	defer func() {
 		err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		if supervisorCluster {
-			ginkgo.By("Delete Resource quota")
-			deleteResourceQuota(client, namespace)
-		}
 	}()
 
 	// Waiting for PVC to be bound
@@ -3614,10 +3610,6 @@ func invokeTestForInvalidVolumeShrink(f *framework.Framework, client clientset.I
 	defer func() {
 		err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		if supervisorCluster {
-			ginkgo.By("Delete Resource quota")
-			deleteResourceQuota(client, namespace)
-		}
 	}()
 
 	// Waiting for PVC to be bound
@@ -3848,10 +3840,6 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 		err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		if supervisorCluster {
-			ginkgo.By("Delete Resource quota")
-			deleteResourceQuota(client, namespace)
-		}
 	}()
 
 	// Waiting for PVC to be bound
@@ -4302,8 +4290,6 @@ func testCleanUpUtil(ctx context.Context, restClientConfig *restclient.Config, c
 			cnsRegistervolume, poll, supervisorClusterOperationsTimeout))
 	}
 
-	ginkgo.By("Delete Resource quota")
-	deleteResourceQuota(c, namespace)
 }
 
 func offlineVolumeExpansionOnSupervisorPVC(client clientset.Interface, f *framework.Framework, namespace string,

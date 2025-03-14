@@ -71,7 +71,6 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		if supervisorCluster || guestCluster {
-			deleteResourceQuota(client, namespace)
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 		if guestCluster {

@@ -103,9 +103,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
-		}
 		ginkgo.By("Deleting all PVCs")
 		for _, claim := range pvclaims {
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
