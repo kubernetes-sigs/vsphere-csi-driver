@@ -193,7 +193,6 @@ const (
 	oneMinuteWaitTimeInSeconds                = 60
 	spsServiceName                            = "sps"
 	snapshotterContainerName                  = "csi-snapshotter"
-	sshdPort                                  = "22"
 	sshSecretName                             = "SSH_SECRET_NAME"
 	svcRunningMessage                         = "Running"
 	svcMasterIP                               = "SVC_MASTER_IP"
@@ -350,6 +349,19 @@ var (
 // For busybox pod image
 var (
 	busyBoxImageOnGcr = "busybox"
+)
+
+// Private network and public network ports read for master vm and vcenter for nimbus testbed
+var (
+	defaultShhdPortNum      = "22"
+	envMasterIp1            = "MASTER_IP1"
+	envMasterIp2            = "MASTER_IP2"
+	envMasterIp3            = "MASTER_IP3"
+	envMasterIP1SshdPortNum = "MASTER_IP1_SSHD_PORT_NUM"
+	envMasterIP2SshdPortNum = "MASTER_IP2_SSHD_PORT_NUM"
+	envMasterIP3SshdPortNum = "MASTER_IP3_SSHD_PORT_NUM"
+	envVcSshdPortNum        = "VC_SSHD_PORT_NUM"
+	envEsxPortNum           = "ESX_SSHD_PORT_NUM"
 )
 
 // For VCP to CSI migration tests.

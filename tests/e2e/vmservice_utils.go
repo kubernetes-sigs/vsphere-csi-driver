@@ -848,6 +848,13 @@ func copyFileFromVm(vmIp string, vmFilePath string, localFilePath string) {
 // getSshClientForVmThroughGatewayVm return a ssh client via gateway host for the given VM
 func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
 	framework.Logf("gateway pwd: %s", GetAndExpectStringEnvVar(envGatewayVmPasswd))
+
+	// Get SSH port number from environment variable or use default
+	vcPortNo := os.Getenv(envVcSshdPortNum)
+	if vcPortNo == "" {
+		vcPortNo = defaultShhdPortNum
+	}
+
 	gatewayConfig := &ssh.ClientConfig{
 		User: GetAndExpectStringEnvVar(envGatewayVmUser),
 		Auth: []ssh.AuthMethod{
@@ -855,6 +862,7 @@ func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
+
 	vmConfig := &ssh.ClientConfig{
 		User: "worker",
 		Auth: []ssh.AuthMethod{
@@ -863,11 +871,13 @@ func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	gatewayClient, err := ssh.Dial("tcp", GetAndExpectStringEnvVar(envGatewayVmIp)+":22", gatewayConfig)
+	gatewayHost := GetAndExpectStringEnvVar(envGatewayVmIp) + ":" + vcPortNo
+	gatewayClient, err := ssh.Dial("tcp", gatewayHost, gatewayConfig)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	framework.Logf("VM IP: %s", vmIp)
-	conn, err := gatewayClient.Dial("tcp", vmIp+":22")
+	vmHost := vmIp + ":" + vcPortNo
+	conn, err := gatewayClient.Dial("tcp", vmHost)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ncc, chans, reqs, err := ssh.NewClientConn(conn, vmIp, vmConfig)

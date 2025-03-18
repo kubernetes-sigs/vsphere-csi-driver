@@ -80,6 +80,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		podsToDelete               []*v1.Pod
 		migrationEnabledByDefault  bool
 		rawBlockVolumeMode         = v1.PersistentVolumeBlock
+		vcAddress                  string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -93,6 +94,11 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+
+		// reading vc address
+		vcAddress, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
 
 		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
@@ -145,8 +151,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		}
 		vcpPvcsPreMig = []*v1.PersistentVolumeClaim{}
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
-
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
@@ -1884,22 +1888,39 @@ func waitForCnsVSphereVolumeMigrationCrd(
 
 // createDir create a directory on the test esx host
 func createDir(ctx context.Context, path string, host string) error {
+	// Get SSH port number from environment variable or use default
+	vcPortNo := os.Getenv(envVcSshdPortNum)
+	if vcPortNo == "" {
+		vcPortNo = defaultShhdPortNum
+	}
+
 	sshCmd := fmt.Sprintf("mkdir -p %s", path)
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
-	result, err := fssh.SSH(ctx, sshCmd, host+":22", framework.TestContext.Provider)
+
+	// Execute SSH command with dynamic port
+	result, err := fssh.SSH(ctx, sshCmd, host+":"+vcPortNo, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: '%s' on ESX host: %v", sshCmd, err)
 	}
+
 	return nil
 }
 
 // createVmdk create a vmdk on the host with given size, object type and disk format
 func createVmdk(ctx context.Context, host string, size string, objType string, diskFormat string) (string, error) {
+	// Get SSH port number from environment variable or use default
+	vcPortNo := os.Getenv(envVcSshdPortNum)
+	if vcPortNo == "" {
+		vcPortNo = defaultShhdPortNum
+	}
+
 	dsName := GetAndExpectStringEnvVar(envSharedDatastoreName)
 	dir := "/vmfs/volumes/" + dsName + "/e2e"
 	err := createDir(ctx, dir, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Set default values if parameters are empty
 	if diskFormat == "" {
 		diskFormat = "thin"
 	}
@@ -1913,23 +1934,35 @@ func createVmdk(ctx context.Context, host string, size string, objType string, d
 	vmdkPath := fmt.Sprintf("%s/test-%v-%v.vmdk", dir, time.Now().UnixNano(), rand.Intn(1000))
 	sshCmd := fmt.Sprintf("vmkfstools -c %s -d %s -W %s %s", size, diskFormat, objType, vmdkPath)
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
-	result, err := fssh.SSH(ctx, sshCmd, host+":22", framework.TestContext.Provider)
+
+	// Execute SSH command with dynamic port
+	result, err := fssh.SSH(ctx, sshCmd, host+":"+vcPortNo, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return vmdkPath, fmt.Errorf("couldn't execute command: '%s' on ESX host: %v", sshCmd, err)
 	}
+
 	return vmdkPath, nil
 }
 
 // createVmdk deletes given vmdk
 func deleteVmdk(ctx context.Context, host string, vmdkPath string) error {
+	// Get SSH port number from environment variable or use default
+	vcPortNo := os.Getenv(envVcSshdPortNum)
+	if vcPortNo == "" {
+		vcPortNo = defaultShhdPortNum
+	}
+
 	sshCmd := fmt.Sprintf("rm -f %s", vmdkPath)
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
-	result, err := fssh.SSH(ctx, sshCmd, host+":22", framework.TestContext.Provider)
+
+	// Execute SSH command with dynamic port
+	result, err := fssh.SSH(ctx, sshCmd, host+":"+vcPortNo, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: '%s' on ESX host: %v", sshCmd, err)
 	}
+
 	return nil
 }
 

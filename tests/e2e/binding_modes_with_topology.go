@@ -82,8 +82,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle))
 		}
 	})
-	verifyTopologyAwareProvisioning := func(f *framework.Framework, client clientset.Interface, namespace string,
-		scParameters map[string]string, allowedTopologies []v1.TopologySelectorLabelRequirement) {
+	verifyTopologyAwareProvisioning := func(client clientset.Interface, namespace string,
+		allowedTopologies []v1.TopologySelectorLabelRequirement) {
 		var cancel context.CancelFunc
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
-			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 
 		ginkgo.By("Expect claim to be in Bound state and provisioning volume passes")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,
-			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
 
 		pv = getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
@@ -177,7 +177,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	// 9. Delete SC.
 	ginkgo.It("Verify provisioning succeeds with VolumeBindingMode set to "+
 		"WaitForFirstConsumer and without AllowedTopologies in the storage class ", func() {
-		verifyTopologyAwareProvisioning(f, client, namespace, nil, nil)
+		verifyTopologyAwareProvisioning(client, namespace, nil)
 	})
 
 	// Test to verify provisioning with "VolumeBindingMode = WaitForFirstConsumer"
@@ -197,7 +197,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		// Preparing allowedTopologies using topologies with shared datastores.
 		regionZoneValue := GetAndExpectStringEnvVar(envRegionZoneWithSharedDS)
 		regionValues, zoneValues, allowedTopologies = topologyParameterForStorageClass(regionZoneValue)
-		verifyTopologyAwareProvisioning(f, client, namespace, nil, allowedTopologies)
+		verifyTopologyAwareProvisioning(client, namespace, allowedTopologies)
 	})
 
 })

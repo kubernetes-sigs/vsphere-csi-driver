@@ -156,8 +156,8 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		}
 
 		if isVsanHealthServiceStopped {
-			vCenterHostname := strings.Split(e2eVSphere.Config.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
+			vcAddress, _, err := readMultiVcAddress(0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("Bringing vsanhealth up before terminating the test")
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
@@ -852,7 +852,8 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		}()
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		vcAddress, _, err := readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		defer func() {

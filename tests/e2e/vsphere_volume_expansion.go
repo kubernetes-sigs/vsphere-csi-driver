@@ -71,6 +71,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		isVsanHealthServiceStopped bool
 		isSPSServiceStopped        bool
 		fsType                     string
+		vcAddress                  string
+		err                        error
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -124,7 +126,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		vcAddress, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if isSPSServiceStopped {
 			framework.Logf("Bringing sps up before terminating the test")
@@ -703,7 +706,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Bring down Vsan-health service")
 		isVsanHealthServiceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -777,9 +779,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		defer cancel()
 
 		var originalSizeInMb, fsSize int64
-		var err error
 		var expectedErrMsg string
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		/*
 			Note: As per PR #2935677, even if cns_new_sync is enabled volume expansion
@@ -1595,8 +1595,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var fsSize int64
-		var err error
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
 			ctx, f, client, "", storagePolicyName, namespace, ext4FSType)
@@ -1765,7 +1763,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Bring down Vsan-health service")
 		isVsanHealthServiceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

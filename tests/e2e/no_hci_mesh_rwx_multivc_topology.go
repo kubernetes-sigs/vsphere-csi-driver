@@ -185,15 +185,15 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		}
 
 		if isVsanHealthServiceStopped {
-			vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
+			vcAddress, _, err := readMultiVcAddress(0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("Bringing vsanhealth up before terminating the test")
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 
 		if isSPSServiceStopped {
-			vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
+			vcAddress, _, err := readMultiVcAddress(0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("Bringing sps up before terminating the test")
 			startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 			isSPSServiceStopped = false
@@ -207,9 +207,9 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 
 		// restarting pending and stopped services after vc reboot if any
 		if isVcRebooted {
-			vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
-			err := checkVcServicesHealthPostReboot(ctx, vcAddress, pollTimeout)
+			vcAddress, _, err := readMultiVcAddress(0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = checkVcServicesHealthPostReboot(ctx, vcAddress, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 				"Setup is not in healthy state, Got timed-out waiting for required VC services to be up and running")
 		}

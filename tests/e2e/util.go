@@ -976,7 +976,7 @@ func randomPickPVC() *v1.PersistentVolumeClaim {
 
 // createStatefulSetWithOneReplica helps create a stateful set with one replica.
 func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath string,
-	namespace string) (*appsv1.StatefulSet, *v1.Service, error) {
+	namespace string, sc *storagev1.StorageClass) (*appsv1.StatefulSet, *v1.Service, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	mkpath := func(file string) string {
@@ -1000,6 +1000,8 @@ func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath st
 	}
 	replicas := int32(1)
 	statefulSet.Spec.Replicas = &replicas
+	statefulSet.Spec.VolumeClaimTemplates[len(statefulSet.Spec.VolumeClaimTemplates)-1].
+		Spec.StorageClassName = &sc.Name
 	_, err = client.AppsV1().StatefulSets(namespace).Create(ctx, statefulSet, metav1.CreateOptions{})
 	if err != nil {
 		return nil, nil, err
@@ -3915,10 +3917,19 @@ func pvcHealthAnnotationWatcher(ctx context.Context, client clientset.Interface,
 // pollTimeout minutes to make sure host is reachable.
 func waitForHostToBeUp(ip string, pollInfo ...time.Duration) error {
 	framework.Logf("checking host status of %v", ip)
+
+	// Get SSH port number from environment variable or use default
+	esxPortNo := os.Getenv(envEsxPortNum)
+	if esxPortNo == "" {
+		esxPortNo = defaultShhdPortNum
+	}
+
 	pollTimeOut := healthStatusPollTimeout
 	pollInterval := 30 * time.Second
-	// var to store host reachability count
+
+	// Variable to store host reachability count
 	hostReachableCount := 0
+
 	if pollInfo != nil {
 		if len(pollInfo) == 1 {
 			pollTimeOut = pollInfo[0]
@@ -3927,25 +3938,28 @@ func waitForHostToBeUp(ip string, pollInfo ...time.Duration) error {
 			pollTimeOut = pollInfo[1]
 		}
 	}
+
 	gomega.Expect(ip).NotTo(gomega.BeNil())
 	dialTimeout := 2 * time.Second
+
 	waitErr := wait.PollUntilContextTimeout(context.Background(), pollInterval, pollTimeOut, true,
 		func(ctx context.Context) (bool, error) {
-			_, err := net.DialTimeout("tcp", ip+":22", dialTimeout)
+			_, err := net.DialTimeout("tcp", ip+":"+esxPortNo, dialTimeout)
 			if err != nil {
 				framework.Logf("host %s unreachable, error: %s", ip, err.Error())
 				return false, nil
-			} else {
-				framework.Logf("host %s is reachable", ip)
-				hostReachableCount += 1
 			}
-			// checking if host is reachable 5 times
+			framework.Logf("host %s is reachable", ip)
+			hostReachableCount++
+
+			// Check if host is reachable at least 5 times
 			if hostReachableCount == 5 {
-				framework.Logf("host %s is reachable atleast 5 times", ip)
+				framework.Logf("host %s is reachable at least 5 times", ip)
 				return true, nil
 			}
 			return false, nil
 		})
+
 	return waitErr
 }
 
@@ -4122,7 +4136,15 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 // sshExec runs a command on the host via ssh.
 func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.Result, error) {
 	result := fssh.Result{Host: host, Cmd: cmd}
-	sshClient, err := ssh.Dial("tcp", host+":22", sshClientConfig)
+
+	// Get SSH port number from environment variable or use default
+	vcPortNo := os.Getenv(envVcSshdPortNum)
+	if vcPortNo == "" {
+		vcPortNo = defaultShhdPortNum
+	}
+
+	// Dial SSH with the specified port
+	sshClient, err := ssh.Dial("tcp", host+":"+vcPortNo, sshClientConfig)
 	if err != nil {
 		result.Stdout = ""
 		result.Stderr = ""
@@ -4130,6 +4152,7 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 		return result, err
 	}
 	defer sshClient.Close()
+
 	sshSession, err := sshClient.NewSession()
 	if err != nil {
 		result.Stdout = ""
@@ -4138,6 +4161,7 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 		return result, err
 	}
 	defer sshSession.Close()
+
 	// Run the command.
 	code := 0
 	var bytesStdout, bytesStderr bytes.Buffer
@@ -4153,14 +4177,18 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 			err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, sshClientConfig.User, host, err)
 		}
 	}
+
 	result.Stdout = bytesStdout.String()
 	result.Stderr = bytesStderr.String()
 	result.Code = code
+
 	if bytesStderr.String() != "" {
 		err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, sshClientConfig.User, host, bytesStderr.String())
 	}
+
 	framework.Logf("host: %v, command: %v, return code: %v, stdout: %v, stderr: %v",
 		host, cmd, code, bytesStdout.String(), bytesStderr.String())
+
 	return result, err
 }
 
@@ -6284,8 +6312,7 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 
 // createVcSession4RestApis generates session ID for VC to use in rest API calls
 func createVcSession4RestApis(ctx context.Context) string {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	vcAddress := vcIp + ":" + sshdPort
+	vcAddress := readVcAddress()
 	nimbusGeneratedVcPwd := GetAndExpectStringEnvVar(vcUIPwd)
 	curlCmd := fmt.Sprintf("curl -k -X POST https://%s/rest/com/vmware/cis/session"+
 		" -u 'Administrator@vsphere.local:%s'", vcIp, nimbusGeneratedVcPwd)
@@ -7470,4 +7497,48 @@ func isVersionGreaterOrEqual(presentVersion, expectedVCversion string) bool {
 		}
 	}
 	return true // If all parts are equal, the versions are equal
+}
+
+func readVcAddress() (string, string, error) {
+	// Get vCenter port number
+	vcPortNo := os.Getenv(envVcSshdPortNum)
+	if vcPortNo == "" {
+		vcPortNo = defaultShhdPortNum
+	}
+
+	// Fetch vCenter hostname and validate
+	vCenterIP := e2eVSphere.Config.Global.VCenterHostname
+	if vCenterIP == "" {
+		return "", "", fmt.Errorf("vCenter hostname is empty in configuration")
+	}
+
+	// Construct the vCenter address
+	vcAddress := vCenterIP + ":" + vcPortNo
+
+	return vcAddress, vCenterIP, nil
+}
+
+func readMultiVcAddress(vcIndex int) (string, string, error) {
+	// Get vCenter port number
+	vcPortNo := os.Getenv(envVcSshdPortNum)
+	if vcPortNo == "" {
+		vcPortNo = defaultShhdPortNum
+	}
+
+	// Fetch vCenter hostnames and validate
+	vCenterIPList := multiVCe2eVSphere.multivcConfig.Global.VCenterHostname
+	if vCenterIPList == "" {
+		return "", "", fmt.Errorf("vCenter hostname is empty in configuration")
+	}
+
+	vCenterIPs := strings.Split(vCenterIPList, ",")
+	if vcIndex < 0 || vcIndex >= len(vCenterIPs) {
+		return "", "", fmt.Errorf("invalid vcIndex: %d, out of range", vcIndex)
+	}
+
+	// Extract the specific vCenter IP
+	vCenterIP := strings.TrimSpace(vCenterIPs[vcIndex])
+	vcAddress := vCenterIP + ":" + vcPortNo
+
+	return vcAddress, vCenterIP, nil
 }

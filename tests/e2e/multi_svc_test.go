@@ -110,13 +110,16 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 
 		// Getting all env variables here
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		dataCenter = GetAndExpectStringEnvVar(datacenter)
 		computeCluster = GetAndExpectStringEnvVar(envComputeClusterName)
 		datastoreName = GetAndExpectStringEnvVar(envNfsDatastoreName)
 		datastoreIP = GetAndExpectStringEnvVar(envNfsDatastoreIP)
 		kubeconfig = GetAndExpectStringEnvVar("KUBECONFIG")
 		kubeconfig1 = GetAndExpectStringEnvVar("KUBECONFIG1")
+
+		// reading vc address
+		vcAddress, _, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Getting User and Supervisor-Id for both the supervisors")
 		// Iterating through number of svc to read it's config secret to get supervisor id and service account user

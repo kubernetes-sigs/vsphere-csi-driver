@@ -55,7 +55,8 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		bootstrap()
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		vcAddress, _, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		govmomiClient := newClient(ctx, &e2eVSphere)
 		pc = newPbmClient(ctx, govmomiClient)

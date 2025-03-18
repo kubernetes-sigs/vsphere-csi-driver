@@ -106,7 +106,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		// reading vc credentials
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		vcAddress, _, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// reading operation scale value
 		if os.Getenv("VOLUME_OPS_SCALE") != "" {
@@ -167,8 +168,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			snapc, err = snapclient.NewForConfig(restConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
-
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
 			vcVersion = getVCversion(ctx, vcAddress)
 			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)

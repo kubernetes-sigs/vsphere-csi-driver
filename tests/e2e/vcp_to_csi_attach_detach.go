@@ -63,6 +63,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		podsToDelete               []*v1.Pod
 		csiNamespace               string
 		migrationEnabledByDefault  bool
+		vcAddress                  string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -76,6 +77,11 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+
+		// reading vc address
+		vcAddress, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
 
 		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
@@ -124,8 +130,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		}
 		vcpPvcsPreMig = []*v1.PersistentVolumeClaim{}
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
-
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
@@ -705,7 +709,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
 
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ginkgo.By("Stopping sps on the vCenter")
 		isSPSServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, spsServiceName, vcAddress)
@@ -790,7 +793,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ginkgo.By("Stopping sps on the vCenter")
 		isSPSServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, spsServiceName, vcAddress)
@@ -905,7 +907,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on pvc created before migration")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
 
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ginkgo.By("Stopping vsan-health on the vCenter")
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
@@ -990,7 +991,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ginkgo.By("Stopping vsan-health on the vCenter")
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)

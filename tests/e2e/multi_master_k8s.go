@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -292,7 +293,14 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 			nodeNameOfvSphereCSIControllerPod, nodeNameIPMap[nodeNameOfvSphereCSIControllerPod]))
 
 		sshCmd := "systemctl stop kubelet.service"
-		host := nodeNameIPMap[nodeNameOfvSphereCSIControllerPod] + ":22"
+		// Get SSH port number from environment variable or use default
+		vcPortNo := os.Getenv(envVcSshdPortNum)
+		if vcPortNo == "" {
+			vcPortNo = defaultShhdPortNum
+		}
+
+		// Construct the host address dynamically
+		host := nodeNameIPMap[nodeNameOfvSphereCSIControllerPod] + ":" + vcPortNo
 		ginkgo.By(fmt.Sprintf("Invoking command %+v on host %+v", sshCmd, host))
 		result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
 		ginkgo.By(fmt.Sprintf("%s returned result %s", sshCmd, result.Stdout))

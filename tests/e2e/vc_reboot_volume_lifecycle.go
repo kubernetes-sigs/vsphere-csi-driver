@@ -58,7 +58,10 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		// reading vc address
+		vcAddress, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 

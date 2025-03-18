@@ -159,15 +159,15 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		}
 
 		if isVsanHealthServiceStopped {
-			vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
+			vcAddress, _, err := readMultiVcAddress(0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("Bringing vsanhealth up before terminating the test")
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 
 		if isSPSServiceStopped {
-			vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
+			vcAddress, _, err := readMultiVcAddress(0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("Bringing sps up before terminating the test")
 			startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 			isSPSServiceStopped = false
@@ -1421,12 +1421,12 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		}()
 
 		ginkgo.By("Rebooting VC1")
-		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[0] + ":" + sshdPort
+		vcAddress, vCenterIP, err := readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("vcAddress - %s ", vcAddress)
 		err = invokeVCenterReboot(ctx, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(vCenterHostname[0])
+		err = waitForHostToBeUp(vCenterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 
@@ -1518,12 +1518,12 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		}()
 
 		ginkgo.By("Rebooting VC1")
-		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[0] + ":" + sshdPort
+		vcAddress, vCenterIP, err := readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("vcAddress - %s ", vcAddress)
 		err = invokeVCenterReboot(ctx, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(vCenterHostname[0])
+		err = waitForHostToBeUp(vCenterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 
@@ -1658,8 +1658,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		}()
 
 		ginkgo.By("Bring down Vsan-health service on VC1")
-		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[0] + ":" + sshdPort
+		vcAddress, _, err := readMultiVcAddress(0)
 		framework.Logf("vcAddress - %s ", vcAddress)
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1816,8 +1815,8 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring down SPS service")
-		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[0] + ":" + sshdPort
+		vcAddress, _, err := readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("vcAddress - %s ", vcAddress)
 		err = invokeVCenterServiceControl(ctx, stopOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

@@ -58,6 +58,8 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		serviceName       string
 		csiReplicaCount   int32
 		deployment        *appsv1.Deployment
+		vcAddress         string
+		err               error
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -69,6 +71,11 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		// reading vc address
+		vcAddress, _, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 
@@ -144,7 +151,6 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 					startHostDOnHost(ctx, hostIP)
 				}
 			} else {
-				vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 				ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", serviceName))
 				err := invokeVCenterServiceControl(ctx, startOperation, serviceName, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -463,6 +469,10 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 	var fullSyncWaitTime int
 	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 
+	// reading vc address
+	vcAddress, _, err := readVcAddress()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	// Decide which test setup is available to run
 	if vanillaCluster {
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
@@ -648,7 +658,6 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 	} else {
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isServiceStopped = true
@@ -727,6 +736,10 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 	var err error
 	var fullSyncWaitTime int
 	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
+
+	var vcAddress string
+	vcAddress, _, err = readVcAddress()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Decide which test setup is available to run
 	if vanillaCluster {
@@ -905,7 +918,6 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 	} else {
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isServiceStopped = true

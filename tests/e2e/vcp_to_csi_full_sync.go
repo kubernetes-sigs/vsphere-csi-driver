@@ -60,6 +60,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		pvsToDelete                []*v1.PersistentVolume
 		fullSyncWaitTime           int
 		migrationEnabledByDefault  bool
+		vcAddress                  string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -73,6 +74,10 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+		// reading vc address
+		vcAddress, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
 		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -117,8 +122,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		}
 		vcpPvcsPreMig = []*v1.PersistentVolumeClaim{}
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
-
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
@@ -472,7 +475,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata on PVC1")
 		verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx, client, vcpPvcsPreMig)
 
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
@@ -650,7 +652,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vmdks = []string{}
 
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ginkgo.By(fmt.Sprintln("Stopping sps on the vCenter host"))
 		isSPSServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, spsServiceName, vcAddress)

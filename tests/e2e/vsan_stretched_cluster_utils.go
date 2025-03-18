@@ -226,9 +226,16 @@ func waitForHostToBeDown(ctx context.Context, ip string) error {
 	framework.Logf("checking host status of %s", ip)
 	gomega.Expect(ip).NotTo(gomega.BeNil())
 	gomega.Expect(ip).NotTo(gomega.BeEmpty())
+
+	// Get SSH port number from environment variable or use default
+	esxPortNo := os.Getenv(envEsxPortNum)
+	if esxPortNo == "" {
+		esxPortNo = defaultShhdPortNum
+	}
+
 	waitErr := wait.PollUntilContextTimeout(ctx, poll*2, pollTimeoutShort*2, true,
 		func(ctx context.Context) (bool, error) {
-			_, err := net.DialTimeout("tcp", ip+":22", poll)
+			_, err := net.DialTimeout("tcp", ip+":"+esxPortNo, poll)
 			if err == nil {
 				framework.Logf("host is reachable")
 				return false, nil

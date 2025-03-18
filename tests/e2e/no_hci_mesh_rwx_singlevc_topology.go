@@ -311,7 +311,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with no "+
 			"allowed topology specified and with WFFC binding mode", accessmode, nfs4FSType))
-		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters, nil, "", bindingModeWffc, false)
+		scSpec := getVSphereStorageClassSpec("", scParameters, nil, "", bindingModeWffc, false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -321,7 +321,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 
 		ginkgo.By("Create StatefulSet with replica count 3 with RWX PVC access mode")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, true,
-			int32(stsReplicas), false, nil, false, false, false, accessmode, sc, false, "")
+			int32(stsReplicas), false, nil, false, false, true, accessmode, sc, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -845,7 +845,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and "+
 			"fstype %q with allowed topology specified at top level "+
 			"and with WFFC binding mode", accessmode, nfs4FSType))
-		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, scParameters,
+		scSpec := getVSphereStorageClassSpec("", scParameters,
 			allowedTopologyForSC, "", bindingModeWffc, false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -856,7 +856,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 
 		ginkgo.By("Create StatefulSet with replica count 3 with RWX PVC access mode with pod affinity set to true")
 		service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace, true,
-			int32(stsReplicas), false, allowedTopologyForSC, true, false, false, accessmode, sc, false, "")
+			int32(stsReplicas), false, allowedTopologyForSC, true, false, true, accessmode, sc, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)

@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -115,7 +114,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		}()
 		ginkgo.By("Expect claim to pass provisioning volume")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,
-			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
 
 		ginkgo.By("Verify if volume is provisioned in specified zone and region")
@@ -198,7 +197,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 
 		// Creating StorageClass with multiple zone and region topology details
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies, "", "", false)
+		scSpec := getVSphereStorageClassSpec("", nil, allowedTopologies, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -215,6 +214,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		// Creating statefulset with 3 replicas
 		ginkgo.By("Creating statefulset with 3 replica")
 		statefulset := GetStatefulSetFromManifest(namespace)
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Spec.StorageClassName = &sc.Name
 		ginkgo.By("Creating statefulset")
 		var replica int32 = 3
 		statefulset.Spec.Replicas = &replica

@@ -83,7 +83,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		defer cancel()
 
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies, "", "", false)
+		scSpec := getVSphereStorageClassSpec("", nil, allowedTopologies, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -92,7 +92,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		}()
 
 		ginkgo.By("Creating statefulset with single replica")
-		statefulset, service, err := createStatefulSetWithOneReplica(client, manifestPath, namespace)
+		statefulset, service, err := createStatefulSetWithOneReplica(client, manifestPath, namespace, sc)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			deleteService(namespace, client, service)
@@ -158,7 +158,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 
 		// Creating StorageClass with topology details
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologies, "", "", false)
+		scSpec := getVSphereStorageClassSpec("", nil, allowedTopologies, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -175,6 +175,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		// Creating statefulset with 3 replicas
 		ginkgo.By("Creating statefulset with 3 replica")
 		statefulset := GetStatefulSetFromManifest(namespace)
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Spec.StorageClassName = &sc.Name
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)

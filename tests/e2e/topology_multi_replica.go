@@ -83,6 +83,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			nimbusGeneratedVcPwd       string
 			nimbusGeneratedK8sVmPwd    string
 			clientIndex                int
+			k8sSshdPortNum             string
 		)
 		ginkgo.BeforeEach(func() {
 			var cancel context.CancelFunc
@@ -224,12 +225,27 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			sts_count = 3
 			statefulSetReplicaCount = 3
 
+			k8sSshPortNo := GetAndExpectStringEnvVar(MasterSshRandomPortNo)
+			if k8sSshPortNo == "" {
+				k8sSshPortNo = MasterSshPortNo
+			}
+
+			if os.Getenv(envMasterSshdRandomPortNum) != "" {
+				k8sSshdPortNum = GetAndExpectStringEnvVar(envMasterSshdRandomPortNum)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				if fullSyncWaitTime <= 0 || fullSyncWaitTime > defaultFullSyncWaitTime {
+					framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
+				}
+			} else {
+				fullSyncWaitTime = defaultFullSyncWaitTime
+			}
+
 			/* Get current leader Csi-Controller-Pod where CSI Provisioner is running and " +
 			find the master node IP where this Csi-Controller-Pod is running */
 			ginkgo.By("Get current leader Csi-Controller-Pod name where CSI Provisioner is running and " +
 				"find the master node IP where this Csi-Controller-Pod is running")
 			csi_controller_pod, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				c, sshClientConfig, container_name)
+				c, sshClientConfig, container_name, k8sSshPortNo)
 			framework.Logf("CSI-Provisioner is running on Leader Pod %s "+
 				"which is running on master node %s", csi_controller_pod, k8sMasterIP)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
