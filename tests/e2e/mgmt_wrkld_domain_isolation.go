@@ -22,6 +22,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -33,6 +34,7 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
@@ -112,7 +114,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		dumpSvcNsEventsOnTestFailure(client, namespace)
 
 		framework.Logf("Collecting supervisor PVC events before performing PV/PVC cleanup")
-		eventList, err := svcClient.CoreV1().Events(svcNamespace).List(ctx, metav1.ListOptions{})
+		eventList, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, item := range eventList.Items {
 			framework.Logf(item.Message)
@@ -552,6 +554,148 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		ginkgo.By("Delete dynamic volume snapshot")
 		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
 			volumeSnapshot, pandoraSyncWaitTime, volHandle, snapshotId, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/*
+		Testcase-5
+		Deploy statefulsets with 3 replica on namespace-1 in the supervisor cluster.
+
+		Use vsan-shared policy with CSI and WCP restart in between.
+
+		Steps:
+		1. Create a wcp namespace and tagged it to zone-1, zone-2.
+		2. Read a shared storage policy which is tagged to wcp namespace created in step #1 using Immediate Binding mode.
+		3. Create statefulset with replica count 3.
+		4. Wait for PVC and PV to reach Bound state.
+		5. Verify PVC has csi.vsphere.volume-accessible-topology annotation with all zones
+		6. Verify PV has node affinity rule for all zones
+		7. Verify statefulset pod is in up and running state.
+		8. Veirfy Pod node annoation.
+		9. Add zone-3 and zone-4 to the WCP namespace and restart the WCP service at the same time.
+		10. Perform a scaling operation on the StatefulSet, increasing the replica count to 6.
+		11. Wait for the scaling operation to complete successfully.
+		12. Mark zones 1 and 2 for removal from the WCP namespace and restart the CSI while the zone removal is in progress.
+		13. Perform a ScaleUp/ScaleDown operation on the StatefulSet.
+		14. Verify that the scaling operation is completed successfully.
+		15. Verify the StatefulSet PVC annotations and affinity details for the PV.
+		16. Verify the StatefulSet Pod node annotation.
+		17. Verify CNS volume metadata for the Pods and PVCs created.
+		18. Perform cleanup: Delete Statefulset
+		19. Perform cleanup: Delete PVC
+	*/
+
+	ginkgo.It("Add or remove zones, with a CSI restart and WCP service restart in between.", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// statefulset replica count
+		replicas = 3
+
+		//zones used in this test
+		zone1 := topologyAffinityDetails[topologyCategories[0]][0]
+		zone2 := topologyAffinityDetails[topologyCategories[0]][1]
+		zone3 := topologyAffinityDetails[topologyCategories[0]][2]
+		zone4 := topologyAffinityDetails[topologyCategories[0]][3]
+
+		//vc ip
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+
+		// expected status code while add/removing the zones from NS
+		expectedStatusCodes := []int{500, 204}
+
+		// reading shared storage policy
+		storagePolicyName = GetAndExpectStringEnvVar(envSharedStoragePolicyName)
+		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+
+		ginkgo.By("Create a WCP namespace tagged to zone-1 & zone-2")
+		// here fetching zone:zone-3 from topologyAffinityDetails
+		namespace = createTestWcpNsWithZones(vcRestSessionId, storageProfileId, getSvcId(vcRestSessionId),
+			[]string{zone1, zone2})
+		defer func() {
+			delTestWcpNs(vcRestSessionId, namespace)
+			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+		}()
+
+		ginkgo.By("Read shared storage policy tagged to wcp namespace")
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
+		ginkgo.By("Creating statefulset")
+		statefulset := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, false, nil,
+			false, true, "", "", storageclass, storageclass.Name)
+		defer func() {
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
+		}()
+
+		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, statefulset, nil, nil, namespace,
+			allowedTopologies)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Add zone-3 and zone-4 to the WCP namespace and restart the WCP service at the same time")
+		var wg sync.WaitGroup
+		wg.Add(3)
+		go addZoneToWcpNsParallel(vcRestSessionId, namespace,
+			zone3, expectedStatusCodes, &wg)
+		go addZoneToWcpNsParallel(vcRestSessionId, namespace,
+			zone4, expectedStatusCodes, &wg)
+		go restartWcp(ctx, vcAddress, &wg)
+		wg.Wait()
+
+		ginkgo.By("Check if namespace has new zones added")
+		output, _, _ := e2ekubectl.RunKubectlWithFullOutput(namespace, "get", "zones")
+		framework.Logf("Check bool %v", !strings.Contains(output, zone3))
+		if !strings.Contains(output, zone3) {
+			framework.Logf("Adding zone-3 to NS might have failed due to WCP restart, adding it again")
+			err = addZoneToWcpNs(vcRestSessionId, namespace, zone3)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		if !strings.Contains(output, zone4) {
+			framework.Logf("Adding zone-4 to NS might have failed due to WCP restart, adding it again")
+			err = addZoneToWcpNs(vcRestSessionId, namespace, zone4)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Perform a scaling operation on the StatefulSet, increasing the replica count to 6.")
+		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client,
+			6, 0, statefulset, true, namespace, allowedTopologies, true, false, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Mark zone-1 and zone-2 for removal from wcp namespace and restart the CSI driver at the same time")
+		// Get CSI NS name and replica count
+		csiNamespace := GetAndExpectStringEnvVar(envCSINamespace)
+		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
+			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicas := *csiDeployment.Spec.Replicas
+
+		wg.Add(3)
+		go markZoneForRemovalFromWcpNsWithStatusCode(vcRestSessionId, namespace,
+			zone1, expectedStatusCodes, &wg)
+		go markZoneForRemovalFromWcpNsWithStatusCode(vcRestSessionId, namespace,
+			zone2, expectedStatusCodes, &wg)
+		restartstatus, err := restartCSIDriverParallel(ctx, client, csiNamespace, csiReplicas, &wg)
+		gomega.Expect(restartstatus).To(gomega.BeTrue(), "csi driver restart not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		wg.Wait()
+
+		ginkgo.By("Perform a scaling operation on the StatefulSet, decreasing the replica count to 4.")
+		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client,
+			4, 0, statefulset, true, namespace, allowedTopologies, true, false, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, statefulset, nil, nil, namespace,
+			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })

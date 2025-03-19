@@ -24,8 +24,10 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -34,6 +36,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 )
 
 /*
@@ -279,4 +282,100 @@ func invokeVCRestAPIPatchRequest(vcRestSessionId string, url string, reqBody str
 	resp, statusCode := httpRequest(httpClient, req)
 
 	return resp, statusCode
+}
+
+/*
+Add zone to namespace with WaitGroup
+*/
+func addZoneToWcpNsParallel(vcRestSessionId string,
+	namespace string,
+	zoneName string,
+	expectedStatusCode []int,
+	wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	AddZoneToNs := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace
+
+	// Create the request body with zone name inside a zones array
+	reqBody := fmt.Sprintf(`{
+        "zones": [{"name": "%s"}]
+    }`, zoneName)
+
+	// Print the request body for debugging
+	fmt.Println(reqBody)
+
+	// Make the API request
+	_, statusCode := invokeVCRestAPIPatchRequest(vcRestSessionId, AddZoneToNs, reqBody)
+
+	if !isAvailable(expectedStatusCode, statusCode) {
+		framework.Logf("failed to add zone %s to NS %s, received status code: %d", zoneName, namespace, statusCode)
+	}
+}
+
+/*
+Restart WCP with WaitGroup
+*/
+func restartWcp(ctx context.Context, vcAddress string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	sshCmd := "vmon-cli -r wcp"
+	framework.Logf("Restarting WCP on vCenter host %v", vcAddress)
+	result, err := fssh.SSH(ctx, sshCmd, vcAddress, framework.TestContext.Provider)
+	fssh.LogResult(result)
+	if err == nil && result.Code == 0 {
+		vcVersion = strings.TrimSpace(result.Stdout)
+	} else {
+		ginkgo.By(fmt.Sprintf("couldn't execute command: %s on vCenter host: %v", sshCmd, err))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+/*
+Mark zone for removal with expected success/failure statuscode.
+*/
+func markZoneForRemovalFromWcpNsWithStatusCode(vcRestSessionId string,
+	namespace string,
+	zone string,
+	expectedStatusCode []int,
+	wg *sync.WaitGroup) {
+	defer wg.Done()
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	deleteZoneFromNs := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace + "/zones/" + zone
+	fmt.Println(deleteZoneFromNs)
+	_, statusCode := invokeVCRestAPIDeleteRequest(vcRestSessionId, deleteZoneFromNs)
+	if !isAvailable(expectedStatusCode, statusCode) {
+		framework.Logf("failed to remove zone %s from namespace %s, received status code: %d", zone, namespace, statusCode)
+	}
+}
+
+/*
+Check if given integer list has a value
+*/
+func isAvailable(alpha []int, str int) bool {
+	// iterate using the for loop
+	for i := 0; i < len(alpha); i++ {
+		// check
+		if alpha[i] == str {
+			// return true
+			return true
+		}
+	}
+	return false
+}
+
+/*
+Restart CSI driver with WaitGroup
+*/
+func restartCSIDriverParallel(ctx context.Context, client clientset.Interface, namespace string,
+	csiReplicas int32, wg *sync.WaitGroup) (bool, error) {
+	defer wg.Done()
+	isServiceStopped, err := stopCSIPods(ctx, client, namespace)
+	if err != nil {
+		return isServiceStopped, err
+	}
+	isServiceStarted, err := startCSIPods(ctx, client, csiReplicas, namespace)
+	if err != nil {
+		return isServiceStarted, err
+	}
+	return true, nil
 }
