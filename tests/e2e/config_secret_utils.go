@@ -39,10 +39,10 @@ import (
 
 // createTestUser util method is used for creating test users
 func createTestUser(masterIp string, sshClientConfig *ssh.ClientConfig, testUser string,
-	testUserPassword string) error {
+	testUserPassword string, sshdPortNum string) error {
 	createUser := govcLoginCmd() + "govc sso.user.create -p " + testUserPassword + " " + testUser
 	framework.Logf("Create testuser: %s ", createUser)
-	result, err := sshExec(sshClientConfig, masterIp, createUser)
+	result, err := sshExec(sshClientConfig, masterIp, createUser, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -73,8 +73,8 @@ func deleteUsersRolesAndPermissions(masterIp string, sshClientConfig *ssh.Client
 // deleteUserPermissions method is used to delete permissions of a test user
 func deleteUserPermissions(masterIp string, sshClientConfig *ssh.ClientConfig,
 	testUser string, dataCenter []*object.Datacenter, clusters []string,
-	hosts []string, vms []string, datastores []string) {
-	err := deleteDataCenterPermissions(masterIp, sshClientConfig, testUser, dataCenter)
+	hosts []string, vms []string, datastores []string, sshdPortNum string) {
+	err := deleteDataCenterPermissions(masterIp, sshClientConfig, testUser, dataCenter, sshdPortNum)
 	if err != nil {
 		if strings.Contains(err.Error(), "The object or item referred to could not be found") {
 			framework.Logf("No datacenter level permissions exist for a testuser")
@@ -138,12 +138,12 @@ func deleteUserPermissions(masterIp string, sshClientConfig *ssh.ClientConfig,
 
 // deleteDataCenterPermissions method is used to delete DataCenter Permissions from a test user
 func deleteDataCenterPermissions(masterIp string, sshClientConfig *ssh.ClientConfig,
-	testUser string, dataCenter []*object.Datacenter) error {
+	testUser string, dataCenter []*object.Datacenter, sshdPortNum string) error {
 	for i := 0; i < len(dataCenter); i++ {
 		deleteDataCenterPermissions := govcLoginCmd() +
 			"govc permissions.remove -principal " + testUser + " " + dataCenter[i].InventoryPath
 		framework.Logf("delete datacenter level permissions %s", deleteDataCenterPermissions)
-		result, err := sshExec(sshClientConfig, masterIp, deleteDataCenterPermissions)
+		result, err := sshExec(sshClientConfig, masterIp, deleteDataCenterPermissions, sshdPortNum)
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",

@@ -87,7 +87,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 		initialiseFdsVar(ctx)
 
 		// reading vc address
-		vcAddress, err = readVcAddress()
+		vcAddress, _, err = readVcAddress()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		vcRestSessionId = createVcSession4RestApis(ctx)

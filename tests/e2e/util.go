@@ -3651,8 +3651,14 @@ func runCommandOnESX(username string, addr string, cmd string) (string, error) {
 
 	result := fssh.Result{Host: addr, Cmd: cmd}
 
+	// Get SSH port number from environment variable or use default
+	esxPortNo := os.Getenv(envVcSshdPortNum)
+	if esxPortNo == "" {
+		esxPortNo = defaultShhdPortNum
+	}
+
 	// Connect.
-	client, err := ssh.Dial("tcp", net.JoinHostPort(addr, sshdPort), config)
+	client, err := ssh.Dial("tcp", net.JoinHostPort(addr, esxPortNo), config)
 	if err != nil {
 		framework.Logf("connection failed due to %v", err)
 		return "", err
@@ -4134,17 +4140,11 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 }
 
 // sshExec runs a command on the host via ssh.
-func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.Result, error) {
+func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string, sshdPortNum string) (fssh.Result, error) {
 	result := fssh.Result{Host: host, Cmd: cmd}
 
-	// Get SSH port number from environment variable or use default
-	vcPortNo := os.Getenv(envVcSshdPortNum)
-	if vcPortNo == "" {
-		vcPortNo = defaultShhdPortNum
-	}
-
 	// Dial SSH with the specified port
-	sshClient, err := ssh.Dial("tcp", host+":"+vcPortNo, sshClientConfig)
+	sshClient, err := ssh.Dial("tcp", host+":"+sshdPortNum, sshClientConfig)
 	if err != nil {
 		result.Stdout = ""
 		result.Stderr = ""
@@ -6312,10 +6312,11 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 
 // createVcSession4RestApis generates session ID for VC to use in rest API calls
 func createVcSession4RestApis(ctx context.Context) string {
-	vcAddress := readVcAddress()
+	vcAddress, vCenterIp, err := readVcAddress()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	nimbusGeneratedVcPwd := GetAndExpectStringEnvVar(vcUIPwd)
 	curlCmd := fmt.Sprintf("curl -k -X POST https://%s/rest/com/vmware/cis/session"+
-		" -u 'Administrator@vsphere.local:%s'", vcIp, nimbusGeneratedVcPwd)
+		" -u 'Administrator@vsphere.local:%s'", vCenterIp, nimbusGeneratedVcPwd)
 	framework.Logf("Running command: %s", curlCmd)
 	result, err := fssh.SSH(ctx, curlCmd, vcAddress, framework.TestContext.Provider)
 	fssh.LogResult(result)

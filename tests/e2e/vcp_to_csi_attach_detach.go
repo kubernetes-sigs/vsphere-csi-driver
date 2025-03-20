@@ -79,7 +79,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		}
 
 		// reading vc address
-		vcAddress, err = readVcAddress()
+		vcAddress, _, err = readVcAddress()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)

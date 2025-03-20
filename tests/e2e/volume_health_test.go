@@ -58,7 +58,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		isSPSServiceStopped        bool
 		csiNamespace               string
 		vcAddress                  string
-		err                        error
 	)
 	ginkgo.BeforeEach(func() {
 		bootstrap()
@@ -72,7 +71,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 
 		// reading vc address
-		vcAddress, err = readVcAddress()
+		vcAddress, _, err = readVcAddress()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)

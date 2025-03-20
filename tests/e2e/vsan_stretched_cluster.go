@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 
 		// reading vc address
-		vcAddress, err = readVcAddress()
+		vcAddress, _, err = readVcAddress()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		csiNs = GetAndExpectStringEnvVar(envCSINamespace)

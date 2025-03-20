@@ -75,7 +75,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		// reading vc address
-		vcAddress, err = readVcAddress()
+		vcAddress, _, err = readVcAddress()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
