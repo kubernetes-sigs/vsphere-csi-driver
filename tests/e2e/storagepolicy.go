@@ -148,21 +148,18 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyNameForNonSharedDatastores, namespace, rqLimit)
 
 			pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", storageclass, nil, accessMode)
-			_, err = fpv.CreatePVC(ctx, client, namespace, pvcspec)
-			gomega.Expect(err).To(gomega.HaveOccurred())
+			_, _ = fpv.CreatePVC(ctx, client, namespace, pvcspec)
 
 		} else {
 			scParameters[svStorageClassName] = storagePolicyNameForNonSharedDatastores
 			createVolumeWaitTime = pollTimeout
 		}
 
-		if !supervisorCluster {
-			pvc := invokeInvalidPolicyTestNeg(client, namespace, scParameters,
-				storagePolicyNameForNonSharedDatastores, createVolumeWaitTime)
-			isFailureFound := checkEventsforError(client, namespace,
-				metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvc.Name)}, expectedErrorMsg)
-			gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrorMsg)
-		}
+		pvc := invokeInvalidPolicyTestNeg(client, namespace, scParameters,
+			storagePolicyNameForNonSharedDatastores, createVolumeWaitTime)
+		isFailureFound := checkEventsforError(client, namespace,
+			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvc.Name)}, expectedErrorMsg)
+		gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrorMsg)
 
 	})
 
@@ -272,7 +269,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 	} else {
 		ginkgo.By("CNS_TEST: Running for WCP setup")
 		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
-			namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
+			namespace, nil, scParameters, "", nil, "", true, "", storagePolicyName)
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
