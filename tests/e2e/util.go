@@ -1950,7 +1950,7 @@ func getWindowsFileSystemSize(client clientset.Interface,
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
 		output, err = execCommandOnGcWorker(sshWcpConfig, svcMasterIp, windowsWorkerIP,
-			svcNamespace, cmd)
+			svcNamespace, cmd, sshdPortNum)
 	} else {
 		nimbusGeneratedWindowsVmPwd := GetAndExpectStringEnvVar(envWindowsPwd)
 		windowsUser := GetAndExpectStringEnvVar(envWindowsUser)

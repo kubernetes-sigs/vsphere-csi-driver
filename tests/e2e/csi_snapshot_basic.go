@@ -4382,14 +4382,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			ginkgo.By("Get current leader Csi-Controller-Pod name where csi-snapshotter is running and " +
 				"find the master node IP where this Csi-Controller-Pod is running")
 			csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				c, sshClientConfig, snapshotterContainerName)
+				c, sshClientConfig, snapshotterContainerName, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("csi-snapshotter leader is in Pod %s "+
 				"which is running on master node %s", csiControllerPod, k8sMasterIP)
 		} else {
 			framework.Logf("sshwcpConfig: %v", sshWcpConfig)
 			csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				client, sshWcpConfig, snapshotterContainerName)
+				client, sshWcpConfig, snapshotterContainerName, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("%s leader is running on pod %s "+
 				"which is running on master node %s", snapshotterContainerName, csiControllerPod, k8sMasterIP)
@@ -4477,14 +4477,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			ginkgo.By("Get current leader Csi-Controller-Pod name where csi-snapshotter is running and " +
 				"find the master node IP where this Csi-Controller-Pod is running")
 			csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				c, sshClientConfig, snapshotterContainerName)
+				c, sshClientConfig, snapshotterContainerName, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("csi-snapshotter leader is in Pod %s "+
 				"which is running on master node %s", csiControllerPod, k8sMasterIP)
 		} else {
 			framework.Logf("sshwcpConfig: %v", sshWcpConfig)
 			csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				client, sshWcpConfig, snapshotterContainerName)
+				client, sshWcpConfig, snapshotterContainerName, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("%s leader is running on pod %s "+
 				"which is running on master node %s", snapshotterContainerName, csiControllerPod, k8sMasterIP)
