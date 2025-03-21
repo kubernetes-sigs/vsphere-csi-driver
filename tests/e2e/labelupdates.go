@@ -141,9 +141,10 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+			restConfig = getRestConfigClient()
+			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
-				scParameters, "", nil, "", false, "", storagePolicyName)
+				scParameters, "", nil, "", true, "", storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -218,7 +219,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
-				scParameters, "", nil, "", false, "", storagePolicyName)
+				scParameters, "", nil, "", true, "", storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -303,7 +304,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
-				scParameters, "", nil, "", false, "", storagePolicyName)
+				scParameters, "", nil, "", true, "", storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
