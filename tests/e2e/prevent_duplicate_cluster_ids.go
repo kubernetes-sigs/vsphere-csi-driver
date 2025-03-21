@@ -57,6 +57,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		accessMode                    v1.PersistentVolumeAccessMode
 		sshClientConfig               *ssh.ClientConfig
 		nimbusGeneratedK8sVmPwd       string
+		sshdPortNum                   string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -74,6 +75,14 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		scParameters = make(map[string]string)
 		accessMode = v1.ReadWriteOnce
 		// fetching required parameters
+
+		// reading k8sMaster1 port number, if it is empty use default port
+		if sshdPortNum == "" {
+			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+			if sshdPortNum == "" {
+				sshdPortNum = defaultShhdPortNum
+			}
+		}
 
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
@@ -398,7 +407,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		framework.Logf("Invoking command '%v' on host %v", grepCmdForErrMsg,
 			k8sMasterIP)
 		result, err := sshExec(sshClientConfig, k8sMasterIP,
-			grepCmdForErrMsg)
+			grepCmdForErrMsg, sshdPortNum)
 		if err != nil || result.Code != 0 {
 			fssh.LogResult(result)
 			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("couldn't execute command: %s on host: %v , error: %s",
@@ -901,7 +910,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			framework.Logf("Invoking command '%v' on host %v", cmd,
 				k8sMasterIP)
 			result, err := sshExec(sshClientConfig, k8sMasterIP,
-				cmd)
+				cmd, sshdPortNum)
 			fssh.LogResult(result)
 			if err == nil {
 				framework.Logf("File exists on %s", k8sMasterIP)
@@ -919,7 +928,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		framework.Logf("Invoking command '%v' on host %v", cmd,
 			masterIP)
 		result, err := sshExec(sshClientConfig, masterIP,
-			cmd)
+			cmd, sshdPortNum)
 		if err != nil || result.Code != 0 {
 			fssh.LogResult(result)
 			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("couldn't execute command: %s on host: %v , error: %s",

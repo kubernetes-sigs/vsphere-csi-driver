@@ -68,6 +68,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 		ClusterdatastoreListVC1     map[string]string
 		ClusterdatastoreListVC2     map[string]string
 		ClusterdatastoreListVC3     map[string]string
+		sshdPortNum                 string
 	)
 	ginkgo.BeforeEach(func() {
 		var cancel context.CancelFunc
@@ -77,6 +78,13 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 		namespace = f.Namespace.Name
 
 		multiVCbootstrap()
+
+		/* reading k8sMaster1 port number,
+		   if variable value is empty and not set, reading default port num for k8s master1 */
+		sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+		if sshdPortNum == "" {
+			sshdPortNum = defaultShhdPortNum
+		}
 
 		stsScaleUp = true
 		stsScaleDown = true
@@ -128,7 +136,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 		// fetching list of datastores available in different VCs
 		ClusterdatastoreListVC1, ClusterdatastoreListVC2,
 			ClusterdatastoreListVC3, err = getDatastoresListFromMultiVCs(masterIp, sshClientConfig,
-			clusterComputeResource[0])
+			clusterComputeResource[0], sshdPortNum)
 		ClusterdatastoreListVC = append(ClusterdatastoreListVC, ClusterdatastoreListVC1,
 			ClusterdatastoreListVC2, ClusterdatastoreListVC3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -186,7 +194,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 			topValEndIndex)
 
 		ginkgo.By("Create SC on VC2 avaialibility zone")
-		storageclass, err := createStorageClass(client, nil, allowedTopologies, "", "", false, "nginx-sc")
+		storageclass, err := createStorageClass(client, nil, allowedTopologies, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -337,7 +345,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 			topValEndIndex)
 
 		ginkgo.By("Create SC with storage policy which is available in VC1 and VC2")
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, "nginx-sc")
+		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -442,7 +450,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 
 		ginkgo.By("Create SC with availability zone in VC1 and VC2")
 		storageclass, err := createStorageClass(client, scParameters, allowedTopologies, "", "", false,
-			"nginx-sc")
+			"")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -737,12 +745,12 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 		framework.Logf("Fetch worker vms sitting on VC-2")
 		clientIndex = 1
 		vMsToMigrate, err := fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[0],
-			clientIndex)
+			clientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Move worker vms to destination datastore in VC-2")
 		isMigrateSuccess, err := migrateVmsFromDatastore(masterIp, sshClientConfig, destDsName,
-			vMsToMigrate, clientIndex)
+			vMsToMigrate, clientIndex, sshdPortNum)
 		gomega.Expect(isMigrateSuccess).To(gomega.BeTrue(), "Migration of vms failed")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -776,24 +784,24 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 		framework.Logf("Fetch worker vms sitting on VC-3")
 		clientIndex = 2
 		vMsToMigrate, err = fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[0],
-			clientIndex)
+			clientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Move all the vms to destination datastore")
 		isMigrateSuccess, err = migrateVmsFromDatastore(masterIp, sshClientConfig, destDsName, vMsToMigrate,
-			clientIndex)
+			clientIndex, sshdPortNum)
 		gomega.Expect(isMigrateSuccess).To(gomega.BeTrue(), "Migration of vms failed")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Put source datastore in maintenance mode on VC-3 multi setup")
 		err = preferredDatastoreInMaintenanceMode(masterIp, sshClientConfig, dataCenters, soureDsName,
-			clientIndex)
+			clientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isDatastoreInMaintenanceMode = true
 		defer func() {
 			if isDatastoreInMaintenanceMode {
 				err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig, soureDsName,
-					clientIndex)
+					clientIndex, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isDatastoreInMaintenanceMode = false
 			}
@@ -823,7 +831,8 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 		suspendDatastoreOp = "off"
 
 		framework.Logf("Exit datastore from maintenance mode residing on VC-3")
-		err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig, soureDsName, 2)
+		err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig, soureDsName,
+			2, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isDatastoreInMaintenanceMode = false
 

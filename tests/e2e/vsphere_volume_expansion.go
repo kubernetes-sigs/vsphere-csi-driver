@@ -71,6 +71,9 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		isVsanHealthServiceStopped bool
 		isSPSServiceStopped        bool
 		fsType                     string
+		vcAddress                  string
+		err                        error
+		sshdPortNum                string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -87,6 +90,21 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 			profileID = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			defaultDatastore = getDefaultDatastore(ctx)
+		}
+
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		/* reading k8sMaster1 port number, if variable value is empty
+		and not set, reading default port num for k8s master1 */
+		if sshdPortNum == "" {
+			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+			if sshdPortNum == "" {
+				sshdPortNum = defaultShhdPortNum
+			}
 		}
 
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
@@ -123,8 +141,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		if isSPSServiceStopped {
 			framework.Logf("Bringing sps up before terminating the test")
@@ -676,7 +692,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		// Fetch original FileSystemSize
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
-		originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod)
+		originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -703,7 +719,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Bring down Vsan-health service")
 		isVsanHealthServiceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -744,7 +759,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err = getFileSystemSizeForOsType(f, client, pod)
+		fsSize, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
@@ -777,8 +792,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		defer cancel()
 
 		var originalSizeInMb, fsSize int64
-		var err error
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		var expectedErrMsg string
 
 		/*
 			Note: As per PR #2935677, even if cns_new_sync is enabled volume expansion
@@ -805,7 +819,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		// Fetch original FileSystemSize
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
-		originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod)
+		originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -853,18 +867,25 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
-		ginkgo.By("Waiting for file system resize to finish")
-		pvclaim, err = waitForFSResize(pvclaim, client)
+		ginkgo.By("File system resize should not succeed since SPS service is down. " +
+			"Expecting an error")
+		expectedErrMsg = "VolumeResizeFailed"
+		isFailureFound, err := waitForEventWithReason(client, namespace, pvclaim.Name, expectedErrMsg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isFailureFound).To(gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
 
 		ginkgo.By("Bringup SPS service")
 		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
+
+		ginkgo.By("Waiting for file system resize to finish")
+		pvclaim, err = waitForFSResize(pvclaim, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcConditions := pvclaim.Status.Conditions
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err = getFileSystemSizeForOsType(f, client, pod)
+		fsSize, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume
 		// so here we are checking if the new filesystem size is greater than
@@ -923,7 +944,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		// Fetch original FileSystemSize
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
-		originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod)
+		originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -976,7 +997,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err = getFileSystemSizeForOsType(f, client, pod)
+		fsSize, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("FileSystemSize after PVC resize %d mb , FileSystemSize Before PVC resize %d mb ",
 			fsSize, originalSizeInMb)
@@ -1587,8 +1608,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var fsSize int64
-		var err error
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
 			ctx, f, client, "", storagePolicyName, namespace, ext4FSType)
@@ -1757,7 +1776,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Bring down Vsan-health service")
 		isVsanHealthServiceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1942,7 +1960,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		// Fetch original FileSystemSize
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
-		originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod)
+		originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// resize PVC
@@ -1986,7 +2004,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		var fsSize int64
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err = getFileSystemSizeForOsType(f, client, pod)
+		fsSize, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("File system size after expansion : %d", fsSize)
 		// Filesystem size may be smaller than the size of the block volume
@@ -2221,7 +2239,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		var fsSize int64
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err = getFileSystemSizeForOsType(f, client, pod)
+		fsSize, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("File system size after expansion : %d", fsSize)
 		// Filesystem size may be smaller than the size of the block volume
@@ -2332,7 +2350,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		var fsSize int64
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err = getFileSystemSizeForOsType(f, client, pod)
+		fsSize, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("File system size after expansion : %d", fsSize)
 
@@ -2669,9 +2687,18 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 
 	var originalSizeInMb, fsSize int64
 	var err error
+	var sshdPortNum string
+
+	/* reading k8sMaster1 port number, if variable value is empty
+	and not set, reading default port num for k8s master1 */
+	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+	if sshdPortNum == "" {
+		sshdPortNum = defaultShhdPortNum
+	}
+
 	// Fetch original FileSystemSize
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
-	originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod)
+	originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Modify PVC spec to trigger volume expansion
@@ -2734,7 +2761,7 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 	expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-	fsSize, err = getFileSystemSizeForOsType(f, client, pod)
+	fsSize, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	// Filesystem size may be smaller than the size of the block volume
 	// so here we are checking if the new filesystem size is greater than
@@ -2953,10 +2980,19 @@ func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Int
 	namespace string, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod) {
 	var originalSizeInMb int64
 	var err error
+	var sshdPortNum string
+
+	/* reading k8sMaster1 port number, if variable value is empty
+	and not set, reading default port num for k8s master1 */
+	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+	if sshdPortNum == "" {
+		sshdPortNum = defaultShhdPortNum
+	}
+
 	// Fetch original FileSystemSize if not raw block volume
 	if *pvclaim.Spec.VolumeMode != v1.PersistentVolumeBlock {
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
-		originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod)
+		originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
@@ -2981,7 +3017,7 @@ func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Int
 	if *pvclaim.Spec.VolumeMode != v1.PersistentVolumeBlock {
 		var fsSize int64
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err = getFileSystemSizeForOsType(f, client, pod)
+		fsSize, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("File system size after expansion : %v, fsSize, after expansion : %v", originalSizeInMb, fsSize)
 		// Filesystem size may be smaller than the size of the block volume
@@ -3000,6 +3036,16 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	namespace string, expectedContent string, storagePolicyName string, profileID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	var sshdPortNum string
+
+	/* reading k8sMaster1 port number, if variable value is empty
+	and not set, reading default port num for k8s master1 */
+	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+	if sshdPortNum == "" {
+		sshdPortNum = defaultShhdPortNum
+	}
+
 	ginkgo.By("Invoking Test for Volume Expansion")
 	scParameters := make(map[string]string)
 	if windowsEnv {
@@ -3198,7 +3244,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	var fsSize int64
 
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-	fsSize, err = getFileSystemSizeForOsType(f, client, pod)
+	fsSize, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("File system size after expansion : %d", fsSize)
 
@@ -3245,6 +3291,15 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	namespace string, fstype string, expectedContent string, storagePolicyName string, profileID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	var sshdPortNum string
+
+	/* reading k8sMaster1 port number, if variable value is empty
+	and not set, reading default port num for k8s master1 */
+	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+	if sshdPortNum == "" {
+		sshdPortNum = defaultShhdPortNum
+	}
 	ginkgo.By("Invoking Test for Volume Expansion 2")
 	scParameters := make(map[string]string)
 	scParameters[scParamFsType] = fstype
@@ -3350,7 +3405,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	ginkgo.By("Verify the volume is accessible and filesystem type is as expected")
 	verifyFsTypeOnVsphereVolume(namespace, pod.Name, expectedContent, filePathFsType)
 	ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-	originalFsSize, err = getFileSystemSizeForOsType(f, client, pod)
+	originalFsSize, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Delete POD
@@ -3450,7 +3505,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 
 	var fsSize int64
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
-	fsSize, err = getFileSystemSizeForOsType(f, client, pod)
+	fsSize, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	// Filesystem size may be smaller than the size of the block volume.
 	// Here since filesystem was already formatted on the original volume,
@@ -3794,6 +3849,9 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	namespace string, expectedContent string, storagePolicyName string, profileID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	var sshdPortNum string
+
 	ginkgo.By("Invoking Test to verify Multiple Volume Expansions on the same volume")
 	scParameters := make(map[string]string)
 	if windowsEnv {
@@ -3801,6 +3859,14 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	} else {
 		scParameters[scParamFsType] = ext4FSType
 	}
+
+	/* reading k8sMaster1 port number, if variable value is empty
+	and not set, reading default port num for k8s master1 */
+	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+	if sshdPortNum == "" {
+		sshdPortNum = defaultShhdPortNum
+	}
+
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 	var storageclass *storagev1.StorageClass
@@ -3999,7 +4065,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	var fsSize int64
 
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-	fsSize, err = getFileSystemSizeForOsType(f, client, pod)
+	fsSize, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("File system size after expansion : %d", fsSize)
 
@@ -4367,11 +4433,12 @@ func offlineVolumeExpansionOnSupervisorPVC(client clientset.Interface, f *framew
 }
 
 // getFileSystemSizeForOsType returns the file system size of the volume in respective OS type
-func getFileSystemSizeForOsType(f *framework.Framework, client clientset.Interface, pod *v1.Pod) (int64, error) {
+func getFileSystemSizeForOsType(f *framework.Framework, client clientset.Interface,
+	pod *v1.Pod, sshdPortNum string) (int64, error) {
 	var fsSize int64
 	var err error
 	if windowsEnv {
-		fsSize, err = getWindowsFileSystemSize(client, pod)
+		fsSize, err = getWindowsFileSystemSize(client, pod, sshdPortNum)
 	} else {
 		fsSize, err = getFSSizeMb(f, pod)
 	}

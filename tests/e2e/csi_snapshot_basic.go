@@ -78,6 +78,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		scName                     string
 		volHandle                  string
 		isQuotaValidationSupported bool
+		sshdPortNum                string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -105,8 +106,20 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			deleteService(namespace, client, service)
 		}
 
-		// reading vc credentials
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		/* reading k8sMaster1 port number, if variable value is empty
+		and not set, reading default port num for k8s master1 */
+		if sshdPortNum == "" {
+			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+			if sshdPortNum == "" {
+				sshdPortNum = defaultShhdPortNum
+			}
+		}
 
 		// reading operation scale value
 		if os.Getenv("VOLUME_OPS_SCALE") != "" {
@@ -167,8 +180,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			snapc, err = snapclient.NewForConfig(restConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
-
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
 			vcVersion = getVCversion(ctx, vcAddress)
 			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
@@ -4372,14 +4383,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			ginkgo.By("Get current leader Csi-Controller-Pod name where csi-snapshotter is running and " +
 				"find the master node IP where this Csi-Controller-Pod is running")
 			csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				c, sshClientConfig, snapshotterContainerName)
+				c, sshClientConfig, snapshotterContainerName, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("csi-snapshotter leader is in Pod %s "+
 				"which is running on master node %s", csiControllerPod, k8sMasterIP)
 		} else {
 			framework.Logf("sshwcpConfig: %v", sshWcpConfig)
 			csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				client, sshWcpConfig, snapshotterContainerName)
+				client, sshWcpConfig, snapshotterContainerName, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("%s leader is running on pod %s "+
 				"which is running on master node %s", snapshotterContainerName, csiControllerPod, k8sMasterIP)
@@ -4467,14 +4478,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			ginkgo.By("Get current leader Csi-Controller-Pod name where csi-snapshotter is running and " +
 				"find the master node IP where this Csi-Controller-Pod is running")
 			csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				c, sshClientConfig, snapshotterContainerName)
+				c, sshClientConfig, snapshotterContainerName, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("csi-snapshotter leader is in Pod %s "+
 				"which is running on master node %s", csiControllerPod, k8sMasterIP)
 		} else {
 			framework.Logf("sshwcpConfig: %v", sshWcpConfig)
 			csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				client, sshWcpConfig, snapshotterContainerName)
+				client, sshWcpConfig, snapshotterContainerName, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("%s leader is running on pod %s "+
 				"which is running on master node %s", snapshotterContainerName, csiControllerPod, k8sMasterIP)

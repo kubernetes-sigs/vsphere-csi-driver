@@ -73,6 +73,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		pandoraSyncWaitTime        int
 		dsRef                      types.ManagedObjectReference
 		labelsMap                  map[string]string
+		err                        error
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -98,8 +99,16 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 			storagePolicyName = GetAndExpectStringEnvVar(envZonalStoragePolicyName)
 		}
 
-		// fetching vc ip and creating creating vc session
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		if vcRestSessionId == "" {
+			vcRestSessionId = createVcSession4RestApis(ctx)
+		}
+
 		vcRestSessionId = createVcSession4RestApis(ctx)
 
 		// reading storage class name for wcp setup "wcpglobal_storage_profile"

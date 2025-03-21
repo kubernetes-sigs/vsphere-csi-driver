@@ -59,6 +59,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		noOfHostToBringDown     int
 		sshClientConfig         *ssh.ClientConfig
 		nimbusGeneratedK8sVmPwd string
+		sshdPortNum             string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -75,6 +76,14 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
+		}
+
+		// reading k8sMaster1 port number, if it is empty use default port
+		if sshdPortNum == "" {
+			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+			if sshdPortNum == "" {
+				sshdPortNum = defaultShhdPortNum
+			}
 		}
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
 		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
@@ -1142,6 +1151,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		sts_count = 3
 		statefulSetReplicaCount = 7
 		var ssPods *v1.PodList
+		var k8sMasterIP string
 
 		// get cluster resource details
 		clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
@@ -1213,7 +1223,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			k8sMasterIPs := getK8sMasterIPs(ctx, client)
 			checkNodesStatus := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
 			framework.Logf("Invoking command '%v' on host %v", checkNodesStatus, k8sMasterIPs[0])
-			result, err := sshExec(sshClientConfig, k8sMasterIPs[0], checkNodesStatus)
+			result, err := sshExec(sshClientConfig, k8sMasterIPs[0], checkNodesStatus, sshdPortNum)
 			nodeNames := strings.Split(result.Stdout, "\n")
 			if err != nil && result.Code != 0 {
 				fssh.LogResult(result)
@@ -1256,16 +1266,22 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		}
 
 		ginkgo.By("Bring up all K8s nodes which got disconnected due to powered off esxi hosts")
-		k8sMasterIPs := getK8sMasterIPs(ctx, client)
+		k8sMasterIP = GetAndExpectStringEnvVar(envMasterIp1)
+		if k8sMasterIP == "" {
+			allMasterIps := getK8sMasterIPs(ctx, client)
+			if len(allMasterIps) > 0 {
+				k8sMasterIP = allMasterIps[0]
+			}
+		}
 		checkNodesStatus := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
-		framework.Logf("Invoking command '%v' on host %v", checkNodesStatus, k8sMasterIPs[0])
-		result, err := sshExec(sshClientConfig, k8sMasterIPs[0], checkNodesStatus)
+		framework.Logf("Invoking command '%v' on host %v", checkNodesStatus, k8sMasterIP)
+		result, err := sshExec(sshClientConfig, k8sMasterIP, checkNodesStatus, sshdPortNum)
 		nodeNames := strings.Split(result.Stdout, "\n")
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 				fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", checkNodesStatus,
-					k8sMasterIPs[0]))
+					k8sMasterIP))
 		}
 		for _, nodeName := range nodeNames {
 			if nodeName != "" {

@@ -481,6 +481,14 @@ func fetchDatastoreListMap(ctx context.Context,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
+	var sshdPortNum string
+	/* reading k8sMaster1 port number,
+	   if variable value is empty and not set, reading default port num for k8s master1 */
+	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+	if sshdPortNum == "" {
+		sshdPortNum = defaultShhdPortNum
+	}
+
 	allMasterIps := getK8sMasterIPs(ctx, client)
 	masterIp := allMasterIps[0]
 
@@ -496,23 +504,27 @@ func fetchDatastoreListMap(ctx context.Context,
 
 	// Fetching cluster details
 	clientIndex := 0
-	clusters, err := getTopologyLevel5ClusterGroupNames(masterIp, sshClientConfig, dataCenters, clientIndex)
+	clusters, err := getTopologyLevel5ClusterGroupNames(masterIp, sshClientConfig,
+		dataCenters, clientIndex, sshdPortNum)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 
 	// Fetching list of datastores for Rack 1
-	rack1DatastoreListMap, err := getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0], clientIndex)
+	rack1DatastoreListMap, err := getListOfDatastoresByClusterName(masterIp, sshClientConfig,
+		clusters[0], clientIndex, sshdPortNum)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 
 	// Fetching list of datastores for Rack 2
 	if !multivc {
-		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[1], clientIndex)
+		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig,
+			clusters[1], clientIndex, sshdPortNum)
 	} else {
 		clientIndex = 1
-		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0], clientIndex)
+		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig,
+			clusters[0], clientIndex, sshdPortNum)
 	}
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -520,10 +532,12 @@ func fetchDatastoreListMap(ctx context.Context,
 
 	// Fetching list of datastores for Rack 3
 	if !multivc {
-		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[2], clientIndex)
+		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig,
+			clusters[2], clientIndex, sshdPortNum)
 	} else {
 		clientIndex = 2
-		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0], clientIndex)
+		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig,
+			clusters[0], clientIndex, sshdPortNum)
 	}
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -841,11 +855,11 @@ verifyK8sNodeStatusAfterSiteRecovery verifies that all k8s nodes be in up and
 running state post site recovery
 */
 func verifyK8sNodeStatusAfterSiteRecovery(client clientset.Interface, ctx context.Context,
-	sshClientConfig *ssh.ClientConfig, nodeList *v1.NodeList) error {
+	sshClientConfig *ssh.ClientConfig, nodeList *v1.NodeList, sshdPortNum string) error {
 	k8sMasterIPs := getK8sMasterIPs(ctx, client)
 	checkNodesStatus := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
 	framework.Logf("Invoking command '%v' on host %v", checkNodesStatus, k8sMasterIPs[0])
-	result, err := sshExec(sshClientConfig, k8sMasterIPs[0], checkNodesStatus)
+	result, err := sshExec(sshClientConfig, k8sMasterIPs[0], checkNodesStatus, sshdPortNum)
 	nodeNames := strings.Split(result.Stdout, "\n")
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)

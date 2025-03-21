@@ -51,6 +51,7 @@ var _ = ginkgo.Describe("[multivc-multireplica] MultiVc-MultiReplica", func() {
 		parallelStatefulSetCreation bool
 		scaleUpReplicaCount         int32
 		scaleDownReplicaCount       int32
+		sshdPortNum                 string
 	)
 	ginkgo.BeforeEach(func() {
 		var cancel context.CancelFunc
@@ -60,6 +61,15 @@ var _ = ginkgo.Describe("[multivc-multireplica] MultiVc-MultiReplica", func() {
 		namespace = f.Namespace.Name
 
 		multiVCbootstrap()
+
+		/* reading k8sMaster1 port number, if variable value is empty
+		and not set, reading default port num for k8s master1 */
+		if sshdPortNum == "" {
+			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+			if sshdPortNum == "" {
+				sshdPortNum = defaultShhdPortNum
+			}
+		}
 
 		stsScaleUp = true
 		stsScaleDown = true
@@ -146,19 +156,19 @@ var _ = ginkgo.Describe("[multivc-multireplica] MultiVc-MultiReplica", func() {
 		ginkgo.By("Get current leader where CSI-Provisioner, CSI-Attacher and " +
 			"Vsphere-Syncer is running and find the master node IP where these containers are running")
 		csiProvisionerLeader, csiProvisionerControlIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, provisionerContainerName)
+			client, sshClientConfig, provisionerContainerName, sshdPortNum)
 		framework.Logf("CSI-Provisioner is running on Leader Pod %s "+
 			"which is running on master node %s", csiProvisionerLeader, csiProvisionerControlIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		csiAttacherLeaderleader, csiAttacherControlIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, attacherContainerName)
+			client, sshClientConfig, attacherContainerName, sshdPortNum)
 		framework.Logf("CSI-Attacher is running on Leader Pod %s "+
 			"which is running on master node %s", csiAttacherLeaderleader, csiAttacherControlIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		vsphereSyncerLeader, vsphereSyncerControlIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, syncerContainerName)
+			client, sshClientConfig, syncerContainerName, sshdPortNum)
 		framework.Logf("Vsphere-Syncer is running on Leader Pod %s "+
 			"which is running on master node %s", vsphereSyncerLeader, vsphereSyncerControlIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -191,14 +201,14 @@ var _ = ginkgo.Describe("[multivc-multireplica] MultiVc-MultiReplica", func() {
 			if i == 1 {
 				ginkgo.By("Kill CSI-Provisioner container")
 				err = execDockerPauseNKillOnContainer(sshClientConfig, csiProvisionerControlIp, provisionerContainerName,
-					k8sVersion)
+					k8sVersion, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
 			if i == 2 {
 				ginkgo.By("Kill CSI-Attacher container")
 				err = execDockerPauseNKillOnContainer(sshClientConfig, csiAttacherControlIp, attacherContainerName,
-					k8sVersion)
+					k8sVersion, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -241,7 +251,7 @@ var _ = ginkgo.Describe("[multivc-multireplica] MultiVc-MultiReplica", func() {
 
 				framework.Logf("Kill Vsphere-Syncer container")
 				err = execDockerPauseNKillOnContainer(sshClientConfig, vsphereSyncerControlIp, syncerContainerName,
-					k8sVersion)
+					k8sVersion, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			}

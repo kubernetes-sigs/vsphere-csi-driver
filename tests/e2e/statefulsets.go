@@ -82,6 +82,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		stsReplicas                int32
 		allowedTopologies          []v1.TopologySelectorLabelRequirement
 		isQuotaValidationSupported bool
+		vcAddress                  string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -130,8 +131,13 @@ var _ = ginkgo.Describe("statefulset", func() {
 			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		}
 
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 		if supervisorCluster || stretchedSVC {
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
 			vcVersion = getVCversion(ctx, vcAddress)
 			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)

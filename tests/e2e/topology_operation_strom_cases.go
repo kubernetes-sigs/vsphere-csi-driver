@@ -59,6 +59,7 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		sshClientConfig         *ssh.ClientConfig
 		k8sVersion              string
 		nimbusGeneratedK8sVmPwd string
+		sshdPortNum             string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -67,6 +68,16 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		bootstrap()
+
+		/* reading k8sMaster1 port number, if variable value is empty
+		and not set, reading default port num for k8s master1 */
+		if sshdPortNum == "" {
+			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+			if sshdPortNum == "" {
+				sshdPortNum = defaultShhdPortNum
+			}
+		}
+
 		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -438,7 +449,7 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		ginkgo.By("Get current leader Csi-Controller-Pod name where CSI Provisioner is running and " +
 			"find the master node IP where this container leader is running")
 		controller_name, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, containerName)
+			client, sshClientConfig, containerName, sshdPortNum)
 		framework.Logf("CSI-Provisioner is running on Leader Pod %s "+
 			"which is running on master node %s", controller_name, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -519,7 +530,8 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 				is running */
 				ginkgo.By("Kill container CSI-Provisioner on the master node where elected leader " +
 					"is running")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, containerName, k8sVersion)
+				err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP,
+					containerName, k8sVersion, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -566,7 +578,7 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		ginkgo.By("Get newly Leader Csi-Controller-Pod where CSI Provisioner is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
 		controller_name, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, containerName)
+			client, sshClientConfig, containerName, sshdPortNum)
 		framework.Logf("CSI-Provisioner is running on newly elected Leader Pod %s "+
 			"which is running on master node %s", controller_name, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -593,7 +605,7 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		ginkgo.By("Get current leader Csi-Controller-Pod name where CSI Attacher is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
 		controller_name, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, containerName)
+			client, sshClientConfig, containerName, sshdPortNum)
 		framework.Logf("csi-attacher is running on Leader Pod %s "+
 			"which is running on master node %s", controller_name, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -620,7 +632,8 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 			if i == 2 {
 				/* Kill csi-attacher container */
 				ginkgo.By("Kill csi-attacher container")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, containerName, k8sVersion)
+				err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP,
+					containerName, k8sVersion, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -630,7 +643,7 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		ginkgo.By("Get newly elected leader Csi-Controller-Pod where CSI Attacher is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
 		controller_name, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, containerName)
+			client, sshClientConfig, containerName, sshdPortNum)
 		framework.Logf("csi-attacher is running on elected Leader Pod %s "+
 			"which is running on master node %s", controller_name, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

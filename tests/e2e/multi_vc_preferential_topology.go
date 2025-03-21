@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -49,7 +48,6 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		client                      clientset.Interface
 		namespace                   string
 		preferredDatastoreChosen    int
-		allMasterIps                []string
 		masterIp                    string
 		preferredDatastorePaths     []string
 		allowedTopologyRacks        []string
@@ -80,6 +78,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		err                         error
 		csiNamespace                string
 		csiReplicas                 int32
+		sshdPortNum                 string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -111,6 +110,13 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
 
+		/* reading k8sMaster1 port number,
+		   if variable value is empty and not set, reading default port num for k8s master1 */
+		sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+		if sshdPortNum == "" {
+			sshdPortNum = defaultShhdPortNum
+		}
+
 		stsScaleUp = true
 		stsScaleDown = true
 		verifyTopologyAffinity = true
@@ -124,9 +130,16 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		snapc, err = snapclient.NewForConfig(restConfig)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// fetching k8s master ip
-		allMasterIps = getK8sMasterIPs(ctx, client)
-		masterIp = allMasterIps[0]
+		// Read k8sMaster1 from export variable, if it is empty read it from util
+		if masterIp == "" {
+			masterIp = GetAndExpectStringEnvVar(envMasterIp1)
+			if masterIp == "" {
+				allMasterIps := getK8sMasterIPs(ctx, client)
+				if len(allMasterIps) > 0 {
+					masterIp = allMasterIps[0]
+				}
+			}
+		}
 
 		// fetching cluster details
 		clientIndex := 0
@@ -136,7 +149,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		// fetching list of datastores available in different VCs
 		ClusterdatastoreListVc1, ClusterdatastoreListVc2,
 			ClusterdatastoreListVc3, err = getDatastoresListFromMultiVCs(masterIp, sshClientConfig,
-			clusterComputeResource[0])
+			clusterComputeResource[0], sshdPortNum)
 		ClusterdatastoreListVc = append(ClusterdatastoreListVc, ClusterdatastoreListVc1,
 			ClusterdatastoreListVc2, ClusterdatastoreListVc3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -177,11 +190,13 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		framework.Logf("Perform preferred datastore tags cleanup after test completion")
-		err = deleteTagCreatedForPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks)
+		err = deleteTagCreatedForPreferredDatastore(masterIp, sshClientConfig,
+			allowedTopologyRacks, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Recreate preferred datastore tags post cleanup")
-		err = createTagForPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks)
+		err = createTagForPreferredDatastore(masterIp, sshClientConfig,
+			allowedTopologyRacks, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -230,7 +245,8 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		ginkgo.By("Tag preferred datastore for volume provisioning in VC1 and VC2")
 		for i := 0; i < 2; i++ {
 			paths, err := tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologies[0].Values[i],
-				preferredDatastoreChosen, ClusterdatastoreListVc[i], nil, i)
+				preferredDatastoreChosen, ClusterdatastoreListVc[i],
+				nil, i, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			preferredDatastorePaths = append(preferredDatastorePaths, paths...)
@@ -293,7 +309,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		ginkgo.By("Remove preferred datatsore tag which is chosen for volume provisioning")
 		for i := 0; i < len(preferredDatastorePaths); i++ {
 			err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[i],
-				allowedTopologies[0].Values[i], i)
+				allowedTopologies[0].Values[i], i, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -301,7 +317,8 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		ginkgo.By("Tag new preferred datastore for volume provisioning in VC1 and VC2")
 		for i := 0; i < 2; i++ {
 			paths, err := tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologies[0].Values[i],
-				preferredDatastoreChosen, ClusterdatastoreListVc[i], preferredDatastorePaths, i)
+				preferredDatastoreChosen, ClusterdatastoreListVc[i],
+				preferredDatastorePaths, i, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			preferredDatastorePathsNew = append(preferredDatastorePathsNew, paths...)
@@ -318,7 +335,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 			ginkgo.By("Remove preferred datastore tag")
 			for i := 0; i < len(preferredDatastorePathsNew); i++ {
 				err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePathsNew[i],
-					allowedTopologies[0].Values[i], i)
+					allowedTopologies[0].Values[i], i, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -417,7 +434,8 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		ginkgo.By("Tag preferred datastore for volume provisioning in VC1")
 		preferredDatastorePaths, err := tagPreferredDatastore(masterIp, sshClientConfig,
 			allowedTopologies[0].Values[0],
-			preferredDatastoreChosen, ClusterdatastoreListVc[0], nil, multiVcClientIndex)
+			preferredDatastoreChosen, ClusterdatastoreListVc[0], nil,
+			multiVcClientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pathsLen := len(preferredDatastorePaths)
 		for j := 0; j < pathsLen; j++ {
@@ -429,7 +447,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 			ginkgo.By("Remove preferred datastore tag")
 			for i := 0; i < len(preferredDatastorePaths); i++ {
 				err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[i],
-					allowedTopologies[0].Values[0], i)
+					allowedTopologies[0].Values[0], i, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -454,12 +472,12 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Rebooting VC")
-		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[0] + ":" + sshdPort
+		vcAddress, vCenterIp, err := readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("vcAddress - %s ", vcAddress)
 		err = invokeVCenterReboot(ctx, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(vCenterHostname[0])
+		err = waitForHostToBeUp(vCenterIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 
@@ -529,7 +547,8 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		ginkgo.By("Tag preferred datastore for volume provisioning in VC3")
 		preferredDatastorePaths, err = tagPreferredDatastore(masterIp, sshClientConfig,
 			allowedTopologies[0].Values[0],
-			preferredDatastoreChosen, ClusterdatastoreListVc[2], nil, multiVcClientIndex)
+			preferredDatastoreChosen, ClusterdatastoreListVc[2], nil,
+			multiVcClientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pathsLen := len(preferredDatastorePaths)
 		for j := 0; j < pathsLen; j++ {
@@ -540,7 +559,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		defer func() {
 			ginkgo.By("Remove preferred datastore tag")
 			err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
-				allowedTopologies[0].Values[0], multiVcClientIndex)
+				allowedTopologies[0].Values[0], multiVcClientIndex, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -676,7 +695,8 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		ginkgo.By("Tag preferred datastore for volume provisioning in VC3")
 		preferredDatastorePaths, err = tagPreferredDatastore(masterIp, sshClientConfig,
 			allowedTopologies[0].Values[0],
-			preferredDatastoreChosen, ClusterdatastoreListVc[2], nil, multiVcClientIndex)
+			preferredDatastoreChosen, ClusterdatastoreListVc[2], nil,
+			multiVcClientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pathsLen := len(preferredDatastorePaths)
 		for j := 0; j < pathsLen; j++ {
@@ -686,8 +706,9 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		}
 		defer func() {
 			ginkgo.By("Remove preferred datastore tag")
-			err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
-				allowedTopologies[0].Values[0], multiVcClientIndex)
+			err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig,
+				preferredDatastorePaths[0], allowedTopologies[0].Values[0],
+				multiVcClientIndex, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -749,14 +770,14 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 
 		ginkgo.By("Remove preferred datastore tag chosen for volume provisioning")
 		err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
-			allowedTopologyRacks[2], multiVcClientIndex)
+			allowedTopologyRacks[2], multiVcClientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// choose preferred datastore
 		ginkgo.By("Tag preferred datastore for volume provisioning in VC3")
 		preferredDatastorePaths, err = tagPreferredDatastore(masterIp, sshClientConfig,
 			allowedTopologies[0].Values[0], preferredDatastoreChosen, ClusterdatastoreListVc[2],
-			preferredDatastorePaths, multiVcClientIndex)
+			preferredDatastorePaths, multiVcClientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Waiting for %v for preferred datastore to get refreshed in the environment",

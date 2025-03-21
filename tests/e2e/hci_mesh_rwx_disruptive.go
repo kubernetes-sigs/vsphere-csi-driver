@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
@@ -65,6 +64,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		isVsanHealthServiceStopped bool
 		vmknic4VsanDown            bool
 		nicMgr                     *object.HostVirtualNicManager
+		vcAddress                  string
+		sshdPortNum                string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -77,6 +78,21 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		// connecting to vc
 		bootstrap()
+
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		/* reading k8sMaster1 port number, if variable value is empty
+		and not set, reading default port num for k8s master1 */
+		if sshdPortNum == "" {
+			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+			if sshdPortNum == "" {
+				sshdPortNum = defaultShhdPortNum
+			}
+		}
 
 		// fetch list of k8s nodes
 		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
@@ -139,8 +155,6 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		k8sVersion = v.Major + "." + v.Minor
 
 		if isVsanHealthServiceStopped {
-			vCenterHostname := strings.Split(e2eVSphere.Config.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
 			framework.Logf("Bringing vsanhealth up before terminating the test")
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
@@ -381,7 +395,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify all the workload Pods are in up and running state
@@ -558,7 +573,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify all the workload Pods are in up and running state
@@ -786,7 +802,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify all the workload Pods are in up and running state
@@ -912,7 +929,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		vmknic4VsanDown = false
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify all the workload Pods are in up and running state
@@ -1057,7 +1075,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		exitHostMM(ctx, hostsInCluster2[0], timeout)
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify all the workload Pods are in up and running state
@@ -1224,7 +1243,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify all the workload Pods are in up and running state
@@ -1380,7 +1400,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify all the workload Pods are in up and running state
@@ -1565,7 +1586,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify all the workload Pods are in up and running state
@@ -1752,7 +1774,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify all the workload Pods are in up and running state
@@ -1986,7 +2009,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify all the workload Pods are in up and running state
@@ -2083,13 +2107,13 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		ginkgo.By("Get current leader where CSI-Provisioner, CSI-Attacher and " +
 			"Vsphere-Syncer is running and find the master node IP where these containers are running")
 		csiProvisionerLeader, csiProvisionerControlIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, provisionerContainerName)
+			client, sshClientConfig, provisionerContainerName, sshdPortNum)
 		framework.Logf("CSI-Provisioner is running on Leader Pod %s "+
 			"which is running on master node %s", csiProvisionerLeader, csiProvisionerControlIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		csiAttacherLeaderleader, csiAttacherControlIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, attacherContainerName)
+			client, sshClientConfig, attacherContainerName, sshdPortNum)
 		framework.Logf("CSI-Attacher is running on Leader Pod %s "+
 			"which is running on master node %s", csiAttacherLeaderleader, csiAttacherControlIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2120,7 +2144,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 		ginkgo.By("Kill CSI-Provisioner container while pvc creation is in progress")
 		err = execDockerPauseNKillOnContainer(sshClientConfig, csiProvisionerControlIp, provisionerContainerName,
-			k8sVersion)
+			k8sVersion, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVC Bound state and CNS side verification")
@@ -2136,14 +2160,14 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 			if i == 3 {
 				csiAttacherLeaderleader, csiAttacherControlIp, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-					client, sshClientConfig, attacherContainerName)
+					client, sshClientConfig, attacherContainerName, sshdPortNum)
 				framework.Logf("CSI-Attacher is running on Leader Pod %s "+
 					"which is running on master node %s", csiAttacherLeaderleader, csiAttacherControlIp)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				ginkgo.By("Kill CSI-Attacher container")
 				err = execDockerPauseNKillOnContainer(sshClientConfig, csiAttacherControlIp, attacherContainerName,
-					k8sVersion)
+					k8sVersion, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -2161,7 +2185,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 			len(hostsInCluster))
 		defer func() {
 			ginkgo.By("Verifying k8s node status after site recovery")
-			err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+			err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+				nodeList, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -2175,7 +2200,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 			if i == 1 {
 				ginkgo.By("Kill CSI-Attacher container")
 				err = execDockerPauseNKillOnContainer(sshClientConfig, csiAttacherControlIp, attacherContainerName,
-					k8sVersion)
+					k8sVersion, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -2218,7 +2243,6 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		defer func() {
@@ -2287,7 +2311,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify all the workload Pods are in up and running state

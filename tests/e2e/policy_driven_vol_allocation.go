@@ -71,6 +71,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		sshWcpConfig        *ssh.ClientConfig
 		svcNamespace        string
 		pandoraSyncWaitTime int
+		sshdPortNum         string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -86,6 +87,15 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+
+		// reading k8sMaster1 port number, if it is empty use default port
+		if sshdPortNum == "" {
+			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+			if sshdPortNum == "" {
+				sshdPortNum = defaultShhdPortNum
+			}
+		}
+
 		govmomiClient := newClient(ctx, &e2eVSphere)
 		pc = newPbmClient(ctx, govmomiClient)
 
@@ -298,7 +308,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 					storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					err = createVsanDPvcAndPod(sshWcpConfig, svcMasterIp, svcNamespace,
-						pvcVsandNames[i], podVsandNames[i], policyName, "")
+						pvcVsandNames[i], podVsandNames[i], policyName, "", sshdPortNum)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				} else {
 					storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
@@ -547,7 +557,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 					storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					err = createVsanDPvcAndPod(sshWcpConfig, svcMasterIp, svcNamespace,
-						pvcVsandNames[i], podVsandNames[i], policyName, "")
+						pvcVsandNames[i], podVsandNames[i], policyName, "", sshdPortNum)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				} else {
 					storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
@@ -777,7 +787,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = createVsanDPvcAndPod(sshWcpConfig, svcMasterIp, svcNamespace,
-					eztVsandPvcName+randomStr, eztVsandPodName+randomStr, policyName, largeSize)
+					eztVsandPvcName+randomStr, eztVsandPodName+randomStr, policyName, largeSize, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			} else {
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
@@ -989,7 +999,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = createVsanDPvcAndPod(sshWcpConfig, svcMasterIp, svcNamespace,
-					eztVsandPvcName+randomStr, eztVsandPodName+randomStr, policyName, "")
+					eztVsandPvcName+randomStr, eztVsandPodName+randomStr, policyName, "", sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			} else {
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
@@ -1083,7 +1093,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}()
 		}
 		ginkgo.By("Get filesystem size for mount point /mnt/volume1 before expansion")
-		originalFsSize, err := getFileSystemSizeForOsType(f, client, pods[0])
+		originalFsSize, err := getFileSystemSizeForOsType(f, client, pods[0], sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expand pvc1 to a large size this should take more than vpxd timeout")
@@ -1122,7 +1132,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			gomega.BeEmpty(), "pvc should not have conditions but it has: %v", pvclaim.Status.Conditions)
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err := getFileSystemSizeForOsType(f, client, pods[0])
+		fsSize, err := getFileSystemSizeForOsType(f, client, pods[0], sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("File system size after expansion : %v", fsSize)
 		// Filesystem size may be smaller than the size of the block volume
@@ -1280,7 +1290,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 					storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					err = createVsanDPvcAndPod(sshWcpConfig, svcMasterIp, svcNamespace,
-						pvcVsandNames[i], podVsandNames[i], policyName, "")
+						pvcVsandNames[i], podVsandNames[i], policyName, "", sshdPortNum)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				} else {
 					storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
@@ -1404,7 +1414,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		fsSizes := []int64{}
 
 		for _, pod := range pods {
-			originalSizeInMb, err := getFileSystemSizeForOsType(f, client, pod)
+			originalSizeInMb, err := getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			fsSizes = append(fsSizes, originalSizeInMb)
 		}
@@ -1426,7 +1436,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 			var fsSize int64
 			framework.Logf("Verify filesystem size for mount point /mnt/volume1 for pod %v", pods[i].Name)
-			fsSize, err := getFileSystemSizeForOsType(f, client, pods[i])
+			fsSize, err := getFileSystemSizeForOsType(f, client, pods[i], sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("File system size after expansion : %v", fsSize)
 			gomega.Expect(fsSize > fsSizes[i]).To(gomega.BeTrue(),
@@ -1613,7 +1623,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		if wcpVsanDirectCluster && supervisorCluster {
 			err = createVsanDPvcAndPod(sshWcpConfig, svcMasterIp, svcNamespace,
-				eztVsandPvcName+randomStr, eztVsandPodName+randomStr, policyName, "")
+				eztVsandPvcName+randomStr, eztVsandPodName+randomStr, policyName, "", sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -1749,7 +1759,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		if wcpVsanDirectCluster && supervisorCluster {
 			ginkgo.By("Creating a pod")
-			err := applyVsanDirectPodYaml(sshWcpConfig, svcMasterIp, svcNamespace, pvclaim.Name, eztVsandPodName+randomStr)
+			err := applyVsanDirectPodYaml(sshWcpConfig, svcMasterIp, svcNamespace,
+				pvclaim.Name, eztVsandPodName+randomStr, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			podList := getAllPodsFromNamespace(ctx, client, namespace)
@@ -1897,7 +1908,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = createVsanDPvcAndPod(sshWcpConfig, svcMasterIp, svcNamespace,
-					eztVsandPvcName+randomStr, eztVsandPodName+randomStr, policyName, "")
+					eztVsandPvcName+randomStr, eztVsandPodName+randomStr,
+					policyName, "", sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			} else {
 				storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
@@ -2041,7 +2053,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		ginkgo.By("Creating pod to attach PV to the node")
 		var newPods []*v1.Pod
 		if wcpVsanDirectCluster && supervisorCluster {
-			err := applyVsanDirectPodYaml(sshWcpConfig, svcMasterIp, svcNamespace, pvclaim.Name, eztVsandPodName+randomStr)
+			err := applyVsanDirectPodYaml(sshWcpConfig, svcMasterIp, svcNamespace, pvclaim.Name,
+				eztVsandPodName+randomStr, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			podList := getAllPodsFromNamespace(ctx, client, namespace)
@@ -2073,7 +2086,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		var fsSize int64
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-		fsSize, err = getFileSystemSizeForOsType(f, client, newPods[0])
+		fsSize, err = getFileSystemSizeForOsType(f, client, newPods[0],
+			sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("File system size after expansion : %d", fsSize)
 
@@ -2544,7 +2558,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		fsSizes := []int64{}
 		for _, pod := range pods {
-			originalSizeInMb, err := getFileSystemSizeForOsType(f, client, pod)
+			originalSizeInMb, err := getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			fsSizes = append(fsSizes, originalSizeInMb)
 		}
@@ -2590,7 +2604,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			framework.Logf("Waiting for file system resize to finish for pvc %v", pvcs[i*2].Name)
 			pvcs[i*2], err = waitForFSResize(pvcs[i*2], client)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			fsSize, err := getFileSystemSizeForOsType(f, client, pods[i])
+			fsSize, err := getFileSystemSizeForOsType(f, client, pods[i], sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("File system size after expansion : %v", fsSize)
 			gomega.Expect(fsSize > fsSizes[i]).To(gomega.BeTrue(),
@@ -2689,7 +2703,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = createVsanDPvcAndPod(sshWcpConfig, svcMasterIp, svcNamespace,
-			eztVsandPvcName+randomStr, eztVsandPodName+randomStr, policyName, "")
+			eztVsandPvcName+randomStr, eztVsandPodName+randomStr, policyName, "", sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		scs = append(scs, storageclass)
 
@@ -2769,7 +2783,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		gomega.Expect(storagePolicyExists).To(gomega.BeTrue(), "storage policy verification failed")
 
 		ginkgo.By("Creating a pod")
-		err = applyVsanDirectPodYaml(sshWcpConfig, svcMasterIp, svcNamespace, pvclaim.Name, eztVsandPodName+randomStr)
+		err = applyVsanDirectPodYaml(sshWcpConfig, svcMasterIp, svcNamespace,
+			pvclaim.Name, eztVsandPodName+randomStr, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		podList := getAllPodsFromNamespace(ctx, client, namespace)
@@ -2795,7 +2810,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		gomega.Expect(storagePolicyExists).To(gomega.BeTrue(), "storage policy verification failed")
 
 		ginkgo.By("Creating a pod")
-		err = applyVsanDirectPodYaml(sshWcpConfig, svcMasterIp, svcNamespace, pvclaim.Name, eztVsandPodName+randomStr)
+		err = applyVsanDirectPodYaml(sshWcpConfig, svcMasterIp, svcNamespace, pvclaim.Name,
+			eztVsandPodName+randomStr, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		podList = getAllPodsFromNamespace(ctx, client, namespace)
@@ -3573,8 +3589,15 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 // fillVolumesInPods fills the volumes in pods after leaving 100m for FS metadata
 func fillVolumeInPods(f *framework.Framework, client clientset.Interface, pods []*v1.Pod) {
+	// reading k8sMaster1 port number, if it is empty use default port
+	var sshdPortNum string
+	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+	if sshdPortNum == "" {
+		sshdPortNum = defaultShhdPortNum
+	}
+
 	for _, pod := range pods {
-		size, err := getFileSystemSizeForOsType(f, client, pod)
+		size, err := getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		writeRandomDataOnPod(pod, size-100) // leaving 100m for FS metadata
 	}
@@ -3609,9 +3632,12 @@ func writeRandomDataOnPod(pod *v1.Pod, count int64) {
 // default task timeout is 40 mins
 // if taskTimeout param is 0 we will remove the timeout entry in cfg file and default timeout will kick-in
 func setVpxdTaskTimeout(ctx context.Context, taskTimeout int) {
-	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 	timeoutMatches := false
 	diffTimeoutExists := false
+
+	// reading vc address with port num
+	vcAddress, _, err := readVcAddress()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	grepCmd := "grep '<timeout>' /etc/vmware-vpx/vpxd.cfg"
 	framework.Logf("Invoking command '%v' on vCenter host %v", grepCmd, vcAddress)
@@ -3692,6 +3718,14 @@ func writeKnownData2Pod(f *framework.Framework, client clientset.Interface, pod 
 	size ...int64) {
 	var svcMasterIp string
 	var sshWcpConfig *ssh.ClientConfig
+	var sshdPortNum string
+
+	// reading k8sMaster1 port number, if it is empty use default port
+	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+	if sshdPortNum == "" {
+		sshdPortNum = defaultShhdPortNum
+	}
+
 	if wcpVsanDirectCluster {
 		svcMasterIp = GetAndExpectStringEnvVar(svcMasterIP)
 		svcMasterPwd := GetAndExpectStringEnvVar(svcMasterPassword)
@@ -3724,7 +3758,7 @@ func writeKnownData2Pod(f *framework.Framework, client clientset.Interface, pod 
 	}
 
 	var cmd []string
-	fsSize, err := getFileSystemSizeForOsType(f, client, pod)
+	fsSize, err := getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	iosize := fsSize - spareSpace
 	if len(size) != 0 {
@@ -3798,6 +3832,14 @@ func verifyKnownDataInPod(f *framework.Framework, client clientset.Interface, po
 	size ...int64) {
 	var svcMasterIp string
 	var sshWcpConfig *ssh.ClientConfig
+	var sshdPortNum string
+
+	// reading k8sMaster1 port number, if it is empty use default port
+	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+	if sshdPortNum == "" {
+		sshdPortNum = defaultShhdPortNum
+	}
+
 	if wcpVsanDirectCluster {
 		svcMasterIp = GetAndExpectStringEnvVar(svcMasterIP)
 		svcMasterPwd := GetAndExpectStringEnvVar(svcMasterPassword)
@@ -3828,7 +3870,7 @@ func verifyKnownDataInPod(f *framework.Framework, client clientset.Interface, po
 				"%v/%v:mnt/volume1/testdata", pod.Namespace, pod.Name))
 		}
 	}
-	fsSize, err := getFileSystemSizeForOsType(f, client, pod)
+	fsSize, err := getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	iosize := fsSize - spareSpace
 	if len(size) != 0 {
@@ -3927,9 +3969,16 @@ func reconfigPolicyParallel(ctx context.Context, volID string, policyId string, 
 // on svc master IP
 func writeDataOnPodInSupervisor(sshClientConfig *ssh.ClientConfig, svcMasterIP string,
 	cmd string) {
+	var sshdPortNum string
+
+	// reading k8sMaster1 port number, if it is empty use default port
+	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+	if sshdPortNum == "" {
+		sshdPortNum = defaultShhdPortNum
+	}
 
 	res, err := sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || res.Code != 0 {
 		fssh.LogResult(res)
 		framework.Logf("contains: %v", strings.Contains(res.Stderr, "copied"))
