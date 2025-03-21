@@ -1,6 +1,8 @@
 module sigs.k8s.io/vsphere-csi-driver/v3
 
-go 1.22.8
+go 1.23.0
+
+toolchain go1.23.7
 
 require (
 	github.com/agiledragon/gomonkey/v2 v2.3.1
@@ -23,10 +25,10 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/vmware-tanzu/vm-operator/api v0.0.0-20241108223224-20f977201370
 	github.com/vmware-tanzu/vm-operator/external/byok v0.0.0-20241108223224-20f977201370
-	github.com/vmware/govmomi v0.48.0
+	github.com/vmware/govmomi v0.49.0
 	go.uber.org/zap v1.26.0
 	golang.org/x/crypto v0.31.0
-	golang.org/x/sync v0.10.0
+	golang.org/x/sync v0.12.0
 	golang.org/x/sys v0.28.0
 	google.golang.org/grpc v1.67.1
 	google.golang.org/protobuf v1.34.2
@@ -98,7 +100,7 @@ require (
 	github.com/google/btree v1.0.1 // indirect
 	github.com/google/cadvisor v0.49.0 // indirect
 	github.com/google/cel-go v0.20.1 // indirect
-	github.com/google/go-cmp v0.6.0 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/pprof v0.0.0-20240525223248-4bfdf5a9a2af // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
@@ -166,7 +168,7 @@ require (
 	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/oauth2 v0.22.0 // indirect
 	golang.org/x/term v0.27.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
