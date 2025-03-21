@@ -61,6 +61,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		serviceName            string
 		pandoraSyncWaitTime    int
 		storagePolicyName      string
+		vcAddress              string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -76,6 +77,12 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
+		}
+
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		// Get snapshot client using the rest config
@@ -163,7 +170,6 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 					startHostDOnHost(ctx, hostIP)
 				}
 			} else {
-				vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 				ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", serviceName))
 				err := invokeVCenterServiceControl(ctx, startOperation, serviceName, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -320,6 +326,8 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 	scParameters := make(map[string]string)
 
 	storagePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+	vcAddress, _, err := readVcAddress()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	if vanillaCluster {
 		ginkgo.By("Create storage class")
@@ -477,7 +485,6 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 
 	} else {
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isServiceStopped = true
@@ -604,7 +611,6 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 
 		} else {
 			ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			err = invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			isServiceStopped = true
@@ -730,7 +736,6 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 
 		} else {
 			ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			err = invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			isServiceStopped = true

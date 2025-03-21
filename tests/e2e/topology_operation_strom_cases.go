@@ -59,6 +59,9 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		sshClientConfig         *ssh.ClientConfig
 		k8sVersion              string
 		nimbusGeneratedK8sVmPwd string
+		sshdPortNum             string
+		isPrivateNetwork        bool
+		masterIpPortMap         map[string]string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -67,6 +70,13 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		bootstrap()
+
+		/*
+		   	Verifying whether the setup is a private or public network and
+		   retrieving the master IP-to-port number mapping
+		*/
+		_, sshdPortNum, isPrivateNetwork, masterIpPortMap = GetMasterIpPortMap(ctx, client)
+
 		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -165,7 +175,7 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
-			bindingMode, false, "nginx-sc")
+			bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -181,7 +191,7 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
+		statefulSets := createParallelStatefulSetSpec(storageclass, namespace, sts_count, statefulSetReplicaCount)
 
 		// Trigger multiple StatefulSets creation in parallel.
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
@@ -438,10 +448,13 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		ginkgo.By("Get current leader Csi-Controller-Pod name where CSI Provisioner is running and " +
 			"find the master node IP where this container leader is running")
 		controller_name, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, containerName)
+			client, sshClientConfig, containerName, sshdPortNum)
 		framework.Logf("CSI-Provisioner is running on Leader Pod %s "+
 			"which is running on master node %s", controller_name, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// reading port number for the master ip retrieve
+		sshdPortNum = GetPortNum(k8sMasterIP, isPrivateNetwork, masterIpPortMap)
 
 		// Get allowed topologies for Storage Class
 		allowedTopologyForSC := getTopologySelector(topologyAffinityDetails, topologyCategories,
@@ -450,7 +463,7 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
-			bindingMode, false, "nginx-sc")
+			bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -503,7 +516,7 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
+		statefulSets := createParallelStatefulSetSpec(storageclass, namespace, sts_count, statefulSetReplicaCount)
 
 		/* Trigger multiple StatefulSets creation in parallel.
 		During StatefulSets creation, kill CSI Provisioner container in between */
@@ -519,7 +532,8 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 				is running */
 				ginkgo.By("Kill container CSI-Provisioner on the master node where elected leader " +
 					"is running")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, containerName, k8sVersion)
+				err = execDockerPauseNKillOnContainer(ctx, client, sshClientConfig, k8sMasterIP,
+					containerName, k8sVersion, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -566,10 +580,13 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		ginkgo.By("Get newly Leader Csi-Controller-Pod where CSI Provisioner is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
 		controller_name, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, containerName)
+			client, sshClientConfig, containerName, sshdPortNum)
 		framework.Logf("CSI-Provisioner is running on newly elected Leader Pod %s "+
 			"which is running on master node %s", controller_name, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// reading port number for the master ip retrieve
+		sshdPortNum = GetPortNum(k8sMasterIP, isPrivateNetwork, masterIpPortMap)
 
 		// Wait for testbed to be back to normal
 		time.Sleep(pollTimeoutShort)
@@ -593,10 +610,13 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		ginkgo.By("Get current leader Csi-Controller-Pod name where CSI Attacher is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
 		controller_name, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, containerName)
+			client, sshClientConfig, containerName, sshdPortNum)
 		framework.Logf("csi-attacher is running on Leader Pod %s "+
 			"which is running on master node %s", controller_name, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// reading port number for the master ip retrieve
+		sshdPortNum = GetPortNum(k8sMasterIP, isPrivateNetwork, masterIpPortMap)
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
@@ -620,7 +640,8 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 			if i == 2 {
 				/* Kill csi-attacher container */
 				ginkgo.By("Kill csi-attacher container")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIP, containerName, k8sVersion)
+				err = execDockerPauseNKillOnContainer(ctx, client, sshClientConfig, k8sMasterIP,
+					containerName, k8sVersion, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -630,10 +651,13 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		ginkgo.By("Get newly elected leader Csi-Controller-Pod where CSI Attacher is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
 		controller_name, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, containerName)
+			client, sshClientConfig, containerName, sshdPortNum)
 		framework.Logf("csi-attacher is running on elected Leader Pod %s "+
 			"which is running on master node %s", controller_name, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// reading port number for the master ip retrieve
+		sshdPortNum = GetPortNum(k8sMasterIP, isPrivateNetwork, masterIpPortMap)
 
 		for i := 0; i < len(statefulSets); i++ {
 			// Scale up statefulSets replicas count

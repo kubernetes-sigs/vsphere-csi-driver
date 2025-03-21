@@ -59,6 +59,8 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		noOfHostToBringDown     int
 		sshClientConfig         *ssh.ClientConfig
 		nimbusGeneratedK8sVmPwd string
+		sshdPortNum             string
+		masterIp                string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -76,6 +78,12 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+
+		// reading K8sMasterIP and port number
+		if sshdPortNum == "" || masterIp == "" {
+			masterIp, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
+		}
+
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
 		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
 		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap)
@@ -150,7 +158,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
-			bindingMode, false, "nginx-sc")
+			bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -166,7 +174,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
+		statefulSets := createParallelStatefulSetSpec(storageclass, namespace, sts_count, statefulSetReplicaCount)
 
 		// Trigger multiple StatefulSets creation in parallel.
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
@@ -360,7 +368,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
-			bindingMode, false, "nginx-sc")
+			bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -376,7 +384,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
+		statefulSets := createParallelStatefulSetSpec(storageclass, namespace, sts_count, statefulSetReplicaCount)
 
 		// Trigger multiple StatefulSets creation in parallel.
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
@@ -561,7 +569,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
-			bindingMode, false, "nginx-sc")
+			bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -577,7 +585,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
+		statefulSets := createParallelStatefulSetSpec(storageclass, namespace, sts_count, statefulSetReplicaCount)
 
 		// Trigger multiple StatefulSets creation in parallel.
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
@@ -762,7 +770,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
-			bindingMode, false, "nginx-sc")
+			bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -778,7 +786,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
+		statefulSets := createParallelStatefulSetSpec(storageclass, namespace, sts_count, statefulSetReplicaCount)
 
 		// Trigger multiple StatefulSets creation in parallel.
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
@@ -959,7 +967,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
-			bindingMode, false, "nginx-sc")
+			bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -975,7 +983,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
+		statefulSets := createParallelStatefulSetSpec(storageclass, namespace, sts_count, statefulSetReplicaCount)
 
 		// Trigger multiple StatefulSets creation in parallel.
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
@@ -1154,7 +1162,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
-			bindingMode, false, "nginx-sc")
+			bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
@@ -1171,7 +1179,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Create multiple StatefulSets Specs in parallel
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
+		statefulSets := createParallelStatefulSetSpec(storageclass, namespace, sts_count, statefulSetReplicaCount)
 
 		// Trigger multiple StatefulSets creation in parallel.
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
@@ -1210,16 +1218,15 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			for i := 0; i < len(powerOffHostsList); i++ {
 				powerOnEsxiHostByCluster(powerOffHostsList[i])
 			}
-			k8sMasterIPs := getK8sMasterIPs(ctx, client)
 			checkNodesStatus := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
-			framework.Logf("Invoking command '%v' on host %v", checkNodesStatus, k8sMasterIPs[0])
-			result, err := sshExec(sshClientConfig, k8sMasterIPs[0], checkNodesStatus)
+			framework.Logf("Invoking command '%v' on host %v", checkNodesStatus, masterIp)
+			result, err := sshExec(sshClientConfig, masterIp, checkNodesStatus, sshdPortNum)
 			nodeNames := strings.Split(result.Stdout, "\n")
 			if err != nil && result.Code != 0 {
 				fssh.LogResult(result)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 					fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", checkNodesStatus,
-						k8sMasterIPs[0]))
+						masterIp))
 			}
 			if len(nodeNames) != 0 {
 				ginkgo.By("Bring up all K8s nodes which got disconnected due to powered off esxi hosts")
@@ -1256,16 +1263,15 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		}
 
 		ginkgo.By("Bring up all K8s nodes which got disconnected due to powered off esxi hosts")
-		k8sMasterIPs := getK8sMasterIPs(ctx, client)
 		checkNodesStatus := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
-		framework.Logf("Invoking command '%v' on host %v", checkNodesStatus, k8sMasterIPs[0])
-		result, err := sshExec(sshClientConfig, k8sMasterIPs[0], checkNodesStatus)
+		framework.Logf("Invoking command '%v' on host %v", checkNodesStatus, masterIp)
+		result, err := sshExec(sshClientConfig, masterIp, checkNodesStatus, sshdPortNum)
 		nodeNames := strings.Split(result.Stdout, "\n")
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 				fmt.Sprintf("command failed/couldn't execute command: %s on host: %v", checkNodesStatus,
-					k8sMasterIPs[0]))
+					masterIp))
 		}
 		for _, nodeName := range nodeNames {
 			if nodeName != "" {

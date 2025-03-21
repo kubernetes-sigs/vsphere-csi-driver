@@ -392,7 +392,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[svStorageClassName] = storagePolicyName
-		sc, err := createStorageClass(client, scParameters, nil, "", "", false, "nginx-sc")
+		sc, err := createStorageClass(client, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

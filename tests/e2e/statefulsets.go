@@ -82,6 +82,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		stsReplicas                int32
 		allowedTopologies          []v1.TopologySelectorLabelRequirement
 		isQuotaValidationSupported bool
+		vcAddress                  string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -130,8 +131,13 @@ var _ = ginkgo.Describe("statefulset", func() {
 			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		}
 
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 		if supervisorCluster || stretchedSVC {
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
 			vcVersion = getVCversion(ctx, vcAddress)
 			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
@@ -603,7 +609,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 		scParameters[scParamFsType] = ext4FSType
 
 		if vanillaCluster {
-			storageClassName = "nginx-sc-expansion"
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 			scParameters[scParamDatastoreURL] = sharedVSANDatastoreURL
@@ -616,7 +621,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		}
 
 		if !vcptocsi {
-			scSpec = getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", true)
+			scSpec = getVSphereStorageClassSpec("", scParameters, nil, "", "", true)
 		} else {
 			scSpec = getVcpVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", true)
 		}
@@ -811,10 +816,8 @@ var _ = ginkgo.Describe("statefulset", func() {
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
-			storageClassName = "nginx-sc-default"
 		} else {
 			ginkgo.By("Running for WCP setup")
-
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
@@ -834,7 +837,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		}()
 
 		if !supervisorCluster {
-			scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
+			scSpec := getVSphereStorageClassSpec("", scParameters, nil, "", "", false)
 			sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {

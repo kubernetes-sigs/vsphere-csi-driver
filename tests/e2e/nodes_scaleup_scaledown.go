@@ -19,9 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"math/rand"
-	"strconv"
-	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -82,13 +79,6 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 		12. Delete the storage class.
 	*/
 	ginkgo.It("Statefulset with Nodes Scale-up and Scale-down", func() {
-		curtime := time.Now().Unix()
-		randomValue := rand.Int()
-		val := strconv.FormatInt(int64(randomValue), 10)
-		val = string(val[1:3])
-		curtimestring := strconv.FormatInt(curtime, 10)
-		scName := "nginx-sc-default-" + curtimestring + val
-
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -109,7 +99,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 		if rwxAccessMode {
 			scParameters[scParamFsType] = nfs4FSType
 		}
-		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec("", scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -132,7 +122,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 		}
 
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Spec.StorageClassName = &scName
+			Spec.StorageClassName = &sc.Name
 		CreateStatefulSet(namespace, statefulset, client)
 
 		defer func() {

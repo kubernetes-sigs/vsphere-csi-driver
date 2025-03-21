@@ -551,10 +551,17 @@ func getMasterIpOnSite(ctx context.Context, client clientset.Interface, primaryS
 // a specific master node on that site
 func changeLeaderOfContainerToComeUpOnMaster(ctx context.Context, client clientset.Interface,
 	sshClientConfig *ssh.ClientConfig, csiContainerName string, primarySite bool) error {
+	var sshdPortNum string
+	var isPrivateNetwork bool
+	var masterIpPortMap map[string]string
+
 	// fetching k8s version
 	v, err := client.Discovery().ServerVersion()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	k8sVersion := v.Major + "." + v.Minor
+
+	// Verifying whether the setup is a private or public network and retrieving the master IP-to-port number mapping
+	_, sshdPortNum, isPrivateNetwork, masterIpPortMap = GetMasterIpPortMap(ctx, client)
 
 	// Fetch the IP address of master node on that site
 	masterIpOnSite, err := getMasterIpOnSite(ctx, client, primarySite)
@@ -573,12 +580,16 @@ func changeLeaderOfContainerToComeUpOnMaster(ctx context.Context, client clients
 	waitErr := wait.PollUntilContextTimeout(ctx, healthStatusPollInterval, pollTimeout*6, true,
 		func(ctx context.Context) (bool, error) {
 			// Check if leader of csi container comes up on master node of secondary site
-			_, masterIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx, client, sshClientConfig,
-				csiContainerName)
+			_, masterIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx, client,
+				sshClientConfig, csiContainerName, sshdPortNum)
 			framework.Logf("%s container leader is on a master node with IP %s ", csiContainerName, masterIp)
 			if err != nil {
 				return false, err
 			}
+
+			// reading port number for the master ip retrieve
+			sshdPortNum = GetPortNum(masterIp, isPrivateNetwork, masterIpPortMap)
+
 			csipods, err := client.CoreV1().Pods(csiSystemNamespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer ginkgo.GinkgoRecover()
@@ -611,8 +622,8 @@ func changeLeaderOfContainerToComeUpOnMaster(ctx context.Context, client clients
 			var wg sync.WaitGroup
 			wg.Add(len(allMasterIps))
 			for _, masterIp := range allMasterIps {
-				go invokeDockerPauseNKillOnContainerInParallel(sshClientConfig, masterIp,
-					csiContainerName, k8sVersion, &wg)
+				go invokeDockerPauseNKillOnContainerInParallel(ctx, client, sshClientConfig, masterIp,
+					csiContainerName, k8sVersion, &wg, sshdPortNum)
 			}
 			wg.Wait()
 
@@ -627,11 +638,13 @@ func changeLeaderOfContainerToComeUpOnMaster(ctx context.Context, client clients
 
 // invokeDockerPauseNKillOnContainerInParallel invokes docker pause and kill command on
 // the particular CSI container on the master node in parallel
-func invokeDockerPauseNKillOnContainerInParallel(sshClientConfig *ssh.ClientConfig, k8sMasterIp string,
-	csiContainerName string, k8sVersion string, wg *sync.WaitGroup) {
+func invokeDockerPauseNKillOnContainerInParallel(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig, k8sMasterIp string,
+	csiContainerName string, k8sVersion string, wg *sync.WaitGroup, sshdPortNum string) {
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
-	err := execDockerPauseNKillOnContainer(sshClientConfig, k8sMasterIp, csiContainerName, k8sVersion)
+	err := execDockerPauseNKillOnContainer(ctx, client, sshClientConfig, k8sMasterIp,
+		csiContainerName, k8sVersion, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 

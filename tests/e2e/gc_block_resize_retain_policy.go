@@ -70,6 +70,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		restConfig          *restclient.Config
 		deleteFCDRequired   bool
 		labels_ns           map[string]string
+		sshdPortNum         string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -83,6 +84,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		labels_ns["e2e-framework"] = f.BaseName
 
 		bootstrap()
+
+		// reading K8sMasterIP port number
+		if sshdPortNum == "" {
+			_, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
+		}
+
 		ginkgo.By("Getting ready nodes on GC 1")
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
@@ -233,7 +240,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		}
 
 		ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-		originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
+		originalFsSize, err := getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Delete POD.
@@ -362,7 +369,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
-		fsSize, err := getFileSystemSizeForOsType(f, client, pod)
+		fsSize, err := getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume.
 		// Here since filesystem was already formatted on the original volume,
@@ -729,7 +736,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		}
 
 		ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-		originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
+		originalFsSize, err := getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -793,7 +800,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
-		fsSize, err := getFileSystemSizeForOsType(f, client, pod)
+		fsSize, err := getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Filesystem size may be smaller than the size of the block volume.
 		// Here since filesystem was already formatted on the original volume,
@@ -976,7 +983,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		volHandle = getVolumeIDFromSupervisorCluster(pvNew.Spec.CSI.VolumeHandle)
 		framework.Logf("Volume Handle :%s", volHandle)
 
-		onlineVolumeResizeCheck(f, client, namespace, svpvcName, volHandle, pvcNew, pod)
+		onlineVolumeResizeCheck(f, ctx, client, namespace, svpvcName,
+			volHandle, pvcNew, pod)
 
 	})
 
@@ -1129,7 +1137,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		volHandle = getVolumeIDFromSupervisorCluster(pvNew.Spec.CSI.VolumeHandle)
 		framework.Logf("Volume Handle :%s", volHandle)
 
-		onlineVolumeResizeCheck(f, client, namespace, svcPVC.Name, volHandle, pvcNew, pod)
+		onlineVolumeResizeCheck(f, ctx, client, namespace, svcPVC.Name,
+			volHandle, pvcNew, pod)
 
 	})
 

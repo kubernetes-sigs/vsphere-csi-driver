@@ -86,9 +86,15 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
 		initialiseFdsVar(ctx)
 
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		vcRestSessionId = createVcSession4RestApis(ctx)
-		//csiNs = GetAndExpectStringEnvVar(envCSINamespace)
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		if vcRestSessionId == "" {
+			vcRestSessionId = createVcSession4RestApis(ctx)
+		}
 
 		storageClassName = strings.ReplaceAll(storagePolicyName, " ", "-") // since this is a wcp setup
 		storageClassName = strings.ToLower(storageClassName)

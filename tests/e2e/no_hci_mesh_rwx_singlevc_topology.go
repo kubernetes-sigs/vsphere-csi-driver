@@ -69,7 +69,6 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 		clusterId                string
 		csiNamespace             string
 		csiReplicas              int32
-		allMasterIps             []string
 		masterIp                 string
 		err                      error
 		topologySetupType        string
@@ -136,9 +135,10 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicas = *csiDeployment.Spec.Replicas
 
-		// fetch list of master IPs
-		allMasterIps = getK8sMasterIPs(ctx, client)
-		masterIp = allMasterIps[0]
+		// reading K8sMasterIP
+		if masterIp == "" {
+			masterIp, _, _, _ = GetMasterIpPortMap(ctx, client)
+		}
 
 		/* Reading the topology setup type (Level 2 or Level 5), and based on the selected setup type,
 		executing the test case on the corresponding setup */

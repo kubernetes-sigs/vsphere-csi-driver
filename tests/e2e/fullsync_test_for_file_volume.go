@@ -55,6 +55,8 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 		labelValue                 string
 		fullSyncWaitTime           int
 		isVsanHealthServiceStopped bool
+		vcAddress                  string
+		err                        error
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -62,6 +64,13 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 		namespace = getNamespaceToRunTests(f)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -86,7 +95,6 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		if isVsanHealthServiceStopped {
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
@@ -140,7 +148,6 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 		}()
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		defer func() {

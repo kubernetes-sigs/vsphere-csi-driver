@@ -78,6 +78,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		scName                     string
 		volHandle                  string
 		isQuotaValidationSupported bool
+		sshdPortNum                string
+		isPrivateNetwork           bool
+		masterIpPortMap            map[string]string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -105,8 +108,15 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			deleteService(namespace, client, service)
 		}
 
-		// reading vc credentials
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		/* Verifying whether the setup is a private or public network and retrieving
+		the master IP-to-port number mapping */
+		_, sshdPortNum, isPrivateNetwork, masterIpPortMap = GetMasterIpPortMap(ctx, client)
 
 		// reading operation scale value
 		if os.Getenv("VOLUME_OPS_SCALE") != "" {
@@ -167,8 +177,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			snapc, err = snapclient.NewForConfig(restConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
-
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
 			vcVersion = getVCversion(ctx, vcAddress)
 			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
@@ -4372,17 +4380,23 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			ginkgo.By("Get current leader Csi-Controller-Pod name where csi-snapshotter is running and " +
 				"find the master node IP where this Csi-Controller-Pod is running")
 			csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				c, sshClientConfig, snapshotterContainerName)
+				c, sshClientConfig, snapshotterContainerName, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("csi-snapshotter leader is in Pod %s "+
 				"which is running on master node %s", csiControllerPod, k8sMasterIP)
+
+			// reading port number for the master ip retrieve
+			sshdPortNum = GetPortNum(k8sMasterIP, isPrivateNetwork, masterIpPortMap)
 		} else {
 			framework.Logf("sshwcpConfig: %v", sshWcpConfig)
 			csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				client, sshWcpConfig, snapshotterContainerName)
+				client, sshWcpConfig, snapshotterContainerName, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("%s leader is running on pod %s "+
 				"which is running on master node %s", snapshotterContainerName, csiControllerPod, k8sMasterIP)
+
+			// reading port number for the master ip retrieve
+			sshdPortNum = GetPortNum(k8sMasterIP, isPrivateNetwork, masterIpPortMap)
 		}
 
 		for i := 0; i < snapshotOpsScale; i++ {
@@ -4427,8 +4441,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 						time.Duration(pollTimeoutShort*2))
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				} else {
-					err = execStopContainerOnGc(sshWcpConfig, svcMasterIp,
-						snapshotterContainerName, k8sMasterIP, svcNamespace)
+					err = execStopContainerOnGc(ctx, client, sshWcpConfig, svcMasterIp,
+						snapshotterContainerName, k8sMasterIP, svcNamespace, sshdPortNum)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -4467,17 +4481,23 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			ginkgo.By("Get current leader Csi-Controller-Pod name where csi-snapshotter is running and " +
 				"find the master node IP where this Csi-Controller-Pod is running")
 			csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				c, sshClientConfig, snapshotterContainerName)
+				c, sshClientConfig, snapshotterContainerName, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("csi-snapshotter leader is in Pod %s "+
 				"which is running on master node %s", csiControllerPod, k8sMasterIP)
+
+			// reading port number for the master ip retrieve
+			sshdPortNum = GetPortNum(k8sMasterIP, isPrivateNetwork, masterIpPortMap)
 		} else {
 			framework.Logf("sshwcpConfig: %v", sshWcpConfig)
 			csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				client, sshWcpConfig, snapshotterContainerName)
+				client, sshWcpConfig, snapshotterContainerName, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("%s leader is running on pod %s "+
 				"which is running on master node %s", snapshotterContainerName, csiControllerPod, k8sMasterIP)
+
+			// reading port number for the master ip retrieve
+			sshdPortNum = GetPortNum(k8sMasterIP, isPrivateNetwork, masterIpPortMap)
 		}
 
 		for i := 0; i < snapshotOpsScale; i++ {
@@ -4500,8 +4520,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 						time.Duration(pollTimeoutShort*2))
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				} else if guestCluster {
-					err = execStopContainerOnGc(sshWcpConfig, svcMasterIp,
-						snapshotterContainerName, k8sMasterIP, svcNamespace)
+					err = execStopContainerOnGc(ctx, client, sshWcpConfig, svcMasterIp,
+						snapshotterContainerName, k8sMasterIP, svcNamespace, sshdPortNum)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -5853,7 +5873,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ginkgo.By("Perform online resize on the restored volume and make sure resize should go fine")
 		var newDiskSize string
 		if guestCluster {
-			verifyOnlineVolumeExpansionOnGc(client, namespace, svcPVCName2, volHandle, pvclaim2, pod2, f)
+			verifyOnlineVolumeExpansionOnGc(ctx, client, namespace, svcPVCName2, volHandle,
+				pvclaim2, pod2, f)
 		} else if supervisorCluster {
 			ginkgo.By("Expanding current pvc after deleting volume snapshot")
 			currentPvcSize := pvclaim2.Spec.Resources.Requests[v1.ResourceStorage]

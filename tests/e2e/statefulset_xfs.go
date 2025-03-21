@@ -54,10 +54,9 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] st
 	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		namespace        string
-		client           clientset.Interface
-		scParameters     map[string]string
-		storageClassName string
+		namespace    string
+		client       clientset.Interface
+		scParameters map[string]string
 	)
 	ginkgo.BeforeEach(func() {
 		namespace = getNamespaceToRunTests(f)
@@ -79,8 +78,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] st
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset with fstype set to xfs")
 		scParameters[scParamFsType] = xfsFSType
-		storageClassName = "nginx-sc-default"
-		scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec("", scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -97,7 +95,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] st
 		ginkgo.By("Creating statefulset")
 		statefulset := GetStatefulSetFromManifest(namespace)
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Spec.StorageClassName = &storageClassName
+			Spec.StorageClassName = &sc.Name
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready

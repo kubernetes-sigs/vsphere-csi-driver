@@ -42,7 +42,6 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 	var (
 		client                    clientset.Interface
 		namespace                 string
-		allMasterIps              []string
 		masterIp                  string
 		dataCenters               []*object.Datacenter
 		clusters                  []string
@@ -63,6 +62,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		sshClientConfig           *ssh.ClientConfig
 		nimbusGeneratedK8sVmPwd   string
 		clusterId                 string
+		sshdPortNum               string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -78,9 +78,11 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
-		// fetching required parameters
-		allMasterIps = getK8sMasterIPs(ctx, client)
-		masterIp = allMasterIps[0]
+		// reading K8sMasterIP and port number
+		if sshdPortNum == "" || masterIp == "" {
+			masterIp, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
+		}
+
 		vCenterUIUser = e2eVSphere.Config.Global.User
 		vCenterUIPassword = e2eVSphere.Config.Global.Password
 		vCenterIP = e2eVSphere.Config.Global.VCenterHostname
@@ -102,17 +104,18 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		}
 
 		// fetching datacenter, cluster, host details
-		dataCenters, clusters, hosts, vms, datastores = getDataCenterClusterHostAndVmDetails(ctx, masterIp, sshClientConfig)
+		dataCenters, clusters, hosts, vms, datastores = getDataCenterClusterHostAndVmDetails(ctx, masterIp, sshClientConfig,
+			sshdPortNum)
 
 		ginkgo.By("Delete roles, permissions for testuser1 if already exist")
 		deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 			configSecretUser1Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores)
+			dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 
 		ginkgo.By("Delete roles, permissions for testuser2 if already exist")
 		deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 			configSecretUser2Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores)
+			dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
@@ -158,23 +161,23 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 				configSecretUser1Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 			configSecretTestUser1Password, configSecretUser2Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 				configSecretUser2Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Create vsphere-config-secret file with testuser1 credentials")
@@ -259,23 +262,23 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 				configSecretUser1Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 				configSecretUser2Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
@@ -303,7 +306,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		}()
 
 		ginkgo.By("Change password for testuser1")
-		err = changeTestUserPassword(masterIp, sshClientConfig, configSecretTestUser1, testUser1NewPassword)
+		err = changeTestUserPassword(masterIp, sshClientConfig, configSecretTestUser1, testUser1NewPassword, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Try to create a PVC and verify it gets bound successfully")
@@ -337,7 +340,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
-			pvclaim3.Namespace, pvclaim3.Name, framework.Poll, time.Minute)
+			pvclaim3.Namespace, pvclaim3.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
@@ -414,23 +417,23 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 				configSecretUser1Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 				configSecretUser2Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
@@ -511,23 +514,23 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 				configSecretUser1Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 				configSecretUser2Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials using vcenter IP")
@@ -628,23 +631,23 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 				configSecretUser1Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 			configSecretTestUser1Password, configSecretUser2Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 				configSecretUser2Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
@@ -692,7 +695,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
-			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
@@ -756,23 +759,23 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 				configSecretUser1Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Create testuser2 and assign limited roles and privileges to testuser2")
 		createTestUserAndAssignLimitedRolesAndPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 			configSecretTestUser1Password, configSecretUser2Alias, propagateVal,
-			clusters, hosts)
+			clusters, hosts, sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 				configSecretUser2Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
@@ -813,7 +816,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
-			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
@@ -877,23 +880,23 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Create testuser1 and assign limited roles and privileges to testuser1")
 		createTestUserAndAssignLimitedRolesAndPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-			clusters, hosts)
+			clusters, hosts, sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 				configSecretUser1Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Create testuser2 and assign limited roles and privileges to testuser2")
 		createTestUserAndAssignLimitedRolesAndPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
-			clusters, hosts)
+			clusters, hosts, sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 				configSecretUser2Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
@@ -931,7 +934,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
-			pvclaim1.Namespace, pvclaim1.Name, framework.Poll, time.Minute)
+			pvclaim1.Namespace, pvclaim1.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
@@ -943,7 +946,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Assign required roles and privileges to testuser1")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "reuseUser", "reuseRoles")
+			dataCenters, clusters, hosts, vms, datastores, "reuseUser", "reuseRoles", sshdPortNum)
 
 		ginkgo.By("Restart CSI driver")
 		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
@@ -991,23 +994,23 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 				configSecretUser1Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 				configSecretUser2Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Update vsphere-config-secret with testuser1 credentials")
@@ -1049,7 +1052,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
-			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {
@@ -1115,23 +1118,23 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 				configSecretUser1Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 				configSecretUser2Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Create vsphere-config-secret file with testuser1 credentials using default vc port")
@@ -1158,7 +1161,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
-			pvclaim1.Namespace, pvclaim1.Name, framework.Poll, time.Minute)
+			pvclaim1.Namespace, pvclaim1.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		var pvclaims1 []*v1.PersistentVolumeClaim
@@ -1243,23 +1246,23 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		ginkgo.By("Create testuser1 and assign required roles and privileges to testuser1")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 			configSecretTestUser1Password, configSecretUser1Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser1 and remove roles and privileges assigned to testuser1")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser1,
 				configSecretUser1Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Create testuser2 and assign required roles and privileges to testuser2")
 		createTestUserAndAssignRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 			configSecretTestUser2Password, configSecretUser2Alias, propagateVal,
-			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles")
+			dataCenters, clusters, hosts, vms, datastores, "createUser", "createRoles", sshdPortNum)
 		defer func() {
 			ginkgo.By("Delete testuser2 and remove roles and privileges assigned to testuser2")
 			deleteTestUserAndRemoveRolesPrivileges(masterIp, sshClientConfig, configSecretTestUser2,
 				configSecretUser2Alias, propagateVal,
-				dataCenters, clusters, hosts, vms, datastores)
+				dataCenters, clusters, hosts, vms, datastores, sshdPortNum)
 		}()
 
 		ginkgo.By("Create vsphere-config-secret file using testuser1 credentials")
@@ -1301,7 +1304,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Expect claim status to be in Pending state")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
-			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, time.Minute)
+			pvclaim2.Namespace, pvclaim2.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 		defer func() {

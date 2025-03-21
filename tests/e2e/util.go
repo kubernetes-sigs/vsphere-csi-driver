@@ -976,7 +976,7 @@ func randomPickPVC() *v1.PersistentVolumeClaim {
 
 // createStatefulSetWithOneReplica helps create a stateful set with one replica.
 func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath string,
-	namespace string) (*appsv1.StatefulSet, *v1.Service, error) {
+	namespace string, sc *storagev1.StorageClass) (*appsv1.StatefulSet, *v1.Service, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	mkpath := func(file string) string {
@@ -1000,6 +1000,8 @@ func createStatefulSetWithOneReplica(client clientset.Interface, manifestPath st
 	}
 	replicas := int32(1)
 	statefulSet.Spec.Replicas = &replicas
+	statefulSet.Spec.VolumeClaimTemplates[len(statefulSet.Spec.VolumeClaimTemplates)-1].
+		Spec.StorageClassName = &sc.Name
 	_, err = client.AppsV1().StatefulSets(namespace).Create(ctx, statefulSet, metav1.CreateOptions{})
 	if err != nil {
 		return nil, nil, err
@@ -1919,7 +1921,8 @@ func getWCPSessionId(hostname string, username string, password string) string {
 }
 
 // getWindowsFileSystemSize finds the windowsWorkerIp and returns the size of the volume
-func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, error) {
+func getWindowsFileSystemSize(client clientset.Interface,
+	pod *v1.Pod, sshdPortNum string) (int64, error) {
 	var err error
 	var output fssh.Result
 	var windowsWorkerIP, size string
@@ -1947,7 +1950,7 @@ func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, e
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
 		output, err = execCommandOnGcWorker(sshWcpConfig, svcMasterIp, windowsWorkerIP,
-			svcNamespace, cmd)
+			svcNamespace, cmd, sshdPortNum)
 	} else {
 		nimbusGeneratedWindowsVmPwd := GetAndExpectStringEnvVar(envWindowsPwd)
 		windowsUser := GetAndExpectStringEnvVar(envWindowsUser)
@@ -1958,7 +1961,7 @@ func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, e
 			},
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
-		output, err = sshExec(sshClientConfig, windowsWorkerIP, cmd)
+		output, err = sshExec(sshClientConfig, windowsWorkerIP, cmd, sshdPortNum)
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	fullStr := strings.Split(strings.TrimSuffix(string(output.Stdout), "\n"), "\n")
@@ -3649,8 +3652,14 @@ func runCommandOnESX(username string, addr string, cmd string) (string, error) {
 
 	result := fssh.Result{Host: addr, Cmd: cmd}
 
+	// Get SSH port number from environment variable or use default
+	esxPortNo := GetAndExpectStringEnvVar(envVcSshdPortNum)
+	if esxPortNo == "" {
+		esxPortNo = defaultShhdPortNum
+	}
+
 	// Connect.
-	client, err := ssh.Dial("tcp", net.JoinHostPort(addr, sshdPort), config)
+	client, err := ssh.Dial("tcp", net.JoinHostPort(addr, esxPortNo), config)
 	if err != nil {
 		framework.Logf("connection failed due to %v", err)
 		return "", err
@@ -3915,10 +3924,19 @@ func pvcHealthAnnotationWatcher(ctx context.Context, client clientset.Interface,
 // pollTimeout minutes to make sure host is reachable.
 func waitForHostToBeUp(ip string, pollInfo ...time.Duration) error {
 	framework.Logf("checking host status of %v", ip)
+
+	// Get SSH port number from environment variable or use default
+	esxPortNo := GetAndExpectStringEnvVar(envEsxPortNum)
+	if esxPortNo == "" {
+		esxPortNo = defaultShhdPortNum
+	}
+
 	pollTimeOut := healthStatusPollTimeout
 	pollInterval := 30 * time.Second
-	// var to store host reachability count
+
+	// Variable to store host reachability count
 	hostReachableCount := 0
+
 	if pollInfo != nil {
 		if len(pollInfo) == 1 {
 			pollTimeOut = pollInfo[0]
@@ -3927,25 +3945,28 @@ func waitForHostToBeUp(ip string, pollInfo ...time.Duration) error {
 			pollTimeOut = pollInfo[1]
 		}
 	}
+
 	gomega.Expect(ip).NotTo(gomega.BeNil())
 	dialTimeout := 2 * time.Second
+
 	waitErr := wait.PollUntilContextTimeout(context.Background(), pollInterval, pollTimeOut, true,
 		func(ctx context.Context) (bool, error) {
-			_, err := net.DialTimeout("tcp", ip+":22", dialTimeout)
+			_, err := net.DialTimeout("tcp", ip+":"+esxPortNo, dialTimeout)
 			if err != nil {
 				framework.Logf("host %s unreachable, error: %s", ip, err.Error())
 				return false, nil
-			} else {
-				framework.Logf("host %s is reachable", ip)
-				hostReachableCount += 1
 			}
-			// checking if host is reachable 5 times
+			framework.Logf("host %s is reachable", ip)
+			hostReachableCount++
+
+			// Check if host is reachable at least 5 times
 			if hostReachableCount == 5 {
-				framework.Logf("host %s is reachable atleast 5 times", ip)
+				framework.Logf("host %s is reachable at least 5 times", ip)
 				return true, nil
 			}
 			return false, nil
 		})
+
 	return waitErr
 }
 
@@ -4034,7 +4055,7 @@ func getK8sMasterIPs(ctx context.Context, client clientset.Interface) []string {
 // CSIMigration and CSIMigrationvSphere feature gates to/from
 // kube-controller-manager.
 func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
-	client clientset.Interface, add bool) error {
+	client clientset.Interface, add bool, sshdPortNum string) error {
 	nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 	v, err := client.Discovery().ServerVersion()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4067,7 +4088,7 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 				},
 				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 			}
-			result, err := sshExec(sshClientConfig, k8sMasterIP, grepCmd)
+			result, err := sshExec(sshClientConfig, k8sMasterIP, grepCmd, sshdPortNum)
 
 			if err != nil {
 				fssh.LogResult(result)
@@ -4085,14 +4106,14 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 				}
 			}
 			framework.Logf("Invoking command %v on host %v", sshCmd, k8sMasterIP)
-			result, err = sshExec(sshClientConfig, k8sMasterIP, sshCmd)
+			result, err = sshExec(sshClientConfig, k8sMasterIP, sshCmd, sshdPortNum)
 			if err != nil || result.Code != 0 {
 				fssh.LogResult(result)
 				return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s", sshCmd, k8sMasterIP, err)
 			}
 			restartKubeletCmd := "systemctl restart kubelet"
 			framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, k8sMasterIP)
-			result, err = sshExec(sshClientConfig, k8sMasterIP, restartKubeletCmd)
+			result, err = sshExec(sshClientConfig, k8sMasterIP, restartKubeletCmd, sshdPortNum)
 			if err != nil && result.Code != 0 {
 				fssh.LogResult(result)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
@@ -4120,9 +4141,12 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 }
 
 // sshExec runs a command on the host via ssh.
-func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.Result, error) {
+func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string,
+	sshdPortNum string) (fssh.Result, error) {
 	result := fssh.Result{Host: host, Cmd: cmd}
-	sshClient, err := ssh.Dial("tcp", host+":22", sshClientConfig)
+
+	// Dial SSH with the specified port
+	sshClient, err := ssh.Dial("tcp", host+":"+sshdPortNum, sshClientConfig)
 	if err != nil {
 		result.Stdout = ""
 		result.Stderr = ""
@@ -4130,6 +4154,7 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 		return result, err
 	}
 	defer sshClient.Close()
+
 	sshSession, err := sshClient.NewSession()
 	if err != nil {
 		result.Stdout = ""
@@ -4138,6 +4163,7 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 		return result, err
 	}
 	defer sshSession.Close()
+
 	// Run the command.
 	code := 0
 	var bytesStdout, bytesStderr bytes.Buffer
@@ -4153,14 +4179,18 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 			err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, sshClientConfig.User, host, err)
 		}
 	}
+
 	result.Stdout = bytesStdout.String()
 	result.Stderr = bytesStderr.String()
 	result.Code = code
+
 	if bytesStderr.String() != "" {
 		err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, sshClientConfig.User, host, bytesStderr.String())
 	}
+
 	framework.Logf("host: %v, command: %v, return code: %v, stdout: %v, stderr: %v",
 		host, cmd, code, bytesStdout.String(), bytesStderr.String())
+
 	return result, err
 }
 
@@ -4607,7 +4637,11 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	result, err := sshExec(sshClientConfig, nodeIP, grepCmd)
+	var sshdPortNum string
+	// reading K8sMasterIP port number
+	_, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
+
+	result, err := sshExec(sshClientConfig, nodeIP, grepCmd, sshdPortNum)
 	if err != nil {
 		fssh.LogResult(result)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
@@ -4628,7 +4662,7 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 		return
 	}
 	framework.Logf("Invoking command '%v' on host %v", sshCmd, nodeIP)
-	result, err = sshExec(sshClientConfig, nodeIP, sshCmd)
+	result, err = sshExec(sshClientConfig, nodeIP, sshCmd, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
@@ -4636,7 +4670,7 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 	}
 	restartKubeletCmd := "systemctl daemon-reload && systemctl restart kubelet"
 	framework.Logf("Invoking command '%v' on host %v", restartKubeletCmd, nodeIP)
-	result, err = sshExec(sshClientConfig, nodeIP, restartKubeletCmd)
+	result, err = sshExec(sshClientConfig, nodeIP, restartKubeletCmd, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
@@ -5708,7 +5742,7 @@ func createKubernetesClientFromConfig(kubeConfigPath string) (clientset.Interfac
 // where controller is running
 func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
-	containerName string) (string, string, error) {
+	containerName string, sshdPortNum string) (string, string, error) {
 	ignoreLabels := make(map[string]string)
 	csiControllerPodName, grepCmdForFindingCurrentLeader := "", ""
 	csiPods, err := fpod.GetPodsInNamespace(ctx, client, csiSystemNamespace, ignoreLabels)
@@ -5718,8 +5752,7 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 		k8sMasterIP = GetAndExpectStringEnvVar(svcMasterIP)
 		kubeConfigPath = GetAndExpectStringEnvVar(gcKubeConfigPath)
 	} else {
-		k8sMasterIPs := getK8sMasterIPs(ctx, client)
-		k8sMasterIP = k8sMasterIPs[0]
+		k8sMasterIP, _, _, _ = GetMasterIpPortMap(ctx, client)
 	}
 	for _, csiPod := range csiPods {
 		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) {
@@ -5739,7 +5772,7 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
 				k8sMasterIP)
 			result, err := sshExec(sshClientConfig, k8sMasterIP,
-				grepCmdForFindingCurrentLeader)
+				grepCmdForFindingCurrentLeader, sshdPortNum)
 			if err != nil || result.Code != 0 {
 				fssh.LogResult(result)
 				return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -5757,7 +5790,7 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		k8sMasterIP)
 	result, err := sshExec(sshClientConfig, k8sMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -5770,7 +5803,7 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		k8sMasterIP)
 	result, err = sshExec(sshClientConfig, k8sMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -5796,13 +5829,15 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 }
 
 // execDockerPauseNKillOnContainer pauses and then kills the particular CSI container on given master node
-func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
-	containerName string, k8sVersion string) error {
+func execDockerPauseNKillOnContainer(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig, k8sMasterNodeIP string,
+	containerName string, k8sVersion string, sshdPortNum string) error {
 	containerPauseCmd := ""
 	containerKillCmd := ""
 	k8sVer, err := strconv.ParseFloat(k8sVersion, 64)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	containerID, err := waitAndGetContainerID(sshClientConfig, k8sMasterNodeIP, containerName, k8sVer)
+	containerID, err := waitAndGetContainerID(ctx, client, sshClientConfig, k8sMasterNodeIP,
+		containerName, k8sVer)
 	if err != nil {
 		return err
 	}
@@ -5811,10 +5846,11 @@ func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMaste
 	} else {
 		containerPauseCmd = "nerdctl pause --namespace k8s.io " + containerID
 	}
+
 	framework.Logf("Invoking command '%v' on host %v", containerPauseCmd,
 		k8sMasterNodeIP)
 	cmdResult, err := sshExec(sshClientConfig, k8sMasterNodeIP,
-		containerPauseCmd)
+		containerPauseCmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -5830,7 +5866,7 @@ func execDockerPauseNKillOnContainer(sshClientConfig *ssh.ClientConfig, k8sMaste
 	framework.Logf("Invoking command '%v' on host %v", containerKillCmd,
 		k8sMasterNodeIP)
 	cmdResult, err = sshExec(sshClientConfig, k8sMasterNodeIP,
-		containerKillCmd)
+		containerKillCmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		if strings.Contains(cmdResult.Stderr, "OCI runtime resume failed") ||
@@ -5880,17 +5916,15 @@ func createParallelStatefulSets(client clientset.Interface, namespace string,
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func createParallelStatefulSetSpec(namespace string, no_of_sts int, replicas int32) []*appsv1.StatefulSet {
+func createParallelStatefulSetSpec(storageclass *storagev1.StorageClass,
+	namespace string, no_of_sts int, replicas int32) []*appsv1.StatefulSet {
 	stss := []*appsv1.StatefulSet{}
-	var statefulset *appsv1.StatefulSet
-
 	for i := 0; i < no_of_sts; i++ {
-		scName := defaultNginxStorageClassName
-		statefulset = GetStatefulSetFromManifest(namespace)
+		statefulset := GetStatefulSetFromManifest(namespace)
 		statefulset.Name = "thread-" + strconv.Itoa(i) + "-" + statefulset.Name
 		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Spec.StorageClassName = &scName
+			Spec.StorageClassName = &storageclass.Name
 		statefulset.Spec.Replicas = &replicas
 		stss = append(stss, statefulset)
 	}
@@ -6193,10 +6227,16 @@ func triggerFullSync(ctx context.Context, cnsOperatorClient client.Client) {
 }
 
 // waitAndGetContainerID waits and fetches containerID of a given containerName
-func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string,
+func waitAndGetContainerID(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig, k8sMasterIP string,
 	containerName string, k8sVersion float64) (string, error) {
 	containerId := ""
 	cmdToGetContainerId := ""
+
+	var sshdPortNum string
+	// reading K8sMasterIP port number
+	_, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
+
 	waitErr := wait.PollUntilContextTimeout(context.Background(), poll*5, pollTimeout*4, true,
 		func(ctx context.Context) (bool, error) {
 			if k8sVersion <= 1.23 {
@@ -6209,7 +6249,7 @@ func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string
 			framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerId,
 				k8sMasterIP)
 			dockerContainerInfo, err := sshExec(sshClientConfig, k8sMasterIP,
-				cmdToGetContainerId)
+				cmdToGetContainerId, sshdPortNum)
 			fssh.LogResult(dockerContainerInfo)
 			containerId = dockerContainerInfo.Stdout
 			if containerId != "" {
@@ -6240,8 +6280,8 @@ func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service strin
 // assignPolicyToWcpNamespace assigns a set of storage policies to a wcp namespace
 func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 	namespace string, policyNames []string, resourceQuotaLimit string) {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	vcAddress := vcIp + ":" + sshdPort
+	vcAddress, vCenterIP, err := readVcAddress()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	sessionId := createVcSession4RestApis(ctx)
 
 	curlStr := ""
@@ -6264,7 +6304,7 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 	curlCmd := fmt.Sprintf(`curl -s -o /dev/null -w "%s" -k -X PATCH`+
 		` 'https://%s/api/vcenter/namespaces/instances/%s' -H `+
 		`'vmware-api-session-id: %s' -H 'Content-type: application/json' -d `+
-		`'{"storage_specs": [ %s ]}'`, httpCodeStr, vcIp, namespace, sessionId, curlStr)
+		`'{"storage_specs": [ %s ]}'`, httpCodeStr, vCenterIP, namespace, sessionId, curlStr)
 
 	framework.Logf("Running command: %s", curlCmd)
 	result, err := fssh.SSH(ctx, curlCmd, vcAddress, framework.TestContext.Provider)
@@ -6284,11 +6324,11 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 
 // createVcSession4RestApis generates session ID for VC to use in rest API calls
 func createVcSession4RestApis(ctx context.Context) string {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	vcAddress := vcIp + ":" + sshdPort
+	vcAddress, vCenterIp, err := readVcAddress()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	nimbusGeneratedVcPwd := GetAndExpectStringEnvVar(vcUIPwd)
 	curlCmd := fmt.Sprintf("curl -k -X POST https://%s/rest/com/vmware/cis/session"+
-		" -u 'Administrator@vsphere.local:%s'", vcIp, nimbusGeneratedVcPwd)
+		" -u 'Administrator@vsphere.local:%s'", vCenterIp, nimbusGeneratedVcPwd)
 	framework.Logf("Running command: %s", curlCmd)
 	result, err := fssh.SSH(ctx, curlCmd, vcAddress, framework.TestContext.Provider)
 	fssh.LogResult(result)
@@ -6360,15 +6400,16 @@ func getCSIPodWhereListVolumeResponseIsPresent(ctx context.Context,
 	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
 	containerName string, logMessage string, volumeids []string) (string, string, error) {
 	ignoreLabels := make(map[string]string)
+	var sshdPortNum string
 	csiControllerPodName, grepCmdForFindingCurrentLeader := "", ""
 	csiPods, err := fpod.GetPodsInNamespace(ctx, client, csiSystemNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	var k8sMasterIP string
 	if vanillaCluster {
-		k8sMasterIPs := getK8sMasterIPs(ctx, client)
-		k8sMasterIP = k8sMasterIPs[0]
+		k8sMasterIP, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
 	} else {
 		k8sMasterIP = GetAndExpectStringEnvVar(svcMasterIP)
+		_, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
 	}
 
 	for _, csiPod := range csiPods {
@@ -6384,7 +6425,7 @@ func getCSIPodWhereListVolumeResponseIsPresent(ctx context.Context,
 			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
 				k8sMasterIP)
 			result, err := sshExec(sshClientConfig, k8sMasterIP,
-				grepCmdForFindingCurrentLeader)
+				grepCmdForFindingCurrentLeader, sshdPortNum)
 			if err != nil || result.Code != 0 {
 				fssh.LogResult(result)
 				return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6409,7 +6450,7 @@ func getCSIPodWhereListVolumeResponseIsPresent(ctx context.Context,
 	cmd := "rm listVolumeResponse.log"
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		k8sMasterIP)
-	result, err := sshExec(sshClientConfig, k8sMasterIP, cmd)
+	result, err := sshExec(sshClientConfig, k8sMasterIP, cmd, sshdPortNum)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6585,12 +6626,15 @@ func cleaupStatefulset(client clientset.Interface, ctx context.Context, namespac
 
 // createVsanDPvcAndPod is a wrapper method which creates vsand pvc and pod on svc master IP
 func createVsanDPvcAndPod(sshClientConfig *ssh.ClientConfig, svcMasterIP string, svcNamespace string,
-	pvcName string, podName string, storagePolicyName string, pvcSize string) error {
-	err := applyVsanDirectPvcYaml(sshClientConfig, svcMasterIP, svcNamespace, pvcName, podName, storagePolicyName, pvcSize)
+	pvcName string, podName string,
+	storagePolicyName string, pvcSize string, sshdPortNum string) error {
+	err := applyVsanDirectPvcYaml(sshClientConfig, svcMasterIP, svcNamespace,
+		pvcName, podName, storagePolicyName, pvcSize, sshdPortNum)
 	if err != nil {
 		return err
 	}
-	err = applyVsanDirectPodYaml(sshClientConfig, svcMasterIP, svcNamespace, pvcName, podName)
+	err = applyVsanDirectPodYaml(sshClientConfig, svcMasterIP, svcNamespace, pvcName,
+		podName, sshdPortNum)
 	if err != nil {
 		return err
 	}
@@ -6599,7 +6643,8 @@ func createVsanDPvcAndPod(sshClientConfig *ssh.ClientConfig, svcMasterIP string,
 
 // applyVsanDirectPvcYaml creates specific pvc spec and applies vsan direct pvc  yaml on svc master
 func applyVsanDirectPvcYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP string, svcNamespace string,
-	pvcName string, podName string, storagePolicyName string, pvcSize string) error {
+	pvcName string, podName string, storagePolicyName string,
+	pvcSize string, sshdPortNum string) error {
 
 	if pvcSize == "" {
 		pvcSize = diskSize
@@ -6609,7 +6654,7 @@ func applyVsanDirectPvcYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6621,7 +6666,7 @@ func applyVsanDirectPvcYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6633,7 +6678,7 @@ func applyVsanDirectPvcYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6645,7 +6690,7 @@ func applyVsanDirectPvcYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6658,7 +6703,7 @@ func applyVsanDirectPvcYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6671,7 +6716,7 @@ func applyVsanDirectPvcYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6682,7 +6727,7 @@ func applyVsanDirectPvcYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6693,14 +6738,14 @@ func applyVsanDirectPvcYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 
 // applyVsanDirectPodYaml creates specific pod spec and applies vsan direct pod yaml on svc master
 func applyVsanDirectPodYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP string, svcNamespace string,
-	pvcName string, podName string) error {
+	pvcName string, podName string, sshdPortNum string) error {
 	framework.Logf("POD yaML")
 	cmd := fmt.Sprintf("sed -i -e "+
 		"'/^metadata:/,/namespace:/{/^\\([[:space:]]*namespace: \\).*/s//\\1%s/}' pod.yaml", svcNamespace)
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6712,7 +6757,7 @@ func applyVsanDirectPodYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6724,7 +6769,7 @@ func applyVsanDirectPodYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6735,7 +6780,7 @@ func applyVsanDirectPodYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6809,9 +6854,9 @@ func getAllPodsFromNamespace(ctx context.Context, client clientset.Interface, na
 // getVmdkPathFromVolumeHandle returns VmdkPath associated with a given volumeHandle
 // by running govc command
 func getVmdkPathFromVolumeHandle(sshClientConfig *ssh.ClientConfig, masterIp string,
-	datastoreName string, volHandle string) string {
+	datastoreName string, volHandle string, sshdPortNum string) string {
 	cmd := govcLoginCmd() + fmt.Sprintf("govc disk.ls -L=true -ds=%s -l  %s", datastoreName, volHandle)
-	result, err := sshExec(sshClientConfig, masterIp, cmd)
+	result, err := sshExec(sshClientConfig, masterIp, cmd, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -7364,7 +7409,7 @@ func validateQuotaUsageAfterCleanUp(ctx context.Context, restConfig *rest.Config
 
 // execCommandOnGcWorker logs into gc worker node using ssh private key and executes command
 func execCommandOnGcWorker(sshClientConfig *ssh.ClientConfig, svcMasterIP string, gcWorkerIp string,
-	svcNamespace string, cmd string) (fssh.Result, error) {
+	svcNamespace string, cmd string, sshdPortNum string) (fssh.Result, error) {
 	result := fssh.Result{Host: gcWorkerIp, Cmd: cmd}
 	// get the cluster ssh key
 	sshSecretName := GetAndExpectStringEnvVar(sshSecretName)
@@ -7373,7 +7418,7 @@ func execCommandOnGcWorker(sshClientConfig *ssh.ClientConfig, svcMasterIP string
 	framework.Logf("Invoking command '%v' on host %v", cmdToGetPrivateKey,
 		svcMasterIP)
 	cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
-		cmdToGetPrivateKey)
+		cmdToGetPrivateKey, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -7384,7 +7429,7 @@ func execCommandOnGcWorker(sshClientConfig *ssh.ClientConfig, svcMasterIP string
 	framework.Logf("Invoking command '%v' on host %v", enablePermissionCmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		enablePermissionCmd)
+		enablePermissionCmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -7396,7 +7441,7 @@ func execCommandOnGcWorker(sshClientConfig *ssh.ClientConfig, svcMasterIP string
 	framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerInfo,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmdToGetContainerInfo)
+		cmdToGetContainerInfo, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -7470,4 +7515,102 @@ func isVersionGreaterOrEqual(presentVersion, expectedVCversion string) bool {
 		}
 	}
 	return true // If all parts are equal, the versions are equal
+}
+
+func readVcAddress() (string, string, error) {
+	// Get vCenter port number
+	vcPortNo := GetAndExpectStringEnvVar(envVcSshdPortNum)
+	if vcPortNo == "" {
+		vcPortNo = defaultShhdPortNum
+	}
+
+	// Fetch vCenter hostname and validate
+	vCenterIP := e2eVSphere.Config.Global.VCenterHostname
+	if vCenterIP == "" {
+		return "", "", fmt.Errorf("vCenter hostname is empty in configuration")
+	}
+
+	// Construct the vCenter address
+	vcAddress := vCenterIP + ":" + vcPortNo
+
+	return vcAddress, vCenterIP, nil
+}
+
+func readMultiVcAddress(vcIndex int) (string, string, error) {
+	// Get vCenter port number
+	vcPortNo := GetAndExpectStringEnvVar(envVcSshdPortNum)
+	if vcPortNo == "" {
+		vcPortNo = defaultShhdPortNum
+	}
+
+	// Fetch vCenter hostnames and validate
+	vCenterIPList := multiVCe2eVSphere.multivcConfig.Global.VCenterHostname
+	if vCenterIPList == "" {
+		return "", "", fmt.Errorf("vCenter hostname is empty in configuration")
+	}
+
+	vCenterIPs := strings.Split(vCenterIPList, ",")
+	if vcIndex < 0 || vcIndex >= len(vCenterIPs) {
+		return "", "", fmt.Errorf("invalid vcIndex: %d, out of range", vcIndex)
+	}
+
+	// Extract the specific vCenter IP
+	vCenterIP := strings.TrimSpace(vCenterIPs[vcIndex])
+	vcAddress := vCenterIP + ":" + vcPortNo
+
+	return vcAddress, vCenterIP, nil
+}
+
+/*
+GetMasterIpPortMap retrieves master node IPs and their corresponding SSH port numbers.
+It determines if the environment is a private network and returns the primary SSH port,
+a boolean flag for private network status, and a map of master IPs with their SSH ports.
+*/
+func GetMasterIpPortMap(ctx context.Context,
+	client clientset.Interface) (string, string, bool, map[string]string) {
+
+	// Initialize the master IP-to-port mapping
+	masterIpPortMap := make(map[string]string)
+	isPrivateNetwork := true
+
+	/* Retrieve the SSH port for the first master node from the environment variable.
+	If not set, assume it's a public network and use the default SSH port */
+	sshdPortNum := GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+	if sshdPortNum == "" {
+		isPrivateNetwork = false
+		sshdPortNum = defaultShhdPortNum
+	} else {
+		// Retrieve master IPs and their port numbers
+		k8sMasterIp1 := GetAndExpectStringEnvVar(envMasterIp1)
+		k8sMasterIp2 := GetAndExpectStringEnvVar(envMasterIp2)
+		sshdPortNum2 := GetAndExpectStringEnvVar(envMasterIP2SshdPortNum)
+		k8sMasterIp3 := GetAndExpectStringEnvVar(envMasterIp3)
+		sshdPortNum3 := GetAndExpectStringEnvVar(envMasterIP3SshdPortNum)
+
+		// Populate the map
+		masterIpPortMap[k8sMasterIp1] = sshdPortNum
+		masterIpPortMap[k8sMasterIp2] = sshdPortNum2
+		masterIpPortMap[k8sMasterIp3] = sshdPortNum3
+	}
+
+	/* Determine the primary master IP.
+	If the environment variable for the master IP is not set,
+	fetch master IPs dynamically from the cluster */
+	masterIp := GetAndExpectStringEnvVar(envMasterIp1)
+	if masterIp == "" {
+		// Retrieve master IPs from Kubernetes cluster
+		allMasterIps := getK8sMasterIPs(ctx, client)
+		masterIp = allMasterIps[0] // Assign the first available master IP
+		isPrivateNetwork = false   // If dynamically fetching, assume public network
+	}
+
+	return masterIp, sshdPortNum, isPrivateNetwork, masterIpPortMap
+}
+
+func GetPortNum(k8sMasterIP string, isPrivateNetwork bool, masterIpPortMap map[string]string) string {
+	sshdPortNum := defaultShhdPortNum
+	if isPrivateNetwork {
+		sshdPortNum = masterIpPortMap[k8sMasterIP]
+	}
+	return sshdPortNum
 }

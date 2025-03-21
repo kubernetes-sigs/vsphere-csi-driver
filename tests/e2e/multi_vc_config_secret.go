@@ -64,7 +64,6 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		vCenterPassword             string
 		vCenterPort                 string
 		dataCenter                  string
-		err                         error
 		revertToOriginalVsphereConf bool
 		multiVCSetupType            string
 		allMasterIps                []string
@@ -72,6 +71,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		nimbusGeneratedK8sVmPwd     string
 		revertToOriginalCsiYaml     bool
 		newNamespace                *v1.Namespace
+		sshdPortNum                 string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -130,6 +130,11 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 
 		// fetching k8s master ip
 		allMasterIps = getK8sMasterIPs(ctx, client)
+
+		// reading K8sMasterIP port number
+		if sshdPortNum == "" {
+			_, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
+		}
 	})
 
 	ginkgo.AfterEach(func() {
@@ -157,7 +162,8 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 
 		if originalVC1PasswordChanged {
 			clientIndex := 0
-			vcAddress := strings.Split(vCenterIP, ",")[0] + ":" + sshdPort
+			vcAddress, _, err := readMultiVcAddress(0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			username := strings.Split(vCenterUser, ",")[0]
 			originalPassword := strings.Split(vCenterPassword, ",")[0]
 			newPassword := e2eTestPassword
@@ -169,7 +175,9 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 
 		if originalVC3PasswordChanged {
 			clientIndex2 := 2
-			vcAddress3 := strings.Split(vCenterIP, ",")[2] + ":" + sshdPort
+			// reading 3rd vc
+			vcAddress3, _, err := readMultiVcAddress(2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			username3 := strings.Split(vCenterUser, ",")[2]
 			originalPassword3 := strings.Split(vCenterPassword, ",")[2]
 			newPassword3 := "Admin!23"
@@ -193,10 +201,11 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 			ginkgo.By("Recreate config secret on a default csi system namespace")
 			err = deleteVsphereConfigSecret(client, ctx, newNamespace.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = createVsphereConfigSecret(csiNamespace, vsphereCfg, sshClientConfig, allMasterIps)
+			err = createVsphereConfigSecret(csiNamespace, vsphereCfg, sshClientConfig, allMasterIps, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Revert vsphere CSI driver on a default csi system namespace")
-			err = setNewNameSpaceInCsiYaml(ctx, client, sshClientConfig, newNamespace.Name, csiNamespace, allMasterIps)
+			err = setNewNameSpaceInCsiYaml(ctx, client, sshClientConfig, newNamespace.Name, csiNamespace,
+				allMasterIps, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	})
@@ -243,7 +252,8 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		vsphereCfg, err := readVsphereConfSecret(client, ctx, csiNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		vcAddress := strings.Split(vsphereCfg.Global.VCenterHostname, ",")[0] + ":" + sshdPort
+		vcAddress, _, err := readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("vcAddress - %s ", vcAddress)
 		username := strings.Split(vsphereCfg.Global.User, ",")[0]
 		originalPassword := strings.Split(vsphereCfg.Global.Password, ",")[0]
@@ -582,11 +592,13 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create config secret on a new namespace")
-		err = createVsphereConfigSecret(newNamespace.Name, vsphereCfg, sshClientConfig, allMasterIps)
+		err = createVsphereConfigSecret(newNamespace.Name, vsphereCfg,
+			sshClientConfig, allMasterIps, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Install vsphere CSI driver on different test namespace")
-		err = setNewNameSpaceInCsiYaml(ctx, client, sshClientConfig, csiNamespace, newNamespace.Name, allMasterIps)
+		err = setNewNameSpaceInCsiYaml(ctx, client, sshClientConfig, csiNamespace, newNamespace.Name,
+			allMasterIps, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		revertToOriginalCsiYaml = true
 		defer func() {
@@ -595,11 +607,13 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 				err = deleteVsphereConfigSecret(client, ctx, newNamespace.Name)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				err = createVsphereConfigSecret(csiNamespace, vsphereCfg, sshClientConfig, allMasterIps)
+				err = createVsphereConfigSecret(csiNamespace, vsphereCfg, sshClientConfig,
+					allMasterIps, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				ginkgo.By("Revert vsphere CSI driver on a system csi namespace")
-				err = setNewNameSpaceInCsiYaml(ctx, client, sshClientConfig, newNamespace.Name, csiNamespace, allMasterIps)
+				err = setNewNameSpaceInCsiYaml(ctx, client, sshClientConfig, newNamespace.Name,
+					csiNamespace, allMasterIps, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				revertToOriginalCsiYaml = false
@@ -623,7 +637,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		}()
 
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, stsReplicas)
+		statefulSets := createParallelStatefulSetSpec(sc, namespace, sts_count, stsReplicas)
 
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel")
 		var wg sync.WaitGroup
@@ -751,7 +765,8 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		}()
 
 		// read VC1 credentials
-		vcAddress1 := strings.Split(vsphereCfg.Global.VCenterHostname, ",")[0] + ":" + sshdPort
+		vcAddress1, _, err := readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		username1 := strings.Split(vsphereCfg.Global.User, ",")[0]
 		originalPassword1 := strings.Split(vsphereCfg.Global.Password, ",")[0]
 		newPassword1 := "E2E-test-password!23"
@@ -764,7 +779,8 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 
 		if multiVCSetupType == "multi-3vc-setup" {
 			// read VC3 credentials
-			vcAddress3 = strings.Split(vsphereCfg.Global.VCenterHostname, ",")[2] + ":" + sshdPort
+			vcAddress3, _, err = readMultiVcAddress(2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			username3 = strings.Split(vsphereCfg.Global.User, ",")[2]
 			originalPassword3 = strings.Split(vsphereCfg.Global.Password, ",")[2]
 			newPassword3 = "Admin!23"
@@ -847,7 +863,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 
 		ginkgo.By("Rebooting VC2")
 		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[1] + ":" + sshdPort
+		vcAddress, _, err := readMultiVcAddress(1)
 		framework.Logf("vcAddress - %s ", vcAddress)
 		err = invokeVCenterReboot(ctx, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -918,7 +934,8 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		// read original vsphere config secret
 		vsphereCfg, err := readVsphereConfSecret(client, ctx, csiNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		vcAddress := strings.Split(vsphereCfg.Global.VCenterHostname, ",")[0] + ":" + sshdPort
+		vcAddress, _, err := readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("vcAddress - %s ", vcAddress)
 		username := strings.Split(vsphereCfg.Global.User, ",")[0]
 		originalPassword := strings.Split(vsphereCfg.Global.Password, ",")[0]

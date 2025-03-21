@@ -53,7 +53,7 @@ getTopologyLevel5ClusterGroupNames method is used to fetch list of cluster avail
 in level-5 testbed
 */
 func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.ClientConfig,
-	dataCenter []*object.Datacenter, clientIndex int) ([]string, error) {
+	dataCenter []*object.Datacenter, clientIndex int, sshdPortNum string) ([]string, error) {
 	var clusterList, clusList, clusFolderTemp, clusterGroupRes []string
 	var clusterFolderName string
 	var clusterFolder, clusterGroup, cluster string
@@ -65,7 +65,7 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 			clusterFolder = govcLoginCmdForMultiVC(clientIndex) + "govc ls " + dataCenter[i].InventoryPath
 		}
 		framework.Logf("cmd: %s ", clusterFolder)
-		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder)
+		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder, sshdPortNum)
 		if err != nil && clusterFolderNameResult.Code != 0 {
 			fssh.LogResult(clusterFolderNameResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -86,7 +86,7 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 			clusterGroup = govcLoginCmdForMultiVC(clientIndex) + "govc ls " + clusterFolderName
 		}
 		framework.Logf("cmd: %s ", clusterGroup)
-		clusterGroupResult, err := sshExec(sshClientConfig, masterIp, clusterGroup)
+		clusterGroupResult, err := sshExec(sshClientConfig, masterIp, clusterGroup, sshdPortNum)
 		if err != nil && clusterGroupResult.Code != 0 {
 			fssh.LogResult(clusterGroupResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -112,7 +112,7 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 			} else if topologySetupType == "Level5" {
 				cluster = govcLoginCmd() + "govc ls " + clusterGroupRes[0] + " | sort"
 				framework.Logf("cmd: %s ", cluster)
-				clusterResult, err := sshExec(sshClientConfig, masterIp, cluster)
+				clusterResult, err := sshExec(sshClientConfig, masterIp, cluster, sshdPortNum)
 				if err != nil && clusterResult.Code != 0 {
 					fssh.LogResult(clusterResult)
 					return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -140,13 +140,13 @@ attachTagToPreferredDatastore method is used to attach the  preferred tag to the
 datastore chosen for volume provisioning
 */
 func attachTagToPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	datastore string, tagName string, clientIndexForMultiVC int) error {
+	datastore string, tagName string, clientIndexForMultiVC int, sshdPortNum string) error {
 	var attachTagCat string
 	if !multivc {
 		attachTagCat = govcLoginCmd() +
 			"govc tags.attach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
 		framework.Logf("cmd to attach tag to preferred datastore: %s ", attachTagCat)
-		attachTagCatRes, err := sshExec(sshClientConfig, masterIp, attachTagCat)
+		attachTagCatRes, err := sshExec(sshClientConfig, masterIp, attachTagCat, sshdPortNum)
 		if err != nil && attachTagCatRes.Code != 0 {
 			fssh.LogResult(attachTagCatRes)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -157,7 +157,7 @@ func attachTagToPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientC
 		attachTagCat = govcLoginCmdForMultiVC(clientIndexForMultiVC) +
 			"govc tags.attach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
 		framework.Logf("cmd to attach tag to preferred datastore: %s ", attachTagCat)
-		attachTagCatRes, err := sshExec(sshClientConfig, masterIp, attachTagCat)
+		attachTagCatRes, err := sshExec(sshClientConfig, masterIp, attachTagCat, sshdPortNum)
 		if err != nil && attachTagCatRes.Code != 0 {
 			fssh.LogResult(attachTagCatRes)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -169,7 +169,7 @@ func attachTagToPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientC
 
 /* detachTagCreatedOnPreferredDatastore is used to detach the tag created on preferred datastore */
 func detachTagCreatedOnPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	datastore string, tagName string, clientIndex int) error {
+	datastore string, tagName string, clientIndex int, sshdPortNum string) error {
 	var detachTagCat string
 	if !multivc {
 		detachTagCat = govcLoginCmd() +
@@ -180,7 +180,7 @@ func detachTagCreatedOnPreferredDatastore(masterIp string, sshClientConfig *ssh.
 			"govc tags.detach -c " + preferredDSCat + " " + tagName + " " + "'" + datastore + "'"
 	}
 	framework.Logf("cmd to detach the tag assigned to preferred datastore: %s ", detachTagCat)
-	detachTagCatRes, err := sshExec(sshClientConfig, masterIp, detachTagCat)
+	detachTagCatRes, err := sshExec(sshClientConfig, masterIp, detachTagCat, sshdPortNum)
 	if err != nil && detachTagCatRes.Code != 0 {
 		fssh.LogResult(detachTagCatRes)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -194,14 +194,15 @@ getListOfSharedDatastoresBetweenVMs method is used to fetch the list of datatsor
 node vms or shared across entire k8s cluster
 */
 func getListOfSharedDatastoresBetweenVMs(masterIp string, sshClientConfig *ssh.ClientConfig,
-	dataCenter []*object.Datacenter) (map[string]string, error) {
+	dataCenter []*object.Datacenter, sshdPortNum string) (map[string]string, error) {
 	var clusFolderTemp []string
 	var clusterFolderName string
 	shareddatastoreListMap := make(map[string]string)
 	for i := 0; i < len(dataCenter); i++ {
 		clusterFolder := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
 		framework.Logf("cmd: %s ", clusterFolder)
-		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder)
+		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp,
+			clusterFolder, sshdPortNum)
 		if err != nil && clusterFolderNameResult.Code != 0 {
 			fssh.LogResult(clusterFolderNameResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -221,7 +222,7 @@ func getListOfSharedDatastoresBetweenVMs(masterIp string, sshClientConfig *ssh.C
 		"govc ls " + clusterFolderName + " | xargs -n1 -I% govc object.collect -s % summary.runtime.host | " +
 		"xargs govc datastore.info -H | grep 'Path\\|URL' | tr -s [:space:]"
 	framework.Logf("cmd for fetching list of shared datastores: %s ", listOfSharedDatastores)
-	result, err := sshExec(sshClientConfig, masterIp, listOfSharedDatastores)
+	result, err := sshExec(sshClientConfig, masterIp, listOfSharedDatastores, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -241,7 +242,7 @@ getListOfDatastoresByClusterName method is used to fetch the list of datastores 
 specific cluster
 */
 func getListOfDatastoresByClusterName(masterIp string, sshClientConfig *ssh.ClientConfig,
-	cluster string, clientIndexForVC int) (map[string]string, error) {
+	cluster string, clientIndexForVC int, sshdPortNum string) (map[string]string, error) {
 	ClusterdatastoreListMap := make(map[string]string)
 	var datastoreListByCluster string
 	if !multivc {
@@ -254,7 +255,7 @@ func getListOfDatastoresByClusterName(masterIp string, sshClientConfig *ssh.Clie
 			"grep 'Path\\|URL' | tr -s [:space:]"
 	}
 	framework.Logf("cmd : %s ", datastoreListByCluster)
-	result, err := sshExec(sshClientConfig, masterIp, datastoreListByCluster)
+	result, err := sshExec(sshClientConfig, masterIp, datastoreListByCluster, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -376,12 +377,13 @@ func verifyVolumeProvisioningForStandalonePods(client clientset.Interface, pod *
 tagSameDatastoreAsPreferenceToDifferentRacks method is used to assign same preferred datatsore
 to another racks or clusters available in a testbed
 */
-func tagSameDatastoreAsPreferenceToDifferentRacks(masterIp string, sshClientConfig *ssh.ClientConfig, zoneValue string,
-	itr int, datastoreNames []string) error {
+func tagSameDatastoreAsPreferenceToDifferentRacks(masterIp string, sshClientConfig *ssh.ClientConfig,
+	zoneValue string, itr int, datastoreNames []string, sshdPortNum string) error {
 	i := 0
 	for j := 0; j < len(datastoreNames); j++ {
 		i = i + 1
-		err := attachTagToPreferredDatastore(masterIp, sshClientConfig, datastoreNames[j], zoneValue, 0)
+		err := attachTagToPreferredDatastore(masterIp, sshClientConfig, datastoreNames[j],
+			zoneValue, 0, sshdPortNum)
 		if err != nil {
 			return err
 		}
@@ -396,7 +398,8 @@ func tagSameDatastoreAsPreferenceToDifferentRacks(masterIp string, sshClientConf
 tagPreferredDatastore method is used to tag the datastore which is chosen for volume provisioning
 */
 func tagPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, zoneValue string, itr int,
-	datastoreListMap map[string]string, datastoreNames []string, clientIndex int) ([]string, error) {
+	datastoreListMap map[string]string, datastoreNames []string,
+	clientIndex int, sshdPortNum string) ([]string, error) {
 	var preferredDatastorePaths []string
 	var err error
 	i := 0
@@ -404,7 +407,8 @@ func tagPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, z
 		for dsName := range datastoreListMap {
 			i = i + 1
 			preferredDatastorePaths = append(preferredDatastorePaths, dsName)
-			err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue, clientIndex)
+			err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName,
+				zoneValue, clientIndex, sshdPortNum)
 			if err != nil {
 				return preferredDatastorePaths, err
 			}
@@ -417,7 +421,8 @@ func tagPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig, z
 		for dsName := range datastoreListMap {
 			if !slices.Contains(datastoreNames, dsName) {
 				preferredDatastorePaths = append(preferredDatastorePaths, dsName)
-				err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName, zoneValue, clientIndex)
+				err = attachTagToPreferredDatastore(masterIp, sshClientConfig, dsName,
+					zoneValue, clientIndex, sshdPortNum)
 				if err != nil {
 					return preferredDatastorePaths, err
 				}
@@ -509,7 +514,7 @@ func getNonSharedDatastoresInCluster(ClusterdatastoreListMap map[string]string,
 
 // deleteTagCreatedForPreferredDatastore method is used to delete the tag created on preferred datastore
 func deleteTagCreatedForPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	tagName []string) error {
+	tagName []string, sshdPortNum string) error {
 	var deleteTagCat string
 	for i := 0; i < len(tagName); i++ {
 		if !multivc {
@@ -518,7 +523,7 @@ func deleteTagCreatedForPreferredDatastore(masterIp string, sshClientConfig *ssh
 			deleteTagCat = govcLoginCmdForMultiVC(i) + "govc tags.rm -f -c " + preferredDSCat + " " + tagName[i]
 		}
 		framework.Logf("Deleting tag created for preferred datastore: %s ", deleteTagCat)
-		deleteTagCatRes, err := sshExec(sshClientConfig, masterIp, deleteTagCat)
+		deleteTagCatRes, err := sshExec(sshClientConfig, masterIp, deleteTagCat, sshdPortNum)
 		if err != nil && deleteTagCatRes.Code != 0 {
 			fssh.LogResult(deleteTagCatRes)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -530,7 +535,7 @@ func deleteTagCreatedForPreferredDatastore(masterIp string, sshClientConfig *ssh
 
 // createTagForPreferredDatastore method is used to create tag required for choosing preferred datastore
 func createTagForPreferredDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	tagName []string) error {
+	tagName []string, sshdPortNum string) error {
 	var createTagCat string
 	for i := 0; i < len(tagName); i++ {
 		if !multivc {
@@ -542,7 +547,8 @@ func createTagForPreferredDatastore(masterIp string, sshClientConfig *ssh.Client
 			framework.Logf(createTagCat)
 		}
 		framework.Logf("Creating tag for preferred datastore: %s ", createTagCat)
-		createTagCatRes, err := sshExec(sshClientConfig, masterIp, createTagCat)
+		createTagCatRes, err := sshExec(sshClientConfig, masterIp, createTagCat,
+			sshdPortNum)
 		if err != nil && createTagCatRes.Code != 0 {
 			fssh.LogResult(createTagCatRes)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -661,7 +667,7 @@ func powerOnPreferredDatastore(datastoreToPowerOn string, opName string) {
 
 /* fetchWorkerNodeVms fetches the list of vms */
 func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, dataCenter []*object.Datacenter,
-	workerNodeAlias string, itr int) ([]string, error) {
+	workerNodeAlias string, itr int, sshdPortNum string) ([]string, error) {
 	var clusFolderTemp []string
 	var clusterFolderName string
 	var clusterFolder string
@@ -675,7 +681,7 @@ func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, data
 		} else {
 			clusterFolder = govcLoginCmdForMultiVC(itr) + "govc ls " + dataCenter[i].InventoryPath
 		}
-		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder)
+		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder, sshdPortNum)
 		if err != nil && clusterFolderNameResult.Code != 0 {
 			fssh.LogResult(clusterFolderNameResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -698,7 +704,7 @@ func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, data
 				workerNodeAlias + "-.*worker"
 		}
 		framework.Logf("cmd : %s ", listWokerVms)
-		result, err := sshExec(sshClientConfig, masterIp, listWokerVms)
+		result, err := sshExec(sshClientConfig, masterIp, listWokerVms, sshdPortNum)
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -714,7 +720,7 @@ func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, data
 			listvCLSVms = govcLoginCmdForMultiVC(itr) + "govc ls " + clusterFolderName + "/vCLS"
 		}
 		framework.Logf("cmd : %s ", listvCLSVms)
-		listvCLSVmsRes, err := sshExec(sshClientConfig, masterIp, listvCLSVms)
+		listvCLSVmsRes, err := sshExec(sshClientConfig, masterIp, listvCLSVms, sshdPortNum)
 		if err != nil && listvCLSVmsRes.Code != 0 {
 			fssh.LogResult(listvCLSVmsRes)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -732,7 +738,7 @@ func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, data
 migrateVmsFromDatastore method is use to migrate the vms to destination preferred datastore
 */
 func migrateVmsFromDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	destDatastore string, vMsToMigrate []string, itr int) (bool, error) {
+	destDatastore string, vMsToMigrate []string, itr int, sshdPortNum string) (bool, error) {
 	var migrateVm string
 	for i := 0; i < len(vMsToMigrate); i++ {
 		if !multivc {
@@ -743,7 +749,7 @@ func migrateVmsFromDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
 				vMsToMigrate[i]
 		}
 		framework.Logf("cmd : %s ", migrateVm)
-		migrateVmRes, err := sshExec(sshClientConfig, masterIp, migrateVm)
+		migrateVmRes, err := sshExec(sshClientConfig, masterIp, migrateVm, sshdPortNum)
 		if err != nil && migrateVmRes.Code != 0 {
 			fssh.LogResult(migrateVmRes)
 			return false, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -758,7 +764,8 @@ preferredDatastoreInMaintenanceMode method is use to put preferred datastore in
 maintenance mode
 */
 func preferredDatastoreInMaintenanceMode(masterIp string, sshClientConfig *ssh.ClientConfig,
-	dataCenter []*object.Datacenter, datastoreName string, itr int) error {
+	dataCenter []*object.Datacenter, datastoreName string,
+	itr int, sshdPortNum string) error {
 	var enableDrsModeCmd string
 	var putDatastoreInMMmodeCmd string
 	for i := 0; i < len(dataCenter); i++ {
@@ -768,7 +775,7 @@ func preferredDatastoreInMaintenanceMode(masterIp string, sshClientConfig *ssh.C
 			enableDrsModeCmd = govcLoginCmdForMultiVC(itr) + "govc datastore.cluster.change -drs-mode automated"
 		}
 		framework.Logf("Enable drs mode: %s ", enableDrsModeCmd)
-		enableDrsMode, err := sshExec(sshClientConfig, masterIp, enableDrsModeCmd)
+		enableDrsMode, err := sshExec(sshClientConfig, masterIp, enableDrsModeCmd, sshdPortNum)
 		if err != nil && enableDrsMode.Code != 0 {
 			fssh.LogResult(enableDrsMode)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -782,7 +789,8 @@ func preferredDatastoreInMaintenanceMode(masterIp string, sshClientConfig *ssh.C
 				"govc datastore.maintenance.enter -ds " + datastoreName
 		}
 		framework.Logf("Enable drs mode: %s ", putDatastoreInMMmodeCmd)
-		putDatastoreInMMmodeRes, err := sshExec(sshClientConfig, masterIp, putDatastoreInMMmodeCmd)
+		putDatastoreInMMmodeRes, err := sshExec(sshClientConfig, masterIp,
+			putDatastoreInMMmodeCmd, sshdPortNum)
 		if err != nil && putDatastoreInMMmodeRes.Code != 0 {
 			fssh.LogResult(putDatastoreInMMmodeRes)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -797,7 +805,7 @@ exitDatastoreFromMaintenanceMode method is use to exit preferred datastore from
 maintenance mode
 */
 func exitDatastoreFromMaintenanceMode(masterIp string, sshClientConfig *ssh.ClientConfig,
-	datastoreName string, itr int) error {
+	datastoreName string, itr int, sshdPortNum string) error {
 	var exitMmMode string
 	if !multivc {
 		exitMmMode = govcLoginCmd() +
@@ -807,7 +815,7 @@ func exitDatastoreFromMaintenanceMode(masterIp string, sshClientConfig *ssh.Clie
 			" govc datastore.maintenance.exit -ds " + datastoreName
 	}
 	framework.Logf("Exit maintenance mode: %s ", exitMmMode)
-	exitMmModeMMmodeRes, err := sshExec(sshClientConfig, masterIp, exitMmMode)
+	exitMmModeMMmodeRes, err := sshExec(sshClientConfig, masterIp, exitMmMode, sshdPortNum)
 	if err != nil && exitMmModeMMmodeRes.Code != 0 {
 		fssh.LogResult(exitMmModeMMmodeRes)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",

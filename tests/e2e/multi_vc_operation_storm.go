@@ -60,12 +60,14 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 		ClusterdatastoreListVC1     map[string]string
 		ClusterdatastoreListVC2     map[string]string
 		ClusterdatastoreListVC3     map[string]string
-		allMasterIps                []string
 		masterIp                    string
 		dataCenters                 []*object.Datacenter
 		clusterComputeResource      []*object.ClusterComputeResource
 		nodeList                    *v1.NodeList
 		workerInitialAlias          []string
+		sshdPortNum                 string
+		isPrivateNetwork            bool
+		masterIpPortMap             map[string]string
 	)
 	ginkgo.BeforeEach(func() {
 		var cancel context.CancelFunc
@@ -75,6 +77,10 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 		namespace = f.Namespace.Name
 
 		multiVCbootstrap()
+
+		/* Verifying whether the setup is a private or public network and retrieving
+		the master IP-to-port number mapping */
+		_, sshdPortNum, isPrivateNetwork, masterIpPortMap = GetMasterIpPortMap(ctx, client)
 
 		stsScaleUp = true
 		stsScaleDown = true
@@ -123,10 +129,6 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicas = *csiDeployment.Spec.Replicas
 
-		// fetching k8s master ip
-		allMasterIps = getK8sMasterIPs(ctx, client)
-		masterIp = allMasterIps[0]
-
 		// fetching cluster details
 		clientIndex := 0
 		clusterComputeResource, _, err = getClusterNameForMultiVC(ctx, &multiVCe2eVSphere, clientIndex)
@@ -135,7 +137,7 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 		// fetching list of datastores available in different VCs
 		ClusterdatastoreListVC1, ClusterdatastoreListVC2,
 			ClusterdatastoreListVC3, err = getDatastoresListFromMultiVCs(masterIp, sshClientConfig,
-			clusterComputeResource[0])
+			clusterComputeResource[0], sshdPortNum)
 		ClusterdatastoreListVC = append(ClusterdatastoreListVC, ClusterdatastoreListVC1,
 			ClusterdatastoreListVC2, ClusterdatastoreListVC3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -198,7 +200,7 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 		var powerOffHostsLists []string
 
 		ginkgo.By("Create SC with default value and without specifying any allowed topology details")
-		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "nginx-sc")
+		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -208,16 +210,22 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 		ginkgo.By("Get current leader where CSI-Provisioner, CSI-Attacher is running " +
 			"and find the master node IP where these containers are running")
 		csiProvisionerLeader, csiProvisionerk8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, provisionerContainerName)
+			client, sshClientConfig, provisionerContainerName, sshdPortNum)
 		framework.Logf("CSI-Provisioner is running on Leader Pod %s "+
 			"which is running on master node %s", csiProvisionerLeader, csiProvisionerk8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// reading port number for the master ip retrieve
+		sshdPortNumForProvisionerk8sMasterIP := GetPortNum(csiProvisionerk8sMasterIP, isPrivateNetwork, masterIpPortMap)
+
 		csiAttacherLeader, csiAttacherk8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, attacherContainerName)
+			client, sshClientConfig, attacherContainerName, sshdPortNum)
 		framework.Logf("CSI-Attacher is running on Leader Pod %s "+
 			"which is running on master node %s", csiAttacherLeader, csiAttacherk8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// reading port number for the master ip retrieve
+		sshdPortNumForAttacherk8sMasterIP := GetPortNum(csiAttacherk8sMasterIP, isPrivateNetwork, masterIpPortMap)
 
 		ginkgo.By("Creating service")
 		service := CreateService(namespace, client)
@@ -226,7 +234,7 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 		}()
 
 		ginkgo.By("Creating multiple StatefulSets specs in parallel")
-		statefulSets := createParallelStatefulSetSpec(namespace, sts_count, statefulSetReplicaCount)
+		statefulSets := createParallelStatefulSetSpec(storageclass, namespace, sts_count, statefulSetReplicaCount)
 
 		ginkgo.By("Trigger multiple StatefulSets creation in parallel. During StatefulSets " +
 			"creation, kill CSI-Provisioner, CSI-Attacher container in between")
@@ -236,15 +244,15 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 			go createParallelStatefulSets(client, namespace, statefulSets[i], statefulSetReplicaCount, &wg)
 			if i == 1 {
 				ginkgo.By("Kill CSI-Provisioner container")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, csiProvisionerk8sMasterIP, provisionerContainerName,
-					k8sVersion)
+				err = execDockerPauseNKillOnContainer(ctx, client, sshClientConfig, csiProvisionerk8sMasterIP,
+					provisionerContainerName, k8sVersion, sshdPortNumForProvisionerk8sMasterIP)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
 			if i == 2 {
 				ginkgo.By("Kill CSI-Attacher container")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, csiAttacherk8sMasterIP, attacherContainerName,
-					k8sVersion)
+				err = execDockerPauseNKillOnContainer(ctx, client, sshClientConfig, csiAttacherk8sMasterIP, attacherContainerName,
+					k8sVersion, sshdPortNumForAttacherk8sMasterIP)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -367,22 +375,25 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 		}
 
 		framework.Logf("Fetch worker vms sitting on VC-3")
-		vMsToMigrate, err := fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters, workerInitialAlias[0],
-			2)
+		vMsToMigrate, err := fetchWorkerNodeVms(masterIp, sshClientConfig, dataCenters,
+			workerInitialAlias[0], 2, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Move all the vms to destination datastore")
-		isMigrateSuccess, err := migrateVmsFromDatastore(masterIp, sshClientConfig, destDsName, vMsToMigrate, 2)
+		isMigrateSuccess, err := migrateVmsFromDatastore(masterIp, sshClientConfig,
+			destDsName, vMsToMigrate, 2, sshdPortNum)
 		gomega.Expect(isMigrateSuccess).To(gomega.BeTrue(), "Migration of vms failed")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Put datastore in maintenance mode on VC-3")
-		err = preferredDatastoreInMaintenanceMode(masterIp, sshClientConfig, dataCenters, soureDsName, 2)
+		err = preferredDatastoreInMaintenanceMode(masterIp, sshClientConfig, dataCenters,
+			soureDsName, 2, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isDatastoreInMaintenanceMode = true
 		defer func() {
 			if isDatastoreInMaintenanceMode {
-				err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig, soureDsName, 2)
+				err = exitDatastoreFromMaintenanceMode(masterIp, sshClientConfig,
+					soureDsName, 2, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isDatastoreInMaintenanceMode = false
 			}

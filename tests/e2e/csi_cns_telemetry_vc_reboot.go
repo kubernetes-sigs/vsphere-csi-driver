@@ -62,7 +62,13 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 			// Reset the cluster distribution value to default value "CSI-Vanilla".
 			setClusterDistribution(ctx, client, vanillaClusterDistribution)
 		}
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 	})
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())

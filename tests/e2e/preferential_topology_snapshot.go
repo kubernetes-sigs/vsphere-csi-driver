@@ -62,7 +62,6 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		nonShareddatastoreListMapRack1 map[string]string
 		nonShareddatastoreListMapRack2 map[string]string
 		nonShareddatastoreListMapRack3 map[string]string
-		allMasterIps                   []string
 		masterIp                       string
 		dataCenters                    []*object.Datacenter
 		clusters                       []string
@@ -82,6 +81,7 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		sshClientConfig                *ssh.ClientConfig
 		nimbusGeneratedK8sVmPwd        string
 		clientIndex                    int
+		sshdPortNum                    string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -99,6 +99,11 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
+		}
+
+		// reading K8sMasterIP and port number
+		if sshdPortNum == "" || masterIp == "" {
+			masterIp, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
 		}
 
 		//Get snapshot client using the rest config
@@ -128,31 +133,32 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap)
 		allowedTopologies = createAllowedTopolgies(topologyMap)
 
-		// fetching k8s master ip
-		allMasterIps = getK8sMasterIPs(ctx, client)
-		masterIp = allMasterIps[0]
-
 		// fetching datacenter details
 		dataCenters, err = e2eVSphere.getAllDatacenters(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// fetching cluster details
-		clusters, err = getTopologyLevel5ClusterGroupNames(masterIp, sshClientConfig, dataCenters, 0)
+		clusters, err = getTopologyLevel5ClusterGroupNames(masterIp, sshClientConfig,
+			dataCenters, 0, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap)
 		allowedTopologies = createAllowedTopolgies(topologyMap)
 
 		// fetching list of datatstores shared between vm's
-		shareddatastoreListMap, err = getListOfSharedDatastoresBetweenVMs(masterIp, sshClientConfig, dataCenters)
+		shareddatastoreListMap, err = getListOfSharedDatastoresBetweenVMs(masterIp, sshClientConfig,
+			dataCenters, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// fetching list of datastores available in different racks
-		rack1DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0], clientIndex)
+		rack1DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig,
+			clusters[0], clientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[1], clientIndex)
+		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[1],
+			clientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[2], clientIndex)
+		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[2],
+			clientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// fetching list of datastores which is specific to each rack
@@ -202,11 +208,13 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		framework.Logf("Perform preferred datastore tags cleanup after test completion")
-		err = deleteTagCreatedForPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks)
+		err = deleteTagCreatedForPreferredDatastore(masterIp, sshClientConfig,
+			allowedTopologyRacks, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Recreate preferred datastore tags post cleanup")
-		err = createTagForPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks)
+		err = createTagForPreferredDatastore(masterIp, sshClientConfig,
+			allowedTopologyRacks, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -245,12 +253,13 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		// choose preferred datastore
 		ginkgo.By("Tag preferred datastore for volume provisioning in rack-1(cluster-1))")
 		preferredDatastorePaths, err = tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks[0],
-			preferredDatastoreChosen, nonShareddatastoreListMapRack1, nil, clientIndex)
+			preferredDatastoreChosen, nonShareddatastoreListMapRack1, nil,
+			clientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Remove preferred datastore tag")
 			err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
-				allowedTopologyRacks[0], clientIndex)
+				allowedTopologyRacks[0], clientIndex, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -375,7 +384,8 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		// choose preferred datastore
 		ginkgo.By("Tag preferred datastore for volume provisioning in rack-2(cluster-2))")
 		preferredDatastorePaths, err = tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks[1],
-			preferredDatastoreChosen, nonShareddatastoreListMapRack2, nil, clientIndex)
+			preferredDatastoreChosen, nonShareddatastoreListMapRack2, nil,
+			clientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Waiting for %v for preferred datastore to get refreshed in the environment",
@@ -424,17 +434,18 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 
 		ginkgo.By("Remove preferred datastore tag chosen for volume provisioning")
 		err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
-			allowedTopologyRacks[1], clientIndex)
+			allowedTopologyRacks[1], clientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Tag new preferred datatsore for volume provisioning")
 		preferredDatastorePaths, err = tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks[1],
-			preferredDatastoreChosen, nonShareddatastoreListMapRack2, preferredDatastorePaths, clientIndex)
+			preferredDatastoreChosen, nonShareddatastoreListMapRack2, preferredDatastorePaths,
+			clientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Remove preferred datastore tag")
 			err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
-				allowedTopologyRacks[1], clientIndex)
+				allowedTopologyRacks[1], clientIndex, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -536,24 +547,25 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		ginkgo.By("Tag different preferred datastore for volume provisioning in different racks")
 		for i := 0; i < len(allowedTopologyRacks); i++ {
 			preferredDatastorePath, err := tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks[i],
-				preferredDatastoreChosen, datastorestMap[i], nil, clientIndex)
+				preferredDatastoreChosen, datastorestMap[i], nil, clientIndex, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			preferredDatastorePaths = append(preferredDatastorePaths, preferredDatastorePath...)
 		}
 
 		sharedPreferredDatastorePaths, err := tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks[0],
-			preferredDatastoreChosen, shareddatastoreListMap, nil, clientIndex)
+			preferredDatastoreChosen, shareddatastoreListMap, nil, clientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		preferredDatastorePaths = append(preferredDatastorePaths, sharedPreferredDatastorePaths...)
 		for i := 1; i < len(allowedTopologyRacks); i++ {
 			err = tagSameDatastoreAsPreferenceToDifferentRacks(masterIp, sshClientConfig, allowedTopologyRacks[i],
-				preferredDatastoreChosen, sharedPreferredDatastorePaths)
+				preferredDatastoreChosen,
+				sharedPreferredDatastorePaths, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		defer func() {
 			for i := 0; i < len(allowedTopologyRacks); i++ {
 				err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, sharedPreferredDatastorePaths[0],
-					allowedTopologyRacks[i], clientIndex)
+					allowedTopologyRacks[i], clientIndex, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -753,7 +765,7 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		ginkgo.By("Remove preferred datastore tag chosen for volume provisioning")
 		for i := 0; i < len(allowedTopologyRacks); i++ {
 			err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[i],
-				allowedTopologyRacks[i], clientIndex)
+				allowedTopologyRacks[i], clientIndex, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -761,14 +773,15 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		ginkgo.By("Assign new preferred datastore tags for volume provisioning in different racks")
 		for i := 0; i < len(allowedTopologyRacks); i++ {
 			preferredDatastorePath, err := tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks[i],
-				preferredDatastoreChosen, datastorestMap[i], preferredDatastorePaths, clientIndex)
+				preferredDatastoreChosen, datastorestMap[i], preferredDatastorePaths,
+				clientIndex, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			preferredDatastorePathsNew = append(preferredDatastorePathsNew, preferredDatastorePath...)
 		}
 		defer func() {
 			for i := 0; i < len(allowedTopologyRacks); i++ {
 				err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePathsNew[i],
-					allowedTopologyRacks[i], clientIndex)
+					allowedTopologyRacks[i], clientIndex, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -934,11 +947,11 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 
 		ginkgo.By("Tag preferred datastore for volume provisioning in rack-3(cluster-3)")
 		preferredDatastorePaths, err = tagPreferredDatastore(masterIp, sshClientConfig, allowedTopologyRacks[2],
-			preferredDatastoreChosen, nonShareddatastoreListMapRack3, nil, clientIndex)
+			preferredDatastoreChosen, nonShareddatastoreListMapRack3, nil, clientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err = detachTagCreatedOnPreferredDatastore(masterIp, sshClientConfig, preferredDatastorePaths[0],
-				allowedTopologyRacks[2], clientIndex)
+				allowedTopologyRacks[2], clientIndex, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -948,7 +961,7 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 
 		ginkgo.By("Create storage class")
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForRack3,
-			"", "", false, "nginx-sc")
+			"", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
@@ -963,6 +976,8 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		}()
 
 		statefulset := GetStatefulSetFromManifest(namespace)
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Spec.StorageClassName = &storageclass.Name
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
