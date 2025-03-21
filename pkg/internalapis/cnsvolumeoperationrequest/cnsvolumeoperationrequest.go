@@ -401,7 +401,7 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int, isBl
 			if err != nil {
 				log.Errorf("failed to get snapshotterClient with error: %v. Abandoning "+
 					"CnsVolumeOperationRequests clean up ...", err)
-				return
+				continue
 			}
 
 			// the List API below ensures VolumeSnapshotContent CRD is installed and lists the existing
@@ -410,7 +410,7 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int, isBl
 			if err != nil {
 				log.Errorf("failed to list VolumeSnapshotContents with error %v. Abandoning "+
 					"CnsVolumeOperationRequests clean up ...", err)
-				return
+				continue
 			}
 
 			for _, vsc := range vscList.Items {
