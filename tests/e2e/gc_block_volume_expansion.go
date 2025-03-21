@@ -2474,6 +2474,7 @@ func resize(client clientset.Interface, pvc *v1.PersistentVolumeClaim,
 	defer wg.Done()
 	framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
 	_, err := expandPVCSize(pvc, newSize, client)
+	time.Sleep(30 * time.Second)
 	framework.Logf("Error from expansion attempt on pvc %v, to %v: %v", pvc.Name, newSize, err)
 }
 
