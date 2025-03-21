@@ -1541,19 +1541,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("non shared datastore , profileID : %s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
-		err = client.StorageV1().StorageClasses().Delete(ctx, nonsharedDatastoreName, metav1.DeleteOptions{})
-		if !apierrors.IsNotFound(err) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, nonsharedDatastoreName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("storageclass Name :%s", storageclass.GetName())
-
-		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating Resource quota")
 		setStoragePolicyQuota(ctx, restConfig, nonsharedDatastoreName, namespace, rqLimit)
