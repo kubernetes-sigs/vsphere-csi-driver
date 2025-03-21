@@ -7471,3 +7471,49 @@ func isVersionGreaterOrEqual(presentVersion, expectedVCversion string) bool {
 	}
 	return true // If all parts are equal, the versions are equal
 }
+
+/*
+Restart WCP with WaitGroup
+*/
+func restartWcpWithWg(ctx context.Context, vcAddress string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	err := restartWcp(ctx, vcAddress)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+/*
+Restart WCP
+*/
+func restartWcp(ctx context.Context, vcAddress string) error {
+	err := invokeVCenterServiceControl(ctx, restartOperation, wcpServiceName, vcAddress)
+	if err != nil {
+		return fmt.Errorf("couldn't restart WCP: %v", err)
+	}
+	return nil
+}
+
+/*
+Helper method to verify the status code
+*/
+func checkStatusCode(expectedStatusCode int, actualStatusCode int) error {
+	gomega.Expect(actualStatusCode).Should(gomega.BeNumerically("==", expectedStatusCode))
+	if actualStatusCode != expectedStatusCode {
+		return fmt.Errorf("expected status code: %d, actual status code: %d", expectedStatusCode, actualStatusCode)
+	}
+	return nil
+}
+
+/*
+This helper is to check if a given integer present in a list of intergers.
+*/
+func isAvailable(alpha []int, val int) bool {
+	// iterate using the for loop
+	for i := 0; i < len(alpha); i++ {
+		// check
+		if alpha[i] == val {
+			// return true
+			return true
+		}
+	}
+	return false
+}

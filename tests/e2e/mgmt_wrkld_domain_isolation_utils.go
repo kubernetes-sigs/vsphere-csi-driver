@@ -24,6 +24,7 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/onsi/gomega"
@@ -227,36 +228,14 @@ func createTestWcpNsWithZones(
 }
 
 func markZoneForRemovalFromWcpNs(vcRestSessionId string, namespace string, zone string) error {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	deleteZoneFromNs := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace + "/zones/" + zone
-	fmt.Println(deleteZoneFromNs)
-	_, statusCode := invokeVCRestAPIDeleteRequest(vcRestSessionId, deleteZoneFromNs)
+	statusCode := markZoneForRemovalFromNs(namespace, zone, vcRestSessionId)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
-	if statusCode != 204 {
-		return fmt.Errorf("failed to remove zone %s from namespace %s, received status code: %d", zone, namespace, statusCode)
-	}
-	return nil
+	return checkStatusCode(204, statusCode)
 }
 
 func addZoneToWcpNs(vcRestSessionId string, namespace string, zoneName string) error {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	AddZoneToNs := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace
-
-	// Create the request body with zone name inside a zones array
-	reqBody := fmt.Sprintf(`{
-        "zones": [{"name": "%s"}]
-    }`, zoneName)
-
-	// Print the request body for debugging
-	fmt.Println(reqBody)
-
-	// Make the API request
-	_, statusCode := invokeVCRestAPIPatchRequest(vcRestSessionId, AddZoneToNs, reqBody)
-	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
-	if statusCode != 204 {
-		return fmt.Errorf("failed to add zone %s to namespace %s, received status code: %d", zoneName, namespace, statusCode)
-	}
-	return nil
+	statusCode := addZoneToNs(namespace, zoneName, vcRestSessionId)
+	return checkStatusCode(204, statusCode)
 }
 
 /*
@@ -279,4 +258,77 @@ func invokeVCRestAPIPatchRequest(vcRestSessionId string, url string, reqBody str
 	resp, statusCode := httpRequest(httpClient, req)
 
 	return resp, statusCode
+}
+
+/*
+Add zone to namespace with WaitGroup
+*/
+func addZoneToWcpNsWithWg(vcRestSessionId string,
+	namespace string,
+	zoneName string,
+	expectedStatusCode []int,
+	wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	statusCode := addZoneToNs(namespace, zoneName, vcRestSessionId)
+
+	if !isAvailable(expectedStatusCode, statusCode) {
+		framework.Logf("failed to add zone %s to NS %s, received status code: %d", zoneName, namespace, statusCode)
+	}
+}
+
+/*
+Add zone to namespace without checking the statuscode
+*/
+func addZoneToNs(namespace string, zoneName string, vcRestSessionId string) int {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	AddZoneToNs := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace
+
+	// Create the request body with zone name inside a zones array
+	reqBody := fmt.Sprintf(`{
+        "zones": [{"name": "%s"}]
+    }`, zoneName)
+
+	// Print the request body for debugging
+	fmt.Println(reqBody)
+
+	// Make the API request
+	_, statusCode := invokeVCRestAPIPatchRequest(vcRestSessionId, AddZoneToNs, reqBody)
+	return statusCode
+}
+
+/*
+Mark zone for removal with expected success/failure statuscode and WG
+*/
+func markZoneForRemovalFromWcpNsWithWg(vcRestSessionId string,
+	namespace string,
+	zone string,
+	expectedStatusCode []int,
+	wg *sync.WaitGroup) {
+	defer wg.Done()
+	statusCode := markZoneForRemovalFromNs(namespace, zone, vcRestSessionId)
+	if !isAvailable(expectedStatusCode, statusCode) {
+		framework.Logf("failed to remove zone %s from namespace %s, received status code: %d", zone, namespace, statusCode)
+	}
+}
+
+/*
+Restart CSI driver with WaitGroup
+*/
+func restartCSIDriverWithWg(ctx context.Context, client clientset.Interface, namespace string,
+	csiReplicas int32, wg *sync.WaitGroup) (bool, error) {
+	defer wg.Done()
+	return restartCSIDriver(ctx, client, namespace, csiReplicas)
+
+}
+
+/*
+Mark zone for removal without checking the statuscode
+*/
+func markZoneForRemovalFromNs(namespace string, zone string, vcRestSessionId string) int {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	deleteZoneFromNs := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace + "/zones/" + zone
+	fmt.Println(deleteZoneFromNs)
+	_, statusCode := invokeVCRestAPIDeleteRequest(vcRestSessionId, deleteZoneFromNs)
+	return statusCode
 }
