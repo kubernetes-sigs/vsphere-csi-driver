@@ -89,9 +89,11 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		}
 		bootstrap()
 
-		// reading vc address
-		vcAddress, _, err = readVcAddress()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		isVsanHealthServiceStopped = false
 		isSPSserviceStopped = false

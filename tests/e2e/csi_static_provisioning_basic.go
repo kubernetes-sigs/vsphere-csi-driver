@@ -110,9 +110,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		nonSharedDatastoreURL = GetAndExpectStringEnvVar(envNonSharedStorageClassDatastoreURL)
 
-		// reading vc address
-		vcAddress, _, err = readVcAddress()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		finder := find.NewFinder(e2eVSphere.Client.Client, false)
 		cfg, err := getConfig()

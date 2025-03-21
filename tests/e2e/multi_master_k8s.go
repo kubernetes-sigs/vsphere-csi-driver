@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"strings"
 	"time"
 
@@ -294,7 +293,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 
 		sshCmd := "systemctl stop kubelet.service"
 		// Get SSH port number from environment variable or use default
-		vcPortNo := os.Getenv(envVcSshdPortNum)
+		vcPortNo := GetAndExpectStringEnvVar(envVcSshdPortNum)
 		if vcPortNo == "" {
 			vcPortNo = defaultShhdPortNum
 		}

@@ -3679,6 +3679,7 @@ func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework,
 		pandoraSyncWaitTime int
 		err                 error
 		datastoreURL        string
+		sshdPortNum         string
 	)
 
 	scParameters := make(map[string]string)
@@ -3709,6 +3710,12 @@ func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework,
 		if dcName != "" {
 			datacenters = append(datacenters, dcName)
 		}
+	}
+
+	// readings k8sMaster1 port number, if it is empty use default port
+	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+	if sshdPortNum == "" {
+		sshdPortNum = defaultShhdPortNum
 	}
 
 	for _, dc := range datacenters {
@@ -3799,6 +3806,9 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	namespace string, expectedContent string, storagePolicyName string, profileID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	var sshdPortNum string
+
 	ginkgo.By("Invoking Test to verify Multiple Volume Expansions on the same volume")
 	scParameters := make(map[string]string)
 	if windowsEnv {
@@ -3806,6 +3816,12 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	} else {
 		scParameters[scParamFsType] = ext4FSType
 	}
+	// readings k8sMaster1 port number, if it is empty use default port
+	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+	if sshdPortNum == "" {
+		sshdPortNum = defaultShhdPortNum
+	}
+
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 	var storageclass *storagev1.StorageClass
@@ -4004,7 +4020,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	var fsSize int64
 
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-	fsSize, err = getFileSystemSizeForOsType(f, client, pod)
+	fsSize, err = getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("File system size after expansion : %d", fsSize)
 
@@ -4372,11 +4388,12 @@ func offlineVolumeExpansionOnSupervisorPVC(client clientset.Interface, f *framew
 }
 
 // getFileSystemSizeForOsType returns the file system size of the volume in respective OS type
-func getFileSystemSizeForOsType(f *framework.Framework, client clientset.Interface, pod *v1.Pod) (int64, error) {
+func getFileSystemSizeForOsType(f *framework.Framework, client clientset.Interface,
+	pod *v1.Pod, sshdPortNum string) (int64, error) {
 	var fsSize int64
 	var err error
 	if windowsEnv {
-		fsSize, err = getWindowsFileSystemSize(client, pod)
+		fsSize, err = getWindowsFileSystemSize(client, pod, sshdPortNum)
 	} else {
 		fsSize, err = getFSSizeMb(f, pod)
 	}

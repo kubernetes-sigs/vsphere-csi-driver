@@ -78,9 +78,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		namespace = f.Namespace.Name
 		bootstrap()
 
-		// reading vc address
-		vcAddress, _, err = readVcAddress()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")

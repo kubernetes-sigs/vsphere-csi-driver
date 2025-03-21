@@ -117,9 +117,11 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		kubeconfig = GetAndExpectStringEnvVar("KUBECONFIG")
 		kubeconfig1 = GetAndExpectStringEnvVar("KUBECONFIG1")
 
-		// reading vc address
-		vcAddress, _, err = readVcAddress()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By("Getting User and Supervisor-Id for both the supervisors")
 		// Iterating through number of svc to read it's config secret to get supervisor id and service account user

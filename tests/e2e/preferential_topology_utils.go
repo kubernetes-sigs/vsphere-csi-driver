@@ -53,7 +53,7 @@ getTopologyLevel5ClusterGroupNames method is used to fetch list of cluster avail
 in level-5 testbed
 */
 func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.ClientConfig,
-	dataCenter []*object.Datacenter, clientIndex int) ([]string, error) {
+	dataCenter []*object.Datacenter, clientIndex int, sshdPortNum string) ([]string, error) {
 	var clusterList, clusList, clusFolderTemp, clusterGroupRes []string
 	var clusterFolderName string
 	var clusterFolder, clusterGroup, cluster string
@@ -65,7 +65,7 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 			clusterFolder = govcLoginCmdForMultiVC(clientIndex) + "govc ls " + dataCenter[i].InventoryPath
 		}
 		framework.Logf("cmd: %s ", clusterFolder)
-		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder)
+		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder, sshdPortNum)
 		if err != nil && clusterFolderNameResult.Code != 0 {
 			fssh.LogResult(clusterFolderNameResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -86,7 +86,7 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 			clusterGroup = govcLoginCmdForMultiVC(clientIndex) + "govc ls " + clusterFolderName
 		}
 		framework.Logf("cmd: %s ", clusterGroup)
-		clusterGroupResult, err := sshExec(sshClientConfig, masterIp, clusterGroup)
+		clusterGroupResult, err := sshExec(sshClientConfig, masterIp, clusterGroup, sshdPortNum)
 		if err != nil && clusterGroupResult.Code != 0 {
 			fssh.LogResult(clusterGroupResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -112,7 +112,7 @@ func getTopologyLevel5ClusterGroupNames(masterIp string, sshClientConfig *ssh.Cl
 			} else if topologySetupType == "Level5" {
 				cluster = govcLoginCmd() + "govc ls " + clusterGroupRes[0] + " | sort"
 				framework.Logf("cmd: %s ", cluster)
-				clusterResult, err := sshExec(sshClientConfig, masterIp, cluster)
+				clusterResult, err := sshExec(sshClientConfig, masterIp, cluster, sshdPortNum)
 				if err != nil && clusterResult.Code != 0 {
 					fssh.LogResult(clusterResult)
 					return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -732,7 +732,7 @@ func fetchWorkerNodeVms(masterIp string, sshClientConfig *ssh.ClientConfig, data
 migrateVmsFromDatastore method is use to migrate the vms to destination preferred datastore
 */
 func migrateVmsFromDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
-	destDatastore string, vMsToMigrate []string, itr int) (bool, error) {
+	destDatastore string, vMsToMigrate []string, itr int, sshdPortNum string) (bool, error) {
 	var migrateVm string
 	for i := 0; i < len(vMsToMigrate); i++ {
 		if !multivc {
@@ -743,7 +743,7 @@ func migrateVmsFromDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
 				vMsToMigrate[i]
 		}
 		framework.Logf("cmd : %s ", migrateVm)
-		migrateVmRes, err := sshExec(sshClientConfig, masterIp, migrateVm)
+		migrateVmRes, err := sshExec(sshClientConfig, masterIp, migrateVm, sshdPortNum)
 		if err != nil && migrateVmRes.Code != 0 {
 			fssh.LogResult(migrateVmRes)
 			return false, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",

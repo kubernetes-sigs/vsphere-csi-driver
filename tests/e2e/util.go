@@ -1921,7 +1921,8 @@ func getWCPSessionId(hostname string, username string, password string) string {
 }
 
 // getWindowsFileSystemSize finds the windowsWorkerIp and returns the size of the volume
-func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, error) {
+func getWindowsFileSystemSize(client clientset.Interface,
+	pod *v1.Pod, sshdPortNum string) (int64, error) {
 	var err error
 	var output fssh.Result
 	var windowsWorkerIP, size string
@@ -1960,7 +1961,7 @@ func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, e
 			},
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
-		output, err = sshExec(sshClientConfig, windowsWorkerIP, cmd)
+		output, err = sshExec(sshClientConfig, windowsWorkerIP, cmd, sshdPortNum)
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	fullStr := strings.Split(strings.TrimSuffix(string(output.Stdout), "\n"), "\n")
@@ -3652,7 +3653,7 @@ func runCommandOnESX(username string, addr string, cmd string) (string, error) {
 	result := fssh.Result{Host: addr, Cmd: cmd}
 
 	// Get SSH port number from environment variable or use default
-	esxPortNo := os.Getenv(envVcSshdPortNum)
+	esxPortNo := GetAndExpectStringEnvVar(envVcSshdPortNum)
 	if esxPortNo == "" {
 		esxPortNo = defaultShhdPortNum
 	}
@@ -3925,7 +3926,7 @@ func waitForHostToBeUp(ip string, pollInfo ...time.Duration) error {
 	framework.Logf("checking host status of %v", ip)
 
 	// Get SSH port number from environment variable or use default
-	esxPortNo := os.Getenv(envEsxPortNum)
+	esxPortNo := GetAndExpectStringEnvVar(envEsxPortNum)
 	if esxPortNo == "" {
 		esxPortNo = defaultShhdPortNum
 	}
@@ -4054,7 +4055,7 @@ func getK8sMasterIPs(ctx context.Context, client clientset.Interface) []string {
 // CSIMigration and CSIMigrationvSphere feature gates to/from
 // kube-controller-manager.
 func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
-	client clientset.Interface, add bool) error {
+	client clientset.Interface, add bool, sshdPortNum string) error {
 	nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 	v, err := client.Discovery().ServerVersion()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4087,7 +4088,7 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 				},
 				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 			}
-			result, err := sshExec(sshClientConfig, k8sMasterIP, grepCmd)
+			result, err := sshExec(sshClientConfig, k8sMasterIP, grepCmd, sshdPortNum)
 
 			if err != nil {
 				fssh.LogResult(result)
@@ -5736,7 +5737,7 @@ func createKubernetesClientFromConfig(kubeConfigPath string) (clientset.Interfac
 // where controller is running
 func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 	client clientset.Interface, sshClientConfig *ssh.ClientConfig,
-	containerName string) (string, string, error) {
+	containerName string, sshdPortNum string) (string, string, error) {
 	ignoreLabels := make(map[string]string)
 	csiControllerPodName, grepCmdForFindingCurrentLeader := "", ""
 	csiPods, err := fpod.GetPodsInNamespace(ctx, client, csiSystemNamespace, ignoreLabels)
@@ -5746,8 +5747,12 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 		k8sMasterIP = GetAndExpectStringEnvVar(svcMasterIP)
 		kubeConfigPath = GetAndExpectStringEnvVar(gcKubeConfigPath)
 	} else {
-		k8sMasterIPs := getK8sMasterIPs(ctx, client)
-		k8sMasterIP = k8sMasterIPs[0]
+		// reading k8sMaster1 ip from export variable, if it is empty read it from util
+		k8sMasterIP := GetAndExpectStringEnvVar(envMasterIp1)
+		if k8sMasterIP == "" {
+			k8sMasterIPs := getK8sMasterIPs(ctx, client)
+			k8sMasterIP = k8sMasterIPs[0]
+		}
 	}
 	for _, csiPod := range csiPods {
 		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) {
@@ -5767,7 +5772,7 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
 				k8sMasterIP)
 			result, err := sshExec(sshClientConfig, k8sMasterIP,
-				grepCmdForFindingCurrentLeader)
+				grepCmdForFindingCurrentLeader, sshdPortNum)
 			if err != nil || result.Code != 0 {
 				fssh.LogResult(result)
 				return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6721,14 +6726,14 @@ func applyVsanDirectPvcYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 
 // applyVsanDirectPodYaml creates specific pod spec and applies vsan direct pod yaml on svc master
 func applyVsanDirectPodYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP string, svcNamespace string,
-	pvcName string, podName string) error {
+	pvcName string, podName string, sshdPortNum string) error {
 	framework.Logf("POD yaML")
 	cmd := fmt.Sprintf("sed -i -e "+
 		"'/^metadata:/,/namespace:/{/^\\([[:space:]]*namespace: \\).*/s//\\1%s/}' pod.yaml", svcNamespace)
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6740,7 +6745,7 @@ func applyVsanDirectPodYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6752,7 +6757,7 @@ func applyVsanDirectPodYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -6763,7 +6768,7 @@ func applyVsanDirectPodYaml(sshClientConfig *ssh.ClientConfig, svcMasterIP strin
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -7392,7 +7397,7 @@ func validateQuotaUsageAfterCleanUp(ctx context.Context, restConfig *rest.Config
 
 // execCommandOnGcWorker logs into gc worker node using ssh private key and executes command
 func execCommandOnGcWorker(sshClientConfig *ssh.ClientConfig, svcMasterIP string, gcWorkerIp string,
-	svcNamespace string, cmd string) (fssh.Result, error) {
+	svcNamespace string, cmd string, sshdPortNum string) (fssh.Result, error) {
 	result := fssh.Result{Host: gcWorkerIp, Cmd: cmd}
 	// get the cluster ssh key
 	sshSecretName := GetAndExpectStringEnvVar(sshSecretName)
@@ -7401,7 +7406,7 @@ func execCommandOnGcWorker(sshClientConfig *ssh.ClientConfig, svcMasterIP string
 	framework.Logf("Invoking command '%v' on host %v", cmdToGetPrivateKey,
 		svcMasterIP)
 	cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
-		cmdToGetPrivateKey)
+		cmdToGetPrivateKey, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -7412,7 +7417,7 @@ func execCommandOnGcWorker(sshClientConfig *ssh.ClientConfig, svcMasterIP string
 	framework.Logf("Invoking command '%v' on host %v", enablePermissionCmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		enablePermissionCmd)
+		enablePermissionCmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return result, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -7502,7 +7507,7 @@ func isVersionGreaterOrEqual(presentVersion, expectedVCversion string) bool {
 
 func readVcAddress() (string, string, error) {
 	// Get vCenter port number
-	vcPortNo := os.Getenv(envVcSshdPortNum)
+	vcPortNo := GetAndExpectStringEnvVar(envVcSshdPortNum)
 	if vcPortNo == "" {
 		vcPortNo = defaultShhdPortNum
 	}
@@ -7521,7 +7526,7 @@ func readVcAddress() (string, string, error) {
 
 func readMultiVcAddress(vcIndex int) (string, string, error) {
 	// Get vCenter port number
-	vcPortNo := os.Getenv(envVcSshdPortNum)
+	vcPortNo := GetAndExpectStringEnvVar(envVcSshdPortNum)
 	if vcPortNo == "" {
 		vcPortNo = defaultShhdPortNum
 	}

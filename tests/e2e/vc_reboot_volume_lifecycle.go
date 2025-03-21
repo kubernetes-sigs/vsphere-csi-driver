@@ -58,8 +58,8 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
+		// reading vc address with port num
 		if vcAddress == "" {
-			// reading vc address
 			vcAddress, _, err = readVcAddress()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

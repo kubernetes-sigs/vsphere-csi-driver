@@ -70,9 +70,11 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 
-		// reading vc address
-		vcAddress, _, err = readVcAddress()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")

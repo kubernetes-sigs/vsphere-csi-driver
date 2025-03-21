@@ -228,7 +228,7 @@ func waitForHostToBeDown(ctx context.Context, ip string) error {
 	gomega.Expect(ip).NotTo(gomega.BeEmpty())
 
 	// Get SSH port number from environment variable or use default
-	esxPortNo := os.Getenv(envEsxPortNum)
+	esxPortNo := GetAndExpectStringEnvVar(envEsxPortNum)
 	if esxPortNo == "" {
 		esxPortNo = defaultShhdPortNum
 	}

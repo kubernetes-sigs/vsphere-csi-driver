@@ -78,9 +78,11 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		// connecting to vc
 		bootstrap()
 
-		// reading vc address
-		vcAddress, _, err = readVcAddress()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		// fetch list of k8s nodes
 		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)

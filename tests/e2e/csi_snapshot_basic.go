@@ -78,6 +78,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		scName                     string
 		volHandle                  string
 		isQuotaValidationSupported bool
+		sshdPortNum                string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -105,9 +106,19 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			deleteService(namespace, client, service)
 		}
 
-		// reading vc credentials
-		vcAddress, _, err = readVcAddress()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		// reading k8sMaster1 port number, if it is empty use default port
+		if sshdPortNum == "" {
+			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+			if sshdPortNum == "" {
+				sshdPortNum = defaultShhdPortNum
+			}
+		}
 
 		// reading operation scale value
 		if os.Getenv("VOLUME_OPS_SCALE") != "" {

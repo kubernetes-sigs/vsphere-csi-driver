@@ -80,9 +80,11 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
-		// reading vc address
-		vcAddress, _, err = readVcAddress()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
 		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)
@@ -239,7 +241,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
-		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = true
 
@@ -425,7 +427,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		vcpScs = append(vcpScs, vcpSc)
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
-		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = true
 

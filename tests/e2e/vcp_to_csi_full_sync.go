@@ -61,6 +61,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		fullSyncWaitTime           int
 		migrationEnabledByDefault  bool
 		vcAddress                  string
+		sshdPortNum                string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -74,9 +75,18 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
-		// reading vc address
-		vcAddress, _, err = readVcAddress()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		// readings k8sMaster1 port number, if it is empty use default port
+		sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+		if sshdPortNum == "" {
+			sshdPortNum = defaultShhdPortNum
+		}
 
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
 		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)

@@ -63,8 +63,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 			setClusterDistribution(ctx, client, vanillaClusterDistribution)
 		}
 
+		// reading vc address with port num
 		if vcAddress == "" {
-			// reading vc address
 			vcAddress, _, err = readVcAddress()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

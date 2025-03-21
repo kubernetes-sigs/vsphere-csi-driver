@@ -95,9 +95,11 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
-		// reading vc address
-		vcAddress, _, err = readVcAddress()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
 
@@ -1889,7 +1891,7 @@ func waitForCnsVSphereVolumeMigrationCrd(
 // createDir create a directory on the test esx host
 func createDir(ctx context.Context, path string, host string) error {
 	// Get SSH port number from environment variable or use default
-	vcPortNo := os.Getenv(envVcSshdPortNum)
+	vcPortNo := GetAndExpectStringEnvVar(envVcSshdPortNum)
 	if vcPortNo == "" {
 		vcPortNo = defaultShhdPortNum
 	}
@@ -1910,7 +1912,7 @@ func createDir(ctx context.Context, path string, host string) error {
 // createVmdk create a vmdk on the host with given size, object type and disk format
 func createVmdk(ctx context.Context, host string, size string, objType string, diskFormat string) (string, error) {
 	// Get SSH port number from environment variable or use default
-	vcPortNo := os.Getenv(envVcSshdPortNum)
+	vcPortNo := GetAndExpectStringEnvVar(envVcSshdPortNum)
 	if vcPortNo == "" {
 		vcPortNo = defaultShhdPortNum
 	}
@@ -1948,7 +1950,7 @@ func createVmdk(ctx context.Context, host string, size string, objType string, d
 // createVmdk deletes given vmdk
 func deleteVmdk(ctx context.Context, host string, vmdkPath string) error {
 	// Get SSH port number from environment variable or use default
-	vcPortNo := os.Getenv(envVcSshdPortNum)
+	vcPortNo := GetAndExpectStringEnvVar(envVcSshdPortNum)
 	if vcPortNo == "" {
 		vcPortNo = defaultShhdPortNum
 	}

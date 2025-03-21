@@ -102,7 +102,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[scParamFsType] = nfs4FSType
-		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec("", scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {

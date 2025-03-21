@@ -83,6 +83,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		accessMode                 v1.PersistentVolumeAccessMode
 		err                        error
 		vcAddress                  string
+		sshdPortNum                string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -96,9 +97,17 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 
-		// reading vc address
-		vcAddress, _, err = readVcAddress()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		// readings k8sMaster1 port number, if it is empty use default port
+		sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
+		if sshdPortNum == "" {
+			sshdPortNum = defaultShhdPortNum
+		}
 
 		csiNs = GetAndExpectStringEnvVar(envCSINamespace)
 		isVsanHealthServiceStopped = false

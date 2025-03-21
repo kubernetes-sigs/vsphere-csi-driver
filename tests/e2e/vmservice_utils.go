@@ -850,7 +850,7 @@ func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
 	framework.Logf("gateway pwd: %s", GetAndExpectStringEnvVar(envGatewayVmPasswd))
 
 	// Get SSH port number from environment variable or use default
-	vcPortNo := os.Getenv(envVcSshdPortNum)
+	vcPortNo := GetAndExpectStringEnvVar(envVcSshdPortNum)
 	if vcPortNo == "" {
 		vcPortNo = defaultShhdPortNum
 	}
