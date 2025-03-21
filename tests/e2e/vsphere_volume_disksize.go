@@ -75,7 +75,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 
 	ginkgo.AfterEach(func() {
 		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 		if guestCluster {

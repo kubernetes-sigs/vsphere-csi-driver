@@ -2329,63 +2329,71 @@ func createResourceQuota(client clientset.Interface, namespace string, size stri
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var storagePolicyNameForSharedDatastores string
 	var storagePolicyNameForSvc1 string
 	var storagePolicyNameForSvc2 string
 
-	waitTime := 15
-	var executeCreateResourceQuota bool
-	executeCreateResourceQuota = true
-	if !multipleSvc {
-		// reading export variable from a single supervisor cluster
-		storagePolicyNameForSharedDatastores = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-	} else {
+	// waitTime := 15
+	// var executeCreateResourceQuota bool
+	// executeCreateResourceQuota = true
+	if multipleSvc {
 		// reading multiple export variables from a multi svc setup
 		storagePolicyNameForSvc1 = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDsSvc1)
 		storagePolicyNameForSvc2 = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDsSvc2)
 	}
 
+	// if supervisorCluster {
+	// 	_, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace+"-storagequota", metav1.GetOptions{})
+	// 	if !multipleSvc {
+	// 		if err != nil || !(scName == storagePolicyNameForSharedDatastores) {
+	// 			executeCreateResourceQuota = true
+	// 		} else {
+	// 			executeCreateResourceQuota = false
+	// 		}
+	// 	} else {
+	// 		if err != nil || !(scName == storagePolicyNameForSvc1) || !(scName == storagePolicyNameForSvc2) {
+	// 			executeCreateResourceQuota = true
+	// 		} else {
+	// 			executeCreateResourceQuota = false
+	// 		}
+	// 	}
+	// }
+
 	if supervisorCluster {
-		_, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace+"-storagequota", metav1.GetOptions{})
-		if !multipleSvc {
-			if err != nil || !(scName == storagePolicyNameForSharedDatastores) {
-				executeCreateResourceQuota = true
-			} else {
-				executeCreateResourceQuota = false
-			}
-		} else {
-			if err != nil || !(scName == storagePolicyNameForSvc1) || !(scName == storagePolicyNameForSvc2) {
-				executeCreateResourceQuota = true
-			} else {
-				executeCreateResourceQuota = false
-			}
-		}
+		setStoragePolicyQuota(ctx, restConfig, scName, namespace, rqLimit)
 	}
 
-	if executeCreateResourceQuota {
-		// deleteResourceQuota if already present.
-		deleteResourceQuota(client, namespace)
-
-		resourceQuota := newTestResourceQuota(quotaName, size, scName)
-		resourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Create(ctx, resourceQuota, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Create Resource quota: %+v", resourceQuota))
-		ginkgo.By(fmt.Sprintf("Waiting for %v seconds to allow resourceQuota to be claimed", waitTime))
-		time.Sleep(time.Duration(waitTime) * time.Second)
+	if multipleSvc {
+		setStoragePolicyQuota(ctx, restConfig, storagePolicyNameForSvc1, namespace, rqLimit)
+		setStoragePolicyQuota(ctx, restConfig, storagePolicyNameForSvc2, namespace, rqLimit)
 	}
+
+	// if executeCreateResourceQuota {
+	// 	// deleteResourceQuota if already present.
+	// 	deleteResourceQuota(client, namespace)
+
+	// 	resourceQuota := newTestResourceQuota(quotaName, size, scName)
+	// 	resourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Create(ctx, resourceQuota, metav1.CreateOptions{})
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	ginkgo.By(fmt.Sprintf("Create Resource quota: %+v", resourceQuota))
+	// 	ginkgo.By(fmt.Sprintf("Waiting for %v seconds to allow resourceQuota to be claimed", waitTime))
+	// 	time.Sleep(time.Duration(waitTime) * time.Second)
+	// }
 }
 
 // deleteResourceQuota deletes resource quota for the specified namespace,
 // if it exists.
 func deleteResourceQuota(client clientset.Interface, namespace string) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	_, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, quotaName, metav1.GetOptions{})
-	if err == nil {
-		err = client.CoreV1().ResourceQuotas(namespace).Delete(ctx, quotaName, *metav1.NewDeleteOptions(0))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Deleted Resource quota: %+v", quotaName))
+	if !supervisorCluster {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		_, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, quotaName, metav1.GetOptions{})
+		if err == nil {
+			err = client.CoreV1().ResourceQuotas(namespace).Delete(ctx, quotaName, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Deleted Resource quota: %+v", quotaName))
+		}
 	}
+
 }
 
 // checks if resource quota gets updated or not
@@ -2415,8 +2423,11 @@ func checkResourceQuota(client clientset.Interface, namespace string, name strin
 func setResourceQuota(client clientset.Interface, namespace string, size string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// deleteResourceQuota if already present.
-	deleteResourceQuota(client, namespace)
+	if !supervisorCluster {
+		// deleteResourceQuota if already present.
+		deleteResourceQuota(client, namespace)
+	}
+
 	existingResourceQuota, err := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace, metav1.GetOptions{})
 	if !apierrors.IsNotFound(err) {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2433,15 +2444,15 @@ func setResourceQuota(client clientset.Interface, namespace string, size string)
 
 // newTestResourceQuota returns a quota that enforces default constraints for
 // testing.
-func newTestResourceQuota(name string, size string, scName string) *v1.ResourceQuota {
-	hard := v1.ResourceList{}
-	// Test quota on discovered resource type.
-	hard[v1.ResourceName(scName+rqStorageType)] = resource.MustParse(size)
-	return &v1.ResourceQuota{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec:       v1.ResourceQuotaSpec{Hard: hard},
-	}
-}
+// func newTestResourceQuota(name string, size string, scName string) *v1.ResourceQuota {
+// 	hard := v1.ResourceList{}
+// 	// Test quota on discovered resource type.
+// 	hard[v1.ResourceName(scName+rqStorageType)] = resource.MustParse(size)
+// 	return &v1.ResourceQuota{
+// 		ObjectMeta: metav1.ObjectMeta{Name: name},
+// 		Spec:       v1.ResourceQuotaSpec{Hard: hard},
+// 	}
+// }
 
 // updatedSpec4ExistingResourceQuota returns a quota that enforces default
 // constraints for testing.

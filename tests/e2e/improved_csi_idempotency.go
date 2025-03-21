@@ -157,7 +157,6 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		updateCSIDeploymentProvisionerTimeout(c, csiSystemNamespace, defaultProvisionerTimeInSec)
 
 		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 		if guestCluster {

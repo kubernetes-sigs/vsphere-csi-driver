@@ -572,8 +572,6 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		framework.ExpectNoError(waitForCNSRegisterVolumeToGetDeleted(ctx,
 			restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
 
-		ginkgo.By("Delete Resource quota")
-		deleteResourceQuota(client, namespace)
 	})
 })
 

@@ -81,7 +81,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 	})
 	ginkgo.AfterEach(func() {
 		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 		if guestCluster {
@@ -148,8 +147,10 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyNameForNonSharedDatastores, namespace, rqLimit)
 
 			pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", storageclass, nil, accessMode)
-			_, err = fpv.CreatePVC(ctx, client, namespace, pvcspec)
-			gomega.Expect(err).To(gomega.HaveOccurred())
+			pvc, _ := fpv.CreatePVC(ctx, client, namespace, pvcspec)
+			isFailureFound := checkEventsforError(client, namespace,
+				metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvc.Name)}, expectedErrorMsg)
+			gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrorMsg)
 
 		} else {
 			scParameters[svStorageClassName] = storagePolicyNameForNonSharedDatastores
