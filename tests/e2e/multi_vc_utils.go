@@ -332,11 +332,12 @@ func govcLoginCmdForMultiVC(i int) string {
 
 // deleteStorageProfile util deletes the storage policy from vcenter
 func deleteStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig,
-	storagePolicyName string, clientIndex int) error {
+	storagePolicyName string, clientIndex int, sshdPortNum string) error {
 	removeStoragePolicy := govcLoginCmdForMultiVC(clientIndex) +
 		"govc storage.policy.rm " + storagePolicyName
 	framework.Logf("Remove storage policy: %s ", removeStoragePolicy)
-	removeStoragePolicytRes, err := sshExec(sshClientConfig, masterIp, removeStoragePolicy)
+	removeStoragePolicytRes, err := sshExec(sshClientConfig, masterIp,
+		removeStoragePolicy, sshdPortNum)
 	if err != nil && removeStoragePolicytRes.Code != 0 {
 		fssh.LogResult(removeStoragePolicytRes)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -347,12 +348,12 @@ func deleteStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig,
 
 /*deletes storage profile deletes the storage profile*/
 func createStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig,
-	storagePolicyName string, clientIndex int) error {
+	storagePolicyName string, clientIndex int, sshdPortNum string) error {
 	attachTagCat := govcLoginCmdForMultiVC(clientIndex) +
 		"govc tags.attach -c " + "shared-cat-todelete1" + " " + "shared-tag-todelete1" +
 		" " + "'" + "/VSAN-DC/datastore/vsanDatastore" + "'"
 	framework.Logf("cmd to attach tag to preferred datastore: %s ", attachTagCat)
-	attachTagCatRes, err := sshExec(sshClientConfig, masterIp, attachTagCat)
+	attachTagCatRes, err := sshExec(sshClientConfig, masterIp, attachTagCat, sshdPortNum)
 	if err != nil && attachTagCatRes.Code != 0 {
 		fssh.LogResult(attachTagCatRes)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -361,7 +362,7 @@ func createStorageProfile(masterIp string, sshClientConfig *ssh.ClientConfig,
 	createStoragePolicy := govcLoginCmdForMultiVC(clientIndex) +
 		"govc storage.policy.create -category=shared-cat-todelete1 -tag=shared-tag-todelete1 " + storagePolicyName
 	framework.Logf("Create storage policy: %s ", createStoragePolicy)
-	createStoragePolicytRes, err := sshExec(sshClientConfig, masterIp, createStoragePolicy)
+	createStoragePolicytRes, err := sshExec(sshClientConfig, masterIp, createStoragePolicy, sshdPortNum)
 	if err != nil && createStoragePolicytRes.Code != 0 {
 		fssh.LogResult(createStoragePolicytRes)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -645,7 +646,7 @@ This util will return key-value combination of datastore-name:datastore-url of a
 in a multi-vc setup
 */
 func getDatastoresListFromMultiVCs(masterIp string, sshClientConfig *ssh.ClientConfig,
-	cluster *object.ClusterComputeResource) (map[string]string, map[string]string,
+	cluster *object.ClusterComputeResource, sshdPortNum string) (map[string]string, map[string]string,
 	map[string]string, error) {
 	ClusterdatastoreListMapVc1 := make(map[string]string)
 	ClusterdatastoreListMapVc2 := make(map[string]string)
@@ -658,7 +659,7 @@ func getDatastoresListFromMultiVCs(masterIp string, sshClientConfig *ssh.ClientC
 			"grep 'Path\\|URL' | tr -s [:space:]"
 
 		framework.Logf("cmd : %s ", datastoreListByVC)
-		result, err := sshExec(sshClientConfig, masterIp, datastoreListByVC)
+		result, err := sshExec(sshClientConfig, masterIp, datastoreListByVC, sshdPortNum)
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			return nil, nil, nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -879,7 +880,7 @@ func readVsphereConfSecret(client clientset.Interface, ctx context.Context,
 setNewNameSpaceInCsiYaml util installs the csi yaml in new namespace
 */
 func setNewNameSpaceInCsiYaml(ctx context.Context, client clientset.Interface, sshClientConfig *ssh.ClientConfig,
-	originalNS string, newNS string, allMasterIps []string) error {
+	originalNS string, newNS string, allMasterIps []string, sshdPortNum string) error {
 
 	var controlIp string
 	ignoreLabels := make(map[string]string)
@@ -887,7 +888,7 @@ func setNewNameSpaceInCsiYaml(ctx context.Context, client clientset.Interface, s
 	for _, masterIp := range allMasterIps {
 		deleteCsiYaml := "kubectl delete -f vsphere-csi-driver.yaml"
 		framework.Logf("Delete csi driver yaml: %s ", deleteCsiYaml)
-		deleteCsi, err := sshExec(sshClientConfig, masterIp, deleteCsiYaml)
+		deleteCsi, err := sshExec(sshClientConfig, masterIp, deleteCsiYaml, sshdPortNum)
 		if err != nil && deleteCsi.Code != 0 {
 			if strings.Contains(err.Error(), "does not exist") {
 				framework.Logf("Retry other master nodes")
@@ -905,7 +906,7 @@ func setNewNameSpaceInCsiYaml(ctx context.Context, client clientset.Interface, s
 
 	findAndSetVal := "sed -i 's/" + originalNS + "/" + newNS + "/g' " + "vsphere-csi-driver.yaml"
 	framework.Logf("Set test namespace to csi yaml: %s ", findAndSetVal)
-	setVal, err := sshExec(sshClientConfig, controlIp, findAndSetVal)
+	setVal, err := sshExec(sshClientConfig, controlIp, findAndSetVal, sshdPortNum)
 	if err != nil && setVal.Code != 0 {
 		fssh.LogResult(setVal)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -914,7 +915,7 @@ func setNewNameSpaceInCsiYaml(ctx context.Context, client clientset.Interface, s
 
 	applyCsiYaml := "kubectl apply -f vsphere-csi-driver.yaml"
 	framework.Logf("Apply updated csi yaml: %s ", applyCsiYaml)
-	applyCsi, err := sshExec(sshClientConfig, controlIp, applyCsiYaml)
+	applyCsi, err := sshExec(sshClientConfig, controlIp, applyCsiYaml, sshdPortNum)
 	if err != nil && applyCsi.Code != 0 {
 		fssh.LogResult(applyCsi)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -989,7 +990,7 @@ func createNamespace(client clientset.Interface, ctx context.Context, nsName str
 createVsphereConfigSecret util creates csi vsphere conf and later creates a new config secret
 */
 func createVsphereConfigSecret(namespace string, cfg e2eTestConfig, sshClientConfig *ssh.ClientConfig,
-	allMasterIps []string) error {
+	allMasterIps []string, sshdPortNum string) error {
 
 	var conf string
 	var controlIp string
@@ -997,7 +998,7 @@ func createVsphereConfigSecret(namespace string, cfg e2eTestConfig, sshClientCon
 	for _, masterIp := range allMasterIps {
 		readCsiYaml := "ls -l vsphere-csi-driver.yaml"
 		framework.Logf("list csi driver yaml: %s ", readCsiYaml)
-		grepCsiNs, err := sshExec(sshClientConfig, masterIp, readCsiYaml)
+		grepCsiNs, err := sshExec(sshClientConfig, masterIp, readCsiYaml, sshdPortNum)
 		if err != nil && grepCsiNs.Code != 0 {
 			if strings.Contains(err.Error(), "No such file or directory") {
 				framework.Logf("Retry other master nodes")
@@ -1037,7 +1038,7 @@ func createVsphereConfigSecret(namespace string, cfg e2eTestConfig, sshClientCon
 
 	framework.Logf("conf: %s", conf)
 
-	result, err := sshExec(sshClientConfig, controlIp, conf)
+	result, err := sshExec(sshClientConfig, controlIp, conf, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s", conf, controlIp, err)
@@ -1045,7 +1046,7 @@ func createVsphereConfigSecret(namespace string, cfg e2eTestConfig, sshClientCon
 	applyConf := "kubectl create secret generic vsphere-config-secret --from-file=csi-vsphere.conf " +
 		"-n " + namespace
 	framework.Logf("applyConf: %s", applyConf)
-	result, err = sshExec(sshClientConfig, controlIp, applyConf)
+	result, err = sshExec(sshClientConfig, controlIp, applyConf, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",

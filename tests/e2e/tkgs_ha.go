@@ -72,6 +72,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		isVcRebooted               bool
 		vcAddress                  string
 		isQuotaValidationSupported bool
+		err                        error
+		sshdPortNum                string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -87,7 +89,15 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		labels_ns = map[string]string{}
 		labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
 		labels_ns["e2e-framework"] = f.BaseName
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 
 		if zonalPolicy == "" {
 			ginkgo.Fail(envZonalStoragePolicyName + " env variable not set")
@@ -144,7 +154,6 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}
 
 		if supervisorCluster || stretchedSVC {
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
 			vcVersion = getVCversion(ctx, vcAddress)
 			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
@@ -1746,7 +1755,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		framework.Logf("sshwcpConfig: %v", sshWcpConfig)
 		csiControllerpod, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshWcpConfig, provisionerContainerName)
+			client, sshWcpConfig, provisionerContainerName, sshdPortNum)
 		framework.Logf("%s leader is running on pod %s "+
 			"which is running on master node %s", provisionerContainerName, csiControllerpod, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1856,7 +1865,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		var stsList []*appsv1.StatefulSet
 
 		csiControllerpod, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshWcpConfig, attacherContainerName)
+			client, sshWcpConfig, attacherContainerName, sshdPortNum)
 		framework.Logf("%s leader is running on pod %s "+
 			"which is running on master node %s", attacherContainerName, csiControllerpod, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2082,7 +2091,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		var originalSizes []int64
 
 		csiControllerPod, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshWcpConfig, resizerContainerName)
+			client, sshWcpConfig, resizerContainerName, sshdPortNum)
 		framework.Logf("%s leader is running on pod %s "+
 			"which is running on master node %s", resizerContainerName, csiControllerPod, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2173,7 +2182,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
-			originalSizeInMb, err := getFileSystemSizeForOsType(f, client, podList[i])
+			originalSizeInMb, err := getFileSystemSizeForOsType(f, client, podList[i], sshdPortNum)
 			framework.Logf("original size : %d", originalSizeInMb)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			originalSizes = append(originalSizes, originalSizeInMb)
@@ -2199,7 +2208,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		ginkgo.By("Get current Leader Csi-Controller-Pod where CSI Resizer is running and " +
 			"find the master node IP where this Csi-Controller-Pod is running")
 		csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshWcpConfig, resizerContainerName)
+			client, sshWcpConfig, resizerContainerName, sshdPortNum)
 		framework.Logf("CSI-Resizer is running on elected Leader Pod %s "+
 			"which is running on master node %s", csiControllerPod, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2235,7 +2244,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 			var fsSize int64
 			ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
-			fsSize, err = getFileSystemSizeForOsType(f, client, podList[i])
+			fsSize, err = getFileSystemSizeForOsType(f, client, podList[i], sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("File system size after expansion : %d", fsSize)
 			// Filesystem size may be smaller than the size of the block volume
@@ -2283,7 +2292,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			var podList []*v1.Pod
 
 			csiControllerPod, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				client, sshWcpConfig, resizerContainerName)
+				client, sshWcpConfig, resizerContainerName, sshdPortNum)
 			framework.Logf("%s leader is running on pod %s "+
 				"which is running on master node %s", resizerContainerName, csiControllerPod, k8sMasterIP)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2403,7 +2412,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			var pods []*v1.Pod
 
 			csiControllerPod, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-				client, sshWcpConfig, syncerContainerName)
+				client, sshWcpConfig, syncerContainerName, sshdPortNum)
 			framework.Logf("%s leader is running on pod %s "+
 				"which is running on master node %s", syncerContainerName, csiControllerPod, k8sMasterIP)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2704,7 +2713,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		var stsList []*appsv1.StatefulSet
 
 		csiControllerPod, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshWcpConfig, provisionerContainerName)
+			client, sshWcpConfig, provisionerContainerName, sshdPortNum)
 		framework.Logf("%s leader is running on pod %s "+
 			"which is running on master node %s", provisionerContainerName, csiControllerPod, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2761,7 +2770,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			"Provisioner is running and find the master node IP where " +
 			"this Csi-Controller-Pod is running")
 		csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshWcpConfig, provisionerContainerName)
+			client, sshWcpConfig, provisionerContainerName, sshdPortNum)
 		framework.Logf("%s is running on newly elected Leader Pod %s "+
 			"which is running on master node %s", provisionerContainerName, csiControllerPod, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2830,7 +2839,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		labelValue := "e2e-labels"
 
 		csiControllerPod, k8sMasterIP, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshWcpConfig, syncerContainerName)
+			client, sshWcpConfig, syncerContainerName, sshdPortNum)
 		framework.Logf("%s leader is running on pod %s "+
 			"which is running on master node %s", syncerContainerName, csiControllerPod, k8sMasterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2917,7 +2926,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 				ginkgo.By("Get newly elected current Leader Csi-Controller-Pod where CSI Syncer is " +
 					"running and find the master node IP where this Csi-Controller-Pod is running")
 				csiControllerPod, k8sMasterIP, err = getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-					client, sshWcpConfig, syncerContainerName)
+					client, sshWcpConfig, syncerContainerName, sshdPortNum)
 				framework.Logf("%s is running on elected Leader Pod %s which is running "+
 					"on master node %s", syncerContainerName, csiControllerPod, k8sMasterIP)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
