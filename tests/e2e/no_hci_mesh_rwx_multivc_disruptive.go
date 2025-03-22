@@ -113,12 +113,8 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		allMasterIps = getK8sMasterIPs(ctx, client)
 		masterIp = allMasterIps[0]
 
-		/* reading k8sMaster1 port number,
-		   if variable value is empty and not set, reading default port num for k8s master1 */
-		sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-		if sshdPortNum == "" {
-			sshdPortNum = defaultShhdPortNum
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 
 		// fetching cluster details
 		clientIndex := 0

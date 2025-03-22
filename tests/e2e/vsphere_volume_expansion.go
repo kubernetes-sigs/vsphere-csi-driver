@@ -98,14 +98,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		/* reading k8sMaster1 port number, if variable value is empty
-		and not set, reading default port num for k8s master1 */
-		if sshdPortNum == "" {
-			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-			if sshdPortNum == "" {
-				sshdPortNum = defaultShhdPortNum
-			}
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		profileID = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
@@ -2689,12 +2683,8 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 	var err error
 	var sshdPortNum string
 
-	/* reading k8sMaster1 port number, if variable value is empty
-	and not set, reading default port num for k8s master1 */
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 
 	// Fetch original FileSystemSize
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
@@ -2982,12 +2972,8 @@ func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Int
 	var err error
 	var sshdPortNum string
 
-	/* reading k8sMaster1 port number, if variable value is empty
-	and not set, reading default port num for k8s master1 */
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 
 	// Fetch original FileSystemSize if not raw block volume
 	if *pvclaim.Spec.VolumeMode != v1.PersistentVolumeBlock {
@@ -3039,12 +3025,8 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 
 	var sshdPortNum string
 
-	/* reading k8sMaster1 port number, if variable value is empty
-	and not set, reading default port num for k8s master1 */
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 
 	ginkgo.By("Invoking Test for Volume Expansion")
 	scParameters := make(map[string]string)
@@ -3294,12 +3276,9 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 
 	var sshdPortNum string
 
-	/* reading k8sMaster1 port number, if variable value is empty
-	and not set, reading default port num for k8s master1 */
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
+
 	ginkgo.By("Invoking Test for Volume Expansion 2")
 	scParameters := make(map[string]string)
 	scParameters[scParamFsType] = fstype
@@ -3860,12 +3839,8 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 		scParameters[scParamFsType] = ext4FSType
 	}
 
-	/* reading k8sMaster1 port number, if variable value is empty
-	and not set, reading default port num for k8s master1 */
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 
 	// Create Storage class and PVC
 	ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")

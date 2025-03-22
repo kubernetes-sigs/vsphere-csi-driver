@@ -557,13 +557,9 @@ func changeLeaderOfContainerToComeUpOnMaster(ctx context.Context, client clients
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	k8sVersion := v.Major + "." + v.Minor
 
-	/* reading k8sMaster1 port number, if variable value is empty
-	and not set, reading default port num for k8s master1 */
 	var sshdPortNum string
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 
 	// Fetch the IP address of master node on that site
 	masterIpOnSite, err := getMasterIpOnSite(ctx, client, primarySite)

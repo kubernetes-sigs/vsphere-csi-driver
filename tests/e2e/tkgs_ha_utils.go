@@ -332,12 +332,8 @@ func verifyOfflineVolumeExpansionOnGc(ctx context.Context, client clientset.Inte
 	pod *v1.Pod, pv *v1.PersistentVolume, f *framework.Framework) {
 
 	var sshdPortNum string
-	/* reading k8sMaster1 port number,
-	   if variable value is empty and not set, reading default port num for k8s master1 */
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 
 	ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
 	originalFsSize, err := getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
@@ -613,12 +609,8 @@ func verifyVolumeMetadataOnDeployments(ctx context.Context,
 func execStopContainerOnGc(sshClientConfig *ssh.ClientConfig, svcMasterIP string, containerName string,
 	gcMasterIP string, svcNamespace string) error {
 	var sshdPortNum string
-	/* reading k8sMaster1 port number,
-	   if variable value is empty and not set, reading default port num for k8s master1 */
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 	sshSecretName := GetAndExpectStringEnvVar(sshSecretName)
 
 	cmdToGetPrivateKey := fmt.Sprintf("kubectl get secret %s -n %s -o"+
@@ -762,12 +754,9 @@ func getClusterNameFromZone(ctx context.Context, availabilityZone string) string
 func waitForPodsToBeInTerminatingPhase(sshClientConfig *ssh.ClientConfig, svcMasterIP string,
 	podName string, namespace string, timeout time.Duration) error {
 	var sshdPortNum string
-	/* reading k8sMaster1 port number,
-	   if variable value is empty and not set, reading default port num for k8s master1 */
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
+
 	kubeConfigPath := GetAndExpectStringEnvVar(gcKubeConfigPath)
 	waitErr := wait.PollUntilContextTimeout(context.Background(), poll, timeout, true,
 		func(ctx context.Context) (bool, error) {
@@ -831,12 +820,8 @@ func waitForApiServerToBeUp(svcMasterIp string, sshClientConfig *ssh.ClientConfi
 	timeout time.Duration) error {
 	kubeConfigPath := GetAndExpectStringEnvVar(gcKubeConfigPath)
 	var sshdPortNum string
-	/* reading k8sMaster1 port number,
-	   if variable value is empty and not set, reading default port num for k8s master1 */
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 	waitErr := wait.PollUntilContextTimeout(context.Background(), poll, timeout, true,
 		func(ctx context.Context) (bool, error) {
 			cmd := fmt.Sprintf("kubectl get ns,sc --kubeconfig %s",

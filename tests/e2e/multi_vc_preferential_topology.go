@@ -110,12 +110,8 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
 
-		/* reading k8sMaster1 port number,
-		   if variable value is empty and not set, reading default port num for k8s master1 */
-		sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-		if sshdPortNum == "" {
-			sshdPortNum = defaultShhdPortNum
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 
 		stsScaleUp = true
 		stsScaleDown = true

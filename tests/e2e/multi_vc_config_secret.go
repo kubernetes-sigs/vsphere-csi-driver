@@ -131,12 +131,8 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		// fetching k8s master ip
 		allMasterIps = getK8sMasterIPs(ctx, client)
 
-		/* reading k8sMaster1 port number,
-		   if variable value is empty and not set, reading default port num for k8s master1 */
-		sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-		if sshdPortNum == "" {
-			sshdPortNum = defaultShhdPortNum
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 	})
 
 	ginkgo.AfterEach(func() {

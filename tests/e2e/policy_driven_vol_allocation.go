@@ -88,13 +88,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
-		// reading k8sMaster1 port number, if it is empty use default port
-		if sshdPortNum == "" {
-			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-			if sshdPortNum == "" {
-				sshdPortNum = defaultShhdPortNum
-			}
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 
 		govmomiClient := newClient(ctx, &e2eVSphere)
 		pc = newPbmClient(ctx, govmomiClient)
@@ -3589,12 +3584,9 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 // fillVolumesInPods fills the volumes in pods after leaving 100m for FS metadata
 func fillVolumeInPods(f *framework.Framework, client clientset.Interface, pods []*v1.Pod) {
-	// reading k8sMaster1 port number, if it is empty use default port
 	var sshdPortNum string
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 
 	for _, pod := range pods {
 		size, err := getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
@@ -3720,11 +3712,8 @@ func writeKnownData2Pod(f *framework.Framework, client clientset.Interface, pod 
 	var sshWcpConfig *ssh.ClientConfig
 	var sshdPortNum string
 
-	// reading k8sMaster1 port number, if it is empty use default port
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 
 	if wcpVsanDirectCluster {
 		svcMasterIp = GetAndExpectStringEnvVar(svcMasterIP)
@@ -3834,11 +3823,8 @@ func verifyKnownDataInPod(f *framework.Framework, client clientset.Interface, po
 	var sshWcpConfig *ssh.ClientConfig
 	var sshdPortNum string
 
-	// reading k8sMaster1 port number, if it is empty use default port
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 
 	if wcpVsanDirectCluster {
 		svcMasterIp = GetAndExpectStringEnvVar(svcMasterIP)
@@ -3970,12 +3956,8 @@ func reconfigPolicyParallel(ctx context.Context, volID string, policyId string, 
 func writeDataOnPodInSupervisor(sshClientConfig *ssh.ClientConfig, svcMasterIP string,
 	cmd string) {
 	var sshdPortNum string
-
-	// reading k8sMaster1 port number, if it is empty use default port
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 
 	res, err := sshExec(sshClientConfig, svcMasterIP,
 		cmd, sshdPortNum)

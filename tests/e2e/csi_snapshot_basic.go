@@ -112,14 +112,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		/* reading k8sMaster1 port number, if variable value is empty
-		and not set, reading default port num for k8s master1 */
-		if sshdPortNum == "" {
-			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-			if sshdPortNum == "" {
-				sshdPortNum = defaultShhdPortNum
-			}
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 
 		// reading operation scale value
 		if os.Getenv("VOLUME_OPS_SCALE") != "" {

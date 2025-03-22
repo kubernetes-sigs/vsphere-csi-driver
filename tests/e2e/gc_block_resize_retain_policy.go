@@ -85,14 +85,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 
 		bootstrap()
 
-		/* reading k8sMaster1 port number, if variable value is empty
-		and not set, reading default port num for k8s master1 */
-		if sshdPortNum == "" {
-			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-			if sshdPortNum == "" {
-				sshdPortNum = defaultShhdPortNum
-			}
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 
 		ginkgo.By("Getting ready nodes on GC 1")
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)

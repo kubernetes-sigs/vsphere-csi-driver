@@ -76,13 +76,8 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		accessMode = v1.ReadWriteOnce
 		// fetching required parameters
 
-		// reading k8sMaster1 port number, if it is empty use default port
-		if sshdPortNum == "" {
-			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-			if sshdPortNum == "" {
-				sshdPortNum = defaultShhdPortNum
-			}
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(

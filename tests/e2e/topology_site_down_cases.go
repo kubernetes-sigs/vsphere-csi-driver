@@ -78,13 +78,9 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
-		// reading k8sMaster1 port number, if it is empty use default port
-		if sshdPortNum == "" {
-			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-			if sshdPortNum == "" {
-				sshdPortNum = defaultShhdPortNum
-			}
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
+
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
 		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
 		topologyAffinityDetails, topologyCategories = createTopologyMapLevel5(topologyMap)

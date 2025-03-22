@@ -482,12 +482,8 @@ func fetchDatastoreListMap(ctx context.Context,
 	}
 
 	var sshdPortNum string
-	/* reading k8sMaster1 port number,
-	   if variable value is empty and not set, reading default port num for k8s master1 */
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 
 	allMasterIps := getK8sMasterIPs(ctx, client)
 	masterIp := allMasterIps[0]

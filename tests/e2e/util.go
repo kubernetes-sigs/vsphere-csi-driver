@@ -4638,12 +4638,8 @@ func toggleCSIMigrationFeatureGatesOnkublet(ctx context.Context,
 	}
 
 	var sshdPortNum string
-	/* reading k8sMaster1 port number, if variable value is empty and
-	not set, reading default port num for k8s master1 */
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 
 	result, err := sshExec(sshClientConfig, nodeIP, grepCmd, sshdPortNum)
 	if err != nil {
@@ -6242,12 +6238,8 @@ func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string
 	cmdToGetContainerId := ""
 
 	var sshdPortNum string
-	/* reading k8sMaster1 port number, if variable value is empty and
-	not set, reading default port num for k8s master1 */
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
 
 	waitErr := wait.PollUntilContextTimeout(context.Background(), poll*5, pollTimeout*4, true,
 		func(ctx context.Context) (bool, error) {
@@ -6413,12 +6405,9 @@ func getCSIPodWhereListVolumeResponseIsPresent(ctx context.Context,
 	containerName string, logMessage string, volumeids []string) (string, string, error) {
 	ignoreLabels := make(map[string]string)
 	var sshdPortNum string
-	/* reading k8sMaster1 port number, if variable value is empty and
-	not set, reading default port num for k8s master1 */
-	sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-	if sshdPortNum == "" {
-		sshdPortNum = defaultShhdPortNum
-	}
+	// reading K8sMasterIP port number
+	sshdPortNum, _, _ = GetMasterIpPortMap()
+
 	csiControllerPodName, grepCmdForFindingCurrentLeader := "", ""
 	csiPods, err := fpod.GetPodsInNamespace(ctx, client, csiSystemNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -7585,9 +7574,9 @@ func readMultiVcAddress(vcIndex int) (string, string, error) {
 }
 
 // GetMasterIpPortMap fetches master IPs and their corresponding SSH ports.
-// It returns a flag indicating if it's a private network and a map of IP-port pairs.
+// It returns the primary SSH port, a flag indicating if it's a private network,
+// a map of IP-port pairs, and an error if any mandatory value is missing.
 func GetMasterIpPortMap() (string, bool, map[string]string) {
-
 	sshdPortNum := GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
 	isPrivateNetwork := true
 	masterIpPortMap := make(map[string]string)
@@ -7595,7 +7584,6 @@ func GetMasterIpPortMap() (string, bool, map[string]string) {
 		isPrivateNetwork = false
 		sshdPortNum = defaultShhdPortNum
 	} else {
-
 		// Retrieve master IPs and their port numbers
 		k8sMasterIp1 := GetAndExpectStringEnvVar(envMasterIp1)
 		k8sMasterIp2 := GetAndExpectStringEnvVar(envMasterIp2)
@@ -7607,16 +7595,13 @@ func GetMasterIpPortMap() (string, bool, map[string]string) {
 		masterIpPortMap[k8sMasterIp1] = sshdPortNum
 		masterIpPortMap[k8sMasterIp2] = sshdPortNum2
 		masterIpPortMap[k8sMasterIp3] = sshdPortNum3
-
 	}
 
 	return sshdPortNum, isPrivateNetwork, masterIpPortMap
 }
 
 func GetPortNum(k8sMasterIP string, isPrivateNetwork bool, masterIpPortMap map[string]string) string {
-
 	sshdPortNum := defaultShhdPortNum
-
 	if isPrivateNetwork {
 		sshdPortNum = masterIpPortMap[k8sMasterIP]
 	}

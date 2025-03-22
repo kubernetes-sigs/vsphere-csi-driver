@@ -85,14 +85,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		/* reading k8sMaster1 port number, if variable value is empty
-		and not set, reading default port num for k8s master1 */
-		if sshdPortNum == "" {
-			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-			if sshdPortNum == "" {
-				sshdPortNum = defaultShhdPortNum
-			}
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 
 		// fetch list of k8s nodes
 		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)

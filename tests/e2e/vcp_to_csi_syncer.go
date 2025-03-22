@@ -97,12 +97,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		}
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
 
-		/* reading k8sMaster1 port number,
-		   if variable value is empty and not set, reading default port num for k8s master1 */
-		sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-		if sshdPortNum == "" {
-			sshdPortNum = defaultShhdPortNum
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 
 		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
 		kubectlMigEnabled = false

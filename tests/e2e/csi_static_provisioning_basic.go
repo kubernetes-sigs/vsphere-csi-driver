@@ -117,12 +117,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		/* reading k8sMaster1 port number,
-		   if variable value is empty and not set, reading default port num for k8s master1 */
-		sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-		if sshdPortNum == "" {
-			sshdPortNum = defaultShhdPortNum
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 
 		finder := find.NewFinder(e2eVSphere.Client.Client, false)
 		cfg, err := getConfig()

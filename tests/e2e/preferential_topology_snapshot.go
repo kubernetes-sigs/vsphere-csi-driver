@@ -102,13 +102,8 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
-		// reading k8sMaster1 port number, if it is empty use default port
-		if sshdPortNum == "" {
-			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-			if sshdPortNum == "" {
-				sshdPortNum = defaultShhdPortNum
-			}
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 
 		//Get snapshot client using the rest config
 		restConfig = getRestConfigClient()

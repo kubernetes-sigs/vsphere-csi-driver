@@ -69,14 +69,8 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 		defer cancel()
 		bootstrap()
 
-		/* reading k8sMaster1 port number, if variable value is empty
-		and not set, reading default port num for k8s master1 */
-		if sshdPortNum == "" {
-			sshdPortNum = GetAndExpectStringEnvVar(envMasterIP1SshdPortNum)
-			if sshdPortNum == "" {
-				sshdPortNum = defaultShhdPortNum
-			}
-		}
+		// reading K8sMasterIP port number
+		sshdPortNum, _, _ = GetMasterIpPortMap()
 
 		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
