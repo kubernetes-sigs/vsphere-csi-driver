@@ -19,8 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"math/rand"
-	"strconv"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -91,18 +89,11 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 	*/
 	ginkgo.It("Statefulset with file volume testing with default "+
 		"podManagementPolicy", ginkgo.Label(p0, file, vanilla, core), func() {
-		curtime := time.Now().Unix()
-		randomValue := rand.Int()
-		val := strconv.FormatInt(int64(randomValue), 10)
-		val = string(val[1:3])
-		curtimestring := strconv.FormatInt(curtime, 10)
-		scName := "nginx-sc-default-" + curtimestring + val
-
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[scParamFsType] = nfs4FSType
-		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec("", scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -120,7 +111,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
 			v1.ReadWriteMany
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Spec.StorageClassName = &scName
+			Spec.StorageClassName = &sc.Name
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
@@ -255,19 +246,12 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 	*/
 	ginkgo.It("Statefulset with file volume testing with parallel "+
 		"podManagementPolicy", ginkgo.Label(p0, file, vanilla, core), func() {
-		curtime := time.Now().Unix()
-		randomValue := rand.Int()
-		val := strconv.FormatInt(int64(randomValue), 10)
-		val = string(val[1:3])
-		curtimestring := strconv.FormatInt(curtime, 10)
-		scName := "nginx-sc-parallel-" + curtimestring + val
-
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[scParamFsType] = nfs4FSType
 
-		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec("", scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -287,7 +271,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
 			v1.ReadWriteMany
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Spec.StorageClassName = &scName
+			Spec.StorageClassName = &sc.Name
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
@@ -418,18 +402,11 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 	*/
 	ginkgo.It("Statefulset with file volume testing scale-up first and "+
 		"scale-down", ginkgo.Label(p0, file, vanilla, core), func() {
-		curtime := time.Now().Unix()
-		randomValue := rand.Int()
-		val := strconv.FormatInt(int64(randomValue), 10)
-		val = string(val[1:3])
-		curtimestring := strconv.FormatInt(curtime, 10)
-		scName := "nginx-sc-default-" + curtimestring + val
-
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[scParamFsType] = nfs4FSType
-		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec("", scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -447,7 +424,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
 			v1.ReadWriteMany
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Spec.StorageClassName = &scName
+			Spec.StorageClassName = &sc.Name
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
@@ -534,19 +511,13 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 	*/
 	ginkgo.It("Statefulset with file volume testing with CSI daemonset "+
 		"restart", ginkgo.Label(p1, file, vanilla, core), func() {
-		curtime := time.Now().Unix()
-		randomValue := rand.Int()
-		val := strconv.FormatInt(int64(randomValue), 10)
-		val = string(val[1:3])
-		curtimestring := strconv.FormatInt(curtime, 10)
-		scName := "nginx-sc-default-" + curtimestring + val
-		ignoreLabels := make(map[string]string)
-
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		ignoreLabels := make(map[string]string)
+
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[scParamFsType] = nfs4FSType
-		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec("", scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -564,7 +535,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
 			v1.ReadWriteMany
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Spec.StorageClassName = &scName
+			Spec.StorageClassName = &sc.Name
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
@@ -725,13 +696,6 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 
 	*/
 	ginkgo.It("List-volumeResponseFor-fileVolumes", ginkgo.Label(p1, listVolume, file, vanilla, core), func() {
-		curtime := time.Now().Unix()
-		randomValue := rand.Int()
-		val := strconv.FormatInt(int64(randomValue), 10)
-		val = string(val[1:3])
-		curtimestring := strconv.FormatInt(curtime, 10)
-		scName := "nginx-sc-default-" + curtimestring + val
-
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var volumesBeforeScaleUp []string
@@ -752,7 +716,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 
 		ginkgo.By("Creating StorageClass for Statefulset")
 		scParameters[scParamFsType] = nfs4FSType
-		scSpec := getVSphereStorageClassSpec(scName, scParameters, nil, "", "", false)
+		scSpec := getVSphereStorageClassSpec("", scParameters, nil, "", "", false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {

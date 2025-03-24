@@ -228,7 +228,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 
 		ginkgo.By("Verify if sts pods of zone-1 are in Terminating state")
 		for _, podName := range podNames {
-			err = waitForPodsToBeInTerminatingPhase(sshWcpConfig, svcMasterIp,
+			err = waitForPodsToBeInTerminatingPhase(ctx, client, sshWcpConfig, svcMasterIp,
 				podName, namespace, pollTimeout*2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -375,7 +375,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 		time.Sleep(5 * time.Minute)
 
 		framework.Logf("Verify wcp apiserrver is unreachable as other apiservers are down")
-		err = waitForPodsToBeInTerminatingPhase(sshWcpConfig, svcMasterIp,
+		err = waitForPodsToBeInTerminatingPhase(ctx, client, sshWcpConfig, svcMasterIp,
 			podList[0].Name, namespace, pollTimeout)
 		if strings.Contains(err.Error(), "was refused") ||
 			strings.Contains(err.Error(), "Unable to connect to the server") {
@@ -387,7 +387,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 			powerOnEsxiHostByCluster(powerOffHostsList1[i])
 		}
 		ginkgo.By("Waiting for apiserver of zone-3 to be reachable and fully up")
-		err = waitForApiServerToBeUp(svcMasterIp, sshWcpConfig, pollTimeout*3)
+		err = waitForApiServerToBeUp(ctx, client, svcMasterIp, sshWcpConfig, pollTimeout*3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		time.Sleep(5 * time.Minute)
 
@@ -398,7 +398,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 
 		ginkgo.By("Verify if sts pods of zone-2 are in Terminating state")
 		for _, podName := range podNames {
-			err = waitForPodsToBeInTerminatingPhase(sshWcpConfig, svcMasterIp,
+			err = waitForPodsToBeInTerminatingPhase(ctx, client, sshWcpConfig, svcMasterIp,
 				podName, namespace, pollTimeout*2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -932,7 +932,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
 
 		ginkgo.By("Verify if sts pods of zone-1 are in Terminating state")
 		for _, podName := range podNames {
-			err = waitForPodsToBeInTerminatingPhase(sshWcpConfig, svcMasterIp,
+			err = waitForPodsToBeInTerminatingPhase(ctx, client, sshWcpConfig, svcMasterIp,
 				podName, namespace, pollTimeout*2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

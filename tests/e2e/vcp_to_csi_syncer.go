@@ -80,6 +80,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		podsToDelete               []*v1.Pod
 		migrationEnabledByDefault  bool
 		rawBlockVolumeMode         = v1.PersistentVolumeBlock
+		sshdPortNum                string
+		vcAddress                  string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -95,10 +97,15 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		}
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
 
+		// reading K8sMasterIP port number
+		if sshdPortNum == "" {
+			_, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
+		}
+
 		toggleCSIMigrationFeatureGatesOnK8snodes(ctx, client, false, namespace)
 		kubectlMigEnabled = false
 
-		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = false
 
@@ -146,7 +153,11 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vcpPvcsPreMig = []*v1.PersistentVolumeClaim{}
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
 
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
@@ -255,7 +266,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vcpPvsPostMig = nil
 
 		if kcmMigEnabled {
-			err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)
+			err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false,
+				sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -380,7 +392,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		}
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
-		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = true
 
@@ -510,7 +522,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
-		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = true
 
@@ -626,7 +638,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
-		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = true
 
@@ -764,7 +776,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		}
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
-		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = true
 
@@ -917,7 +929,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		writeDataOnFileFromPod(namespace, pod.Name, filePath1, data1)
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
-		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = true
 
@@ -1099,7 +1111,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
-		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = true
 
@@ -1242,7 +1254,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vmdks = append(vmdks, vmdk1)
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
-		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = true
 
@@ -1356,7 +1368,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
-		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = true
 
@@ -1528,7 +1540,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		}
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
-		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = true
 
@@ -1740,7 +1752,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		verifyIOOnRawBlockVolume(namespace, pod.Name, pvc1_devicePath, testdataFile, 0, 1)
 
 		ginkgo.By("Enabling CSIMigration and CSIMigrationvSphere feature gates on kube-controller-manager")
-		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true)
+		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, true, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		kcmMigEnabled = true
 

@@ -108,9 +108,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
 			clusterDistributionValue = vanillaClusterDistribution
-			storageClassName = "nginx-sc-telemtery"
 
-			scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
+			scSpec := getVSphereStorageClassSpec("", scParameters, nil, "", "", false)
 			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

@@ -56,7 +56,6 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		ClusterdatastoreListVC1    map[string]string
 		ClusterdatastoreListVC2    map[string]string
 		ClusterdatastoreListVC3    map[string]string
-		allMasterIps               []string
 		masterIp                   string
 		clusterComputeResource     []*object.ClusterComputeResource
 		nodeList                   *v1.NodeList
@@ -68,6 +67,9 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		scParameters               map[string]string
 		labelsMap                  map[string]string
 		isVsanHealthServiceStopped bool
+		sshdPortNum                string
+		isPrivateNetwork           bool
+		masterIpPortMap            map[string]string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -108,9 +110,12 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		k8sVersion = v.Major + "." + v.Minor
 
-		// fetching k8s master ip
-		allMasterIps = getK8sMasterIPs(ctx, client)
-		masterIp = allMasterIps[0]
+		/*
+		   	Verifying whether the setup is a private or public network and retrieving
+
+		   the master IP-to-port number mapping
+		*/
+		_, sshdPortNum, isPrivateNetwork, masterIpPortMap = GetMasterIpPortMap(ctx, client)
 
 		// fetching cluster details
 		clientIndex := 0
@@ -120,7 +125,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		// fetching list of datastores available in different VCs
 		ClusterdatastoreListVC1, ClusterdatastoreListVC2,
 			ClusterdatastoreListVC3, err = getDatastoresListFromMultiVCs(masterIp, sshClientConfig,
-			clusterComputeResource[0])
+			clusterComputeResource[0], sshdPortNum)
 		ClusterdatastoreListVC = append(ClusterdatastoreListVC, ClusterdatastoreListVC1,
 			ClusterdatastoreListVC2, ClusterdatastoreListVC3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -156,8 +161,8 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		}
 
 		if isVsanHealthServiceStopped {
-			vCenterHostname := strings.Split(e2eVSphere.Config.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
+			vcAddress, _, err := readMultiVcAddress(0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("Bringing vsanhealth up before terminating the test")
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
@@ -340,7 +345,8 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVC Bound state and CNS side verification")
@@ -565,7 +571,8 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVC Bound state and CNS side verification")
@@ -680,19 +687,25 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		ginkgo.By("Get current leader where CSI-Provisioner, CSI-Attacher and " +
 			"Vsphere-Syncer is running and find the master node IP where these containers are running")
 		csiProvisionerLeader, csiProvisionerControlIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, provisionerContainerName)
+			client, sshClientConfig, provisionerContainerName, sshdPortNum)
 		framework.Logf("CSI-Provisioner is running on Leader Pod %s "+
 			"which is running on master node %s", csiProvisionerLeader, csiProvisionerControlIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// reading port number for the master ip retrieve
+		sshdPortNumForProvisionerControlIp := GetPortNum(csiProvisionerControlIp, isPrivateNetwork, masterIpPortMap)
+
 		csiAttacherLeaderleader, csiAttacherControlIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, attacherContainerName)
+			client, sshClientConfig, attacherContainerName, sshdPortNum)
 		framework.Logf("CSI-Attacher is running on Leader Pod %s "+
 			"which is running on master node %s", csiAttacherLeaderleader, csiAttacherControlIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// reading port number for the master ip retrieve
+		sshdPortNumForAttacherControlIp := GetPortNum(csiAttacherControlIp, isPrivateNetwork, masterIpPortMap)
+
 		vsphereSyncerLeader, vsphereSyncerControlIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx,
-			client, sshClientConfig, syncerContainerName)
+			client, sshClientConfig, syncerContainerName, sshdPortNum)
 		framework.Logf("Vsphere-Syncer is running on Leader Pod %s "+
 			"which is running on master node %s", vsphereSyncerLeader, vsphereSyncerControlIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -730,8 +743,8 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		}()
 
 		ginkgo.By("Kill CSI-Provisioner container while pvc creation is in progress")
-		err = execDockerPauseNKillOnContainer(sshClientConfig, csiProvisionerControlIp, provisionerContainerName,
-			k8sVersion)
+		err = execDockerPauseNKillOnContainer(ctx, client, sshClientConfig, csiProvisionerControlIp, provisionerContainerName,
+			k8sVersion, sshdPortNumForProvisionerControlIp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVC Bound state and CNS side verification")
@@ -747,8 +760,8 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 
 			if i == 2 {
 				ginkgo.By("Kill CSI-Attacher container while pod creation is in progress")
-				err = execDockerPauseNKillOnContainer(sshClientConfig, csiAttacherControlIp, attacherContainerName,
-					k8sVersion)
+				err = execDockerPauseNKillOnContainer(ctx, client, sshClientConfig, csiAttacherControlIp, attacherContainerName,
+					k8sVersion, sshdPortNumForAttacherControlIp)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -852,7 +865,8 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		}()
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		vcAddress, _, err := readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		defer func() {
@@ -921,7 +935,8 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVC Bound state and CNS side verification")

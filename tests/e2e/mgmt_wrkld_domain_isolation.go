@@ -74,7 +74,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		bootstrap()
 
 		// reading vc session id
-		vcRestSessionId = createVcSession4RestApis(ctx)
+		if vcRestSessionId == "" {
+			vcRestSessionId = createVcSession4RestApis(ctx)
+		}
 
 		// reading topology map set for management doamin and workload domain
 		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)

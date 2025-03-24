@@ -666,14 +666,16 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		"set.", ginkgo.Label(p0, block, vanilla, wcp, core), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var sc *storagev1.StorageClass
+		var err error
+
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = nil
-			storageClassName = "nginx-sc-label-updates"
 			ginkgo.By("Creating StorageClass for Statefulset")
-			scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
-			sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
+			scSpec := getVSphereStorageClassSpec("", scParameters, nil, "", "", false)
+			sc, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -694,8 +696,13 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 
 		ginkgo.By("Creating statefulset")
 		statefulset := GetStatefulSetFromManifest(namespace)
-		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Spec.StorageClassName = &storageClassName
+		if vanillaCluster {
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+				Spec.StorageClassName = &sc.Name
+		} else {
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+				Spec.StorageClassName = &storageClassName
+		}
 		CreateStatefulSet(namespace, statefulset, client)
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))

@@ -806,7 +806,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		}()
 
 		ginkgo.By("Increase PVC size and verify online volume resize")
-		increaseSizeOfPvcAttachedToPod(f, client, namespace, pvc, pod)
+		increaseSizeOfPvcAttachedToPod(f, ctx, client, namespace, pvc, pod)
 
 		ginkgo.By("Wait for block device size to be updated inside pod after expansion")
 		isPvcExpandedInsidePod := false

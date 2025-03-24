@@ -80,6 +80,9 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		nonSharedDatastoreURL      string
 		fullSyncWaitTime           int
 		isQuotaValidationSupported bool
+		vcAddress                  string
+		sshdPortNum                string
+		masterIp                   string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -108,6 +111,17 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		var datacenters []string
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		nonSharedDatastoreURL = GetAndExpectStringEnvVar(envNonSharedStorageClassDatastoreURL)
+
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		// reading K8sMasterIP and port number
+		if sshdPortNum == "" || masterIp == "" {
+			masterIp, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
+		}
 
 		finder := find.NewFinder(e2eVSphere.Client.Client, false)
 		cfg, err := getConfig()
@@ -146,7 +160,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		}
 
 		if supervisorCluster || stretchedSVC {
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
 			vcVersion = getVCversion(ctx, vcAddress)
 			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
@@ -155,7 +168,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Performing test cleanup")
@@ -1387,7 +1399,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		isVsanHealthServiceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
@@ -1469,7 +1480,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		ginkgo.By(fmt.Sprintln("Stopping sps on the vCenter host"))
 		isSPSserviceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to completely shutdown", vsanHealthServiceWaitTime))
@@ -1541,6 +1551,19 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("non shared datastore , profileID : %s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
+		err = client.StorageV1().StorageClasses().Delete(ctx, nonsharedDatastoreName, metav1.DeleteOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, nonsharedDatastoreName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("storageclass Name :%s", storageclass.GetName())
+
+		defer func() {
+			framework.Logf("Delete storage class")
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		ginkgo.By("Creating Resource quota")
 		setStoragePolicyQuota(ctx, restConfig, nonsharedDatastoreName, namespace, rqLimit)
@@ -2258,7 +2281,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		isVsanHealthServiceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitVCenterServiceToBeInState(ctx, vsanhealthServiceName, vcAddress, svcStoppedMessage)
@@ -2439,15 +2461,15 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if vanillaCluster {
-			k8sMasterIPs := getK8sMasterIPs(ctx, client)
-			masterIP = k8sMasterIPs[0]
+			masterIP = masterIp
 		} else if supervisorCluster {
 			masterIP = GetAndExpectStringEnvVar(svcMasterIP)
 		}
 
 		framework.Logf("Get vmdk path from volume handle")
 		if vanillaCluster {
-			vmdk = getVmdkPathFromVolumeHandle(sshClientConfig, masterIP, defaultDatastore.Name(), pv.Spec.CSI.VolumeHandle)
+			vmdk = getVmdkPathFromVolumeHandle(sshClientConfig, masterIP, defaultDatastore.Name(),
+				pv.Spec.CSI.VolumeHandle, sshdPortNum)
 		}
 		esxHost := GetAndExpectStringEnvVar(envEsxHostIP)
 		ginkgo.By("Delete the vmdk file associasted with the above FCD")

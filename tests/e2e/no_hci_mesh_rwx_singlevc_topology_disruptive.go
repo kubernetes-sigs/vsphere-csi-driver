@@ -61,6 +61,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 		sshClientConfig         *ssh.ClientConfig
 		nodeList                *v1.NodeList
 		clusterComputeResource  []*object.ClusterComputeResource
+		sshdPortNum             string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -78,6 +79,11 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
+		}
+
+		// reading K8sMasterIP port number
+		if sshdPortNum == "" {
+			_, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
 		}
 
 		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
@@ -333,7 +339,8 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 			len(hostsInCluster))
 		defer func() {
 			ginkgo.By("Verifying k8s node status after site recovery")
-			err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+			err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+				nodeList, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -394,7 +401,8 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Verify all the workload Pods are in up and running state
@@ -586,7 +594,8 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVC Bound state and CNS side verification")
@@ -806,7 +815,8 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 		}
 
 		ginkgo.By("Verifying k8s node status after site recovery")
-		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig, nodeList)
+		err = verifyK8sNodeStatusAfterSiteRecovery(client, ctx, sshClientConfig,
+			nodeList, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVC Bound state and CNS side verification")

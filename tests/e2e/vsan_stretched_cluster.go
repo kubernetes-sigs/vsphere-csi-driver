@@ -82,6 +82,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		sc                         *storagev1.StorageClass
 		accessMode                 v1.PersistentVolumeAccessMode
 		err                        error
+		vcAddress                  string
+		sshdPortNum                string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -94,6 +96,17 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		// reading K8sMasterIP port number
+		if sshdPortNum == "" {
+			_, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
+		}
 
 		csiNs = GetAndExpectStringEnvVar(envCSINamespace)
 		isVsanHealthServiceStopped = false
@@ -212,7 +225,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if isVsanHealthServiceStopped {
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
@@ -689,7 +701,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters = map[string]string{}
 			scParameters["StoragePolicyName"] = storagePolicyName
-			storageClassName = "nginx-sc-default"
 			if os.Getenv(envFullSyncWaitTime) != "" {
 				fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
 				framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
@@ -700,7 +711,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			var pods []*v1.Pod
 			var pvclaims []*v1.PersistentVolumeClaim = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 
-			scSpec := getVSphereStorageClassSpec(storageClassName, scParameters, nil, "", "", false)
+			scSpec := getVSphereStorageClassSpec("", scParameters, nil, "", "", false)
 			sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
@@ -3057,7 +3068,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 			for _, containerName := range allCsiContainerNames {
 				_, masterIp, err := getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx, client,
-					sshClientConfig, containerName)
+					sshClientConfig, containerName, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				if masterIp != masterIpOnSecSite {
 					framework.Failf("couldn't get :%s container on master node ip: %s",
@@ -4239,7 +4250,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				pods = append(pods, pod)
 			}
 			framework.Logf("Stopping vsan-health on the vCenter host")
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitVCenterServiceToBeInState(ctx, vsanhealthServiceName, vcAddress, svcStoppedMessage)
@@ -4348,7 +4358,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			}
 
 			framework.Logf("Starting vsan-health on the vCenter host")
-			vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 			framework.Logf("Sleeping full-sync interval for vsan health service " +
@@ -4607,7 +4616,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				pods = append(pods, pod)
 			}
 			framework.Logf("Stopping vsan-health on the vCenter host")
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitVCenterServiceToBeInState(ctx, vsanhealthServiceName, vcAddress, svcStoppedMessage)
@@ -4716,7 +4724,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			}
 
 			framework.Logf("Starting vsan-health on the vCenter host")
-			vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 			framework.Logf("Sleeping full-sync interval for vsan health service " +

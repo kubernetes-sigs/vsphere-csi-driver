@@ -39,10 +39,10 @@ import (
 
 // createTestUser util method is used for creating test users
 func createTestUser(masterIp string, sshClientConfig *ssh.ClientConfig, testUser string,
-	testUserPassword string) error {
+	testUserPassword string, sshdPortNum string) error {
 	createUser := govcLoginCmd() + "govc sso.user.create -p " + testUserPassword + " " + testUser
 	framework.Logf("Create testuser: %s ", createUser)
-	result, err := sshExec(sshClientConfig, masterIp, createUser)
+	result, err := sshExec(sshClientConfig, masterIp, createUser, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -54,12 +54,13 @@ func createTestUser(masterIp string, sshClientConfig *ssh.ClientConfig, testUser
 // deleteUsersRolesAndPermissions method is used to delete roles and permissions of a test users
 func deleteUsersRolesAndPermissions(masterIp string, sshClientConfig *ssh.ClientConfig,
 	testUser string, testUserAlias string, dataCenter []*object.Datacenter, cluster []string,
-	hosts []string, vms []string, datastores []string) {
+	hosts []string, vms []string, datastores []string, sshdPortNum string) {
 	framework.Logf("Delete user permissions")
-	deleteUserPermissions(masterIp, sshClientConfig, testUserAlias, dataCenter, cluster, hosts, vms, datastores)
+	deleteUserPermissions(masterIp, sshClientConfig, testUserAlias, dataCenter, cluster, hosts, vms,
+		datastores, sshdPortNum)
 
 	framework.Logf("Delete user roles")
-	err := deleteUserRoles(masterIp, sshClientConfig, testUser)
+	err := deleteUserRoles(masterIp, sshClientConfig, testUser, sshdPortNum)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			framework.Logf("No test user roles exist")
@@ -73,8 +74,8 @@ func deleteUsersRolesAndPermissions(masterIp string, sshClientConfig *ssh.Client
 // deleteUserPermissions method is used to delete permissions of a test user
 func deleteUserPermissions(masterIp string, sshClientConfig *ssh.ClientConfig,
 	testUser string, dataCenter []*object.Datacenter, clusters []string,
-	hosts []string, vms []string, datastores []string) {
-	err := deleteDataCenterPermissions(masterIp, sshClientConfig, testUser, dataCenter)
+	hosts []string, vms []string, datastores []string, sshdPortNum string) {
+	err := deleteDataCenterPermissions(masterIp, sshClientConfig, testUser, dataCenter, sshdPortNum)
 	if err != nil {
 		if strings.Contains(err.Error(), "The object or item referred to could not be found") {
 			framework.Logf("No datacenter level permissions exist for a testuser")
@@ -84,7 +85,7 @@ func deleteUserPermissions(masterIp string, sshClientConfig *ssh.ClientConfig,
 		}
 	}
 
-	err = deleteHostsLevelPermission(masterIp, sshClientConfig, testUser, hosts)
+	err = deleteHostsLevelPermission(masterIp, sshClientConfig, testUser, hosts, sshdPortNum)
 	if err != nil {
 		if strings.Contains(err.Error(), "The object or item referred to could not be found") {
 			framework.Logf("No host level permissions exist for a testuser")
@@ -94,7 +95,7 @@ func deleteUserPermissions(masterIp string, sshClientConfig *ssh.ClientConfig,
 		}
 	}
 
-	err = deleteVMsLevelPermission(masterIp, sshClientConfig, testUser, vms)
+	err = deleteVMsLevelPermission(masterIp, sshClientConfig, testUser, vms, sshdPortNum)
 	if err != nil {
 		if strings.Contains(err.Error(), "The object or item referred to could not be found") {
 			framework.Logf("No vm level permissions exist for a testuser")
@@ -104,7 +105,7 @@ func deleteUserPermissions(masterIp string, sshClientConfig *ssh.ClientConfig,
 		}
 	}
 
-	err = deleteClusterLevelPermission(masterIp, sshClientConfig, testUser, clusters)
+	err = deleteClusterLevelPermission(masterIp, sshClientConfig, testUser, clusters, sshdPortNum)
 	if err != nil {
 		if strings.Contains(err.Error(), "The object or item referred to could not be found") {
 			framework.Logf("No cluster level permissions exist for a testuser")
@@ -115,7 +116,8 @@ func deleteUserPermissions(masterIp string, sshClientConfig *ssh.ClientConfig,
 	}
 
 	for i := 0; i < len(dataCenter); i++ {
-		err = deleteDataStoreLevelPermission(masterIp, sshClientConfig, testUser, datastores)
+		err = deleteDataStoreLevelPermission(masterIp, sshClientConfig, testUser,
+			datastores, sshdPortNum)
 		if err != nil {
 			if strings.Contains(err.Error(), "The object or item referred to could not be found") {
 				framework.Logf("No datastore level permissions exist for a testuser")
@@ -125,7 +127,7 @@ func deleteUserPermissions(masterIp string, sshClientConfig *ssh.ClientConfig,
 			}
 		}
 	}
-	err = deleteOtherPermissionsFromTestUser(masterIp, sshClientConfig, testUser)
+	err = deleteOtherPermissionsFromTestUser(masterIp, sshClientConfig, testUser, sshdPortNum)
 	if err != nil {
 		if strings.Contains(err.Error(), "The object or item referred to could not be found") {
 			framework.Logf("No search level permissions exist for a testuser")
@@ -138,12 +140,12 @@ func deleteUserPermissions(masterIp string, sshClientConfig *ssh.ClientConfig,
 
 // deleteDataCenterPermissions method is used to delete DataCenter Permissions from a test user
 func deleteDataCenterPermissions(masterIp string, sshClientConfig *ssh.ClientConfig,
-	testUser string, dataCenter []*object.Datacenter) error {
+	testUser string, dataCenter []*object.Datacenter, sshdPortNum string) error {
 	for i := 0; i < len(dataCenter); i++ {
 		deleteDataCenterPermissions := govcLoginCmd() +
 			"govc permissions.remove -principal " + testUser + " " + dataCenter[i].InventoryPath
 		framework.Logf("delete datacenter level permissions %s", deleteDataCenterPermissions)
-		result, err := sshExec(sshClientConfig, masterIp, deleteDataCenterPermissions)
+		result, err := sshExec(sshClientConfig, masterIp, deleteDataCenterPermissions, sshdPortNum)
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -155,12 +157,12 @@ func deleteDataCenterPermissions(masterIp string, sshClientConfig *ssh.ClientCon
 
 // deleteHostsLevelPermission method is used to delete hosts level permissions from a test user
 func deleteHostsLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig,
-	testUser string, hosts []string) error {
+	testUser string, hosts []string, sshdPortNum string) error {
 	for i := 0; i < len(hosts); i++ {
 		deleteHostsLevelPermissions := govcLoginCmd() +
 			"govc permissions.remove -principal " + testUser + " " + hosts[i]
 		framework.Logf("delete host level permissions %s", deleteHostsLevelPermissions)
-		result, err := sshExec(sshClientConfig, masterIp, deleteHostsLevelPermissions)
+		result, err := sshExec(sshClientConfig, masterIp, deleteHostsLevelPermissions, sshdPortNum)
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -171,12 +173,13 @@ func deleteHostsLevelPermission(masterIp string, sshClientConfig *ssh.ClientConf
 }
 
 // deleteVMsLevelPermission method is used to delete vm level permissions from a test user
-func deleteVMsLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig, testUser string, vms []string) error {
+func deleteVMsLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig,
+	testUser string, vms []string, sshdPortNum string) error {
 	for i := 0; i < len(vms); i++ {
 		deleteVmsLevelPermissions := govcLoginCmd() + "govc permissions.remove -principal " + testUser +
 			" " + vms[i]
 		framework.Logf("delete vm level permissions %s", deleteVmsLevelPermissions)
-		result, err := sshExec(sshClientConfig, masterIp, deleteVmsLevelPermissions)
+		result, err := sshExec(sshClientConfig, masterIp, deleteVmsLevelPermissions, sshdPortNum)
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -188,12 +191,12 @@ func deleteVMsLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig
 
 // deleteClusterLevelPermission method is used to delete cluster level permissions from a test user
 func deleteClusterLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig,
-	testUser string, clusters []string) error {
+	testUser string, clusters []string, sshdPortNum string) error {
 	for i := 0; i < len(clusters); i++ {
 		deleteClusterLevelPermissions := govcLoginCmd() +
 			"govc permissions.remove -principal " + testUser + " " + clusters[i]
 		framework.Logf("delete cluster level permissions %s", deleteClusterLevelPermissions)
-		result, err := sshExec(sshClientConfig, masterIp, deleteClusterLevelPermissions)
+		result, err := sshExec(sshClientConfig, masterIp, deleteClusterLevelPermissions, sshdPortNum)
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -205,12 +208,13 @@ func deleteClusterLevelPermission(masterIp string, sshClientConfig *ssh.ClientCo
 
 // deleteDataStoreLevelPermission method is used to delete datastore level permissions from a test user
 func deleteDataStoreLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig,
-	testUser string, datastores []string) error {
+	testUser string, datastores []string, sshdPortNum string) error {
 	for i := 0; i < len(datastores); i++ {
 		deleteDataStoreLevelPermissions := govcLoginCmd() + "govc permissions.remove -principal " +
 			testUser + " '" + datastores[i] + "'"
 		framework.Logf("delete datastore level permissions %s", deleteDataStoreLevelPermissions)
-		result, err := sshExec(sshClientConfig, masterIp, deleteDataStoreLevelPermissions)
+		result, err := sshExec(sshClientConfig, masterIp,
+			deleteDataStoreLevelPermissions, sshdPortNum)
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -221,11 +225,12 @@ func deleteDataStoreLevelPermission(masterIp string, sshClientConfig *ssh.Client
 }
 
 // deleteOtherPermissionsFromTestUser method is used to remove permissions from a test user
-func deleteOtherPermissionsFromTestUser(masterIp string, sshClientConfig *ssh.ClientConfig, testUser string) error {
+func deleteOtherPermissionsFromTestUser(masterIp string, sshClientConfig *ssh.ClientConfig,
+	testUser string, sshdPortNum string) error {
 	deleteOtherPermissions := govcLoginCmd() + "govc permissions.remove -principal " +
 		testUser
 	framework.Logf("delete other permissions %s", deleteOtherPermissions)
-	result, err := sshExec(sshClientConfig, masterIp, deleteOtherPermissions)
+	result, err := sshExec(sshClientConfig, masterIp, deleteOtherPermissions, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -235,13 +240,14 @@ func deleteOtherPermissionsFromTestUser(masterIp string, sshClientConfig *ssh.Cl
 }
 
 // deleteUserRoles method is used to delete roles of a test user
-func deleteUserRoles(masterIp string, sshClientConfig *ssh.ClientConfig, testUser string) error {
+func deleteUserRoles(masterIp string, sshClientConfig *ssh.ClientConfig,
+	testUser string, sshdPortNum string) error {
 	roleMap := userRoleMap()
 	for key := range roleMap {
 		if key != "ReadOnly" {
 			deleteRoles := govcLoginCmd() + "govc role.remove " + key + "-" + testUser
 			framework.Logf("delete user roles %s", deleteRoles)
-			result, err := sshExec(sshClientConfig, masterIp, deleteRoles)
+			result, err := sshExec(sshClientConfig, masterIp, deleteRoles, sshdPortNum)
 			if err != nil && result.Code != 0 {
 				fssh.LogResult(result)
 				return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -253,10 +259,11 @@ func deleteUserRoles(masterIp string, sshClientConfig *ssh.ClientConfig, testUse
 }
 
 // deleteTestUser method is used to delete config secret test users
-func deleteTestUser(masterIp string, sshClientConfig *ssh.ClientConfig, testUser string) error {
+func deleteTestUser(masterIp string, sshClientConfig *ssh.ClientConfig,
+	testUser string, sshdPortNum string) error {
 	deleteUser := govcLoginCmd() + "govc sso.user.rm " + testUser
 	framework.Logf("delete test user %s", deleteUser)
-	result, err := sshExec(sshClientConfig, masterIp, deleteUser)
+	result, err := sshExec(sshClientConfig, masterIp, deleteUser, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -266,13 +273,15 @@ func deleteTestUser(masterIp string, sshClientConfig *ssh.ClientConfig, testUser
 }
 
 // createRolesForTestUser method is used to create roles for a test user
-func createRolesForTestUser(masterIp string, sshClientConfig *ssh.ClientConfig, testUser string) error {
+func createRolesForTestUser(masterIp string, sshClientConfig *ssh.ClientConfig,
+	testUser string, sshdPortNum string) error {
 	roleMap := userRoleMap()
 	for key, val := range roleMap {
 		if key != "ReadOnly" {
 			createRoleCmdFortestUser := govcLoginCmd() + "govc role.create " + key + "-" + testUser + " " + val
 			framework.Logf("Create roles for test user %s", createRoleCmdFortestUser)
-			result, err := sshExec(sshClientConfig, masterIp, createRoleCmdFortestUser)
+			result, err := sshExec(sshClientConfig, masterIp, createRoleCmdFortestUser,
+				sshdPortNum)
 			if err != nil && result.Code != 0 {
 				fssh.LogResult(result)
 				return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -288,29 +297,30 @@ getDataCenterClusterHostAndVmDetails method is used to fetch data center details
 details, host details and vm details
 */
 func getDataCenterClusterHostAndVmDetails(ctx context.Context, masterIp string,
-	sshClientConfig *ssh.ClientConfig) ([]*object.Datacenter,
+	sshClientConfig *ssh.ClientConfig, sshdPortNum string) ([]*object.Datacenter,
 	[]string, []string, []string, []string) {
 	// fetch datacenter details
 	dataCenters, err := e2eVSphere.getAllDatacenters(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// fetch cluster details
-	clusters, err := getClusterNames(masterIp, sshClientConfig, dataCenters)
+	clusters, err := getClusterNames(masterIp, sshClientConfig, dataCenters,
+		sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 		masterIp, err)
 
 	// fetch esxi hosts details
-	hosts, err := getEsxiHostNames(masterIp, sshClientConfig, clusters)
+	hosts, err := getEsxiHostNames(masterIp, sshClientConfig, clusters, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 		masterIp, err)
 
 	// fetch vm details
-	vms, err := getVmNames(masterIp, sshClientConfig, dataCenters)
+	vms, err := getVmNames(masterIp, sshClientConfig, dataCenters, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 		masterIp, err)
 
 	// fetch datastore details
-	datastores, err := getDatastoreNames(masterIp, sshClientConfig, dataCenters)
+	datastores, err := getDatastoreNames(masterIp, sshClientConfig, dataCenters, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 		masterIp, err)
 
@@ -319,12 +329,12 @@ func getDataCenterClusterHostAndVmDetails(ctx context.Context, masterIp string,
 
 // getClusterNames method is used to fetch cluster list
 func getClusterNames(masterIp string, sshClientConfig *ssh.ClientConfig,
-	dataCenter []*object.Datacenter) ([]string, error) {
+	dataCenter []*object.Datacenter, sshdPortNum string) ([]string, error) {
 	var clusDetails, clusterList, clusterNames []string
 	framework.Logf("Fetching cluster details")
 	for i := 0; i < len(dataCenter); i++ {
 		clusterFolder := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
-		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder)
+		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder, sshdPortNum)
 		if err != nil && clusterFolderNameResult.Code != 0 {
 			fssh.LogResult(clusterFolderNameResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -341,7 +351,8 @@ func getClusterNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 			}
 		}
 		clusterGroup := govcLoginCmd() + "govc ls " + clusterPathName
-		clusterGroupResult, err := sshExec(sshClientConfig, masterIp, clusterGroup)
+		clusterGroupResult, err := sshExec(sshClientConfig, masterIp, clusterGroup,
+			sshdPortNum)
 		if err != nil && clusterGroupResult.Code != 0 {
 			fssh.LogResult(clusterGroupResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -351,7 +362,7 @@ func getClusterNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 			clusterNames = strings.Split(clusterGroupResult.Stdout, "\n")
 		}
 		cluster := govcLoginCmd() + "govc ls " + clusterNames[0] + " | sort"
-		clusterResult, err := sshExec(sshClientConfig, masterIp, cluster)
+		clusterResult, err := sshExec(sshClientConfig, masterIp, cluster, sshdPortNum)
 		if err != nil && clusterResult.Code != 0 {
 			fssh.LogResult(clusterResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -378,12 +389,13 @@ func getClusterNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 }
 
 // getEsxiHostNames method is used to fetch esxi hosts details
-func getEsxiHostNames(masterIp string, sshClientConfig *ssh.ClientConfig, cluster []string) ([]string, error) {
+func getEsxiHostNames(masterIp string, sshClientConfig *ssh.ClientConfig,
+	cluster []string, sshdPortNum string) ([]string, error) {
 	var hostsList, hostList []string
 	framework.Logf("Fetching ESXi host details")
 	for i := 0; i < len(cluster); i++ {
 		hosts := govcLoginCmd() + "govc ls " + cluster[i] + " " + " | grep 10."
-		hostsResult, err := sshExec(sshClientConfig, masterIp, hosts)
+		hostsResult, err := sshExec(sshClientConfig, masterIp, hosts, sshdPortNum)
 		if err != nil && hostsResult.Code != 0 {
 			fssh.LogResult(hostsResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -402,12 +414,13 @@ func getEsxiHostNames(masterIp string, sshClientConfig *ssh.ClientConfig, cluste
 }
 
 // getVmNames method is used to fetch vm details
-func getVmNames(masterIp string, sshClientConfig *ssh.ClientConfig, dataCenter []*object.Datacenter) ([]string, error) {
+func getVmNames(masterIp string, sshClientConfig *ssh.ClientConfig,
+	dataCenter []*object.Datacenter, sshdPortNum string) ([]string, error) {
 	var vmsList, vmList []string
 	framework.Logf("Fetching VM details")
 	for i := 0; i < len(dataCenter); i++ {
 		vms := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath + "/vm" + " " + "| grep 'k8s\\|haproxy'"
-		vMsResult, err := sshExec(sshClientConfig, masterIp, vms)
+		vMsResult, err := sshExec(sshClientConfig, masterIp, vms, sshdPortNum)
 		if err != nil && vMsResult.Code != 0 {
 			fssh.LogResult(vMsResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -427,12 +440,12 @@ func getVmNames(masterIp string, sshClientConfig *ssh.ClientConfig, dataCenter [
 
 // getDatastoreNames method is used to fetch datastore details
 func getDatastoreNames(masterIp string, sshClientConfig *ssh.ClientConfig,
-	dataCenter []*object.Datacenter) ([]string, error) {
+	dataCenter []*object.Datacenter, sshdPortNum string) ([]string, error) {
 	var dsList, datastores []string
 	framework.Logf("Fetching datastore details")
 	for i := 0; i < len(dataCenter); i++ {
 		ds := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath + "/datastore"
-		dsResult, err := sshExec(sshClientConfig, masterIp, ds)
+		dsResult, err := sshExec(sshClientConfig, masterIp, ds, sshdPortNum)
 		if err != nil && dsResult.Code != 0 {
 			fssh.LogResult(dsResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -452,10 +465,10 @@ func getDatastoreNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 
 // setDataCenterLevelPermission is used to set data center level permissions for test user
 func setDataCenterLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig, dataCenter string,
-	testUser string, propagateVal string, readOnlyRole string) error {
+	testUser string, propagateVal string, readOnlyRole string, sshdPortNum string) error {
 	setPermissionForDataCenter := govcLoginCmd() + "govc permissions.set -principal " + testUser +
 		" -propagate=" + propagateVal + " -role " + readOnlyRole + " " + dataCenter + " | tr -d '\n'"
-	result, err := sshExec(sshClientConfig, masterIp, setPermissionForDataCenter)
+	result, err := sshExec(sshClientConfig, masterIp, setPermissionForDataCenter, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -467,11 +480,11 @@ func setDataCenterLevelPermission(masterIp string, sshClientConfig *ssh.ClientCo
 
 // setHostLevelPermission is used to set host level permissions for test user
 func setHostLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig, testUser string,
-	hosts []string, propagateVal string, readOnlyRole string) error {
+	hosts []string, propagateVal string, readOnlyRole string, sshdPortNum string) error {
 	for i := 0; i < len(hosts); i++ {
 		setPermissionForHosts := govcLoginCmd() + "govc permissions.set -principal " +
 			testUser + " -propagate=" + propagateVal + " -role " + readOnlyRole + " " + hosts[i] + "| tr -d '\n'"
-		result, err := sshExec(sshClientConfig, masterIp, setPermissionForHosts)
+		result, err := sshExec(sshClientConfig, masterIp, setPermissionForHosts, sshdPortNum)
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -484,12 +497,12 @@ func setHostLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig, 
 
 // setVMLevelPermission is used to set vm level permissions for test user
 func setVMLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig, testUserAlias string,
-	testUser string, vms []string, propagateVal string, vmRole string) error {
+	testUser string, vms []string, propagateVal string, vmRole string, sshdPortNum string) error {
 	for i := 0; i < len(vms); i++ {
 		setPermissionForK8sVms := govcLoginCmd() + "govc permissions.set -principal " +
 			testUserAlias + " -propagate=" + propagateVal + " -role " + vmRole + "-" + testUser +
 			" " + vms[i] + " | tr -d '\n'"
-		result, err := sshExec(sshClientConfig, masterIp, setPermissionForK8sVms)
+		result, err := sshExec(sshClientConfig, masterIp, setPermissionForK8sVms, sshdPortNum)
 		framework.Logf("Vm level permissions %s", setPermissionForK8sVms)
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
@@ -502,12 +515,12 @@ func setVMLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig, te
 
 // setClusterLevelPermission is used to set cluster level permissions for test user
 func setClusterLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig, testUserAlias string,
-	testUser string, cluster string, propagateVal string, hostRole string) error {
+	testUser string, cluster string, propagateVal string, hostRole string, sshdPortNum string) error {
 	setPermissionForCluster := govcLoginCmd() + "govc permissions.set -principal " +
 		testUserAlias + " -propagate=" + propagateVal + " -role " + hostRole + "-" +
 		testUser + " " + cluster + " | tr -d '\n'"
 	framework.Logf("Cluster level permissions %s", setPermissionForCluster)
-	result, err := sshExec(sshClientConfig, masterIp, setPermissionForCluster)
+	result, err := sshExec(sshClientConfig, masterIp, setPermissionForCluster, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -518,13 +531,14 @@ func setClusterLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfi
 
 // setDataStoreLevelPermission is used to set datastore level permissions for test user
 func setDataStoreLevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig, testUserAlias string,
-	testUser string, datastores []string, propagateVal string, datastoreRole string) error {
+	testUser string, datastores []string, propagateVal string,
+	datastoreRole string, sshdPortNum string) error {
 	for i := 0; i < len(datastores); i++ {
 		setPermissionForDataStore := govcLoginCmd() + "govc permissions.set -principal " +
 			testUserAlias + " " + "-propagate=" + propagateVal + " -role " + datastoreRole + "-" + testUser + " '" +
 			datastores[i] + "'"
 		framework.Logf("Datastore level permissions %s", setPermissionForDataStore)
-		result, err := sshExec(sshClientConfig, masterIp, setPermissionForDataStore)
+		result, err := sshExec(sshClientConfig, masterIp, setPermissionForDataStore, sshdPortNum)
 		if err != nil && result.Code != 0 {
 			fssh.LogResult(result)
 			return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -536,11 +550,11 @@ func setDataStoreLevelPermission(masterIp string, sshClientConfig *ssh.ClientCon
 
 // setSearchlevelPermission method is used to set search level permissions
 func setSearchlevelPermission(masterIp string, sshClientConfig *ssh.ClientConfig, testUserAlias string, testUser string,
-	propagateVal string, searchRole string) error {
+	propagateVal string, searchRole string, sshdPortNum string) error {
 	setSearchLevelPermission := govcLoginCmd() + "govc permissions.set -principal " + testUserAlias +
 		" -propagate=" + propagateVal + " -role " + searchRole + "-" + testUser + " /"
 	framework.Logf("Search level permissions %s", setSearchLevelPermission)
-	result, err := sshExec(sshClientConfig, masterIp, setSearchLevelPermission)
+	result, err := sshExec(sshClientConfig, masterIp, setSearchLevelPermission, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -579,36 +593,37 @@ roles and privileges to test user
 func createTestUserAndAssignRolesPrivileges(masterIp string, sshClientConfig *ssh.ClientConfig,
 	configSecretTestUser string, configSecretTestUserPassword string, configSecretTestUserAlias string,
 	propagateVal string, dataCenters []*object.Datacenter, clusters []string, hosts []string,
-	vms []string, datastores []string, testUserOpToPerform string, testUserRolesOpToPerform string) {
+	vms []string, datastores []string,
+	testUserOpToPerform string, testUserRolesOpToPerform string, sshdPortNum string) {
 	roleMap := userRoleMap()
 	switch testUserOpToPerform {
 	case "createUser":
-		err := createTestUser(masterIp, sshClientConfig, configSecretTestUser, configSecretTestUserPassword)
+		err := createTestUser(masterIp, sshClientConfig, configSecretTestUser, configSecretTestUserPassword, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 			masterIp, err)
 	case "reuseUser":
 		framework.Logf("Test user already exist")
 	case "recreate":
-		err := deleteTestUser(masterIp, sshClientConfig, configSecretTestUser)
+		err := deleteTestUser(masterIp, sshClientConfig, configSecretTestUser, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 			masterIp, err)
-		err = createTestUser(masterIp, sshClientConfig, configSecretTestUser, configSecretTestUserPassword)
+		err = createTestUser(masterIp, sshClientConfig, configSecretTestUser, configSecretTestUserPassword, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 			masterIp, err)
 	}
 
 	switch testUserRolesOpToPerform {
 	case "createRoles":
-		err := createRolesForTestUser(masterIp, sshClientConfig, configSecretTestUser)
+		err := createRolesForTestUser(masterIp, sshClientConfig, configSecretTestUser, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 			masterIp, err)
 	case "reuseRoles":
 		framework.Logf("Roles for testuser already exist")
 	case "recreate":
-		err := deleteUserRoles(masterIp, sshClientConfig, configSecretTestUser)
+		err := deleteUserRoles(masterIp, sshClientConfig, configSecretTestUser, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 			masterIp, err)
-		err = createRolesForTestUser(masterIp, sshClientConfig, configSecretTestUser)
+		err = createRolesForTestUser(masterIp, sshClientConfig, configSecretTestUser, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 			masterIp, err)
 	}
@@ -617,7 +632,7 @@ func createTestUserAndAssignRolesPrivileges(masterIp string, sshClientConfig *ss
 		if strings.Contains(key, "VM") {
 			framework.Logf("Assign vm level permissions")
 			err := setVMLevelPermission(masterIp, sshClientConfig, configSecretTestUserAlias, configSecretTestUser, vms,
-				propagateVal, key)
+				propagateVal, key, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 				masterIp, err)
 		}
@@ -625,7 +640,7 @@ func createTestUserAndAssignRolesPrivileges(masterIp string, sshClientConfig *ss
 			framework.Logf("Assign cluster level permissions")
 			for i := 0; i < len(clusters); i++ {
 				err := setClusterLevelPermission(masterIp, sshClientConfig, configSecretTestUserAlias, configSecretTestUser,
-					clusters[i], propagateVal, key)
+					clusters[i], propagateVal, key, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 					masterIp, err)
 			}
@@ -634,7 +649,7 @@ func createTestUserAndAssignRolesPrivileges(masterIp string, sshClientConfig *ss
 			framework.Logf("Assign datastores level permissions")
 			for i := 0; i < len(dataCenters); i++ {
 				err := setDataStoreLevelPermission(masterIp, sshClientConfig, configSecretTestUserAlias, configSecretTestUser,
-					datastores, propagateVal, key)
+					datastores, propagateVal, key, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 					masterIp, err)
 			}
@@ -642,7 +657,7 @@ func createTestUserAndAssignRolesPrivileges(masterIp string, sshClientConfig *ss
 		if strings.Contains(key, "SEARCH") {
 			framework.Logf("Assign search level permissions")
 			err := setSearchlevelPermission(masterIp, sshClientConfig, configSecretTestUserAlias, configSecretTestUser,
-				propagateVal, key)
+				propagateVal, key, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 				masterIp, err)
 		}
@@ -650,13 +665,14 @@ func createTestUserAndAssignRolesPrivileges(masterIp string, sshClientConfig *ss
 			framework.Logf("Assign datacenter level read-only permissions")
 			for i := 0; i < len(dataCenters); i++ {
 				err := setDataCenterLevelPermission(masterIp, sshClientConfig, dataCenters[i].InventoryPath,
-					configSecretTestUserAlias, propagateVal, key)
+					configSecretTestUserAlias, propagateVal, key, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 					masterIp, err)
 			}
 
 			framework.Logf("Assign host level read-only permissions")
-			err := setHostLevelPermission(masterIp, sshClientConfig, configSecretTestUserAlias, hosts, propagateVal, key)
+			err := setHostLevelPermission(masterIp, sshClientConfig, configSecretTestUserAlias, hosts,
+				propagateVal, key, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 				masterIp, err)
 		}
@@ -670,13 +686,13 @@ roles and privileges to test user
 func deleteTestUserAndRemoveRolesPrivileges(masterIp string, sshClientConfig *ssh.ClientConfig,
 	configSecretTestUser string, configSecretTestUserAlias string,
 	propagateVal string, dataCenters []*object.Datacenter, clusters []string, hosts []string,
-	vms []string, datastores []string) {
+	vms []string, datastores []string, sshdPortNum string) {
 	framework.Logf("Delete users roles and permissions")
 	deleteUsersRolesAndPermissions(masterIp, sshClientConfig, configSecretTestUser, configSecretTestUserAlias, dataCenters,
-		clusters, hosts, vms, datastores)
+		clusters, hosts, vms, datastores, sshdPortNum)
 
 	framework.Logf("Delete Test user")
-	err := deleteTestUser(masterIp, sshClientConfig, configSecretTestUser)
+	err := deleteTestUser(masterIp, sshClientConfig, configSecretTestUser, sshdPortNum)
 	if err != nil {
 		if strings.Contains(err.Error(), "doesn't exist") {
 			framework.Logf("test user doesn't exist")
@@ -701,9 +717,9 @@ func userRoleMap() map[string]string {
 
 // changeTestUserPassword util method is use for changing testuser vcenter login password
 func changeTestUserPassword(masterIp string, sshClientConfig *ssh.ClientConfig, testUser string,
-	testUserPassword string) error {
+	testUserPassword string, sshdPortNum string) error {
 	changeUserPassword := govcLoginCmd() + "govc sso.user.update -p " + testUserPassword + " " + testUser
-	result, err := sshExec(sshClientConfig, masterIp, changeUserPassword)
+	result, err := sshExec(sshClientConfig, masterIp, changeUserPassword, sshdPortNum)
 	if err != nil && result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -771,17 +787,16 @@ and privilege access to the test user.
 func createTestUserAndAssignLimitedRolesAndPrivileges(masterIp string, sshClientConfig *ssh.ClientConfig,
 	configSecretTestUser string,
 	configSecretTestUserPassword string, configSecretTestUserAlias string, propagateVal string,
-	clusters []string, hosts []string,
-) {
+	clusters []string, hosts []string, sshdPortNum string) {
 	roleMap := userRoleMap()
 
 	framework.Logf("Create TestUser")
-	err := createTestUser(masterIp, sshClientConfig, configSecretTestUser, configSecretTestUserPassword)
+	err := createTestUser(masterIp, sshClientConfig, configSecretTestUser, configSecretTestUserPassword, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 		masterIp, err)
 
 	framework.Logf("Create roles for TestUser")
-	err = createRolesForTestUser(masterIp, sshClientConfig, configSecretTestUser)
+	err = createRolesForTestUser(masterIp, sshClientConfig, configSecretTestUser, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 		masterIp, err)
 
@@ -790,14 +805,15 @@ func createTestUserAndAssignLimitedRolesAndPrivileges(masterIp string, sshClient
 			framework.Logf("Assign cluster level permissions")
 			for i := 0; i < len(clusters); i++ {
 				err = setClusterLevelPermission(masterIp, sshClientConfig, configSecretTestUserAlias, configSecretTestUser,
-					clusters[i], propagateVal, key)
+					clusters[i], propagateVal, key, sshdPortNum)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 					masterIp, err)
 			}
 		}
 		if strings.Contains(key, "ReadOnly") {
 			framework.Logf("Assign host level read-only permissions")
-			err = setHostLevelPermission(masterIp, sshClientConfig, configSecretTestUserAlias, hosts, propagateVal, key)
+			err = setHostLevelPermission(masterIp, sshClientConfig, configSecretTestUserAlias, hosts,
+				propagateVal, key, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "couldn't execute command on host: %v , error: %s",
 				masterIp, err)
 		}

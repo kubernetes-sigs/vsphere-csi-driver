@@ -340,7 +340,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology-Snapshot", func() {
 
 		scParameters["datastoreurl"] = sharedDataStoreUrlBetweenClusters
 		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC,
-			"", "", false, "nginx-sc")
+			"", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,

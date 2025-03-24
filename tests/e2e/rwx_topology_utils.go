@@ -75,6 +75,8 @@ func createStorageClassWithMultiplePVCs(client clientset.Interface, namespace st
 		scName := ""
 		if len(storageClassName) > 0 {
 			scName = storageClassName
+		} else {
+			scName = ""
 		}
 		sc, err = createStorageClass(client, scParameters,
 			allowedTopologies, "", bindingMode, allowVolumeExpansion, scName)
@@ -471,6 +473,7 @@ func fetchDatastoreListMap(ctx context.Context,
 		dataCenters                                                               []*object.Datacenter
 		err                                                                       error
 		rack2DatastoreListMap, rack3DatastoreListMap                              map[string]string
+		masterIp                                                                  string
 	)
 
 	sshClientConfig := &ssh.ClientConfig{
@@ -481,8 +484,9 @@ func fetchDatastoreListMap(ctx context.Context,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	allMasterIps := getK8sMasterIPs(ctx, client)
-	masterIp := allMasterIps[0]
+	var sshdPortNum string
+	// reading K8sMasterIP port number
+	masterIp, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
 
 	// Fetching datacenter details
 	if !multivc {
@@ -496,23 +500,27 @@ func fetchDatastoreListMap(ctx context.Context,
 
 	// Fetching cluster details
 	clientIndex := 0
-	clusters, err := getTopologyLevel5ClusterGroupNames(masterIp, sshClientConfig, dataCenters, clientIndex)
+	clusters, err := getTopologyLevel5ClusterGroupNames(masterIp, sshClientConfig,
+		dataCenters, clientIndex, sshdPortNum)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 
 	// Fetching list of datastores for Rack 1
-	rack1DatastoreListMap, err := getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0], clientIndex)
+	rack1DatastoreListMap, err := getListOfDatastoresByClusterName(masterIp, sshClientConfig,
+		clusters[0], clientIndex, sshdPortNum)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 
 	// Fetching list of datastores for Rack 2
 	if !multivc {
-		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[1], clientIndex)
+		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig,
+			clusters[1], clientIndex, sshdPortNum)
 	} else {
 		clientIndex = 1
-		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0], clientIndex)
+		rack2DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig,
+			clusters[0], clientIndex, sshdPortNum)
 	}
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -520,10 +528,12 @@ func fetchDatastoreListMap(ctx context.Context,
 
 	// Fetching list of datastores for Rack 3
 	if !multivc {
-		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[2], clientIndex)
+		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig,
+			clusters[2], clientIndex, sshdPortNum)
 	} else {
 		clientIndex = 2
-		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig, clusters[0], clientIndex)
+		rack3DatastoreListMap, err = getListOfDatastoresByClusterName(masterIp, sshClientConfig,
+			clusters[0], clientIndex, sshdPortNum)
 	}
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -841,16 +851,16 @@ verifyK8sNodeStatusAfterSiteRecovery verifies that all k8s nodes be in up and
 running state post site recovery
 */
 func verifyK8sNodeStatusAfterSiteRecovery(client clientset.Interface, ctx context.Context,
-	sshClientConfig *ssh.ClientConfig, nodeList *v1.NodeList) error {
-	k8sMasterIPs := getK8sMasterIPs(ctx, client)
+	sshClientConfig *ssh.ClientConfig, nodeList *v1.NodeList, sshdPortNum string) error {
+	masterIp, _, _, _ := GetMasterIpPortMap(ctx, client)
 	checkNodesStatus := "kubectl get nodes | grep NotReady |  awk '{print $1}'"
-	framework.Logf("Invoking command '%v' on host %v", checkNodesStatus, k8sMasterIPs[0])
-	result, err := sshExec(sshClientConfig, k8sMasterIPs[0], checkNodesStatus)
+	framework.Logf("Invoking command '%v' on host %v", checkNodesStatus, masterIp)
+	result, err := sshExec(sshClientConfig, masterIp, checkNodesStatus, sshdPortNum)
 	nodeNames := strings.Split(result.Stdout, "\n")
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("command failed/couldn't execute command: %s "+
-			"on host: %v, error: %w", checkNodesStatus, k8sMasterIPs[0], err)
+			"on host: %v, error: %w", checkNodesStatus, masterIp, err)
 	}
 
 	for _, nodeName := range nodeNames {

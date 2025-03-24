@@ -22,7 +22,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
@@ -62,7 +61,6 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		labelsMap                  map[string]string
 		sshClientConfig            *ssh.ClientConfig
 		nimbusGeneratedK8sVmPwd    string
-		allMasterIps               []string
 		masterIp                   string
 		isStorageProfileDeleted    bool
 		storagePolicyToDelete      string
@@ -70,6 +68,9 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		isSPSServiceStopped        bool
 		err                        error
 		isVcRebooted               bool
+		vcAddress                  string
+		sshdPortNum                string
+		vCenterIP                  string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -117,9 +118,16 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
 
-		// fetching k8s master ip
-		allMasterIps = getK8sMasterIPs(ctx, client)
-		masterIp = allMasterIps[0]
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		// reading K8sMasterIP and port number
+		if sshdPortNum == "" || masterIp == "" {
+			masterIp, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
+		}
 	})
 
 	ginkgo.AfterEach(func() {
@@ -185,15 +193,15 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		}
 
 		if isVsanHealthServiceStopped {
-			vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
+			vcAddress, _, err = readMultiVcAddress(0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("Bringing vsanhealth up before terminating the test")
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 
 		if isSPSServiceStopped {
-			vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
+			vcAddress, _, err = readMultiVcAddress(0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			framework.Logf("Bringing sps up before terminating the test")
 			startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 			isSPSServiceStopped = false
@@ -201,14 +209,14 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 
 		if isStorageProfileDeleted {
 			clientIndex := 0
-			err = createStorageProfile(masterIp, sshClientConfig, storagePolicyToDelete, clientIndex)
+			err = createStorageProfile(masterIp, sshClientConfig, storagePolicyToDelete, clientIndex, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		// restarting pending and stopped services after vc reboot if any
 		if isVcRebooted {
-			vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
+			vcAddress, _, err = readMultiVcAddress(0)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err := checkVcServicesHealthPostReboot(ctx, vcAddress, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 				"Setup is not in healthy state, Got timed-out waiting for required VC services to be up and running")
@@ -843,11 +851,11 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		}()
 
 		ginkgo.By("Delete Storage Policy created in VC1")
-		err = deleteStorageProfile(masterIp, sshClientConfig, storagePolicyToDelete, clientIndex)
+		err = deleteStorageProfile(masterIp, sshClientConfig, storagePolicyToDelete, clientIndex, sshdPortNum)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isStorageProfileDeleted = true
 		defer func() {
-			err = createStorageProfile(masterIp, sshClientConfig, storagePolicyToDelete, clientIndex)
+			err = createStorageProfile(masterIp, sshClientConfig, storagePolicyToDelete, clientIndex, sshdPortNum)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			isStorageProfileDeleted = false
 		}()
@@ -993,13 +1001,13 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Rebooting VC1")
-		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[0] + ":" + sshdPort
+		vcAddress, vCenterIP, err = readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("vcAddress - %s ", vcAddress)
 		err = invokeVCenterReboot(ctx, vcAddress)
 		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(vCenterHostname[0])
+		err = waitForHostToBeUp(vCenterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 
@@ -1112,8 +1120,8 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring down Vsan-health service on VC1")
-		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[0] + ":" + sshdPort
+		vcAddress, _, err = readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("vcAddress - %s ", vcAddress)
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1296,8 +1304,8 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring down SPS service")
-		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[0] + ":" + sshdPort
+		vcAddress, _, err = readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("vcAddress - %s ", vcAddress)
 		err = invokeVCenterServiceControl(ctx, stopOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1409,7 +1417,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q", accessmode, nfs4FSType))
 		storageclass, pvclaims, err := createStorageClassWithMultiplePVCs(client, namespace, labelsMap,
 			scParameters, diskSize, allowedTopologiesForSC, bindingModeImm, false, accessmode,
-			"nginx-sc", nil, createPvcItr, false, false)
+			"", nil, createPvcItr, false, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))

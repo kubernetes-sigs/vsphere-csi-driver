@@ -46,6 +46,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		storagePolicyName          string
 		volHealthCheck             bool
 		isVsanHealthServiceStopped bool
+		vcAddress                  string
+		err                        error
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -61,6 +63,13 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		bootstrap()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -74,7 +83,6 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		defer cancel()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 		if isVsanHealthServiceStopped {
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}

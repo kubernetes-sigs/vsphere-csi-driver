@@ -161,7 +161,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 		// Creating StorageClass when no topology details are specified using WFC Binding mode
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, nil, "",
+		scSpec := getVSphereStorageClassSpec("", nil, nil, "",
 			bindingMode, false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -177,6 +177,9 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 		// Creating StatefulSet with replica count 3 using default pod management policy
 		statefulset := GetStatefulSetFromManifest(namespace)
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Spec.StorageClassName = &sc.Name
+
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
@@ -237,7 +240,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 		// Creating StorageClass when no topology details are specified using WFC Binding mode
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, nil, "",
+		scSpec := getVSphereStorageClassSpec("", nil, nil, "",
 			bindingMode, false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -333,7 +336,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 		// Create StorageClass with allowed Topologies
 		ginkgo.By("Creating StorageClass for Statefulset")
-		scSpec := getVSphereStorageClassSpec(defaultNginxStorageClassName, nil, allowedTopologyForSC,
+		scSpec := getVSphereStorageClassSpec("", nil, allowedTopologyForSC,
 			"", bindingMode, false)
 		sc, err := client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -433,7 +436,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		scParameters["storagepolicyname"] = storagePolicyName
 		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC, "",
-			"", false, "nginx-sc")
+			"", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
@@ -449,6 +452,8 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 		// Creating StatefulSet with replica count 3 using default pod management policy
 		statefulset := GetStatefulSetFromManifest(namespace)
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Spec.StorageClassName = &storageclass.Name
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
@@ -537,7 +542,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 		scParameters := make(map[string]string)
 		scParameters["datastoreurl"] = sharedDataStoreUrlBetweenClusters
 		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC,
-			"", "", false, "nginx-sc")
+			"", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
@@ -719,7 +724,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 		// Create SC with WFC BindingMode with allowed topology details.
 		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
-			bindingMode, false, "nginx-sc")
+			bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
@@ -735,6 +740,8 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 		// Creating StatefulSet with replica count 3 using default pod management policy
 		statefulset := GetStatefulSetFromManifest(namespace)
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Spec.StorageClassName = &storageclass.Name
 		ginkgo.By("Creating statefulset")
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)

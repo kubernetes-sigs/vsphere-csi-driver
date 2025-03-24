@@ -42,6 +42,8 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 		isVsanHealthServiceStopped bool
 		volumeHealthAnnotation     string = "volumehealth.storage.kubernetes.io/health"
 		nonVsanStoragePolicyName   string
+		vcAddress                  string
+		err                        error
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -58,6 +60,13 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 		bootstrap()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		// reading vc address with port num
+		if vcAddress == "" {
+			vcAddress, _, err = readVcAddress()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -71,7 +80,6 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 		defer cancel()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 		if isVsanHealthServiceStopped {
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
@@ -292,7 +300,6 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 			CapacityInMb == newSizeInMb).To(gomega.BeTrue(), "Volume Capaticy is not matching")
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", vsanhealthServiceName))
 
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

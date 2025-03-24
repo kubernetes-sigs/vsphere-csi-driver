@@ -57,6 +57,8 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		accessMode                    v1.PersistentVolumeAccessMode
 		sshClientConfig               *ssh.ClientConfig
 		nimbusGeneratedK8sVmPwd       string
+		sshdPortNum                   string
+		masterIp                      string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -74,6 +76,11 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		scParameters = make(map[string]string)
 		accessMode = v1.ReadWriteOnce
 		// fetching required parameters
+
+		// reading K8sMasterIP and port number
+		if sshdPortNum == "" || masterIp == "" {
+			masterIp, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
+		}
 
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
@@ -382,8 +389,6 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		ginkgo.By("Check if csi pods are in crashing state after recreation of secret with proper message")
 		csipods, err := client.CoreV1().Pods(csiNamespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		k8sMasterIPs := getK8sMasterIPs(ctx, client)
-		k8sMasterIP := k8sMasterIPs[0]
 		var csiPodName string
 		for _, csiPod := range csipods.Items {
 			if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) {
@@ -396,13 +401,13 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			csiSystemNamespace + " --allContainers" + " | grep " + "'" + errMessage
 
 		framework.Logf("Invoking command '%v' on host %v", grepCmdForErrMsg,
-			k8sMasterIP)
-		result, err := sshExec(sshClientConfig, k8sMasterIP,
-			grepCmdForErrMsg)
+			masterIp)
+		result, err := sshExec(sshClientConfig, masterIp,
+			grepCmdForErrMsg, sshdPortNum)
 		if err != nil || result.Code != 0 {
 			fssh.LogResult(result)
 			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("couldn't execute command: %s on host: %v , error: %s",
-				grepCmdForErrMsg, k8sMasterIP, err))
+				grepCmdForErrMsg, masterIp, err))
 		}
 		if result.Stdout != "" {
 			framework.Logf("CSI pods are in crashing state with proper error message")
@@ -901,7 +906,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			framework.Logf("Invoking command '%v' on host %v", cmd,
 				k8sMasterIP)
 			result, err := sshExec(sshClientConfig, k8sMasterIP,
-				cmd)
+				cmd, sshdPortNum)
 			fssh.LogResult(result)
 			if err == nil {
 				framework.Logf("File exists on %s", k8sMasterIP)
@@ -919,7 +924,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		framework.Logf("Invoking command '%v' on host %v", cmd,
 			masterIP)
 		result, err := sshExec(sshClientConfig, masterIP,
-			cmd)
+			cmd, sshdPortNum)
 		if err != nil || result.Code != 0 {
 			fssh.LogResult(result)
 			gomega.Expect(err).To(gomega.HaveOccurred(), fmt.Sprintf("couldn't execute command: %s on host: %v , error: %s",

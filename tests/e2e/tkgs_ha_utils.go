@@ -147,7 +147,8 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 	}
 
 	ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
-	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+	vcAddress, _, err := readVcAddress()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	isServiceStopped = true
@@ -244,8 +245,9 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 }
 
 // verifyOnlineVolumeExpansionOnGc is a util method which helps in verifying online volume expansion on gc
-func verifyOnlineVolumeExpansionOnGc(client clientset.Interface, namespace string, svcPVCName string,
-	volHandle string, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod, f *framework.Framework) {
+func verifyOnlineVolumeExpansionOnGc(ctx context.Context, client clientset.Interface, namespace string,
+	svcPVCName string, volHandle string, pvclaim *v1.PersistentVolumeClaim,
+	pod *v1.Pod, f *framework.Framework) {
 	var testdataFile string
 	var op []byte
 	var err error
@@ -277,7 +279,7 @@ func verifyOnlineVolumeExpansionOnGc(client clientset.Interface, namespace strin
 			fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name))
 	}
 
-	onlineVolumeResizeCheck(f, client, namespace, svcPVCName, volHandle, pvclaim, pod)
+	onlineVolumeResizeCheck(f, ctx, client, namespace, svcPVCName, volHandle, pvclaim, pod)
 
 	ginkgo.By("Checking data consistency after PVC resize")
 	if windowsEnv {
@@ -329,8 +331,13 @@ func verifyOnlineVolumeExpansionOnGc(client clientset.Interface, namespace strin
 func verifyOfflineVolumeExpansionOnGc(ctx context.Context, client clientset.Interface,
 	pvclaim *v1.PersistentVolumeClaim, svcPVCName string, namespace string, volHandle string,
 	pod *v1.Pod, pv *v1.PersistentVolume, f *framework.Framework) {
+
+	var sshdPortNum string
+	// reading K8sMasterIP port number
+	_, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
+
 	ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
-	originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
+	originalFsSize, err := getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Delete POD.
@@ -424,7 +431,7 @@ func verifyOfflineVolumeExpansionOnGc(ctx context.Context, client clientset.Inte
 	expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
 
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
-	fsSize, err := getFileSystemSizeForOsType(f, client, pod)
+	fsSize, err := getFileSystemSizeForOsType(f, client, pod, sshdPortNum)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	// Filesystem size may be smaller than the size of the block volume.
 	// Here since filesystem was already formatted on the original volume,
@@ -600,15 +607,17 @@ func verifyVolumeMetadataOnDeployments(ctx context.Context,
 
 // execStopContainerOnGc logs into gc master node using ssh private key and stops csi container
 // running on that node
-func execStopContainerOnGc(sshClientConfig *ssh.ClientConfig, svcMasterIP string, containerName string,
-	gcMasterIP string, svcNamespace string) error {
+func execStopContainerOnGc(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig, svcMasterIP string, containerName string,
+	gcMasterIP string, svcNamespace string, sshdPortNum string) error {
 	sshSecretName := GetAndExpectStringEnvVar(sshSecretName)
+
 	cmdToGetPrivateKey := fmt.Sprintf("kubectl get secret %s -n %s -o"+
 		"jsonpath={'.data.ssh-privatekey'} | base64 -d > key", sshSecretName, svcNamespace)
 	framework.Logf("Invoking command '%v' on host %v", cmdToGetPrivateKey,
 		svcMasterIP)
 	cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
-		cmdToGetPrivateKey)
+		cmdToGetPrivateKey, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -619,7 +628,7 @@ func execStopContainerOnGc(sshClientConfig *ssh.ClientConfig, svcMasterIP string
 	framework.Logf("Invoking command '%v' on host %v", enablePermissionCmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		enablePermissionCmd)
+		enablePermissionCmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -631,7 +640,7 @@ func execStopContainerOnGc(sshClientConfig *ssh.ClientConfig, svcMasterIP string
 	framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerInfo,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmdToGetContainerInfo)
+		cmdToGetContainerInfo, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -642,7 +651,7 @@ func execStopContainerOnGc(sshClientConfig *ssh.ClientConfig, svcMasterIP string
 	framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerInfo,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		cmdToGetContainerId)
+		cmdToGetContainerId, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -655,7 +664,7 @@ func execStopContainerOnGc(sshClientConfig *ssh.ClientConfig, svcMasterIP string
 	framework.Logf("Invoking command '%v' on host %v", containerStopCmd,
 		svcMasterIP)
 	cmdResult, err = sshExec(sshClientConfig, svcMasterIP,
-		containerStopCmd)
+		containerStopCmd, sshdPortNum)
 	if err != nil || cmdResult.Code != 0 {
 		fssh.LogResult(cmdResult)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -667,7 +676,7 @@ func execStopContainerOnGc(sshClientConfig *ssh.ClientConfig, svcMasterIP string
 	framework.Logf("Invoking command '%v' on host %v", cmd,
 		svcMasterIP)
 	result, err := sshExec(sshClientConfig, svcMasterIP,
-		cmd)
+		cmd, sshdPortNum)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -708,7 +717,8 @@ func getClusterNameFromZone(ctx context.Context, availabilityZone string) string
 	cmd := fmt.Sprintf("dcli +username %s +password %s +skip +show com vmware "+
 		"vcenter consumptiondomains zones cluster associations get --zone "+
 		"%s", adminUser, nimbusGeneratedVcPwd, availabilityZone)
-	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+	vcAddress, _, err := readVcAddress()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Invoking command %v on vCenter host %v", cmd, vcAddress)
 	result, err := fssh.SSH(ctx, cmd, vcAddress, framework.TestContext.Provider)
 	framework.Logf("result: %v", result)
@@ -740,8 +750,13 @@ func getClusterNameFromZone(ctx context.Context, availabilityZone string) string
 
 // waitForPodsToBeInTerminatingPhase waits for pods to come to terminating state
 // in guest cluster by running kubectl commands
-func waitForPodsToBeInTerminatingPhase(sshClientConfig *ssh.ClientConfig, svcMasterIP string,
+func waitForPodsToBeInTerminatingPhase(ctx context.Context,
+	client clientset.Interface, sshClientConfig *ssh.ClientConfig, svcMasterIP string,
 	podName string, namespace string, timeout time.Duration) error {
+	var sshdPortNum string
+	// reading K8sMasterIP port number
+	_, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
+
 	kubeConfigPath := GetAndExpectStringEnvVar(gcKubeConfigPath)
 	waitErr := wait.PollUntilContextTimeout(context.Background(), poll, timeout, true,
 		func(ctx context.Context) (bool, error) {
@@ -750,7 +765,7 @@ func waitForPodsToBeInTerminatingPhase(sshClientConfig *ssh.ClientConfig, svcMas
 			framework.Logf("Invoking command '%v' on host %v", cmd,
 				svcMasterIP)
 			cmdResult, err := sshExec(sshClientConfig, svcMasterIP,
-				cmd)
+				cmd, sshdPortNum)
 			if err != nil || cmdResult.Code != 0 {
 				fssh.LogResult(cmdResult)
 				return false, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
@@ -801,9 +816,13 @@ func getApiServerIpOfZone(ctx context.Context, zone string) string {
 }
 
 // waitForApiServerToBeUp waits for supervisor apiserver ip to be up by running kubectl commands
-func waitForApiServerToBeUp(svcMasterIp string, sshClientConfig *ssh.ClientConfig,
+func waitForApiServerToBeUp(ctx context.Context,
+	client clientset.Interface, svcMasterIp string, sshClientConfig *ssh.ClientConfig,
 	timeout time.Duration) error {
 	kubeConfigPath := GetAndExpectStringEnvVar(gcKubeConfigPath)
+	var sshdPortNum string
+	// reading K8sMasterIP port number
+	_, sshdPortNum, _, _ = GetMasterIpPortMap(ctx, client)
 	waitErr := wait.PollUntilContextTimeout(context.Background(), poll, timeout, true,
 		func(ctx context.Context) (bool, error) {
 			cmd := fmt.Sprintf("kubectl get ns,sc --kubeconfig %s",
@@ -811,7 +830,7 @@ func waitForApiServerToBeUp(svcMasterIp string, sshClientConfig *ssh.ClientConfi
 			framework.Logf("Invoking command '%v' on host %v", cmd,
 				svcMasterIp)
 			cmdResult, err := sshExec(sshClientConfig, svcMasterIp,
-				cmd)
+				cmd, sshdPortNum)
 			framework.Logf("result %v", cmdResult)
 			if err != nil {
 				return false, nil
