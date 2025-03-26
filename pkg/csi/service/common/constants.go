@@ -346,7 +346,11 @@ const (
 	KubeSystemNamespace = "kube-system"
 
 	// WCPCapabilityConfigMapName is the name of the configmap where WCP component's FSS values are stored.
+	// TODO: remove
 	WCPCapabilityConfigMapName = "wcp-cluster-capabilities"
+
+	// WCPCapabilitiesCRName is the name of the CR where WCP component's capabilities are stored
+	WCPCapabilitiesCRName = "supervisor-capabilities"
 )
 
 // Supported container orchestrators.

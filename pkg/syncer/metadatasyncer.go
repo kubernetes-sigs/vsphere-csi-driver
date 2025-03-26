@@ -50,11 +50,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/go-logr/zapr"
+	clientconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	cr_log "sigs.k8s.io/controller-runtime/pkg/log"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	sqperiodicsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagequotaperiodicsync/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
+	wcpcapapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -278,6 +280,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			common.WorkloadDomainIsolation)
 		// If the capability for WorkloadDomainIsolation feature is enabled mid-flight,
 		// this code will update the CNS-CSI FSS in vmware-system-csi namespace to true.
+		// TODO: This may not be needed if guest cluster can directly fetch FSS value from the capability CR in supervisor.
 		if IsWorkloadDomainIsolationSupported {
 			log.Infof("Supervisor Capability: %q is enabled", common.WorkloadDomainIsolation)
 			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
@@ -302,7 +305,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			return err
 		}
 
-		parseBool := func(CfgMap *v1.ConfigMap, featureName string, namespace string) bool {
+		/*parseBool := func(CfgMap *v1.ConfigMap, featureName string, namespace string) bool {
 			var fssVal bool
 			if state, ok := CfgMap.Data[featureName]; ok {
 				fssVal, err = strconv.ParseBool(state)
@@ -314,11 +317,14 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				}
 			}
 			return fssVal
-		}
+		}*/
 		if !IsWorkloadDomainIsolationSupported {
+			// TODO: Do we need to update it to add informer on CR instead?
+			// Do we really need it since we have ticker which checks after every 2 min if there is any change in the capapbility values?
+
 			// If the WCP capability for WorkloadDomainIsolation feature is disabled,
 			// start an informer to know when the capability is enabled and restart the container.
-			err = k8s.NewConfigMapListener(
+			/*err = k8s.NewConfigMapListener(
 				ctx,
 				k8sClient,
 				common.KubeSystemNamespace,
@@ -357,33 +363,42 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to listen on configmaps in namespace %q. Error: %v",
 					common.KubeSystemNamespace, err)
-			}
+			}*/
 
+			// TODO: update comment
 			// In case the informer above missed the update event where WCP capability for
 			// WorkloadDomainIsolation feature is turned on, we will check the WCP capability configmap
 			// every 2mins to check if there is a change and restart the container if it is enabled.
 			go func() {
 				ticker := time.NewTicker(time.Duration(2) * time.Minute)
 				defer ticker.Stop()
+				restConfig, err := clientconfig.GetConfig()
+				if err != nil {
+					log.Errorf("failed to get Kubernetes config. Err: %+v", err)
+					os.Exit(1)
+				}
+				cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, wcpcapapis.GroupName)
+				if err != nil {
+					log.Errorf("failed to create CnsOperator client. Err: %+v", err)
+					os.Exit(1)
+				}
 
 				for range ticker.C {
-					wcpCapMap, err := k8sClient.CoreV1().ConfigMaps(common.KubeSystemNamespace).Get(ctx,
-						common.WCPCapabilityConfigMapName, metav1.GetOptions{})
+					wcpCapabilitiesMap, err := k8sorchestrator.GetWcpCapabilitiesMap(ctx, cnsOperatorClient)
 					if err != nil {
-						log.Errorf("failed to fetch configmap %s in namespace %s. Error: %+v",
-							common.WCPCapabilityConfigMapName, common.KubeSystemNamespace)
+						log.Errorf("failed to get WCP capabilities map, Err: %+v", err)
 						os.Exit(1)
 					}
-					fssVal := parseBool(wcpCapMap, common.WorkloadDomainIsolation,
-						common.KubeSystemNamespace)
-					if fssVal {
-						log.Infof("%s capability is enabled in %s configmap in %s namespace. "+
-							"Restarting the container as capabilities have changed.",
-							common.WorkloadDomainIsolation, common.WCPCapabilityConfigMapName,
-							common.KubeSystemNamespace)
-						os.Exit(1)
-					}
+					// TODO: debug?
+					log.Infof("WCP cluster capabilities map - %+v", wcpCapabilitiesMap)
 
+					fssVal := wcpCapabilitiesMap[common.WorkloadDomainIsolation]
+					if fssVal {
+						log.Infof("%s capability is enabled in capabilities CR %s. "+
+							"Restarting the container as capability has changed.",
+							common.WorkloadDomainIsolation, common.WCPCapabilitiesCRName)
+						os.Exit(1)
+					}
 				}
 			}()
 		}
@@ -400,6 +415,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Check the replicated FSS Configmap every 2 minutes
 		// When workload-domain-isolation FSS is enabled in csi-feature-states config-map, restart the container
+		// TODO: Do we need any change here? Should we keep this same as supervisor change if guest can read capability CR?
 		if commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) &&
 			!commonco.ContainerOrchestratorUtility.IsCNSCSIFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
 			go func() {

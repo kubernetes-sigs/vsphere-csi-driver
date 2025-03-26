@@ -37,12 +37,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	clientconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	wcpcapapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities"
+	wcpcapv1alph1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities/v1alpha1"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -71,7 +75,12 @@ var (
 	svFssCRMutex             = &sync.RWMutex{}
 	k8sOrchestratorInitMutex = &sync.RWMutex{}
 	// wcpCapabilityFssMap is the cache variable which stores the data of wcp-cluster-capabilities configmap.
-	wcpCapabilityFssMap map[string]string
+	// TODO: remove
+	// wcpCapabilityFssMap map[string]string
+
+	// wcpCapabilitiesMap is the cached map which stores supervisor capabilities name to value map after fetching
+	// the data from supervisor-capabilities CR.
+	wcpCapabilitiesMap map[string]bool
 )
 
 // FSSConfigMapInfo contains details about the FSS configmap(s) present in
@@ -597,6 +606,7 @@ func initFSS(ctx context.Context, k8sClient clientset.Interface,
 		},
 		// Update.
 		func(oldObj interface{}, newObj interface{}) {
+			// TODO: Need to check if we can avoid this using capapbility CR
 			if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest &&
 				operationMode != "WEBHOOK_SERVER" &&
 				serviceMode != "node" &&
@@ -1094,6 +1104,30 @@ func (c *K8sOrchestrator) GetAllK8sVolumes() []string {
 	return volumeIDs
 }
 
+// GetWcpCapabilitiesMap reads the capabilities values from 'supervisor-capabilities' CR in
+// supervsior cluster and returns capabilities name to value map.
+func GetWcpCapabilitiesMap(ctx context.Context, cnsOperatorClient client.Client) (map[string]bool, error) {
+	log := logger.GetLogger(ctx)
+	wcpCapabilitiesNameValueMap := make(map[string]bool)
+	// Check the 'supervisor-capabilities' CR in supervisor
+	wcpCapabilities := &wcpcapv1alph1.Capabilities{}
+	err := cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
+		Name: common.WCPCapabilitiesCRName},
+		wcpCapabilities)
+	if err != nil {
+		log.Errorf("failed to fetch Capabilities CR instance "+
+			" with name %q Error: %+v", common.WCPCapabilitiesCRName, err)
+		return nil, err
+	}
+	// TODO: update to debug log level
+	log.Infof("successfully fetched capabilities CR instance - %+v", wcpCapabilities)
+	for capName, capStatus := range wcpCapabilities.Status.Supervisor {
+		wcpCapabilitiesNameValueMap[string(capName)] = capStatus.Activated
+	}
+
+	return wcpCapabilitiesNameValueMap, nil
+}
+
 // IsFSSEnabled utilises the cluster flavor to check their corresponding FSS
 // maps and returns if the feature state switch is enabled for the given feature
 // indicated by featureName.
@@ -1131,57 +1165,61 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		// Check if it is WCP defined feature state.
 		if _, exists := common.WCPFeatureStates[featureName]; exists {
-			log.Infof("Feature %q is a WCP defined feature state. Reading the %q configmap in %q namespace.",
-				featureName, common.WCPCapabilityConfigMapName, common.KubeSystemNamespace)
-			// Check the `wcp-cluster-capabilities` configmap in supervisor for the FSS value.
-			if wcpCapabilityFssMap == nil {
-				wcpCapabilityConfigMap, err := c.k8sClient.CoreV1().ConfigMaps(common.KubeSystemNamespace).Get(ctx,
-					common.WCPCapabilityConfigMapName, metav1.GetOptions{})
+			log.Infof("Feature %q is a WCP defined feature state. Reading the capabilities CR %q.",
+				featureName, common.WCPCapabilitiesCRName)
+
+			if wcpCapabilitiesMap == nil {
+				restConfig, err := clientconfig.GetConfig()
 				if err != nil {
-					log.Errorf("failed to fetch WCP FSS configmap %q/%q. Setting the feature state "+
-						"to false. Error: %+v", common.KubeSystemNamespace, common.WCPCapabilityConfigMapName, err)
+					log.Errorf("failed to get Kubernetes config. Err: %+v", err)
 					return false
 				}
-				wcpCapabilityFssMap = wcpCapabilityConfigMap.Data
-				log.Infof("WCP cluster capabilities map - %+v", wcpCapabilityFssMap)
+				cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, wcpcapapis.GroupName)
+				if err != nil {
+					log.Errorf("failed to create CnsOperator client. Err: %+v", err)
+					return false
+				}
+				wcpCapabilitiesMap, err = GetWcpCapabilitiesMap(ctx, cnsOperatorClient)
+				if err != nil {
+					log.Errorf("failed to get WCP capabilities map, Err: %+v", err)
+					return false
+				}
+				// TODO: debug?
+				log.Infof("WCP cluster capabilities map - %+v", wcpCapabilitiesMap)
 			}
-			if fssVal, exists := wcpCapabilityFssMap[featureName]; exists {
-				supervisorFeatureState, err = strconv.ParseBool(fssVal)
-				if err != nil {
-					log.Errorf("Error while converting %q feature state with value: %q in "+
-						"%q/%q configmap to boolean. Setting the feature state to false. Error: %+v", featureName,
-						fssVal, common.KubeSystemNamespace, common.WCPCapabilityConfigMapName, err)
-					return false
-				}
-				log.Debugf("Supervisor feature state %q in WCP cluster capabilities is set to %t", featureName,
+			if supervisorFeatureState, exists := wcpCapabilitiesMap[featureName]; exists {
+				// TODO: update to debug log level
+				log.Infof("Supervisor feature state %q in WCP cluster capabilities is set to %t", featureName,
 					supervisorFeatureState)
 
 				if !supervisorFeatureState {
-					// if capability can be enabled after upgrading CSI, we need to fetch config again and confirm FSS
-					// is still disabled, or it got enabled
+					// if capability can be enabled after upgrading CSI, we need to fetch capabilities CR again and
+					// confirm FSS is still disabled, or it got enabled.
 					// WCPFeatureStatesSupportsLateEnablement contains capabilities which can be enabled later after
-					// CSI is upgraded and up and running
+					// CSI is upgraded and up and running.
 					if _, exists = common.WCPFeatureStatesSupportsLateEnablement[featureName]; exists {
-						wcpCapabilityConfigMap, err := c.k8sClient.CoreV1().ConfigMaps(common.KubeSystemNamespace).Get(ctx,
-							common.WCPCapabilityConfigMapName, metav1.GetOptions{})
+						restConfig, err := clientconfig.GetConfig()
 						if err != nil {
-							log.Errorf("failed to fetch WCP FSS configmap %q/%q. Setting the feature state "+
-								"to false. Error: %+v", common.KubeSystemNamespace, common.WCPCapabilityConfigMapName, err)
+							log.Errorf("failed to get Kubernetes config. Err: %+v", err)
 							return false
 						}
-						wcpCapabilityFssMap = wcpCapabilityConfigMap.Data
-						log.Infof("WCP cluster capabilities map - %+v", wcpCapabilityFssMap)
+						cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, wcpcapapis.GroupName)
+						if err != nil {
+							log.Errorf("failed to create CnsOperator client. Err: %+v", err)
+							return false
+						}
+						wcpCapabilitiesMap, err = GetWcpCapabilitiesMap(ctx, cnsOperatorClient)
+						if err != nil {
+							log.Errorf("failed to get WCP capabilities map, Err: %+v", err)
+							return false
+						}
+						// TODO: debug?
+						log.Infof("WCP cluster capabilities map - %+v", wcpCapabilitiesMap)
 
-						if fssVal, exists := wcpCapabilityFssMap[featureName]; exists {
-							supervisorFeatureState, err = strconv.ParseBool(fssVal)
-							if err != nil {
-								log.Errorf("Error while converting %q feature state with value: %q in "+
-									"%q/%q configmap to boolean. Setting the feature state to false. Error: %+v", featureName,
-									fssVal, common.KubeSystemNamespace, common.WCPCapabilityConfigMapName, err)
-								return false
-							}
-							log.Debugf("Supervisor feature state %q in WCP cluster capabilities is set to %t", featureName,
-								supervisorFeatureState)
+						if supervisorFeatureState, exists = wcpCapabilitiesMap[featureName]; exists {
+							// TODO: update to debug log level??
+							log.Infof("Supervisor feature state %q in WCP cluster capabilities was not enabled, "+
+								"now it is set to %t", featureName, supervisorFeatureState)
 						}
 					}
 				}
@@ -1207,6 +1245,28 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 			"Setting the feature state to false", featureName, c.supervisorFSS.configMapName)
 		return false
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		// TODO: Check if we can read capabilities CR from supervisor cluster
+		cfg, err := cnsconfig.GetConfig(ctx)
+		if err != nil {
+			log.Errorf("failed to read config. Error: %+v", err)
+			return false
+		}
+		// Get rest client config for supervisor.
+		restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, cfg.GC.Port)
+		// TODO: update NewClientForGroup to add group
+		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, wcpcapapis.GroupName)
+		if err != nil {
+			log.Errorf("failed to create CnsOperator client. Err: %+v", err)
+			return false
+		}
+		wcpCapabilitiesMap, err = GetWcpCapabilitiesMap(ctx, cnsOperatorClient)
+		if err != nil {
+			log.Errorf("failed to get WCP capabilities map, Err: %+v", err)
+			return false
+		}
+		// TODO: debug?
+		log.Infof("WCP cluster capabilities map - %+v", wcpCapabilitiesMap)
+
 		isPVCSIFSSEnabled := c.IsPVCSIFSSEnabled(ctx, featureName)
 		if isPVCSIFSSEnabled {
 			// Skip SV FSS check for Windows Support since there is no dependency on supervisor
