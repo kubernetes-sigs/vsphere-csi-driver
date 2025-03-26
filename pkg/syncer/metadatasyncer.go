@@ -1378,7 +1378,7 @@ func calculateVolumeSnapshotReservedForNamespace(ctx context.Context,
 				vs.Name, vs.Namespace)
 			continue
 		}
-		if vs.Status != nil && *vs.Status.ReadyToUse {
+		if vs.Status != nil && vs.Status.ReadyToUse != nil && *vs.Status.ReadyToUse {
 			log.Debugf("calculateVolumeSnapshotReservedForNamespace: skipping volumesnapshot"+
 				" as it is ready to use, ignoring Name: %q, Namespace: %q", vs.Name, vs.Namespace)
 			continue
