@@ -34,6 +34,7 @@ import (
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/config"
+	wcpcapapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -285,6 +286,10 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	}
 	if err = internalapis.AddToScheme(mgr.GetScheme()); err != nil {
 		log.Errorf("failed to add internalapis to scheme with error: %+v", err)
+		return err
+	}
+	if err := wcpcapapis.AddToScheme(mgr.GetScheme()); err != nil {
+		log.Errorf("failed to set the scheme for Cns operator. Err: %+v", err)
 		return err
 	}
 
