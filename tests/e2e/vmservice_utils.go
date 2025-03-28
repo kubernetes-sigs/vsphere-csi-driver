@@ -1108,6 +1108,7 @@ func deleteVMServiceVmInParallel(ctx context.Context, c ctlrclient.Client,
 
 	defer wg.Done()
 	for _, vm := range vms {
+		framework.Logf("Deleting VM: %s", vm.Name)
 		err := c.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
 			Name:      vm.Name,
 			Namespace: namespace,
