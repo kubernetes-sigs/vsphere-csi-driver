@@ -100,7 +100,6 @@ func newClient(ctx context.Context, vs *vSphere) *govmomi.Client {
 	err = client.UseServiceVersion(vsanNamespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	client.RoundTripper = vim25.Retry(client.RoundTripper, vim25.TemporaryNetworkError(roundTripperDefaultCount))
-	client.Version = cnsDevVersion
 	return client
 }
 
@@ -118,8 +117,6 @@ func connectCns(ctx context.Context, vs *vSphere) error {
 	if vs.CnsClient == nil {
 		vs.CnsClient, err = newCnsClient(ctx, vs.Client.Client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		vs.CnsClient.Version = cnsDevVersion
-		vs.CnsClient.Client.Version = cnsDevVersion
 	}
 	return nil
 }
