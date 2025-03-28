@@ -98,7 +98,7 @@ func getClientFromVCSimAndAttachTags(t *testing.T) {
 		}
 
 		// Add region tag to the datacenter
-		dcMoRef := simulator.Map.Any("Datacenter").(*simulator.Datacenter).Reference()
+		dcMoRef := model.Map().Any("Datacenter").(*simulator.Datacenter).Reference()
 		err = AttachTag(ctx, regionTagId, dcMoRef, tagManager)
 		if err != nil {
 			t.Fatalf("Error adding region tag to datacenter, err: %v", err)
@@ -117,7 +117,7 @@ func getClientFromVCSimAndAttachTags(t *testing.T) {
 		}
 
 		// Add zone tag to the cluster
-		clusterMoRef := simulator.Map.Any("ClusterComputeResource").(*simulator.ClusterComputeResource).Reference()
+		clusterMoRef := model.Map().Any("ClusterComputeResource").(*simulator.ClusterComputeResource).Reference()
 		err = AttachTag(ctx, zoneTagId, clusterMoRef, tagManager)
 		if err != nil {
 			t.Fatalf("Error adding region tag to datacenter, err: %v", err)
@@ -128,7 +128,7 @@ func getClientFromVCSimAndAttachTags(t *testing.T) {
 		dc := &Datacenter{
 			Datacenter: dcobj,
 		}
-		obj := simulator.Map.Any("VirtualMachine").(*simulator.VirtualMachine)
+		obj := model.Map().Any("VirtualMachine").(*simulator.VirtualMachine)
 		vm = &VirtualMachine{
 			Datacenter:     dc,
 			VirtualMachine: object.NewVirtualMachine(client.Client, obj.Reference()),

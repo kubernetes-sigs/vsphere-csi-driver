@@ -29,13 +29,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/pbm"
 	"github.com/vmware/govmomi/pbm/types"
+	"github.com/vmware/govmomi/vim25"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/vmware/govmomi/simulator"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
@@ -75,6 +76,7 @@ type controllerTest struct {
 type FakeNodeManager struct {
 	cnsNodeManager node.Manager
 	k8sClient      clientset.Interface
+	vimClient      *vim25.Client
 }
 
 type FakeAuthManager struct {
@@ -86,12 +88,14 @@ func (f *FakeNodeManager) Initialize(ctx context.Context) error {
 	f.cnsNodeManager.SetKubernetesClient(f.k8sClient)
 	var t *testing.T
 
-	objVMs := simulator.Map.All("VirtualMachine")
+	objVMs, err := find.NewFinder(f.vimClient).VirtualMachineList(ctx, "*")
+	if err != nil {
+		return err
+	}
 	var i int
 	for _, vm := range objVMs {
 		i++
-		obj := vm.(*simulator.VirtualMachine)
-		nodeUUID := obj.Config.Uuid
+		nodeUUID := vm.UUID(ctx)
 		nodeName := "k8s-node-" + strconv.Itoa(i)
 		err := f.cnsNodeManager.RegisterNode(ctx, nodeUUID, nodeName)
 		if err != nil {
@@ -241,7 +245,9 @@ func getControllerTest(t *testing.T) *controllerTest {
 		}
 
 		nodeManager := &FakeNodeManager{
-			k8sClient: k8sClient}
+			k8sClient: k8sClient,
+			vimClient: vcenter.Client.Client,
+		}
 		err = nodeManager.Initialize(ctx)
 		if err != nil {
 			t.Fatalf("Failed to initialize node manager, err = %v", err)
@@ -903,7 +909,11 @@ func TestCompleteControllerFlow(t *testing.T) {
 	if v := os.Getenv("VSPHERE_K8S_NODE"); v != "" {
 		NodeID = v
 	} else {
-		NodeID = simulator.Map.Any("VirtualMachine").(*simulator.VirtualMachine).Config.Uuid
+		vms, err := find.NewFinder(ct.vcenter.Client.Client).VirtualMachineList(ctx, "*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		NodeID = vms[0].UUID(ctx)
 	}
 
 	// Attach.
