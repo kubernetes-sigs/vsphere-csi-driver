@@ -6,6 +6,13 @@ spec:
   attachRequired: true
   podInfoOnMount: false
 ---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vmware-system-csi
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+---
 kind: ServiceAccount
 apiVersion: v1
 metadata:
@@ -56,6 +63,10 @@ rules:
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
     verbs: ["get", "create", "update"]
+  - apiGroups: ["policy"]
+    resources: ["podsecuritypolicies"]
+    verbs: ["use"]
+    resourceNames: ["vmware-system-privileged"]
   - apiGroups: ["storage.k8s.io"]
     resources: ["volumeattachments/status"]
     verbs: ["patch"]
@@ -128,6 +139,10 @@ metadata:
   name: vsphere-csi-node-role
   namespace: vmware-system-csi
 rules:
+  - apiGroups: ["policy"]
+    resources: ["podsecuritypolicies"]
+    verbs: ["use"]
+    resourceNames: ["vmware-system-privileged"]
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list", "watch"]
@@ -590,6 +605,8 @@ spec:
       priorityClassName: system-node-critical
       nodeSelector:
         kubernetes.io/os: windows
+      dnsPolicy: "ClusterFirstWithHostNet"
+      serviceAccountName: vsphere-csi-node
       securityContext:
         windowsOptions:
           hostProcess: true
