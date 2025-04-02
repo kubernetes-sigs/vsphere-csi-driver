@@ -107,7 +107,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
-				namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+				namespace, nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName

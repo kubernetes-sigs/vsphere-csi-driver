@@ -79,7 +79,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ctx                        context.Context
 		nonSharedDatastoreURL      string
 		fullSyncWaitTime           int
-		isStorageQuotaFSSEnabled   bool
+		isQuotaValidationSupported bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -144,9 +144,13 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		} else {
 			fullSyncWaitTime = defaultFullSyncWaitTime
 		}
-		//Remove this code once the FSS is enabled
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+
+		if supervisorCluster || stretchedSVC {
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
+			vcVersion = getVCversion(ctx, vcAddress)
+			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
+		}
 
 	})
 
@@ -219,7 +223,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		}
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			ginkgo.By("create resource quota")
 			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 		}
@@ -892,7 +896,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName)
@@ -922,7 +926,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pv := getPvFromClaim(client, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter =
 				validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName,
@@ -960,7 +964,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		defer func() {
 			testCleanUpUtil(ctx, restConfig, cnsRegisterVolume, namespace, pvc.Name, pv.Name)
 
-			if isStorageQuotaFSSEnabled {
+			if isQuotaValidationSupported {
 				validateQuotaUsageAfterCleanUp(ctx, restConfig, storageclass.Name, namespace, pvcUsage,
 					volExtensionName, diskSizeInMb, totalQuotaUsedAfter, storagePolicyQuotaAfter,
 					storagePolicyUsageAfter)
@@ -1001,7 +1005,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx)
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storagePolicyName, namespace, pvcUsage, volExtensionName)
@@ -1055,7 +1059,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		_, err = e2eVSphere.getVMByUUID(ctx, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter =
 				validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 					storagePolicyName, namespace, pvcUsage, volExtensionName,
@@ -1076,7 +1080,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 				vmUUID, pv.Spec.CSI.VolumeHandle))
 		defer func() {
 			testCleanUpUtil(ctx, restConfig, cnsRegisterVolume, namespace, pvc.Name, pv.Name)
-			if isStorageQuotaFSSEnabled {
+			if isQuotaValidationSupported {
 				validateQuotaUsageAfterCleanUp(ctx, restConfig, storagePolicyName, namespace, pvcUsage,
 					volExtensionName, diskSizeInMb, totalQuotaUsedAfter, storagePolicyQuotaAfter,
 					storagePolicyUsageAfter)
@@ -1537,19 +1541,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("non shared datastore , profileID : %s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
-		err = client.StorageV1().StorageClasses().Delete(ctx, nonsharedDatastoreName, metav1.DeleteOptions{})
-		if !apierrors.IsNotFound(err) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, nonsharedDatastoreName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("storageclass Name :%s", storageclass.GetName())
-
-		defer func() {
-			framework.Logf("Delete storage class")
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating Resource quota")
 		setStoragePolicyQuota(ctx, restConfig, nonsharedDatastoreName, namespace, rqLimit)

@@ -271,6 +271,7 @@ const (
 	storageQuotaWebhookPrefix                = "storage-quota-webhook"
 	envStoragePolicyNameForVsanNfsDatastores = "STORAGE_POLICY_FOR_VSAN_NFS_DATASTORES"
 	devopsKubeConf                           = "DEV_OPS_USER_KUBECONFIG"
+	quotaSupportedVCVersion                  = "9.0.0"
 )
 
 /*
@@ -468,9 +469,12 @@ var (
 
 // For management workload domain isolation
 var (
-	envZonal2StoragePolicyName = "ZONAL2_STORAGECLASS"
-	envWrkldDomain1ZoneName    = "WORKLOAD_1_ZONE_NAME"
-	topologyDomainIsolation    = "Workload_Management_Isolation"
+	envZonal2StoragePolicyName            = "ZONAL2_STORAGE_POLICY_IMM"
+	envZonal2StoragePolicyNameLateBidning = "ZONAL2_STORAGE_POLICY_WFFC"
+	envZonal1StoragePolicyName            = "ZONAL1_STORAGE_POLICY_IMM"
+	envZonal3StoragePolicyName            = "ZONAL3_STORAGE_POLICY_IMM"
+	topologyDomainIsolation               = "Workload_Management_Isolation"
+	envIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.

@@ -77,7 +77,7 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		// Create Storage class and PVC
 		ginkgo.By("Creating Storage Class and PVC")
 		_, pvc, err := createPVCAndStorageClass(ctx, client, namespace, nil,
-			scParameters, "", nil, "", false, "", storagePolicyName)
+			scParameters, "", nil, "", true, "", storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))

@@ -121,7 +121,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
-				namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
+				namespace, nil, scParameters, "", nil, "", true, "", storagePolicyName)
 		} else if stretchedSVC {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			zonalPolicy := GetAndExpectStringEnvVar(envZonalStoragePolicyName)

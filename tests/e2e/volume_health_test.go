@@ -150,7 +150,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
-				nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+				nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		} else if guestCluster {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
@@ -336,7 +336,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			// Create resource quota.
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
-				nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+				nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		} else if guestCluster {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
@@ -479,7 +479,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			// Create resource quota.
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
-				nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+				nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		} else if guestCluster {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
@@ -622,7 +622,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			// Create resource quota.
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
-				nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+				nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		} else if guestCluster {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
@@ -756,7 +756,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			// Create resource quota.
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
-				nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+				nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		} else if guestCluster {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
@@ -960,7 +960,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			// Create resource quota.
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
-				nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+				nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1042,7 +1042,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		// Create resource quota.
 		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
-			nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+			nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -1369,7 +1369,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			// Create resource quota.
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace,
-				nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+				nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		} else if guestCluster {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
@@ -2787,7 +2787,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			// Create resource quota.
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
-				nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+				nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		} else if guestCluster {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName

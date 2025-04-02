@@ -313,16 +313,11 @@ func refreshPreferentialDatastores(ctx context.Context) error {
 		return logger.LogNewErrorf(log, "failed to get vCenter instance. Error: %+v", err)
 	}
 	// Get tag manager instance.
-	tagMgr, err := cnsvsphere.GetTagManager(ctx, vc)
+	tagMgr, err := vc.GetTagManager(ctx)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create tag manager. Error: %+v", err)
 	}
-	defer func() {
-		err := tagMgr.Logout(ctx)
-		if err != nil {
-			log.Errorf("failed to logout tagManager. Error: %v", err)
-		}
-	}()
+
 	// Get tags for category reserved for preferred datastore tagging.
 	tagIds, err := tagMgr.ListTagsForCategory(ctx, common.PreferredDatastoresCategory)
 	if err != nil {

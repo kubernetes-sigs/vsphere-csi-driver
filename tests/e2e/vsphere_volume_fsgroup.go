@@ -115,7 +115,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
-				namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+				namespace, nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		} else if guestCluster {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName

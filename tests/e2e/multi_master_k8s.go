@@ -156,7 +156,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
-				scParameters, "", nil, "", false, "", storagePolicyName)
+				scParameters, "", nil, "", true, "", storagePolicyName)
 		}
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
