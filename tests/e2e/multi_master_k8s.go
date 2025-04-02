@@ -292,7 +292,9 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 			nodeNameOfvSphereCSIControllerPod, nodeNameIPMap[nodeNameOfvSphereCSIControllerPod]))
 
 		sshCmd := "systemctl stop kubelet.service"
-		host := nodeNameIPMap[nodeNameOfvSphereCSIControllerPod] + ":22"
+		sshdPortNum, err := getPortNum(nodeNameOfvSphereCSIControllerPod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		host := nodeNameIPMap[nodeNameOfvSphereCSIControllerPod] + ":" + sshdPortNum
 		ginkgo.By(fmt.Sprintf("Invoking command %+v on host %+v", sshCmd, host))
 		result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
 		ginkgo.By(fmt.Sprintf("%s returned result %s", sshCmd, result.Stdout))

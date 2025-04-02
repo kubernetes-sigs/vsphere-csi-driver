@@ -146,7 +146,9 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vcpPvcsPreMig = []*v1.PersistentVolumeClaim{}
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
 
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		// read vc address
+		vcAddress, _, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
@@ -1884,9 +1886,13 @@ func waitForCnsVSphereVolumeMigrationCrd(
 
 // createDir create a directory on the test esx host
 func createDir(ctx context.Context, path string, host string) error {
+	sshdPortNum, err := getPortNum(host)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	addr := host + ":" + sshdPortNum
 	sshCmd := fmt.Sprintf("mkdir -p %s", path)
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
-	result, err := fssh.SSH(ctx, sshCmd, host+":22", framework.TestContext.Provider)
+
+	result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: '%s' on ESX host: %v", sshCmd, err)
@@ -1910,10 +1916,14 @@ func createVmdk(ctx context.Context, host string, size string, objType string, d
 		size = "2g"
 	}
 
+	sshdPortNum, err := getPortNum(host)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	addr := host + ":" + sshdPortNum
+
 	vmdkPath := fmt.Sprintf("%s/test-%v-%v.vmdk", dir, time.Now().UnixNano(), rand.Intn(1000))
 	sshCmd := fmt.Sprintf("vmkfstools -c %s -d %s -W %s %s", size, diskFormat, objType, vmdkPath)
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
-	result, err := fssh.SSH(ctx, sshCmd, host+":22", framework.TestContext.Provider)
+	result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return vmdkPath, fmt.Errorf("couldn't execute command: '%s' on ESX host: %v", sshCmd, err)
@@ -1923,9 +1933,12 @@ func createVmdk(ctx context.Context, host string, size string, objType string, d
 
 // createVmdk deletes given vmdk
 func deleteVmdk(ctx context.Context, host string, vmdkPath string) error {
+	sshdPortNum, err := getPortNum(host)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	addr := host + ":" + sshdPortNum
 	sshCmd := fmt.Sprintf("rm -f %s", vmdkPath)
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
-	result, err := fssh.SSH(ctx, sshCmd, host+":22", framework.TestContext.Provider)
+	result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: '%s' on ESX host: %v", sshCmd, err)

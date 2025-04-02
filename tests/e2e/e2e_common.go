@@ -17,12 +17,14 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
 	"github.com/onsi/gomega"
 )
@@ -76,7 +78,6 @@ const (
 	envEsxHostIP                               = "ESX_TEST_HOST_IP"
 	envFileServiceDisabledSharedDatastoreURL   = "FILE_SERVICE_DISABLED_SHARED_VSPHERE_DATASTORE_URL"
 	envFullSyncWaitTime                        = "FULL_SYNC_WAIT_TIME"
-	envGatewayVmIp                             = "GATEWAY_VM_IP"
 	envGatewayVmUser                           = "GATEWAY_VM_USER"
 	envGatewayVmPasswd                         = "GATEWAY_VM_PASSWD"
 	envHciMountRemoteDs                        = "USE_HCI_MESH_DS"
@@ -193,7 +194,6 @@ const (
 	oneMinuteWaitTimeInSeconds                = 60
 	spsServiceName                            = "sps"
 	snapshotterContainerName                  = "csi-snapshotter"
-	sshdPort                                  = "22"
 	sshSecretName                             = "SSH_SECRET_NAME"
 	svcRunningMessage                         = "Running"
 	svcMasterIP                               = "SVC_MASTER_IP"
@@ -477,10 +477,69 @@ var (
 	envIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
 )
 
+/*
+The export variables are configured to read IPs along with their respective
+private port numbers. These variables apply to all flavors and their features.
+*/
+var (
+	defaultShhdPortNum      = "22"
+	envMasterIp1            = "MASTER_IP1"
+	envMasterIp2            = "MASTER_IP2"
+	envMasterIp3            = "MASTER_IP3"
+	envMasterIP1SshdPortNum = "MASTER_IP1_SSHD_PORT_NUM"
+	envMasterIP2SshdPortNum = "MASTER_IP2_SSHD_PORT_NUM"
+	envMasterIP3SshdPortNum = "MASTER_IP3_SSHD_PORT_NUM"
+	envEsxIp1               = "ESX1_IP"
+	envEsx1PortNum          = "ESX1_SSHD_PORT_NUM"
+	envEsxIp2               = "ESX2_IP"
+	envEsx2PortNum          = "ESX2_SSHD_PORT_NUM"
+	envEsxIp3               = "ESX3_IP"
+	envEsx3PortNum          = "ESX3_SSHD_PORT_NUM"
+	envEsxIp4               = "ESX4_IP"
+	envEsx4PortNum          = "ESX4_SSHD_PORT_NUM"
+	envEsxIp5               = "ESX5_IP"
+	envEsx5PortNum          = "ESX5_SSHD_PORT_NUM"
+	envEsxIp6               = "ESX6_IP"
+	envEsx6PortNum          = "ESX6_SSHD_PORT_NUM"
+	envEsxIp7               = "ESX7_IP"
+	envEsx7PortNum          = "ESX7_SSHD_PORT_NUM"
+	envEsxIp8               = "ESX8_IP"
+	envEsx8PortNum          = "ESX8_SSHD_PORT_NUM"
+	envEsxIp9               = "ESX9_IP"
+	envEsx9PortNum          = "ESX9_SSHD_PORT_NUM"
+	envEsxIp10              = "ESX10_IP"
+	envEsx10PortNum         = "ESX10_SSHD_PORT_NUM"
+	envVcIP1                = "VC_IP1"
+	envVc1SshdPortNum       = "VC1_SSHD_PORT_NUM"
+	envVcIP2                = "VC_IP2"
+	envVc2SshdPortNum       = "VC2_SSHD_PORT_NUM"
+	envVcIP3                = "VC_IP3"
+	envVc3SshdPortNum       = "VC3_SSHD_PORT_NUM"
+	envGatewayVmIp          = "GATEWAY_VM_IP"
+	envGatewayVmIpPortNum   = "GATEWAY_VM_IP_SSHD_PORT_NUM"
+)
+
 // GetAndExpectStringEnvVar parses a string from env variable.
 func GetAndExpectStringEnvVar(varName string) string {
 	varValue := os.Getenv(varName)
 	gomega.Expect(varValue).NotTo(gomega.BeEmpty(), "ENV "+varName+" is not set")
+	return varValue
+}
+
+/*
+GetorIgnoreStringEnvVar, retrieves the value of an environment variable while logging
+a warning if the variable is not set.
+*/
+func GetorIgnoreStringEnvVar(varName string) string {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := logger.GetLogger(ctx)
+
+	varValue, exists := os.LookupEnv(varName)
+	if !exists {
+		log.Warnf("Environment variable not found: %s", varName)
+	}
+
 	return varValue
 }
 

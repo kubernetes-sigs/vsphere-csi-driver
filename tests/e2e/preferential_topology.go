@@ -75,7 +75,6 @@ var _ = ginkgo.Describe("[preferential-positive] Preferential-Topology-Positive"
 		allowedTopologyForRack3        []v1.TopologySelectorLabelRequirement
 		err                            error
 		isSPSServiceStopped            bool
-		vcAddress                      string
 		sshClientConfig                *ssh.ClientConfig
 		nimbusGeneratedK8sVmPwd        string
 		clientIndex                    int
@@ -101,7 +100,11 @@ var _ = ginkgo.Describe("[preferential-positive] Preferential-Topology-Positive"
 		bindingMode = storagev1.VolumeBindingWaitForFirstConsumer
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		isSPSServiceStopped = false
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+
+		// read vc address
+		vcAddress, _, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 
 		sshClientConfig = &ssh.ClientConfig{

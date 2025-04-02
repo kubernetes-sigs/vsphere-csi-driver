@@ -53,7 +53,6 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		kubeconfig1           string
 		computeCluster        string
 		computeClusterPaths   []string
-		vcAddress             string
 		supervisorIds         []string
 		wcpServiceAccUsers    []string
 		datastoreName         string
@@ -110,7 +109,6 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 
 		// Getting all env variables here
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		dataCenter = GetAndExpectStringEnvVar(datacenter)
 		computeCluster = GetAndExpectStringEnvVar(envComputeClusterName)
 		datastoreName = GetAndExpectStringEnvVar(envNfsDatastoreName)
@@ -137,6 +135,9 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
 
+		// read vc address
+		vcAddress, _, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	ginkgo.AfterEach(func() {

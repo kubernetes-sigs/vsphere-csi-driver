@@ -132,12 +132,14 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		restConfig = getRestConfigClient()
 		isGCCSIDeploymentPODdown = false
 
+		// read vc address
+		vcAddress, _, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		if isVsanHealthServiceStopped {
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
@@ -711,7 +713,6 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// TODO: need to add this test under destuctive test [csi-guest-destructive]
 	ginkgo.It("Verify volume expansion eventually succeeds when CNS is unavailable during initial expansion", func() {
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
@@ -752,7 +753,6 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By("Waiting for controller volume resize to finish")
@@ -812,7 +812,6 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	ginkgo.It("Verify while CNS is down the volume expansion can be triggered and "+
 		"the volume can deleted with pending resize operation", func() {
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
@@ -824,7 +823,6 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		defer func() {
 			if isVsanHealthServiceStopped {
 				ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host (cleanup)"))
-				vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 				startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 			}
 		}()
@@ -858,7 +856,6 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By("Verify volume is deleted in Supervisor Cluster")
