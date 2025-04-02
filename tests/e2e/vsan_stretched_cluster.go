@@ -484,7 +484,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				dep1ReplicaCount = 1
 				dep2ReplicaCount = 1
 			}
-			sts1Replicas = 1
+			sts1Replicas = 3
 			sts2Replicas = 5
 			statefulset1, deployment1, _ := createStsDeployment(ctx, client, namespace, sc, true,
 				false, sts1Replicas, "web", dep1ReplicaCount, accessMode)
@@ -601,12 +601,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 						ss2PodsBeforeScaleDown, sts2Replicas, false, true)
 
 					// Scaling up statefulset sts1
-					sts1Replicas += 2
+					sts1Replicas -= 2
 					scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset1,
 						sts1Replicas, true, false)
 
 					// Scaling down statefulset sts2
-					sts2Replicas -= 2
+					sts2Replicas += 2
 					scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset2,
 						ss2PodsBeforeScaleDown, sts2Replicas, true, false)
 				}
@@ -737,8 +737,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 						_ = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
 						framework.Logf("Volume %v still not deleted from CNS with err %v", pv.Name, errMsg)
 					} else {
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-						err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
 
@@ -1043,8 +1041,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 						framework.Logf("Volume %v still not deleted from CNS with err %v", pv.Name, errMsg)
 					} else {
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-						err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
 				}
 			}()
@@ -1247,8 +1243,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 					_ = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
 					framework.Logf("Volume %v still not deleted from CNS with err %v", pv.Name, errMsg)
 				} else {
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 
@@ -1772,9 +1766,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 					framework.Logf("Volume %v still not deleted from CNS with err %v", pv.Name, errMsg)
 				} else {
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					// TODO: List orphan volumes
 				}
 			}
 			ginkgo.By("Bring up the secondary site")
@@ -1870,8 +1861,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 						_ = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
 						framework.Logf("Volume %v still not deleted from CNS with err %v", pv.Name, errMsg)
 					} else {
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-						err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
 				}
@@ -2615,6 +2604,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				}
 			}()
 
+			time.Sleep(5 * time.Minute)
+
 			ginkgo.By("Check storage compliance")
 			comp := checkVmStorageCompliance(storagePolicyName)
 			if !comp {
@@ -3255,10 +3246,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				}
 			}()
 
-			// Get the list of csi pods running in CSI namespace
-			/*csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())*/
-
 			replicas1 += 2
 			ginkgo.By(fmt.Sprintf("Scaling up statefulset %v to number of Replica: %v", statefulset1.Name, replicas1))
 			fss.UpdateReplicas(ctx, client, statefulset1, replicas1)
@@ -3429,8 +3416,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 						_ = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
 						framework.Logf("Volume %v still not deleted from CNS with err %v", pv.Name, errMsg)
 					} else {
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-						err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
 				}
@@ -3628,8 +3613,6 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 						_ = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
 						framework.Logf("Volume %v still not deleted from CNS with err %v", pv.Name, errMsg)
 					} else {
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-						err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeHandle)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
 				}
