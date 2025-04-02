@@ -472,8 +472,9 @@ var (
 	envZonal2StoragePolicyName            = "ZONAL2_STORAGE_POLICY_IMM"
 	envZonal2StoragePolicyNameLateBidning = "ZONAL2_STORAGE_POLICY_WFFC"
 	envZonal1StoragePolicyName            = "ZONAL1_STORAGE_POLICY_IMM"
+	envZonal3StoragePolicyName            = "ZONAL3_STORAGE_POLICY_IMM"
 	topologyDomainIsolation               = "Workload_Management_Isolation"
-	envSharedStoragePolicyName            = "SHARED_STORAGE_POLICY"
+	envIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.
