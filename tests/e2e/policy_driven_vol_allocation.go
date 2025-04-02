@@ -3609,7 +3609,7 @@ func writeRandomDataOnPod(pod *v1.Pod, count int64) {
 // default task timeout is 40 mins
 // if taskTimeout param is 0 we will remove the timeout entry in cfg file and default timeout will kick-in
 func setVpxdTaskTimeout(ctx context.Context, taskTimeout int) {
-	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+	var err error
 	timeoutMatches := false
 	diffTimeoutExists := false
 

@@ -72,6 +72,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		isSPSServiceStopped        bool
 		fsType                     string
 	)
+
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
@@ -117,14 +118,11 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		} else {
 			fsType = ext4FSType
 		}
-
 	})
 
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		if isSPSServiceStopped {
 			framework.Logf("Bringing sps up before terminating the test")
@@ -703,7 +701,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Bring down Vsan-health service")
 		isVsanHealthServiceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -778,7 +775,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		var originalSizeInMb, fsSize int64
 		var err error
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		/*
 			Note: As per PR #2935677, even if cns_new_sync is enabled volume expansion
@@ -1588,7 +1584,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		defer cancel()
 		var fsSize int64
 		var err error
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
 			ctx, f, client, "", storagePolicyName, namespace, ext4FSType)
@@ -1757,7 +1752,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Bring down Vsan-health service")
 		isVsanHealthServiceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

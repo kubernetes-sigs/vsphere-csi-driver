@@ -1436,19 +1436,25 @@ func getPersistentVolumeSpecForRWX(fcdID string, persistentVolumeReclaimPolicy v
 func invokeVCenterReboot(ctx context.Context, host string) error {
 	sshCmd := "reboot"
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
-	result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
+	// Read hosts sshd port number
+	ip, portNum, err := getPortNumAndIP(host)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	result, err := fssh.SSH(ctx, sshCmd, ip+":"+portNum, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
-	// checking for host to be down
-	err = waitForHostToBeDown(ctx, host)
 	return err
 }
 
 // invokeVCenterServiceControl invokes the given command for the given service
 // via service-control on the given vCenter host over SSH.
 func invokeVCenterServiceControl(ctx context.Context, command, service, host string) error {
+	// Read hosts sshd port number
+	ip, portNum, err := getPortNumAndIP(host)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	host = ip + ":" + portNum
 	sshCmd := fmt.Sprintf("service-control --%s %s", command, service)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
 	result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
@@ -2170,6 +2176,11 @@ func invokeVCenterChangePassword(ctx context.Context, user, adminPassword, newPa
 		err = os.Remove(path)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
+	// Read hosts sshd port number
+	ip, portNum, err := getPortNumAndIP(host)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	host = ip + ":" + portNum
+
 	// Remote copy this input file to VC.
 	if !multivc {
 		copyCmd = fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'",
@@ -3637,7 +3648,9 @@ func hostLogin(user, instruction string, questions []string, echos []bool) (answ
 
 // runCommandOnESX executes ssh commands on the give ESX host and returns the bash
 // result.
-func runCommandOnESX(username string, addr string, cmd string) (string, error) {
+func runCommandOnESX(username string, ip string, cmd string) (string, error) {
+	var sshdPort string
+	var err error
 	// Authentication.
 	config := &ssh.ClientConfig{
 		User:            username,
@@ -3647,8 +3660,12 @@ func runCommandOnESX(username string, addr string, cmd string) (string, error) {
 		},
 	}
 
-	result := fssh.Result{Host: addr, Cmd: cmd}
+	// Read hosts sshd port number
+	ip, portNum, err := getPortNumAndIP(ip)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	addr := ip + ":" + portNum
 
+	result := fssh.Result{Host: addr, Cmd: cmd}
 	// Connect.
 	client, err := ssh.Dial("tcp", net.JoinHostPort(addr, sshdPort), config)
 	if err != nil {
@@ -3929,19 +3946,25 @@ func waitForHostToBeUp(ip string, pollInfo ...time.Duration) error {
 	}
 	gomega.Expect(ip).NotTo(gomega.BeNil())
 	dialTimeout := 2 * time.Second
+
+	// Read hosts sshd port number
+	ip, portNum, err := getPortNumAndIP(ip)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	addr := ip + ":" + portNum
+
 	waitErr := wait.PollUntilContextTimeout(context.Background(), pollInterval, pollTimeOut, true,
 		func(ctx context.Context) (bool, error) {
-			_, err := net.DialTimeout("tcp", ip+":22", dialTimeout)
+			_, err := net.DialTimeout("tcp", addr, dialTimeout)
 			if err != nil {
-				framework.Logf("host %s unreachable, error: %s", ip, err.Error())
+				framework.Logf("host %s unreachable, error: %s", addr, err.Error())
 				return false, nil
 			} else {
-				framework.Logf("host %s is reachable", ip)
+				framework.Logf("host %s is reachable", addr)
 				hostReachableCount += 1
 			}
 			// checking if host is reachable 5 times
 			if hostReachableCount == 5 {
-				framework.Logf("host %s is reachable atleast 5 times", ip)
+				framework.Logf("host %s is reachable atleast 5 times", addr)
 				return true, nil
 			}
 			return false, nil
@@ -4121,8 +4144,13 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 
 // sshExec runs a command on the host via ssh.
 func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.Result, error) {
+	// Read hosts sshd port number
+	ip, portNum, err := getPortNumAndIP(host)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	addr := ip + ":" + portNum
+
 	result := fssh.Result{Host: host, Cmd: cmd}
-	sshClient, err := ssh.Dial("tcp", host+":22", sshClientConfig)
+	sshClient, err := ssh.Dial("tcp", addr, sshClientConfig)
 	if err != nil {
 		result.Stdout = ""
 		result.Stderr = ""
@@ -5721,6 +5749,7 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 		k8sMasterIPs := getK8sMasterIPs(ctx, client)
 		k8sMasterIP = k8sMasterIPs[0]
 	}
+
 	for _, csiPod := range csiPods {
 		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) {
 			// Putting the grepped logs for leader of container of different CSI pods
@@ -6229,8 +6258,12 @@ func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string
 }
 
 // startVCServiceWait4VPs starts given service and waits for all VPs to come online
-func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service string, isSvcStopped *bool) {
-	err := invokeVCenterServiceControl(ctx, startOperation, service, vcAddress)
+func startVCServiceWait4VPs(ctx context.Context, vcIp string, service string, isSvcStopped *bool) {
+	// Read hosts sshd port number
+	ip, portNum, err := getPortNumAndIP(vcIp)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	vcAddress := ip + ":" + portNum
+	err = invokeVCenterServiceControl(ctx, startOperation, service, vcAddress)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = waitVCenterServiceToBeInState(ctx, service, vcAddress, svcRunningMessage)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6240,10 +6273,8 @@ func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service strin
 // assignPolicyToWcpNamespace assigns a set of storage policies to a wcp namespace
 func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 	namespace string, policyNames []string, resourceQuotaLimit string) {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	vcAddress := vcIp + ":" + sshdPort
+	var err error
 	sessionId := createVcSession4RestApis(ctx)
-
 	curlStr := ""
 	policyNamesArrLength := len(policyNames)
 	defRqLimit := strings.Split(resourceQuotaLimit, "Gi")[0]
@@ -6264,7 +6295,7 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 	curlCmd := fmt.Sprintf(`curl -s -o /dev/null -w "%s" -k -X PATCH`+
 		` 'https://%s/api/vcenter/namespaces/instances/%s' -H `+
 		`'vmware-api-session-id: %s' -H 'Content-type: application/json' -d `+
-		`'{"storage_specs": [ %s ]}'`, httpCodeStr, vcIp, namespace, sessionId, curlStr)
+		`'{"storage_specs": [ %s ]}'`, httpCodeStr, vcIp1, namespace, sessionId, curlStr)
 
 	framework.Logf("Running command: %s", curlCmd)
 	result, err := fssh.SSH(ctx, curlCmd, vcAddress, framework.TestContext.Provider)
@@ -6284,11 +6315,9 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 
 // createVcSession4RestApis generates session ID for VC to use in rest API calls
 func createVcSession4RestApis(ctx context.Context) string {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	vcAddress := vcIp + ":" + sshdPort
 	nimbusGeneratedVcPwd := GetAndExpectStringEnvVar(vcUIPwd)
 	curlCmd := fmt.Sprintf("curl -k -X POST https://%s/rest/com/vmware/cis/session"+
-		" -u 'Administrator@vsphere.local:%s'", vcIp, nimbusGeneratedVcPwd)
+		" -u 'Administrator@vsphere.local:%s'", vcIp1, nimbusGeneratedVcPwd)
 	framework.Logf("Running command: %s", curlCmd)
 	result, err := fssh.SSH(ctx, curlCmd, vcAddress, framework.TestContext.Provider)
 	fssh.LogResult(result)
@@ -7516,4 +7545,27 @@ func isAvailable(alpha []int, val int) bool {
 		}
 	}
 	return false
+}
+
+/*
+getPortNum function retrieves the SSHD port number for a given IP address,
+considering whether the network is private or public.
+*/
+func getPortNumAndIP(ip string) (string, string, error) {
+	var port string
+	port = "22"
+
+	// Check if isoalted network
+	if GetAndExpectBoolEnvVar("IS_PRIVATE_NETWORK") {
+		if p, exists := ipPortMap[ip]; exists {
+			port = p
+			// Set IP to localhost and return
+			return "127.0.0.1", port, nil
+		} else {
+			// sshport for IP not found, return error
+			return ip, "", fmt.Errorf("port number is missing for IP: %s", ip)
+		}
+	}
+	// if not a isolated network return port 22
+	return ip, port, nil
 }

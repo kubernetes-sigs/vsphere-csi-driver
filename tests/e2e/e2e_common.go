@@ -17,12 +17,14 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
 	"github.com/onsi/gomega"
 )
@@ -345,6 +347,8 @@ var (
 	multipleSvc          bool
 	multivc              bool
 	stretchedSVC         bool
+	topologyLvl2         bool
+	topologyLvl5         bool
 )
 
 // For busybox pod image
@@ -477,10 +481,17 @@ var (
 	envIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
 )
 
-// GetAndExpectStringEnvVar parses a string from env variable.
+// GetAndExpectStringEnvVar returns the value of an environment variable or fails if it's not set.
 func GetAndExpectStringEnvVar(varName string) string {
-	varValue := os.Getenv(varName)
-	gomega.Expect(varValue).NotTo(gomega.BeEmpty(), "ENV "+varName+" is not set")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := logger.GetLogger(ctx)
+
+	varValue, exists := os.LookupEnv(varName)
+	if !exists {
+		log.Fatalf("Required environment variable not found: %s", varName)
+	}
+
 	return varValue
 }
 
@@ -492,12 +503,40 @@ func GetAndExpectIntEnvVar(varName string) int {
 	return varIntValue
 }
 
-// GetAndExpectBoolEnvVar parses a boolean from env variable.
+// GetAndExpectBoolEnvVar returns the boolean value of an environment variable or fails if it's not set or invalid.
 func GetAndExpectBoolEnvVar(varName string) bool {
-	varValue := GetAndExpectStringEnvVar(varName)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := logger.GetLogger(ctx)
+
+	varValue, exists := os.LookupEnv(varName)
+	if !exists {
+		log.Fatalf("Required environment variable not found: %s", varName)
+	}
+
 	varBoolValue, err := strconv.ParseBool(varValue)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error Parsing "+varName)
+	if err != nil {
+		log.Fatalf("Environment variable %s must be a valid boolean (true/false/1/0): %s", varName, varValue)
+	}
+
 	return varBoolValue
+}
+
+/*
+GetorIgnoreStringEnvVar, retrieves the value of an environment variable while logging
+a warning if the variable is not set.
+*/
+func GetorIgnoreStringEnvVar(varName string) string {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := logger.GetLogger(ctx)
+
+	varValue, exists := os.LookupEnv(varName)
+	if !exists {
+		log.Warnf("Environment variable not found: %s", varName)
+	}
+
+	return varValue
 }
 
 // setClusterFlavor sets the boolean variables w.r.t the Cluster type.
@@ -544,5 +583,158 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	testbedType := os.Getenv("STRETCHED_SVC")
 	if strings.TrimSpace(string(testbedType)) == "1" {
 		stretchedSVC = true
+	}
+
+	//Check if its topology level 2 testbed
+	topologyLevel2 := os.Getenv("TOPOLOGY_LVL2")
+	if strings.TrimSpace(string(topologyLevel2)) == "LEVEL_2" {
+		topologyLvl2 = true
+	}
+
+	//Check if its topology level 5 testbed
+	topologyLevel5 := os.Getenv("TOPOLOGY_LVL5")
+	if strings.TrimSpace(string(topologyLevel5)) == "LEVEL_5" {
+		topologyLvl5 = true
+	}
+}
+
+var (
+	envVc1SshdPortNum       = "VC1_SSHD_PORT_NUM"
+	envVc2SshdPortNum       = "VC2_SSHD_PORT_NUM"
+	envVc3SshdPortNum       = "VC3_SSHD_PORT_NUM"
+	envMasterIP1SshdPortNum = "MASTER_IP1_SSHD_PORT_NUM"
+	envMasterIP2SshdPortNum = "MASTER_IP2_SSHD_PORT_NUM"
+	envMasterIP3SshdPortNum = "MASTER_IP3_SSHD_PORT_NUM"
+	envEsx1PortNum          = "ESX1_SSHD_PORT_NUM"
+	envEsx2PortNum          = "ESX2_SSHD_PORT_NUM"
+	envEsx3PortNum          = "ESX3_SSHD_PORT_NUM"
+	envEsx4PortNum          = "ESX4_SSHD_PORT_NUM"
+	envEsx5PortNum          = "ESX5_SSHD_PORT_NUM"
+	envEsx6PortNum          = "ESX6_SSHD_PORT_NUM"
+	envEsx7PortNum          = "ESX7_SSHD_PORT_NUM"
+	envEsx8PortNum          = "ESX8_SSHD_PORT_NUM"
+	envEsx9PortNum          = "ESX9_SSHD_PORT_NUM"
+	envEsx10PortNum         = "ESX10_SSHD_PORT_NUM"
+	envEsxIp1               = "ESX1_IP"
+	envEsxIp2               = "ESX2_IP"
+	envEsxIp3               = "ESX3_IP"
+	envEsxIp4               = "ESX4_IP"
+	envEsxIp5               = "ESX5_IP"
+	envEsxIp6               = "ESX6_IP"
+	envEsxIp7               = "ESX7_IP"
+	envEsxIp8               = "ESX8_IP"
+	envEsxIp9               = "ESX9_IP"
+	envEsxIp10              = "ESX10_IP"
+	envVcIP1                = "VC_IP1"
+	envVcIP2                = "VC_IP2"
+	envVcIP3                = "VC_IP3"
+
+	vcIp1SshPortNum     = sshdPort
+	vcIp2SshPortNum     = sshdPort
+	vcIp3SshPortNum     = sshdPort
+	esxIp1PortNum       = sshdPort
+	esxIp2PortNum       = sshdPort
+	esxIp3PortNum       = sshdPort
+	esxIp4PortNum       = sshdPort
+	esxIp5PortNum       = sshdPort
+	esxIp6PortNum       = sshdPort
+	esxIp7PortNum       = sshdPort
+	esxIp8PortNum       = sshdPort
+	esxIp9PortNum       = sshdPort
+	esxIp10PortNum      = sshdPort
+	k8sMasterIp1PortNum = sshdPort
+	k8sMasterIp2PortNum = sshdPort
+	k8sMasterIp3PortNum = sshdPort
+	esxIp1              = ""
+	esxIp2              = ""
+	esxIp3              = ""
+	esxIp4              = ""
+	esxIp5              = ""
+	esxIp6              = ""
+	esxIp7              = ""
+	esxIp8              = ""
+	esxIp9              = ""
+	esxIp10             = ""
+	vcIp1               = ""
+	vcIp2               = ""
+	vcIp3               = ""
+	vcAddress           = ""
+	vcAddress2          = ""
+	vcAddress3          = ""
+	ipPortMap           = make(map[string]string)
+)
+
+/*
+The setSShdPort function dynamically configures SSH port mappings for a vSphere test environment by reading
+environment variables and adapting to the network type and topology.
+It sets up SSH access to vCenter servers, ESXi hosts, and Kubernetes masters based on the environment configuration.
+*/
+func setSShdPort() {
+	vcIp1 = GetAndExpectStringEnvVar(envVcIP1)
+	vcAddress = vcIp1 + ":" + sshdPort
+	if multivc {
+		vCenterHostnames := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
+		if len(vCenterHostnames) >= 3 {
+			vcIp1 = vCenterHostnames[0]
+			vcIp2 = vCenterHostnames[1]
+			vcIp3 = vCenterHostnames[2]
+			vcAddress2 = vCenterHostnames[1] + ":" + sshdPort
+			vcAddress3 = vCenterHostnames[2] + ":" + sshdPort
+		}
+	}
+
+	if GetAndExpectBoolEnvVar("IS_PRIVATE_NETWORK") {
+		vcIp1SshPortNum = GetorIgnoreStringEnvVar(envVc1SshdPortNum)
+
+		if multivc {
+			vcIp2 = GetAndExpectStringEnvVar(envVcIP2)
+			vcIp2SshPortNum = GetorIgnoreStringEnvVar(envVc2SshdPortNum)
+			vcIp3 = GetAndExpectStringEnvVar(envVcIP3)
+			vcIp3SshPortNum = GetorIgnoreStringEnvVar(envVc3SshdPortNum)
+		}
+
+		esxIp1PortNum = GetorIgnoreStringEnvVar(envEsx1PortNum)
+
+		if topologyLvl5 {
+			esxIp2PortNum = GetorIgnoreStringEnvVar(envEsx2PortNum)
+			esxIp3PortNum = GetorIgnoreStringEnvVar(envEsx3PortNum)
+			esxIp4PortNum = GetorIgnoreStringEnvVar(envEsx4PortNum)
+			esxIp5PortNum = GetorIgnoreStringEnvVar(envEsx5PortNum)
+			esxIp6PortNum = GetorIgnoreStringEnvVar(envEsx6PortNum)
+			esxIp7PortNum = GetorIgnoreStringEnvVar(envEsx7PortNum)
+			esxIp8PortNum = GetorIgnoreStringEnvVar(envEsx8PortNum)
+			esxIp9PortNum = GetorIgnoreStringEnvVar(envEsx9PortNum)
+			esxIp10PortNum = GetorIgnoreStringEnvVar(envEsx10PortNum)
+
+			esxIp1 = GetAndExpectStringEnvVar(envEsxIp1)
+			esxIp2 = GetorIgnoreStringEnvVar(envEsxIp2)
+			esxIp3 = GetorIgnoreStringEnvVar(envEsxIp3)
+			esxIp4 = GetorIgnoreStringEnvVar(envEsxIp4)
+			esxIp5 = GetorIgnoreStringEnvVar(envEsxIp5)
+			esxIp6 = GetorIgnoreStringEnvVar(envEsxIp6)
+			esxIp7 = GetorIgnoreStringEnvVar(envEsxIp7)
+			esxIp8 = GetorIgnoreStringEnvVar(envEsxIp8)
+			esxIp9 = GetorIgnoreStringEnvVar(envEsxIp9)
+			esxIp10 = GetorIgnoreStringEnvVar(envEsxIp10)
+		}
+
+		k8sMasterIp1PortNum = GetorIgnoreStringEnvVar(envMasterIP1SshdPortNum)
+		k8sMasterIp2PortNum = GetorIgnoreStringEnvVar(envMasterIP2SshdPortNum)
+		k8sMasterIp3PortNum = GetorIgnoreStringEnvVar(envMasterIP3SshdPortNum)
+
+		ipPortMap[esxIp1] = esxIp1PortNum
+		ipPortMap[esxIp2] = esxIp2PortNum
+		ipPortMap[esxIp3] = esxIp3PortNum
+		ipPortMap[esxIp4] = esxIp4PortNum
+		ipPortMap[esxIp5] = esxIp5PortNum
+		ipPortMap[esxIp6] = esxIp6PortNum
+		ipPortMap[esxIp7] = esxIp7PortNum
+		ipPortMap[esxIp8] = esxIp8PortNum
+		ipPortMap[esxIp9] = esxIp9PortNum
+		ipPortMap[esxIp10] = esxIp10PortNum
+
+		vcAddress = vcIp1 + ":" + vcIp1SshPortNum
+		vcAddress2 = vcIp2 + ":" + vcIp2SshPortNum
+		vcAddress3 = vcIp3 + ":" + vcIp3SshPortNum
 	}
 }
