@@ -29,13 +29,13 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
-	"github.com/golang/protobuf/ptypes/wrappers"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -48,6 +48,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"slices"
+
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -58,6 +60,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 var (
@@ -512,6 +515,26 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 				volumeType = prometheus.PrometheusFileVolumeType
 			}
 		}
+		// Remove the finalizer before deleting the Supervisor PVC
+		for i, finalizer := range svPVC.ObjectMeta.Finalizers {
+			if finalizer == cnsoperatortypes.CNSPvcFinalizer {
+				log.Infof("Removing %q finalizer from PersistentVolumeClaim with name: %q on namespace: %q",
+					cnsoperatortypes.CNSPvcFinalizer, svPVC.Name, svPVC.Namespace)
+				svPVC.ObjectMeta.Finalizers = slices.Delete(svPVC.ObjectMeta.Finalizers, i, i+1)
+				// Update the instance after removing finalizer
+				_, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(ctx, svPVC,
+					metav1.UpdateOptions{})
+				if err != nil {
+					msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v",
+						req.VolumeId, c.supervisorNamespace, err)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				}
+				break
+			}
+		}
+
+		// Delete Supervisor PVC
 		err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Delete(
 			ctx, req.VolumeId, *metav1.NewDeleteOptions(0))
 		if err != nil {
@@ -1403,7 +1426,7 @@ func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityReques
 
 	return &csi.GetCapacityResponse{
 		AvailableCapacity: totalcapacity,
-		MaximumVolumeSize: &wrappers.Int64Value{Value: maxvolumesize},
+		MaximumVolumeSize: &wrapperspb.Int64Value{Value: maxvolumesize},
 	}, nil
 }
 
@@ -1477,8 +1500,11 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				// the supervisor cluster to indicate that snapshot creation is initiated from Guest cluster
 				annotation := make(map[string]string)
 				annotation[common.SupervisorVolumeSnapshotAnnotationKey] = "true"
+				labels := make(map[string]string)
+				key := fmt.Sprintf("%s/%s", c.tanzukubernetesClusterName, c.guestClusterDist)
+				labels[key] = c.tanzukubernetesClusterUID
 				supVolumeSnapshot := constructVolumeSnapshotWithVolumeSnapshotClass(supervisorVolumeSnapshotName,
-					c.supervisorNamespace, supervisorVolumeSnapshotClass, supervisorPVCName, annotation)
+					c.supervisorNamespace, supervisorVolumeSnapshotClass, supervisorPVCName, annotation, labels)
 				log.Infof("Supervisosr VolumeSnapshot Spec: %+v", supVolumeSnapshot)
 				_, err = c.supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(
 					c.supervisorNamespace).Create(ctx, supVolumeSnapshot, metav1.CreateOptions{})
@@ -1574,6 +1600,25 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 					c.supervisorNamespace, supervisorVolumeSnapshotName, err)
 				log.Error(msg)
 				return nil, status.Errorf(codes.Internal, msg)
+			}
+		}
+		// Remove the finalizer before deleting the Supervisor VolumeSnapshot
+		for i, finalizer := range supervisorVolumeSnapshot.ObjectMeta.Finalizers {
+			if finalizer == cnsoperatortypes.CNSSnapshotFinalizer {
+				log.Infof("Removing %q finalizer from VolumeSnapshot with name: %q on namespace: %q",
+					cnsoperatortypes.CNSSnapshotFinalizer, supervisorVolumeSnapshotName, c.supervisorNamespace)
+				supervisorVolumeSnapshot.ObjectMeta.Finalizers = slices.Delete(supervisorVolumeSnapshot.ObjectMeta.Finalizers,
+					i, i+1)
+				// Update the instance after removing finalizer
+				_, err = c.supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(c.supervisorNamespace).
+					Update(ctx, supervisorVolumeSnapshot, metav1.UpdateOptions{})
+				if err != nil {
+					msg := fmt.Sprintf("failed to update supervisor VolumeSnapshot %q in %q namespace. Error: %+v",
+						supervisorVolumeSnapshotName, c.supervisorNamespace, err)
+					log.Error(msg)
+					return nil, status.Error(codes.Internal, msg)
+				}
+				break
 			}
 		}
 		log.Infof("Found the supervisor volumesnapshot %s/%s on the supervisor cluster",
