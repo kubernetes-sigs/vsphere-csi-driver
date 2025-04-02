@@ -27,15 +27,29 @@ import (
 	"sync"
 	"time"
 
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
+
+/*
+This util will create initial namespace get/post api call request
+*/
+func createInitialNsApiCallUrl() string {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	initialUrl := "https://" + vcIp + "/api/vcenter/namespaces/instances/"
+
+	return initialUrl
+}
 
 /*
 This util will verify supervisor pvc annotation, pv affinity rules,
@@ -181,52 +195,6 @@ func containsItem(slice []string, item string) bool {
 	return false
 }
 
-/*
-This util createTestWcpNsWithZones will create a wcp namespace which will be tagged to the zone and
-storage policy passed in the util parameters
-*/
-func createTestWcpNsWithZones(
-	vcRestSessionId string, storagePolicyId string,
-	supervisorId string, zoneNames []string) string {
-
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	r := rand.New(rand.NewSource(time.Now().Unix()))
-
-	namespace := fmt.Sprintf("csi-vmsvcns-%v", r.Intn(10000))
-	nsCreationUrl := "https://" + vcIp + "/api/vcenter/namespaces/instances/v2"
-
-	// Create a string to represent the zones array
-	var zonesString string
-	for i, zone := range zoneNames {
-		if i > 0 {
-			zonesString += ","
-		}
-		zonesString += fmt.Sprintf(`{"name": "%s"}`, zone)
-	}
-
-	reqBody := fmt.Sprintf(`{
-        "namespace": "%s",
-        "storage_specs": [ 
-            {
-                "policy": "%s"
-            }
-        ],
-        "supervisor": "%s",
-        "zones": [%s]
-    }`, namespace, storagePolicyId, supervisorId, zonesString)
-
-	// Print the request body for debugging
-	fmt.Println(reqBody)
-
-	// Make the API request
-	_, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, nsCreationUrl, reqBody)
-
-	// Validate the status code
-	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
-	framework.Logf("Successfully created namespace %v in SVC.", namespace)
-	return namespace
-}
-
 func markZoneForRemovalFromWcpNs(vcRestSessionId string, namespace string, zone string) error {
 	statusCode := markZoneForRemovalFromNs(namespace, zone, vcRestSessionId)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
@@ -281,8 +249,8 @@ func addZoneToWcpNsWithWg(vcRestSessionId string,
 Add zone to namespace without checking the statuscode
 */
 func addZoneToNs(namespace string, zoneName string, vcRestSessionId string) int {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	AddZoneToNs := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace
+	initailUrl := createInitialNsApiCallUrl()
+	AddZoneToNs := initailUrl + namespace
 
 	// Create the request body with zone name inside a zones array
 	reqBody := fmt.Sprintf(`{
@@ -319,16 +287,121 @@ func restartCSIDriverWithWg(ctx context.Context, client clientset.Interface, nam
 	csiReplicas int32, wg *sync.WaitGroup) (bool, error) {
 	defer wg.Done()
 	return restartCSIDriver(ctx, client, namespace, csiReplicas)
-
 }
 
 /*
 Mark zone for removal without checking the statuscode
 */
 func markZoneForRemovalFromNs(namespace string, zone string, vcRestSessionId string) int {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	deleteZoneFromNs := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace + "/zones/" + zone
+	initailUrl := createInitialNsApiCallUrl()
+	deleteZoneFromNs := initailUrl + namespace + "/zones/" + zone
 	fmt.Println(deleteZoneFromNs)
 	_, statusCode := invokeVCRestAPIDeleteRequest(vcRestSessionId, deleteZoneFromNs)
 	return statusCode
+}
+
+/*
+This function creates a wcp namespace in a vSphere supervisor Cluster, associating it
+with multiple storage policies and zones.
+It constructs an API request and sends it to the vSphere REST API.
+*/
+func createtWcpNsWithZonesAndPolicies(
+	vcRestSessionId string, storagePolicyId []string,
+	supervisorId string, zoneNames []string) (string, int, error) {
+
+	r := rand.New(rand.NewSource(time.Now().Unix()))
+	namespace := fmt.Sprintf("csi-vmsvcns-%v", r.Intn(10000))
+	initailUrl := createInitialNsApiCallUrl()
+	nsCreationUrl := initailUrl + "v2"
+
+	var storageSpecs []map[string]string
+	for _, policyId := range storagePolicyId {
+		storageSpecs = append(storageSpecs, map[string]string{"policy": policyId})
+	}
+
+	var zones []map[string]string
+	for _, zone := range zoneNames {
+		zones = append(zones, map[string]string{"name": zone})
+	}
+
+	// Create request body struct
+	requestBody := map[string]interface{}{
+		"namespace":     namespace,
+		"storage_specs": storageSpecs,
+		"supervisor":    supervisorId,
+		"zones":         zones,
+	}
+
+	reqBodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", 500, fmt.Errorf("error marshalling request body: %w", err)
+	}
+
+	reqBody := string(reqBodyBytes)
+	fmt.Println(reqBody)
+
+	// Make the API request
+	_, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, nsCreationUrl, reqBody)
+
+	return namespace, statusCode, nil
+}
+
+/*
+This function generates a PVC specification with requested topology annotation.
+It ensures that the PVC is created in a specific zone
+*/
+func PvcSpecWithRequestedTopology(namespace string, ds string, storageclass *storagev1.StorageClass,
+	pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode, zone string) *v1.PersistentVolumeClaim {
+	disksize := diskSize
+	topologyAnnotation := fmt.Sprintf(`[{"topology.kubernetes.io/zone":"%s"}]`, zone)
+	if ds != "" {
+		disksize = ds
+	}
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		accessMode = v1.ReadWriteOnce
+	}
+	claim := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-",
+			Namespace:    namespace,
+			Annotations: map[string]string{
+				"csi.vsphere.volume-requested-topology": topologyAnnotation,
+			},
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			Resources: v1.VolumeResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
+				},
+			},
+			StorageClassName: &(storageclass.Name),
+		},
+	}
+
+	if pvclaimlabels != nil {
+		claim.Labels = pvclaimlabels
+	}
+	return claim
+}
+
+/*
+This function is responsible for creating a PVC with requested topology annotation.
+It ensures that the PVC is bound to a specific storage class and zone, allowing
+for proper storage placement in a multi-zone cluster.
+*/
+func createPvcWithRequestedTopology(ctx context.Context, client clientset.Interface, pvcnamespace string,
+	pvclaimlabels map[string]string, ds string, storageclass *storagev1.StorageClass,
+	accessMode v1.PersistentVolumeAccessMode, zone string) (*v1.PersistentVolumeClaim, error) {
+	pvcspec := PvcSpecWithRequestedTopology(pvcnamespace, ds, storageclass, pvclaimlabels, accessMode, zone)
+	ginkgo.By(fmt.Sprintf("Creating PVC in namespace: %s using Storage Class: %s,"+
+		"Disk Size: %s, Labels: %+v, AccessMode: %+v, Zone: %s",
+		pvcnamespace, storageclass.Name, ds, pvclaimlabels, accessMode, zone))
+	pvclaim, err := fpv.CreatePVC(ctx, client, pvcnamespace, pvcspec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create PVC: %v", err))
+	framework.Logf("PVC %v created successfully in namespace: %v", pvclaim.Name, pvcnamespace)
+	return pvclaim, err
 }

@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -78,6 +79,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		zone4                   string
 		sharedStoragePolicyName string
 		sharedStorageProfileId  string
+		statuscode              int
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -89,7 +91,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		bootstrap()
 
 		// reading vc session id
-		vcRestSessionId = createVcSession4RestApis(ctx)
+		if vcRestSessionId == "" {
+			vcRestSessionId = createVcSession4RestApis(ctx)
+		}
 
 		// reading topology map set for management doamin and workload domain
 		topologyMap := GetAndExpectStringEnvVar(envTopologyMap)
@@ -120,8 +124,12 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		zone4 = topologyAffinityDetails[topologyCategories[0]][3]
 
 		// reading shared storage policy
-		sharedStoragePolicyName = GetAndExpectStringEnvVar(envSharedStoragePolicyName)
-		sharedStorageProfileId = e2eVSphere.GetSpbmPolicyID(sharedStoragePolicyName)
+		sharedStoragePolicyName = GetAndExpectStringEnvVar(envIsolationSharedStoragePolicyName)
+		if sharedStoragePolicyName == "" {
+			ginkgo.Skip("Skipping the test because WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY is not set")
+		} else {
+			sharedStorageProfileId = e2eVSphere.GetSpbmPolicyID(sharedStoragePolicyName)
+		}
 	})
 
 	ginkgo.AfterEach(func() {
@@ -187,8 +195,11 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			topValEndIndex)
 
 		// here fetching zone:zone-2 from topologyAffinityDetails
-		namespace = createTestWcpNsWithZones(vcRestSessionId, storageProfileId, getSvcId(vcRestSessionId),
-			[]string{topologyAffinityDetails[topologyCategories[0]][1]})
+		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
+			[]string{storageProfileId}, getSvcId(vcRestSessionId),
+			[]string{zone2})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(statuscode).To(gomega.Equal(204))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
@@ -262,8 +273,11 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 
-		namespace = createTestWcpNsWithZones(vcRestSessionId, storageProfileId, getSvcId(vcRestSessionId),
-			[]string{topologyAffinityDetails[topologyCategories[0]][0]})
+		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId, []string{storageProfileId},
+			getSvcId(vcRestSessionId),
+			[]string{zone1})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(statuscode).To(gomega.Equal(204))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
@@ -336,8 +350,11 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		ginkgo.By("Create a WCP namespace tagged to zone-2 wrkld domain and storage policy compatible only to zone-2")
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
-		namespace = createTestWcpNsWithZones(vcRestSessionId, storageProfileId, getSvcId(vcRestSessionId),
-			[]string{topologyAffinityDetails[topologyCategories[0]][1]})
+		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
+			[]string{storageProfileId}, getSvcId(vcRestSessionId),
+			[]string{zone2})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(statuscode).To(gomega.Equal(204))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
@@ -409,10 +426,6 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		// statefulset replica count
 		replicas = 3
 
-		// reading shared storage policy
-		storagePolicyName := GetAndExpectStringEnvVar(envSharedStoragePolicyName)
-		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-
 		restConfig = getRestConfigClient()
 		snapc, err = snapclient.NewForConfig(restConfig)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -430,14 +443,10 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 
 		ginkgo.By("Create a WCP namespace and tag it to zone-2 and zone-3 wrkld " +
 			"domains using storage policy compatible to all zones")
-		namespace = createTestWcpNsWithZones(
-			vcRestSessionId,
-			storageProfileId,
-			getSvcId(vcRestSessionId),
-			[]string{
-				topologyAffinityDetails[topologyCategories[0]][1], // zone-2
-				topologyAffinityDetails[topologyCategories[0]][2], // zone-3
-			})
+		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId, []string{storageProfileId},
+			getSvcId(vcRestSessionId), []string{zone2, zone3})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(statuscode).To(gomega.Equal(204))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
@@ -607,8 +616,11 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		replicas = 3
 
 		// here fetching zone:zone-3 from topologyAffinityDetails
-		namespace = createTestWcpNsWithZones(vcRestSessionId, sharedStorageProfileId, getSvcId(vcRestSessionId),
+		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
+			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId),
 			[]string{zone3})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(statuscode).To(gomega.Equal(204))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
@@ -679,8 +691,11 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		expectedStatusCodes := []int{status_code_failure, status_code_success}
 
 		ginkgo.By("Create a WCP namespace tagged to zone-1 & zone-2")
-		namespace = createTestWcpNsWithZones(vcRestSessionId, sharedStorageProfileId, getSvcId(vcRestSessionId),
+		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
+			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId),
 			[]string{zone1, zone2})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(statuscode).To(gomega.Equal(204))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
@@ -766,5 +781,63 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, statefulset, nil, nil, namespace,
 			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/*
+		Testcase-13
+		PVC requested topology is zone-1, but the namespace is tagged to zone-3
+		Steps:
+		1. Create a WCP namespace and tag it to zone-3.
+		2. Create two zonal storage policy compatible with each zone-1 and zone-3  and tag it to the above namespace.
+		3. Create PVC using zone-3 storage policy but the request topology for pvc is set to zone-1
+		4. PVC creation should get stuck in a pending state with an appropriate error message.
+		5. Verify the error message.
+		6. Clean up by deleting volume, and Namespace.
+	*/
+
+	ginkgo.It("Create pvc with requested topology annotation tagged to one zone but "+
+		"namespace is tagged to different zone", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// reading zonal storage policy of zone-1 mgmt domain and zone-3 wrkld domain
+		zonalStoragePolicyZone1 := GetAndExpectStringEnvVar(envZonal1StoragePolicyName)
+		storageProfileIdZone1 := e2eVSphere.GetSpbmPolicyID(zonalStoragePolicyZone1)
+		zonalStoragePolicyZone3 := GetAndExpectStringEnvVar(envZonal3StoragePolicyName)
+		storageProfileIdZone3 := e2eVSphere.GetSpbmPolicyID(zonalStoragePolicyZone3)
+
+		ginkgo.By("Creating wcp namespace tagged to zone3 and zonal policies set is of zone1 and zone3")
+		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(
+			vcRestSessionId,
+			[]string{storageProfileIdZone1, storageProfileIdZone3},
+			getSvcId(vcRestSessionId), []string{zone3})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(statuscode).To(gomega.Equal(204))
+		defer func() {
+			delTestWcpNs(vcRestSessionId, namespace)
+			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+		}()
+
+		ginkgo.By("Read zonal storage policy of zone3")
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalStoragePolicyZone3, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Creating pvc with requested topology annotation set to zone1")
+		pvclaim, err := createPvcWithRequestedTopology(ctx, client, namespace, nil, "", storageclass, "", zone1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Expect claim to fail provisioning because namespace " +
+			"is tagged to zone3, pvc is created with storage class of zone3 but pvc ßrequested annotation is set to zone1")
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx,
+			v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
+		gomega.Expect(err).To(gomega.HaveOccurred())
+
+		expectedErrMsg := "failed to provision volume with StorageClass"
+		framework.Logf("Expected failure message: %+q", expectedErrMsg)
+		errorOccurred := checkEventsforError(client, pvclaim.Namespace,
+			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
+		gomega.Expect(errorOccurred).To(gomega.BeTrue())
 	})
 })
