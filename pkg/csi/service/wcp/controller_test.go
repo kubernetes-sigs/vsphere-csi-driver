@@ -28,8 +28,8 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/google/uuid"
+	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/pbm"
-	"github.com/vmware/govmomi/simulator"
 	v1 "k8s.io/api/core/v1"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -83,9 +83,6 @@ func getControllerTest(t *testing.T) *controllerTest {
 		// CNS based CSI requires a valid cluster name.
 		config.Global.ClusterID = testClusterName
 
-		clusterMoRef := simulator.Map.Any("ClusterComputeResource").(*simulator.ClusterComputeResource).Reference()
-		clusterComputeResourceMoIds = append(clusterComputeResourceMoIds, clusterMoRef.Value)
-
 		vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)
 		if err != nil {
 			t.Fatal(err)
@@ -100,6 +97,12 @@ func getControllerTest(t *testing.T) *controllerTest {
 		if err != nil {
 			t.Fatal(err)
 		}
+
+		clusters, err := find.NewFinder(vcenter.Client.Client).ClusterComputeResourceList(ctx, "*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		clusterComputeResourceMoIds = append(clusterComputeResourceMoIds, clusters[0].Reference().Value)
 
 		fakeOpStore, err := unittestcommon.InitFakeVolumeOperationRequestInterface()
 		if err != nil {
