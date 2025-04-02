@@ -51,6 +51,7 @@ import (
 
 	"github.com/go-logr/zapr"
 	cr_log "sigs.k8s.io/controller-runtime/pkg/log"
+
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	sqperiodicsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagequotaperiodicsync/v1alpha1"
@@ -101,7 +102,7 @@ var (
 	// isMultiVCenterFssEnabled is true if the Multi VC support FSS is enabled, false otherwise.
 	isMultiVCenterFssEnabled bool
 
-	//IsMigrationEnabled is true when in-tree to CSI Migration FSS is enabled for the driver, false otherwise.
+	// IsMigrationEnabled is true when in-tree to CSI Migration FSS is enabled for the driver, false otherwise.
 	IsMigrationEnabled bool
 	// nodeMgr stores the manager to interact with nodeVMs.
 	nodeMgr node.Manager
@@ -475,8 +476,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		volumeInfoCrDeletionMap[metadataSyncer.host] = make(map[string]bool)
 		volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
 
-		volumeManager, err := volumes.GetManager(ctx, vCenter,
-			nil, false, false, false, metadataSyncer.clusterFlavor)
+		volumeManager, err := volumes.GetManager(ctx, vCenter, nil,
+			false, false,
+			false, metadataSyncer.clusterFlavor, false)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
@@ -550,8 +552,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			volumeInfoCrDeletionMap[metadataSyncer.host] = make(map[string]bool)
 			volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
 
-			volumeManager, err := volumes.GetManager(ctx, vCenter, nil, false, false, false,
-				metadataSyncer.clusterFlavor)
+			volumeManager, err := volumes.GetManager(ctx, vCenter, nil,
+				false, false,
+				false, metadataSyncer.clusterFlavor, false)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 			}
@@ -573,9 +576,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, err: %v",
 						vcconfig.Host, err)
 				}
-				volumeManager, err := volumes.GetManager(ctx, vCenter,
-					nil, false, true,
-					multivCenterTopologyDeployment, metadataSyncer.clusterFlavor)
+				volumeManager, err := volumes.GetManager(ctx, vCenter, nil,
+					false, true,
+					multivCenterTopologyDeployment, metadataSyncer.clusterFlavor, false)
 				if err != nil {
 					return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 				}
@@ -2303,8 +2306,9 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
 			}
-			volumeManager, err := volumes.GetManager(ctx, vcenter, nil, false, false, false,
-				metadataSyncer.clusterFlavor)
+			volumeManager, err := volumes.GetManager(ctx, vcenter, nil,
+				false, false,
+				false, metadataSyncer.clusterFlavor, false)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 			}
