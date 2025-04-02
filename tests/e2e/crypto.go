@@ -152,7 +152,6 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			err := invokeVCenterServiceControl(ctx, startOperation, vsanhealthServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to come up again", vsanHealthServiceWaitTime))
@@ -604,7 +603,6 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID1)
 
 		ginkgo.By("7. Stop Vsan-health service")
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		isVsanHealthServiceStopped = true
 		err := invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)

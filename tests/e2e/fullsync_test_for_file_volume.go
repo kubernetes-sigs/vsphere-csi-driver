@@ -80,13 +80,11 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 
 		labelKey = "app"
 		labelValue = "e2e-fullsync"
-
 	})
 
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		if isVsanHealthServiceStopped {
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
@@ -140,7 +138,6 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 		}()
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		defer func() {
