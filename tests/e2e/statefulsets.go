@@ -103,6 +103,11 @@ var _ = ginkgo.Describe("statefulset", func() {
 		if err == nil && service != nil {
 			deleteService(namespace, client, service)
 		}
+
+		// read vc address
+		vcAddress, _, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		if stretchedSVC {
 			zonalPolicy = GetAndExpectStringEnvVar(envZonalStoragePolicyName)
 			labels_ns = map[string]string{}
@@ -131,7 +136,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 		}
 
 		if supervisorCluster || stretchedSVC {
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
 			vcVersion = getVCversion(ctx, vcAddress)
 			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)

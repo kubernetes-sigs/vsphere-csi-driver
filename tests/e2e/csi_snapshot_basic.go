@@ -73,7 +73,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		isVsanHealthServiceStopped bool
 		labels_ns                  map[string]string
 		isVcRebooted               bool
-		vcAddress                  string
 		labelsMap                  map[string]string
 		scName                     string
 		volHandle                  string
@@ -106,7 +105,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 
 		// reading vc credentials
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		vcAddress, vCenterIP, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// reading operation scale value
 		if os.Getenv("VOLUME_OPS_SCALE") != "" {
@@ -168,7 +168,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
 			vcVersion = getVCversion(ctx, vcAddress)
 			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
@@ -3893,9 +3892,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defer func() {
 			ginkgo.By("Rebooting VC")
 			err = invokeVCenterReboot(ctx, vcAddress)
-			isVcRebooted = true
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
+			err = waitForHostToBeDown(ctx, vCenterIP)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			isVcRebooted = true
+			err = waitForHostToBeUp(vCenterIP)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Done with reboot")
 			essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
@@ -3912,9 +3913,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Rebooting VC")
 		err = invokeVCenterReboot(ctx, vcAddress)
-		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
+		err = waitForHostToBeDown(ctx, vCenterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isVcRebooted = true
+		err = waitForHostToBeUp(vCenterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
@@ -4004,9 +4007,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Rebooting VC")
 		err = invokeVCenterReboot(ctx, vcAddress)
-		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
+		err = waitForHostToBeDown(ctx, vCenterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isVcRebooted = true
+		err = waitForHostToBeUp(vCenterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
@@ -6986,9 +6991,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ginkgo.By("Rebooting VC")
 		err = invokeVCenterReboot(ctx, vcAddress)
-		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
+		err = waitForHostToBeDown(ctx, vCenterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isVcRebooted = true
+		err = waitForHostToBeUp(vCenterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 		var essentialServices []string

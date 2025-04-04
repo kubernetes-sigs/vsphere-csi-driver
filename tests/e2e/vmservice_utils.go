@@ -863,11 +863,18 @@ func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	gatewayClient, err := ssh.Dial("tcp", GetAndExpectStringEnvVar(envGatewayVmIp)+":22", gatewayConfig)
+	gatewayVmIp := GetAndExpectStringEnvVar(envGatewayVmIp)
+	gatewayIpSsdPortNum, err := getPortNum(gatewayVmIp)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gatewayIpAddr := gatewayVmIp + ":" + gatewayIpSsdPortNum
+	gatewayClient, err := ssh.Dial("tcp", gatewayIpAddr, gatewayConfig)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	vmIpSshdPortNum, err := getPortNum(vmIp)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	vmIpAddr := vmIp + ":" + vmIpSshdPortNum
 	framework.Logf("VM IP: %s", vmIp)
-	conn, err := gatewayClient.Dial("tcp", vmIp+":22")
+	conn, err := gatewayClient.Dial("tcp", vmIpAddr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ncc, chans, reqs, err := ssh.NewClientConn(conn, vmIp, vmConfig)

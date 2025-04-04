@@ -123,10 +123,13 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		labelKey = "app"
 		labelValue = "e2e-fullsync"
+
+		// read vc address
+		vcAddress, _, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	ginkgo.AfterEach(func() {
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		if isVsanHealthServiceStopped {
@@ -175,7 +178,6 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -264,7 +266,6 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -365,7 +366,6 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		}
 		gomega.Expect(datastore).NotTo(gomega.BeNil())
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -436,7 +436,6 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			pvs = append(pvs, pvList[0])
 		}
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -569,7 +568,6 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -654,7 +652,6 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		framework.ExpectNoError(fpv.WaitOnPVandPVC(ctx, client, f.Timeouts, namespace, pv, pvc))
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -834,7 +831,6 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Stopping vsan-health on the vCenter host")
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

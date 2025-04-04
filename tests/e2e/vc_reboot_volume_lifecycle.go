@@ -44,7 +44,6 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		storagePolicyName string
 		scParameters      map[string]string
 		isVcRebooted      bool
-		vcAddress         string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -58,7 +57,10 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		// read vc address
+		vcAddress, vCenterIP, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 
@@ -195,9 +197,11 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 
 		ginkgo.By("Rebooting VC")
 		err = invokeVCenterReboot(ctx, vcAddress)
-		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
+		err = waitForHostToBeDown(ctx, vCenterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isVcRebooted = true
+		err = waitForHostToBeUp(vCenterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 		var essentialServices []string

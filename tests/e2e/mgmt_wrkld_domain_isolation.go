@@ -130,6 +130,10 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		} else {
 			sharedStorageProfileId = e2eVSphere.GetSpbmPolicyID(sharedStoragePolicyName)
 		}
+
+		// read vc address
+		vcAddress, _, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	ginkgo.AfterEach(func() {
@@ -683,9 +687,6 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 
 		// statefulset replica count
 		replicas = 3
-
-		//vc ip
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		// expected status code while add/removing the zones from NS
 		expectedStatusCodes := []int{status_code_failure, status_code_success}

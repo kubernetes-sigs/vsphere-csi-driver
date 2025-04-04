@@ -22,7 +22,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
@@ -70,6 +69,8 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		isSPSServiceStopped        bool
 		err                        error
 		isVcRebooted               bool
+		vcAddress1                 string
+		vCenterIP1                 string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -120,6 +121,10 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		// fetching k8s master ip
 		allMasterIps = getK8sMasterIPs(ctx, client)
 		masterIp = allMasterIps[0]
+
+		// read Vc1 address
+		vcAddress1, _, err = readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	ginkgo.AfterEach(func() {
@@ -185,17 +190,13 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		}
 
 		if isVsanHealthServiceStopped {
-			vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
 			framework.Logf("Bringing vsanhealth up before terminating the test")
-			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
+			startVCServiceWait4VPs(ctx, vcAddress1, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 
 		if isSPSServiceStopped {
-			vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
 			framework.Logf("Bringing sps up before terminating the test")
-			startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
+			startVCServiceWait4VPs(ctx, vcAddress1, spsServiceName, &isSPSServiceStopped)
 			isSPSServiceStopped = false
 		}
 
@@ -207,9 +208,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 
 		// restarting pending and stopped services after vc reboot if any
 		if isVcRebooted {
-			vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
-			err := checkVcServicesHealthPostReboot(ctx, vcAddress, pollTimeout)
+			err := checkVcServicesHealthPostReboot(ctx, vcAddress1, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 				"Setup is not in healthy state, Got timed-out waiting for required VC services to be up and running")
 		}
@@ -993,18 +992,18 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Rebooting VC1")
-		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[0] + ":" + sshdPort
-		framework.Logf("vcAddress - %s ", vcAddress)
-		err = invokeVCenterReboot(ctx, vcAddress)
-		isVcRebooted = true
+		framework.Logf("vcAddress - %s ", vcAddress1)
+		err = invokeVCenterReboot(ctx, vcAddress1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(vCenterHostname[0])
+		err = waitForHostToBeDown(ctx, vCenterIP1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isVcRebooted = true
+		err = waitForHostToBeUp(vCenterIP1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 
 		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
-		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
+		checkVcenterServicesRunning(ctx, vcAddress1, essentialServices)
 
 		//After reboot
 		multiVCbootstrap()
@@ -1112,16 +1111,14 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring down Vsan-health service on VC1")
-		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[0] + ":" + sshdPort
-		framework.Logf("vcAddress - %s ", vcAddress)
-		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
+		framework.Logf("vcAddress - %s ", vcAddress1)
+		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isVsanHealthServiceStopped = true
 		defer func() {
 			if isVsanHealthServiceStopped {
 				framework.Logf("Bringing vsanhealth up before terminating the test")
-				startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
+				startVCServiceWait4VPs(ctx, vcAddress1, vsanhealthServiceName, &isVsanHealthServiceStopped)
 			}
 		}()
 
@@ -1173,7 +1170,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		}
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
+		startVCServiceWait4VPs(ctx, vcAddress1, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
@@ -1296,18 +1293,16 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring down SPS service")
-		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[0] + ":" + sshdPort
-		framework.Logf("vcAddress - %s ", vcAddress)
-		err = invokeVCenterServiceControl(ctx, stopOperation, spsServiceName, vcAddress)
+		framework.Logf("vcAddress - %s ", vcAddress1)
+		err = invokeVCenterServiceControl(ctx, stopOperation, spsServiceName, vcAddress1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isSPSServiceStopped = true
-		err = waitVCenterServiceToBeInState(ctx, spsServiceName, vcAddress, svcStoppedMessage)
+		err = waitVCenterServiceToBeInState(ctx, spsServiceName, vcAddress1, svcStoppedMessage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if isSPSServiceStopped {
 				framework.Logf("Bringing sps up before terminating the test")
-				startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
+				startVCServiceWait4VPs(ctx, vcAddress1, spsServiceName, &isSPSServiceStopped)
 				isSPSServiceStopped = false
 			}
 		}()
@@ -1322,7 +1317,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		}
 
 		ginkgo.By("Bringup SPS service")
-		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
+		startVCServiceWait4VPs(ctx, vcAddress1, spsServiceName, &isSPSServiceStopped)
 
 		ginkgo.By("Verify deployment pods should be in running ready state post sps service up")
 		for i := 0; i < len(depl); i++ {

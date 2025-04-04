@@ -110,6 +110,12 @@ var (
 	pvRegion               string
 	vmIp2MoMap             map[string]vim25types.ManagedObjectReference
 	vcVersion              string
+	ipPortMap              = make(map[string]string)
+	isPrivateNetwork       = getEnvAsBool("IS_PRIVATE_NETWORK", false)
+	once                   sync.Once
+	vcAddress              string
+	vCenterIP              string
+	ipPortMap1             = make(map[string]string)
 )
 
 type TKGCluster struct {
@@ -1441,8 +1447,6 @@ func invokeVCenterReboot(ctx context.Context, host string) error {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
-	// checking for host to be down
-	err = waitForHostToBeDown(ctx, host)
 	return err
 }
 
@@ -3638,6 +3642,8 @@ func hostLogin(user, instruction string, questions []string, echos []bool) (answ
 // runCommandOnESX executes ssh commands on the give ESX host and returns the bash
 // result.
 func runCommandOnESX(username string, addr string, cmd string) (string, error) {
+	var sshdPort string
+	var err error
 	// Authentication.
 	config := &ssh.ClientConfig{
 		User:            username,
@@ -3648,7 +3654,12 @@ func runCommandOnESX(username string, addr string, cmd string) (string, error) {
 	}
 
 	result := fssh.Result{Host: addr, Cmd: cmd}
-
+	if isPrivateNetwork {
+		sshdPort, err = getPortNum(addr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		sshdPort = defaultShhdPortNum
+	}
 	// Connect.
 	client, err := ssh.Dial("tcp", net.JoinHostPort(addr, sshdPort), config)
 	if err != nil {
@@ -3929,19 +3940,23 @@ func waitForHostToBeUp(ip string, pollInfo ...time.Duration) error {
 	}
 	gomega.Expect(ip).NotTo(gomega.BeNil())
 	dialTimeout := 2 * time.Second
+
+	sshdPortNum, err := getPortNum(ip)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	addr := ip + ":" + sshdPortNum
 	waitErr := wait.PollUntilContextTimeout(context.Background(), pollInterval, pollTimeOut, true,
 		func(ctx context.Context) (bool, error) {
-			_, err := net.DialTimeout("tcp", ip+":22", dialTimeout)
+			_, err := net.DialTimeout("tcp", addr, dialTimeout)
 			if err != nil {
-				framework.Logf("host %s unreachable, error: %s", ip, err.Error())
+				framework.Logf("host %s unreachable, error: %s", addr, err.Error())
 				return false, nil
 			} else {
-				framework.Logf("host %s is reachable", ip)
+				framework.Logf("host %s is reachable", addr)
 				hostReachableCount += 1
 			}
 			// checking if host is reachable 5 times
 			if hostReachableCount == 5 {
-				framework.Logf("host %s is reachable atleast 5 times", ip)
+				framework.Logf("host %s is reachable atleast 5 times", addr)
 				return true, nil
 			}
 			return false, nil
@@ -4121,8 +4136,11 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 
 // sshExec runs a command on the host via ssh.
 func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.Result, error) {
+	sshdPortNum, err := getPortNum(host)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	addr := host + ":" + sshdPortNum
 	result := fssh.Result{Host: host, Cmd: cmd}
-	sshClient, err := ssh.Dial("tcp", host+":22", sshClientConfig)
+	sshClient, err := ssh.Dial("tcp", addr, sshClientConfig)
 	if err != nil {
 		result.Stdout = ""
 		result.Stderr = ""
@@ -6240,10 +6258,12 @@ func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service strin
 // assignPolicyToWcpNamespace assigns a set of storage policies to a wcp namespace
 func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 	namespace string, policyNames []string, resourceQuotaLimit string) {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	vcAddress := vcIp + ":" + sshdPort
-	sessionId := createVcSession4RestApis(ctx)
+	var err error
 
+	vcAddress, vCenterIP, err = readVcAddress()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	sessionId := createVcSession4RestApis(ctx)
 	curlStr := ""
 	policyNamesArrLength := len(policyNames)
 	defRqLimit := strings.Split(resourceQuotaLimit, "Gi")[0]
@@ -6264,7 +6284,7 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 	curlCmd := fmt.Sprintf(`curl -s -o /dev/null -w "%s" -k -X PATCH`+
 		` 'https://%s/api/vcenter/namespaces/instances/%s' -H `+
 		`'vmware-api-session-id: %s' -H 'Content-type: application/json' -d `+
-		`'{"storage_specs": [ %s ]}'`, httpCodeStr, vcIp, namespace, sessionId, curlStr)
+		`'{"storage_specs": [ %s ]}'`, httpCodeStr, vCenterIP, namespace, sessionId, curlStr)
 
 	framework.Logf("Running command: %s", curlCmd)
 	result, err := fssh.SSH(ctx, curlCmd, vcAddress, framework.TestContext.Provider)
@@ -6284,11 +6304,12 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 
 // createVcSession4RestApis generates session ID for VC to use in rest API calls
 func createVcSession4RestApis(ctx context.Context) string {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	vcAddress := vcIp + ":" + sshdPort
+	var err error
+	vcAddress, vCenterIP, err = readVcAddress()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	nimbusGeneratedVcPwd := GetAndExpectStringEnvVar(vcUIPwd)
 	curlCmd := fmt.Sprintf("curl -k -X POST https://%s/rest/com/vmware/cis/session"+
-		" -u 'Administrator@vsphere.local:%s'", vcIp, nimbusGeneratedVcPwd)
+		" -u 'Administrator@vsphere.local:%s'", vCenterIP, nimbusGeneratedVcPwd)
 	framework.Logf("Running command: %s", curlCmd)
 	result, err := fssh.SSH(ctx, curlCmd, vcAddress, framework.TestContext.Provider)
 	fssh.LogResult(result)
@@ -7516,4 +7537,152 @@ func isAvailable(alpha []int, val int) bool {
 		}
 	}
 	return false
+}
+
+/*
+readVcAddress function retrieves the vCenter address along with its
+corresponding IP and SSH port
+*/
+func readVcAddress() (string, string, error) {
+	if vcAddress == "" {
+		vCenterIP = e2eVSphere.Config.Global.VCenterHostname
+		if vCenterIP == "" {
+			return "", "", fmt.Errorf("vCenter hostname is empty in configuration")
+		}
+		var sshdPort string
+		var err error
+
+		sshdPort, err = getPortNum(vCenterIP)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to get SSHD port for vCenter IP %s: %w", vCenterIP, err)
+		}
+
+		// Construct the vCenter address
+		vcAddress = vCenterIP + ":" + sshdPort
+	}
+	return vcAddress, vCenterIP, nil
+}
+
+/*
+readMultiVcAddress function retrieves the address and IP of a specific
+vCenter instance in a multi-vCenter environment.
+*/
+func readMultiVcAddress(vcIndex int) (string, string, error) {
+	vCenterIPList := multiVCe2eVSphere.multivcConfig.Global.VCenterHostname
+	if vCenterIPList == "" {
+		return "", "", fmt.Errorf("vCenter hostname is empty in configuration")
+	}
+
+	vCenterIPs := strings.Split(vCenterIPList, ",")
+	var sshdPort string
+	var err error
+
+	sshdPort, err = getPortNum(vCenterIPs[vcIndex])
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get SSHD port for vCenter IP %s: %w", vCenterIPs[vcIndex], err)
+	}
+
+	// Extract the specific vCenter IP
+	vCenterIP := strings.TrimSpace(vCenterIPs[vcIndex])
+	vcAddress := vCenterIP + ":" + sshdPort
+
+	return vcAddress, vCenterIP, nil
+}
+
+/*
+getPortNum function retrieves the SSHD port number for a given IP address,
+considering whether the network is private or public.
+*/
+func getPortNum(ip string) (string, error) {
+	var port string
+	if isPrivateNetwork {
+		once.Do(populateIpPortMap)
+		if p, exists := ipPortMap[ip]; exists {
+			port = p
+		} else {
+			return "", fmt.Errorf("port number is missing for IP: %s", ip)
+		}
+	} else {
+		port = defaultShhdPortNum
+	}
+	return port, nil
+}
+
+/*
+populateIpPortMap function initializes a mapping of IP addresses to their respective SSHD port
+numbers by reading environment variables.
+*/
+func populateIpPortMap() {
+	k8sMasterIp1 := GetAndExpectStringEnvVar(envMasterIp1)
+	k8sMasterIp1PortNum := GetorIgnoreStringEnvVar(envMasterIP1SshdPortNum)
+	k8sMasterIp2 := GetorIgnoreStringEnvVar(envMasterIp2)
+	k8sMasterIp2PortNum := GetorIgnoreStringEnvVar(envMasterIP2SshdPortNum)
+	k8sMasterIp3 := GetorIgnoreStringEnvVar(envMasterIp3)
+	k8sMasterIp3PortNum := GetorIgnoreStringEnvVar(envMasterIP3SshdPortNum)
+	esxIp1 := GetAndExpectStringEnvVar(envEsxIp1)
+	esxIp1PortNum := GetorIgnoreStringEnvVar(envEsx1PortNum)
+	esxIp2 := GetorIgnoreStringEnvVar(envEsxIp2)
+	esxIp2PortNum := GetorIgnoreStringEnvVar(envEsx2PortNum)
+	esxIp3 := GetorIgnoreStringEnvVar(envEsxIp3)
+	esxIp3PortNum := GetorIgnoreStringEnvVar(envEsx3PortNum)
+	esxIp4 := GetorIgnoreStringEnvVar(envEsxIp4)
+	esxIp4PortNum := GetorIgnoreStringEnvVar(envEsx4PortNum)
+	esxIp5 := GetorIgnoreStringEnvVar(envEsxIp5)
+	esxIp5PortNum := GetorIgnoreStringEnvVar(envEsx5PortNum)
+	esxIp6 := GetorIgnoreStringEnvVar(envEsxIp6)
+	esxIp6PortNum := GetorIgnoreStringEnvVar(envEsx6PortNum)
+	esxIp7 := GetorIgnoreStringEnvVar(envEsxIp7)
+	esxIp7PortNum := GetorIgnoreStringEnvVar(envEsx7PortNum)
+	esxIp8 := GetorIgnoreStringEnvVar(envEsxIp8)
+	esxIp8PortNum := GetorIgnoreStringEnvVar(envEsx8PortNum)
+	esxIp9 := GetorIgnoreStringEnvVar(envEsxIp9)
+	esxIp9PortNum := GetorIgnoreStringEnvVar(envEsx9PortNum)
+	esxIp10 := GetorIgnoreStringEnvVar(envEsxIp10)
+	esxIp10PortNum := GetorIgnoreStringEnvVar(envEsx10PortNum)
+	vcIp1 := GetAndExpectStringEnvVar(envVcIP1)
+	vcIp1PortNum := GetorIgnoreStringEnvVar(envVc1SshdPortNum)
+	vcIp2 := GetorIgnoreStringEnvVar(envVcIP2)
+	vcIp2PortNum := GetorIgnoreStringEnvVar(envVc2SshdPortNum)
+	vcIp3 := GetorIgnoreStringEnvVar(envVcIP3)
+	vcIp3PortNum := GetorIgnoreStringEnvVar(envVc3SshdPortNum)
+	gatewayVmIP := GetorIgnoreStringEnvVar(envGatewayVmIp)
+	gatewayVmIpPortNum := GetorIgnoreStringEnvVar(envGatewayVmIpPortNum)
+
+	ipPortMap[k8sMasterIp1] = k8sMasterIp1PortNum
+	ipPortMap[k8sMasterIp2] = k8sMasterIp2PortNum
+	ipPortMap[k8sMasterIp3] = k8sMasterIp3PortNum
+	ipPortMap[esxIp1] = esxIp1PortNum
+	ipPortMap[esxIp2] = esxIp2PortNum
+	ipPortMap[esxIp3] = esxIp3PortNum
+	ipPortMap[esxIp4] = esxIp4PortNum
+	ipPortMap[esxIp5] = esxIp5PortNum
+	ipPortMap[esxIp6] = esxIp6PortNum
+	ipPortMap[esxIp7] = esxIp7PortNum
+	ipPortMap[esxIp8] = esxIp8PortNum
+	ipPortMap[esxIp9] = esxIp9PortNum
+	ipPortMap[esxIp10] = esxIp10PortNum
+	ipPortMap[vcIp1] = vcIp1PortNum
+	ipPortMap[vcIp2] = vcIp2PortNum
+	ipPortMap[vcIp3] = vcIp3PortNum
+	ipPortMap[gatewayVmIP] = gatewayVmIpPortNum
+
+	fmt.Println(ipPortMap)
+}
+
+/*
+getEnvAsBool function retrieves the value of an environment variable as a boolean.
+If the variable is not set or cannot be parsed, it returns a specified default value.
+*/
+func getEnvAsBool(envVar string, defaultValue bool) bool {
+	val, exists := os.LookupEnv(envVar)
+	if !exists || val == "" {
+		return defaultValue
+	}
+
+	parsedVal, err := strconv.ParseBool(val)
+	if err != nil {
+		return defaultValue
+	}
+
+	return parsedVal
 }

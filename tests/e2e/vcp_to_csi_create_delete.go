@@ -93,6 +93,11 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		} else {
 			migrationEnabledByDefault = false
 		}
+
+		// read vc address
+		vcAddress, _, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	})
 
 	ginkgo.JustAfterEach(func() {
@@ -107,8 +112,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		}
 		vcpPvcsPreMig = []*v1.PersistentVolumeClaim{}
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
-
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
@@ -446,8 +449,6 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		gomega.Expect(found).To(gomega.BeTrue())
 		err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc2, pv2, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		ginkgo.By(fmt.Sprintln("Stopping sps on the vCenter host"))
 		isSPSserviceStopped = true

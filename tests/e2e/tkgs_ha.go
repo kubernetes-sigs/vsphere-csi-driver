@@ -72,6 +72,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		isVcRebooted               bool
 		vcAddress                  string
 		isQuotaValidationSupported bool
+		err                        error
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -87,7 +88,10 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		labels_ns = map[string]string{}
 		labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
 		labels_ns["e2e-framework"] = f.BaseName
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+
+		// read vc address
+		vcAddress, vCenterIP, err = readVcAddress()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if zonalPolicy == "" {
 			ginkgo.Fail(envZonalStoragePolicyName + " env variable not set")
@@ -144,7 +148,6 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}
 
 		if supervisorCluster || stretchedSVC {
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
 			vcVersion = getVCversion(ctx, vcAddress)
 			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
@@ -3224,9 +3227,11 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		ginkgo.By("Rebooting VC")
 		err = invokeVCenterReboot(ctx, vcAddress)
-		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
+		err = waitForHostToBeDown(ctx, vCenterIP)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isVcRebooted = true
+		err = waitForHostToBeUp(vCenterIP)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName, wcpServiceName}

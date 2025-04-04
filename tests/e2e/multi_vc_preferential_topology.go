@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -454,17 +453,19 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Rebooting VC")
-		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[0] + ":" + sshdPort
-		framework.Logf("vcAddress - %s ", vcAddress)
-		err = invokeVCenterReboot(ctx, vcAddress)
+		vcAddress1, vCenterIP1, err := readMultiVcAddress(0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(vCenterHostname[0])
+		framework.Logf("vcAddress - %s ", vcAddress1)
+		err = invokeVCenterReboot(ctx, vcAddress1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitForHostToBeDown(ctx, vCenterIP1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitForHostToBeUp(vCenterIP1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 
 		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
-		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
+		checkVcenterServicesRunning(ctx, vcAddress1, essentialServices)
 
 		//After reboot
 		multiVCbootstrap()

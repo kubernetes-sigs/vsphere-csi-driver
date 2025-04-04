@@ -68,6 +68,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		scParameters               map[string]string
 		labelsMap                  map[string]string
 		isVsanHealthServiceStopped bool
+		vcAddress1                 string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -134,6 +135,10 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		//setting map values
 		labelsMap["app"] = "test"
 		scParameters[scParamFsType] = nfs4FSType
+
+		// read Vc1 address
+		vcAddress1, _, err = readMultiVcAddress(0)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	ginkgo.AfterEach(func() {
@@ -156,10 +161,8 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		}
 
 		if isVsanHealthServiceStopped {
-			vCenterHostname := strings.Split(e2eVSphere.Config.Global.VCenterHostname, ",")
-			vcAddress := vCenterHostname[0] + ":" + sshdPort
 			framework.Logf("Bringing vsanhealth up before terminating the test")
-			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
+			startVCServiceWait4VPs(ctx, vcAddress1, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 	})
 
@@ -852,12 +855,11 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		}()
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
-		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
+		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress1)
 		defer func() {
 			if isVsanHealthServiceStopped {
-				startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
+				startVCServiceWait4VPs(ctx, vcAddress1, vsanhealthServiceName, &isVsanHealthServiceStopped)
 			}
 		}()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -888,7 +890,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		}
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
+		startVCServiceWait4VPs(ctx, vcAddress1, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
