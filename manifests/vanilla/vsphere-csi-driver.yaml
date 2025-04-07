@@ -590,6 +590,8 @@ spec:
       priorityClassName: system-node-critical
       nodeSelector:
         kubernetes.io/os: windows
+      dnsPolicy: "ClusterFirstWithHostNet"
+      serviceAccountName: vsphere-csi-node
       securityContext:
         windowsOptions:
           hostProcess: true
