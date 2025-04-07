@@ -722,6 +722,7 @@ func setSShdPort() {
 		k8sMasterIp2PortNum = GetorIgnoreStringEnvVar(envMasterIP2SshdPortNum)
 		k8sMasterIp3PortNum = GetorIgnoreStringEnvVar(envMasterIP3SshdPortNum)
 
+		ipPortMap[vcIp1] = vcIp1SshPortNum
 		ipPortMap[esxIp1] = esxIp1PortNum
 		ipPortMap[esxIp2] = esxIp2PortNum
 		ipPortMap[esxIp3] = esxIp3PortNum

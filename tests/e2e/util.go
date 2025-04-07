@@ -1468,6 +1468,9 @@ func invokeVCenterServiceControl(ctx context.Context, command, service, host str
 // waitVCenterServiceToBeInState invokes the status check for the given service and waits
 // via service-control on the given vCenter host over SSH.
 func waitVCenterServiceToBeInState(ctx context.Context, serviceName string, host string, state string) error {
+	ip, portNum, err := getPortNumAndIP(host)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	host = ip + ":" + portNum
 	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeoutShort*2, true,
 		func(ctx context.Context) (bool, error) {
 			sshCmd := fmt.Sprintf("service-control --%s %s", "status", serviceName)
@@ -6258,12 +6261,8 @@ func waitAndGetContainerID(sshClientConfig *ssh.ClientConfig, k8sMasterIP string
 }
 
 // startVCServiceWait4VPs starts given service and waits for all VPs to come online
-func startVCServiceWait4VPs(ctx context.Context, vcIp string, service string, isSvcStopped *bool) {
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(vcIp)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	vcAddress := ip + ":" + portNum
-	err = invokeVCenterServiceControl(ctx, startOperation, service, vcAddress)
+func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service string, isSvcStopped *bool) {
+	err := invokeVCenterServiceControl(ctx, startOperation, service, vcAddress)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = waitVCenterServiceToBeInState(ctx, service, vcAddress, svcRunningMessage)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
