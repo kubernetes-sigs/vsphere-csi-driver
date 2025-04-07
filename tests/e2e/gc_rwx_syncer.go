@@ -46,6 +46,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		storagePolicyName          string
 		volHealthCheck             bool
 		isVsanHealthServiceStopped bool
+		vcAddress                  string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -74,7 +75,6 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		defer cancel()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 		if isVsanHealthServiceStopped {
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}

@@ -58,6 +58,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		isSPSServiceStopped        bool
 		csiNamespace               string
 	)
+
 	ginkgo.BeforeEach(func() {
 		bootstrap()
 		ctx, cancel := context.WithCancel(context.Background())
@@ -83,7 +84,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		if supervisorCluster {
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
@@ -372,7 +372,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		isVsanHealthServiceStopped = true
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
@@ -539,7 +538,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		}
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -658,7 +656,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		ginkgo.By(fmt.Sprintln("Stopping sps on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isSPSServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1426,7 +1423,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		ginkgo.By("Invoking password rotation")
 		ginkgo.By("Get svcClient and svNamespace")
 		svClient, _ := getSvcClientAndNamespace()
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		passwordRotated, err := performPasswordRotationOnSupervisor(svClient, ctx, csiNamespace, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(passwordRotated).To(gomega.BeTrue())
@@ -1856,7 +1852,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		}()
 
 		ginkgo.By("Bringing SV API server down")
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		framework.Logf("VC ip address: %v", vcAddress)
 
 		err = bringSvcK8sAPIServerDown(ctx, vcAddress)
@@ -1959,7 +1954,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2559,7 +2553,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		isVsanHealthServiceStopped = true
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",

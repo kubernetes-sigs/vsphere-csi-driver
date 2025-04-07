@@ -138,6 +138,7 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 	f *framework.Framework) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	var err error
 
 	ginkgo.By("CNS_TEST: Running for GC setup")
 	nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
@@ -147,7 +148,6 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 	}
 
 	ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
-	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 	err = invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	isServiceStopped = true
@@ -708,7 +708,7 @@ func getClusterNameFromZone(ctx context.Context, availabilityZone string) string
 	cmd := fmt.Sprintf("dcli +username %s +password %s +skip +show com vmware "+
 		"vcenter consumptiondomains zones cluster associations get --zone "+
 		"%s", adminUser, nimbusGeneratedVcPwd, availabilityZone)
-	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+
 	framework.Logf("Invoking command %v on vCenter host %v", cmd, vcAddress)
 	result, err := fssh.SSH(ctx, cmd, vcAddress, framework.TestContext.Provider)
 	framework.Logf("result: %v", result)
