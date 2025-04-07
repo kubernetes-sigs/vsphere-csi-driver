@@ -100,13 +100,16 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		}
 	}
 
+	// On Supervisor cluster, if SVPVCSnapshotProtectionFinalizer FSS is enabled,
 	// Iterate over all PVCs & VolumeSnapshots and find ones with DeletionTimestamp set but
 	// CNS specific finalizer present.
 	// For all such PVCs/Snapshots, attempt to remove CNS finalizer if corresponding guest cluster does not exist.
 	// This code handles cases where namespace deletion causes guest cluster and its corresponding components
 	// to be deleted but associated objects on supervisor remain stuck in Terminating state.
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		cleanupUnusedPVCsAndSnapshotsFromGuestCluster(ctx)
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
+			cleanupUnusedPVCsAndSnapshotsFromGuestCluster(ctx)
+		}
 	}
 
 	defer func() {
@@ -1663,7 +1666,7 @@ func cleanupUnusedPVCsAndSnapshotsFromGuestCluster(ctx context.Context) {
 		if (pvc.ObjectMeta.DeletionTimestamp != nil) &&
 			(len(pvc.ObjectMeta.Finalizers) != 0) {
 			for i, finalizer := range pvc.ObjectMeta.Finalizers {
-				if finalizer != cnsoperatortypes.CNSPvcFinalizer {
+				if finalizer != cnsoperatortypes.CNSVolumeFinalizer {
 					continue
 				}
 				// Fetch guest cluster name from PVC label and check if that guest cluster,
@@ -1689,7 +1692,7 @@ func cleanupUnusedPVCsAndSnapshotsFromGuestCluster(ctx context.Context) {
 					// Remove finalizer if associated guest cluster is not-running/deleted already
 					log.Infof("cleanupUnusedPVCsAndSnapshotsFromGuestCluster: Removing %q finalizer from PVC "+
 						"with name: %q on namespace: %q in Terminating state",
-						cnsoperatortypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
+						cnsoperatortypes.CNSVolumeFinalizer, pvc.Name, pvc.Namespace)
 					pvc.ObjectMeta.Finalizers = slices.Delete(pvc.ObjectMeta.Finalizers, i,
 						i+1)
 					_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx,

@@ -32,6 +32,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
+
+	"slices"
 
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -152,12 +155,21 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 		}
 	}
 
-	// Set csi.vsphere-volume labels on the Supervisor PVC which is
-	// requested from TKC Cluster
+	// Set csi.vsphere-volume labels and CNS finalizer(if SVPVCSnapshotProtectionFinalizer FSS enabled)
+	// on the Supervisor PVC, which is requested from TKC Cluster
 	err = setGuestClusterDetailsOnSupervisorPVC(ctx, metadataSyncer, supervisorNamespace)
 	if err != nil {
-		log.Errorf("FullSync: Failed to set Guest Cluster labels on SupervisorPVC. Err: %v", err)
+		log.Errorf("FullSync: Failed to set Guest Cluster data on SupervisorPVC. Err: %v", err)
 		return err
+	}
+	// Set csi.vsphere-volume labels and CNS finalizer on the Supervisor VolumeSnapshot which is
+	// requested from TKC Cluster, if SVPVCSnapshotProtectionFinalizer FSS enabled
+	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
+		err = setGuestClusterDetailsOnSupervisorSnapshot(ctx, metadataSyncer, supervisorNamespace)
+		if err != nil {
+			log.Errorf("FullSync: Failed to set Guest Cluster data on SupervisorSnapshot. Err: %v", err)
+			return err
+		}
 	}
 	log.Infof("FullSync: End")
 	return nil
@@ -416,6 +428,7 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 				log.Error(msg)
 				continue
 			}
+			// Add label to Supervisor PVC that contains guest cluster details, if not present already.
 			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
 				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
 			if _, ok := svPVC.Labels[key]; !ok {
@@ -426,10 +439,29 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 				_, err = metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).Update(
 					ctx, svPVC, metav1.UpdateOptions{})
 				if err != nil {
-					msg := fmt.Sprintf("failed to update supervisor PVC: %q with guest cluster labels in %q namespace. Error: %+v",
-						pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
+					msg := fmt.Sprintf("failed to update supervisor PVC: %q with guest cluster labels in %q namespace."+
+						"Error: %+v", pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
 					log.Error(msg)
 					continue
+				}
+			}
+			// If SVPVCSnapshotProtectionFinalizer FSS is enabled, add finalizer "cns.vmware.com/pvc-protection"
+			// to Supervisor PVC, if not present already, to prevent accidental deletion from supervisor cluster.
+			// This is to handle upgrade case, where finalizer gets applied to existing PVCs from earlier TKR release.
+			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
+				cnsFinalizerPresent := slices.Contains(svPVC.ObjectMeta.Finalizers, cnsoperatortypes.CNSVolumeFinalizer)
+				if !cnsFinalizerPresent {
+					svPVC.ObjectMeta.Finalizers = append(svPVC.ObjectMeta.Finalizers, cnsoperatortypes.CNSVolumeFinalizer)
+				}
+				if !cnsFinalizerPresent {
+					_, err = metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).Update(
+						ctx, svPVC, metav1.UpdateOptions{})
+					if err != nil {
+						msg := fmt.Sprintf("failed to update supervisor PVC: %q with guest cluster labels in %q namespace."+
+							" Error: %+v", pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
+						log.Error(msg)
+						continue
+					}
 				}
 			}
 		}
@@ -448,4 +480,73 @@ func compareCnsVolumeMetadatas(guestObject *cnsvolumemetadatav1alpha1.CnsVolumeM
 		return false
 	}
 	return true
+}
+
+func setGuestClusterDetailsOnSupervisorSnapshot(ctx context.Context, metadataSyncer *metadataSyncInformer,
+	supervisorNamespace string) error {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Fullsync: Querying guest cluster API server for all VSC objects.")
+	// Create snaphotter client for guest cluster
+	snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
+	if err != nil {
+		log.Errorf("setGuestClusterDetailsOnSupervisorSnapshot: failed to get snapshotterClient with error: %v", err)
+		return err
+	}
+	vscList, err := snapshotterClient.SnapshotV1().VolumeSnapshotContents().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("setGuestClusterDetailsOnSupervisorSnapshot: failed to list VolumeSnapshot with"+
+			" error: %v in namespace", err)
+		return err
+	}
+	// Create snaphotter client for supervisor cluster
+	restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx,
+		metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+	supervisorSnapshotterClient, err := k8s.NewSupervisorSnapshotClient(ctx, restClientConfig)
+	if err != nil {
+		log.Errorf("setGuestClusterDetailsOnSupervisorSnapshot: failed to create supervisorSnapshotterClient. "+
+			"Error: %+v", err)
+		return err
+	}
+	for _, vsc := range vscList.Items {
+		if (vsc.Spec.VolumeSnapshotRef.Name != "") &&
+			(vsc.Status != nil && vsc.Status.ReadyToUse != nil && *vsc.Status.ReadyToUse) {
+			svVS, err := supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(supervisorNamespace).
+				Get(ctx, *vsc.Status.SnapshotHandle, metav1.GetOptions{})
+			if err != nil {
+				msg := fmt.Sprintf("setGuestClusterDetailsOnSupervisorSnapshot: failed to retrieve supervisor"+
+					" Snapshot %q in %q namespace. Error: %+v", *vsc.Status.SnapshotHandle, supervisorNamespace,
+					err)
+				log.Error(msg)
+				continue
+			}
+			// Add label to Supervisor Snapshot that contains guest cluster details, if not present already.
+			tkcLabelPresent := true
+			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
+				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
+			if _, ok := svVS.Labels[key]; !ok {
+				if svVS.Labels == nil {
+					svVS.Labels = make(map[string]string)
+				}
+				svVS.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+				tkcLabelPresent = false
+			}
+			// Add finalizer "cns.vmware.com/volumesnapshot-protection" to Supervisor snapshot, if not present already,
+			// to prevent accidental deletion from supervisor cluster
+			cnsFinalizerPresent := slices.Contains(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
+			if !cnsFinalizerPresent {
+				svVS.ObjectMeta.Finalizers = append(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
+			}
+			if !cnsFinalizerPresent || !tkcLabelPresent {
+				_, err = supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(supervisorNamespace).Update(
+					ctx, svVS, metav1.UpdateOptions{})
+				if err != nil {
+					msg := fmt.Sprintf("failed to update supervisor Snapshot: %q with guest cluster labels "+
+						"in %q namespace. Error: %+v", *vsc.Status.SnapshotHandle, supervisorNamespace, err)
+					log.Error(msg)
+					continue
+				}
+			}
+		}
+	}
+	return nil
 }
