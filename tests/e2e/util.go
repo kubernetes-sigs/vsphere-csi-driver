@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -108,6 +109,7 @@ var (
 	pvZone                 string
 	pvRegion               string
 	vmIp2MoMap             map[string]vim25types.ManagedObjectReference
+	vcVersion              string
 )
 
 type TKGCluster struct {
@@ -1455,23 +1457,6 @@ func invokeVCenterServiceControl(ctx context.Context, command, service, host str
 		return fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", sshCmd, host, err)
 	}
 	return nil
-}
-
-/*
-isFssEnabled invokes the given command to check if vCenter has a particular FSS enabled or not
-*/
-func isFssEnabled(ctx context.Context, host, fss string) bool {
-	sshCmd := fmt.Sprintf("python /usr/sbin/feature-state-wrapper.py %s", fss)
-	framework.Logf("Checking if fss is enabled on vCenter host %v", host)
-	result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
-	fssh.LogResult(result)
-	if err == nil && result.Code == 0 {
-		return strings.TrimSpace(result.Stdout) == "enabled"
-	} else {
-		ginkgo.By(fmt.Sprintf("couldn't execute command: %s on vCenter host: %v", sshCmd, err))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
-	return false
 }
 
 // waitVCenterServiceToBeInState invokes the status check for the given service and waits
@@ -7440,4 +7425,95 @@ func expandVolumeInParallel(client clientset.Interface, pvclaims []*v1.Persisten
 			framework.Failf("error updating pvc size %q", pvclaim.Name)
 		}
 	}
+}
+
+/*
+getVCversion returns the VC version
+*/
+func getVCversion(ctx context.Context, vcAddress string) string {
+	if vcVersion == "" {
+		sshCmd := "vpxd -v"
+		framework.Logf("Checking if fss is enabled on vCenter host %v", vcAddress)
+		result, err := fssh.SSH(ctx, sshCmd, vcAddress, framework.TestContext.Provider)
+		fssh.LogResult(result)
+		if err == nil && result.Code == 0 {
+			vcVersion = strings.TrimSpace(result.Stdout)
+		} else {
+			ginkgo.By(fmt.Sprintf("couldn't execute command: %s on vCenter host: %v", sshCmd, err))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		// Regex to find version in the format X.Y.Z
+		re := regexp.MustCompile(`\d+\.\d+\.\d+`)
+		vcVersion = re.FindString(vcVersion)
+	}
+	framework.Logf("vcVersion %s", vcVersion)
+	return vcVersion
+}
+
+/*
+isVersionGreaterOrEqual returns true if presentVersion is equal to or greater than expectedVCversion
+*/
+func isVersionGreaterOrEqual(presentVersion, expectedVCversion string) bool {
+	// Split the version strings by dot
+	v1Parts := strings.Split(presentVersion, ".")
+	v2Parts := strings.Split(expectedVCversion, ".")
+
+	// Compare parts
+	for i := 0; i < len(v1Parts); i++ {
+		v1, _ := strconv.Atoi(v1Parts[i]) // Convert each part to integer
+		v2, _ := strconv.Atoi(v2Parts[i])
+
+		if v1 > v2 {
+			return true
+		} else if v1 < v2 {
+			return false
+		}
+	}
+	return true // If all parts are equal, the versions are equal
+}
+
+/*
+Restart WCP with WaitGroup
+*/
+func restartWcpWithWg(ctx context.Context, vcAddress string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	err := restartWcp(ctx, vcAddress)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+/*
+Restart WCP
+*/
+func restartWcp(ctx context.Context, vcAddress string) error {
+	err := invokeVCenterServiceControl(ctx, restartOperation, wcpServiceName, vcAddress)
+	if err != nil {
+		return fmt.Errorf("couldn't restart WCP: %v", err)
+	}
+	return nil
+}
+
+/*
+Helper method to verify the status code
+*/
+func checkStatusCode(expectedStatusCode int, actualStatusCode int) error {
+	gomega.Expect(actualStatusCode).Should(gomega.BeNumerically("==", expectedStatusCode))
+	if actualStatusCode != expectedStatusCode {
+		return fmt.Errorf("expected status code: %d, actual status code: %d", expectedStatusCode, actualStatusCode)
+	}
+	return nil
+}
+
+/*
+This helper is to check if a given integer present in a list of intergers.
+*/
+func isAvailable(alpha []int, val int) bool {
+	// iterate using the for loop
+	for i := 0; i < len(alpha); i++ {
+		// check
+		if alpha[i] == val {
+			// return true
+			return true
+		}
+	}
+	return false
 }

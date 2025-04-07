@@ -67,7 +67,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		isVsanHealthServiceStopped bool
 		isSPSserviceStopped        bool
 		vcAddress                  string
-		isStorageQuotaFSSEnabled   bool
+		isQuotaValidationSupported bool
 		defaultDatastore           *object.Datastore
 	)
 
@@ -129,9 +129,12 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vmi = waitNGetVmiForImageName(ctx, vmopC, vmImageName)
 		gomega.Expect(vmi).NotTo(gomega.BeEmpty())
 
-		//Remove this code once the FSS is enabled
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
-		isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
+		if supervisorCluster || stretchedSVC {
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
+			vcVersion = getVCversion(ctx, vcAddress)
+			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
+		}
 
 		var datacenters []string
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
@@ -1428,7 +1431,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		time.Sleep(1 * time.Minute)
 		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storagePolicyName, namespace, pvcUsage, volExtensionName)
@@ -1460,7 +1463,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		pv := getPvFromClaim(client, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
-		if isStorageQuotaFSSEnabled {
+		if isQuotaValidationSupported {
 
 			validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 				storagePolicyName, namespace, pvcUsage, volExtensionName,

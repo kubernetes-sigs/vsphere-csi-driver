@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
-				namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
+				namespace, nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		} else if vanillaCluster {
 			scParameters[scParamFsType] = ext4FSType
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
