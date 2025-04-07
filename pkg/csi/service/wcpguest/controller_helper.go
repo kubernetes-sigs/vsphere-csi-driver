@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 const (
@@ -220,6 +221,7 @@ func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace stri
 			Namespace:   namespace,
 			Annotations: annotations,
 			Labels:      labels,
+			Finalizers:  []string{cnsoperatortypes.CNSPvcFinalizer},
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
 			AccessModes: []v1.PersistentVolumeAccessMode{
@@ -247,12 +249,15 @@ func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace stri
 }
 
 func constructVolumeSnapshotWithVolumeSnapshotClass(volumeSnapshotName string, namespace string,
-	volumeSnapshotClassName string, pvcName string, annotation map[string]string) *snap.VolumeSnapshot {
+	volumeSnapshotClassName string, pvcName string, annotation map[string]string,
+	labels map[string]string) *snap.VolumeSnapshot {
 	volumeSnapshot := &snap.VolumeSnapshot{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        volumeSnapshotName,
 			Namespace:   namespace,
+			Labels:      labels,
 			Annotations: annotation,
+			Finalizers:  []string{cnsoperatortypes.CNSSnapshotFinalizer},
 		},
 		Spec: snap.VolumeSnapshotSpec{
 			Source: snap.VolumeSnapshotSource{
