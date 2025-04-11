@@ -100,7 +100,6 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Changing password on the vCenter host"))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		username := vsphereCfg.Global.User
 		currentPassword := vsphereCfg.Global.Password
 		newPassword := e2eTestPassword

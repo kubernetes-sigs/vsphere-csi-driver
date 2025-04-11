@@ -46,6 +46,7 @@ func init() {
 	framework.AfterReadingAllFlags(&framework.TestContext)
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(envClusterFlavor))
 	setClusterFlavor(clusterFlavor)
+	setSShdPort()
 
 	if os.Getenv(busyBoxImageEnvVar) != "" {
 		busyBoxImageOnGcr = os.Getenv(busyBoxImageEnvVar)

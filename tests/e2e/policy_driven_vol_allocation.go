@@ -3609,16 +3609,21 @@ func writeRandomDataOnPod(pod *v1.Pod, count int64) {
 // default task timeout is 40 mins
 // if taskTimeout param is 0 we will remove the timeout entry in cfg file and default timeout will kick-in
 func setVpxdTaskTimeout(ctx context.Context, taskTimeout int) {
-	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+	var err error
 	timeoutMatches := false
 	diffTimeoutExists := false
 
+	// Read hosts sshd port number
+	ip, portNum, err := getPortNumAndIP(vcAddress)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	addr := ip + ":" + portNum
+
 	grepCmd := "grep '<timeout>' /etc/vmware-vpx/vpxd.cfg"
-	framework.Logf("Invoking command '%v' on vCenter host %v", grepCmd, vcAddress)
-	result, err := fssh.SSH(ctx, grepCmd, vcAddress, framework.TestContext.Provider)
+	framework.Logf("Invoking command '%v' on vCenter host %v", grepCmd, ip)
+	result, err := fssh.SSH(ctx, grepCmd, addr, framework.TestContext.Provider)
 	if err != nil {
 		fssh.LogResult(result)
-		err = fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", grepCmd, vcAddress, err)
+		err = fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", grepCmd, addr, err)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
@@ -3627,11 +3632,11 @@ func setVpxdTaskTimeout(ctx context.Context, taskTimeout int) {
 		"sed -i 's/<task>/<task>\\n    <timeout>%v<\\/timeout>/' /etc/vmware-vpx/vpxd.cfg", taskTimeout)
 	if result.Code == 0 {
 		grepCmd2 := fmt.Sprintf("grep '<timeout>%v</timeout>' /etc/vmware-vpx/vpxd.cfg", taskTimeout)
-		framework.Logf("Invoking command '%v' on vCenter host %v", grepCmd2, vcAddress)
-		result2, err := fssh.SSH(ctx, grepCmd2, vcAddress, framework.TestContext.Provider)
+		framework.Logf("Invoking command '%v' on vCenter host %v", grepCmd2, addr)
+		result2, err := fssh.SSH(ctx, grepCmd2, addr, framework.TestContext.Provider)
 		if err != nil {
 			fssh.LogResult(result)
-			err = fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", grepCmd2, vcAddress, err)
+			err = fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", grepCmd2, addr, err)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if result2.Code == 0 {
@@ -3656,11 +3661,11 @@ func setVpxdTaskTimeout(ctx context.Context, taskTimeout int) {
 		sshCmd = "sed -i '/<timeout>[0-9]*<\\/timeout>/d' /etc/vmware-vpx/vpxd.cfg"
 	}
 
-	framework.Logf("Invoking command '%v' on vCenter host %v", sshCmd, vcAddress)
-	result, err = fssh.SSH(ctx, sshCmd, vcAddress, framework.TestContext.Provider)
+	framework.Logf("Invoking command '%v' on vCenter host %v", sshCmd, addr)
+	result, err = fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
-		err = fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", sshCmd, vcAddress, err)
+		err = fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", sshCmd, addr, err)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 

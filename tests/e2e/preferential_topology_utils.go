@@ -44,7 +44,7 @@ func govcLoginCmd() string {
 	loginCmd := "export GOVC_INSECURE=1;"
 	loginCmd += fmt.Sprintf("export GOVC_URL='https://%s:%s@%s:%s';",
 		e2eVSphere.Config.Global.User, e2eVSphere.Config.Global.Password,
-		e2eVSphere.Config.Global.VCenterHostname, e2eVSphere.Config.Global.VCenterPort)
+		e2eVSphere.Config.Global.VCenterHostname, defaultVcAdminPortNum)
 	return loginCmd
 }
 
