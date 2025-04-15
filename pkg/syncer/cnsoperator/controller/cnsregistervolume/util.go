@@ -369,30 +369,21 @@ func isPVCBound(ctx context.Context, client clientset.Interface, claim *v1.Persi
 // value.
 func getMaxWorkerThreadsToReconcileCnsRegisterVolume(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
-	workerThreads := defaultMaxWorkerThreadsForRegisterVolume
-	if v := os.Getenv("WORKER_THREADS_REGISTER_VOLUME"); v != "" {
-		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_REGISTER_VOLUME %s is less than 1, will use the default value %d",
-					v, defaultMaxWorkerThreadsForRegisterVolume)
-			} else if value > defaultMaxWorkerThreadsForRegisterVolume {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_REGISTER_VOLUME %s is greater than %d, will use the default value %d",
-					v, defaultMaxWorkerThreadsForRegisterVolume, defaultMaxWorkerThreadsForRegisterVolume)
-			} else {
-				workerThreads = value
-				log.Debugf("Maximum number of worker threads to run to reconcile CnsRegisterVolume instances is set to %d",
-					workerThreads)
-			}
-		} else {
-			log.Warnf("Maximum number of worker threads to run set in env variable "+
-				"WORKER_THREADS_REGISTER_VOLUME %s is invalid, will use the default value %d",
-				v, defaultMaxWorkerThreadsForRegisterVolume)
-		}
-	} else {
-		log.Debugf("WORKER_THREADS_REGISTER_VOLUME is not set. Picking the default value %d",
-			defaultMaxWorkerThreadsForRegisterVolume)
+	v := os.Getenv("WORKER_THREADS_REGISTER_VOLUME")
+
+	if v == "" {
+		log.Debugf("WORKER_THREADS_REGISTER_VOLUME is not set. "+
+			"Using default value: %d", defaultMaxWorkerThreadsForRegisterVolume)
+		return defaultMaxWorkerThreadsForRegisterVolume
 	}
-	return workerThreads
+
+	value, err := strconv.Atoi(v)
+	if err != nil || value < 1 || value > defaultMaxWorkerThreadsForRegisterVolume {
+		log.Warnf("Invalid WORKER_THREADS_REGISTER_VOLUME value: %s. "+
+			"Using default value: %d", v, defaultMaxWorkerThreadsForRegisterVolume)
+		return defaultMaxWorkerThreadsForRegisterVolume
+	}
+
+	log.Debugf("Maximum worker threads for CnsRegisterVolume set to: %d", value)
+	return value
 }
