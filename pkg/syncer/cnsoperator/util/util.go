@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -107,33 +107,41 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 		return "", err
 	}
 
-	var networkName string
-	for _, networkInterface := range virtualMachineInstance.Spec.NetworkInterfaces {
-		// The assumption is that a TKG VM will have only a single network interface.
-		// This logic needs to be revisited when multiple network interface support
-		// is added.
-		networkName = networkInterface.NetworkName
+	var networkNames []string
+	for _, networkInterface := range virtualMachineInstance.Spec.Network.Interfaces {
+		networkNames = append(networkNames, networkInterface.Network.Name)
 	}
-	log.Debugf("VirtualMachine %s/%s is configured with network %s", vmNamespace, vmName, networkName)
+	log.Debugf("VirtualMachine %s/%s is configured with networks %v", vmNamespace, vmName, networkNames)
 
 	var ip string
 	var exists bool
 	if network_provider_type == NSXTNetworkProvider {
-		virtualNetworkInstance, err := dc.Resource(virtualNetworkGVR).Namespace(vmNamespace).Get(ctx,
-			networkName, metav1.GetOptions{})
-		if err != nil {
-			return "", err
+		for _, networkName := range networkNames {
+			virtualNetworkInstance, err := dc.Resource(virtualNetworkGVR).Namespace(vmNamespace).Get(ctx,
+				networkName, metav1.GetOptions{})
+			if err != nil {
+				return "", err
+			}
+			log.Debugf("Got VirtualNetwork instance %s/%s with annotations %v",
+				vmNamespace, virtualNetworkInstance.GetName(), virtualNetworkInstance.GetAnnotations())
+			ip, exists = virtualNetworkInstance.GetAnnotations()[snatIPAnnotation]
+			// Pick the network interface which has the snatIPAnnotation
+			if exists && ip != "" {
+				break
+			}
 		}
-		log.Debugf("Got VirtualNetwork instance %s/%s with annotations %v",
-			vmNamespace, virtualNetworkInstance.GetName(), virtualNetworkInstance.GetAnnotations())
-		ip, exists = virtualNetworkInstance.GetAnnotations()[snatIPAnnotation]
-		if !exists {
-			return "", fmt.Errorf("failed to get SNAT IP annotation from VirtualMachine %s/%s", vmNamespace, vmName)
+		if ip == "" {
+			return "", fmt.Errorf("failed to get SNAT IP annotation from VirtualMachine %s/%s",
+				vmNamespace, vmName)
 		}
 	} else if network_provider_type == VDSNetworkProvider {
-		ip = virtualMachineInstance.Status.VmIp
+		ip = virtualMachineInstance.Status.Network.PrimaryIP4
 		if ip == "" {
-			return "", fmt.Errorf("vm.Status.VmIp is not populated for %s/%s", vmNamespace, vmName)
+			ip = virtualMachineInstance.Status.Network.PrimaryIP6
+			if ip == "" {
+				return "", fmt.Errorf("vm.Status.Network.PrimaryIP6 & PrimaryIP4 is not populated for %s/%s",
+					vmNamespace, vmName)
+			}
 		}
 	} else {
 		vpcName := vmNamespace
@@ -165,12 +173,10 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 			}
 
 		}
-
 		if ip == "" {
 			return "", fmt.Errorf("spec.vpc.defaultSNATIP is not populated for "+
 				"networkinfo %s/%s", vmNamespace, vmName)
 		}
-
 	}
 	log.Infof("Found external IP Address %s for VirtualMachine %s/%s", ip, vmNamespace, vmName)
 	return ip, nil
