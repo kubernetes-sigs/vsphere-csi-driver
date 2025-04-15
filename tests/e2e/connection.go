@@ -91,8 +91,13 @@ func connect(ctx context.Context, vs *vSphere, forceRefresh ...bool) {
 
 // newClient creates a new client for vSphere connection.
 func newClient(ctx context.Context, vs *vSphere) *govmomi.Client {
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	vCenterIp := vs.Config.Global.VCenterHostname
+	if isPrivateNetwork {
+		vCenterIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
+	}
 	url, err := neturl.Parse(fmt.Sprintf("https://%s:%s/sdk",
-		vs.Config.Global.VCenterHostname, vs.Config.Global.VCenterPort))
+		vCenterIp, vs.Config.Global.VCenterPort))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	url.User = neturl.UserPassword(vs.Config.Global.User, vs.Config.Global.Password)
 	client, err := govmomi.NewClient(ctx, url, true)

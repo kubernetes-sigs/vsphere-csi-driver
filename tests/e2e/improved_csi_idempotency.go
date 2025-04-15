@@ -144,7 +144,6 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 					startHostDOnHost(ctx, hostIP)
 				}
 			} else {
-				vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 				ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", serviceName))
 				err := invokeVCenterServiceControl(ctx, startOperation, serviceName, vcAddress)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -648,7 +647,6 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 	} else {
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isServiceStopped = true
@@ -905,7 +903,6 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 	} else {
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
-		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		err = invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isServiceStopped = true
