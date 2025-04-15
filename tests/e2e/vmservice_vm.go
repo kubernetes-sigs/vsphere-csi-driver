@@ -66,7 +66,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		cnsopC                     ctlrclient.Client
 		isVsanHealthServiceStopped bool
 		isSPSserviceStopped        bool
-		vcAddress                  string
 		isQuotaValidationSupported bool
 		defaultDatastore           *object.Datastore
 	)
@@ -90,7 +89,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		bootstrap()
 		isVsanHealthServiceStopped = false
 		isSPSserviceStopped = false
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+
 		vcRestSessionId = createVcSession4RestApis(ctx)
 
 		storageClassName = strings.ReplaceAll(storagePolicyName, "_", "-") // since this is a wcp setup
@@ -130,7 +129,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(vmi).NotTo(gomega.BeEmpty())
 
 		if supervisorCluster || stretchedSVC {
-			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
 			vcVersion = getVCversion(ctx, vcAddress)
 			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
