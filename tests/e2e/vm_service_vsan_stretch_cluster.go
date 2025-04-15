@@ -64,7 +64,6 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 		cnsopC                     ctlrclient.Client
 		isVsanHealthServiceStopped bool
 		isSPSserviceStopped        bool
-		vcAddress                  string
 		nodeList                   *v1.NodeList
 	)
 
@@ -86,9 +85,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
 		initialiseFdsVar(ctx)
 
-		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		vcRestSessionId = createVcSession4RestApis(ctx)
-		//csiNs = GetAndExpectStringEnvVar(envCSINamespace)
 
 		storageClassName = strings.ReplaceAll(storagePolicyName, " ", "-") // since this is a wcp setup
 		storageClassName = strings.ToLower(storageClassName)

@@ -226,9 +226,14 @@ func waitForHostToBeDown(ctx context.Context, ip string) error {
 	framework.Logf("checking host status of %s", ip)
 	gomega.Expect(ip).NotTo(gomega.BeNil())
 	gomega.Expect(ip).NotTo(gomega.BeEmpty())
+	// Read hosts sshd port number
+	ip, portNum, err := getPortNumAndIP(ip)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	addr := ip + ":" + portNum
+
 	waitErr := wait.PollUntilContextTimeout(ctx, poll*2, pollTimeoutShort*2, true,
 		func(ctx context.Context) (bool, error) {
-			_, err := net.DialTimeout("tcp", ip+":22", poll)
+			_, err := net.DialTimeout("tcp", addr, poll)
 			if err == nil {
 				framework.Logf("host is reachable")
 				return false, nil
