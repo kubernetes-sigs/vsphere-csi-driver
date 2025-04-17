@@ -29,6 +29,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -307,7 +308,8 @@ It constructs an API request and sends it to the vSphere REST API.
 */
 func createtWcpNsWithZonesAndPolicies(
 	vcRestSessionId string, storagePolicyId []string,
-	supervisorId string, zoneNames []string) (string, int, error) {
+	supervisorId string, zoneNames []string,
+	vmClass string, contentLibId string) (string, int, error) {
 
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 	namespace := fmt.Sprintf("csi-vmsvcns-%v", r.Intn(10000))
@@ -330,6 +332,14 @@ func createtWcpNsWithZonesAndPolicies(
 		"storage_specs": storageSpecs,
 		"supervisor":    supervisorId,
 		"zones":         zones,
+	}
+
+	// Add vm_service_spec only if vmClass and contentLibId are provided
+	if vmClass != "" && contentLibId != "" {
+		requestBody["vm_service_spec"] = map[string]interface{}{
+			"vm_classes":        []string{vmClass},
+			"content_libraries": []string{contentLibId},
+		}
 	}
 
 	reqBodyBytes, err := json.Marshal(requestBody)
@@ -404,4 +414,65 @@ func createPvcWithRequestedTopology(ctx context.Context, client clientset.Interf
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create PVC: %v", err))
 	framework.Logf("PVC %v created successfully in namespace: %v", pvclaim.Name, pvcnamespace)
 	return pvclaim, err
+}
+
+/*
+Converts a slice of TopologySelectorLabelRequirement into a
+map of topology keys and their corresponding values.
+*/
+func convertToTopologyMap(allowedTopologies []v1.TopologySelectorLabelRequirement) map[string][]string {
+	topologyMap := make(map[string][]string)
+	for _, topology := range allowedTopologies {
+		topologyMap[topology.Key] = topology.Values
+	}
+	return topologyMap
+}
+
+/*
+Verifies PVC annotation and PV affinity details, returning errors
+if any of the checks fail.
+*/
+func verifyVolumeAnnotationAffinity(pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume,
+	allowedTopologiesMap map[string][]string, topologyCategories []string) error {
+	ginkgo.By("Verify pvc annotation")
+	err := checkPvcTopologyAnnotationOnSvc(pvc, allowedTopologiesMap, topologyCategories)
+	if err != nil {
+		return fmt.Errorf("failed to verify PVC topology annotation: %w", err)
+	}
+
+	ginkgo.By("Verify pv affinity details")
+	affinitySet, err := verifyVolumeTopologyForLevel5(pv, allowedTopologiesMap)
+	if err != nil {
+		return fmt.Errorf("failed to verify PV topology: %w", err)
+	}
+
+	if !affinitySet {
+		return fmt.Errorf("affinity set is not correct")
+	}
+
+	return nil
+}
+
+/*
+Verifies the VM's allowed topology labels and its location on a node,
+returning errors if any check fails.
+*/
+func verifyVmServiceVmAnnotationAffinity(vm *vmopv1.VirtualMachine, allowedTopologiesMap map[string][]string,
+	nodeList *v1.NodeList) error {
+	ginkgo.By("Verify VM labels topology annotation")
+	err := verifyAllowedTopologyLabelsForVmServiceVM(vm, allowedTopologiesMap)
+	if err != nil {
+		return fmt.Errorf("failed to verify allowed topology labels for VM service VM: %v", err)
+	}
+
+	ginkgo.By("Verify VM location on a node")
+	nodeLocation, err := verifyVmServiceVMNodeLocation(vm, nodeList, allowedTopologiesMap)
+	if err != nil {
+		return fmt.Errorf("failed to verify VM location on a node: %v", err)
+	}
+	if !nodeLocation {
+		return fmt.Errorf("node location is not correct")
+	}
+
+	return nil
 }

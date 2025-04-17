@@ -4979,7 +4979,7 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 				if topologyFeature == topologyTkgHaName ||
 					topologyFeature == podVMOnStretchedSupervisor ||
 					topologyFeature == topologyDomainIsolation {
-					return false, fmt.Errorf("pv node affinity key: %v does not does not exist in the"+
+					return false, fmt.Errorf("pv node affinity key: %v does not does not exist in the "+
 						"allowed topologies map: %v", topology.Key, allowedTopologiesMap)
 				} else {
 					return false, fmt.Errorf("PV node affinity details does not exist in the allowed " +

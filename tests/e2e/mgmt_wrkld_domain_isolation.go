@@ -197,9 +197,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		// here fetching zone:zone-2 from topologyAffinityDetails
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
 			[]string{storageProfileId}, getSvcId(vcRestSessionId),
-			[]string{zone2})
+			[]string{zone2}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(statuscode).To(gomega.Equal(204))
+		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
@@ -275,9 +275,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId, []string{storageProfileId},
 			getSvcId(vcRestSessionId),
-			[]string{zone1})
+			[]string{zone1}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(statuscode).To(gomega.Equal(204))
+		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
@@ -352,9 +352,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			topValEndIndex)
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
 			[]string{storageProfileId}, getSvcId(vcRestSessionId),
-			[]string{zone2})
+			[]string{zone2}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(statuscode).To(gomega.Equal(204))
+		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
@@ -444,9 +444,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		ginkgo.By("Create a WCP namespace and tag it to zone-2 and zone-3 wrkld " +
 			"domains using storage policy compatible to all zones")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId, []string{storageProfileId},
-			getSvcId(vcRestSessionId), []string{zone2, zone3})
+			getSvcId(vcRestSessionId), []string{zone2, zone3}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(statuscode).To(gomega.Equal(204))
+		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
@@ -618,9 +618,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		// here fetching zone:zone-3 from topologyAffinityDetails
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
 			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId),
-			[]string{zone3})
+			[]string{zone3}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(statuscode).To(gomega.Equal(204))
+		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
@@ -690,9 +690,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		ginkgo.By("Create a WCP namespace tagged to zone-1 & zone-2")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
 			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId),
-			[]string{zone1, zone2})
+			[]string{zone1, zone2}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(statuscode).To(gomega.Equal(204))
+		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
@@ -807,9 +807,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(
 			vcRestSessionId,
 			[]string{storageProfileIdZone1, storageProfileIdZone3},
-			getSvcId(vcRestSessionId), []string{zone3})
+			getSvcId(vcRestSessionId), []string{zone3}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(statuscode).To(gomega.Equal(204))
+		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
