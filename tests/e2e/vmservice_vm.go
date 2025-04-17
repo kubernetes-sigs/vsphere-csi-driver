@@ -112,6 +112,11 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		namespace = createTestWcpNs(
 			vcRestSessionId, storageProfileId, vmClass, contentLibId, getSvcId(vcRestSessionId))
 
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow namespace to get created and "+
+			"storage policy and zonal tag to get added to it",
+			oneMinuteWaitTimeInSeconds))
+		time.Sleep(time.Duration(oneMinuteWaitTimeInSeconds) * time.Second)
+
 		vmopScheme := runtime.NewScheme()
 		gomega.Expect(vmopv1.AddToScheme(vmopScheme)).Should(gomega.Succeed())
 		vmopC, err = ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: vmopScheme})

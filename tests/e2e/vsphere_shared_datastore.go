@@ -104,7 +104,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		}()
 		ginkgo.By("Expect claim to pass provisioning volume as shared datastore")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx,
-			v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
+			v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to provision volume on shared datastore with err: %v", err))
 	})
