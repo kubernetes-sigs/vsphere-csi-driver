@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
@@ -131,7 +132,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	// Check if the feature states are enabled.
 	multivCenterCSITopologyEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.MultiVCenterCSITopology)
-	csiMigrationEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
+	csiMigrationEnabled = commonco.ContainerOrchestratorUtility.IsCSIMigrationEnabled(ctx, config)
+
 	filterSuspendedDatastores = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CnsMgrSuspendCreateVolume)
 	isTopologyAwareFileVolumeEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
@@ -328,6 +330,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
 		return err
 	}
+
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
 		if !multivCenterCSITopologyEnabled {
 			log.Info("CSI Migration Feature is Enabled. Loading Volume Migration Service")
@@ -510,6 +513,14 @@ func (c *controller) filterDatastores(ctx context.Context, sharedDatastores []*c
 	return filteredDatastores, nil
 }
 
+func (c *controller) getCNSConfig() *config.Config {
+	if multivCenterCSITopologyEnabled {
+		return c.managers.CnsConfig
+	} else {
+		return c.manager.CnsConfig
+	}
+}
+
 // createBlockVolume creates a block volume based on the CreateVolumeRequest.
 func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, string, error) {
@@ -523,7 +534,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 
 	// Check if the feature states are enabled.
 	isBlockVolumeSnapshotEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-	csiMigrationFeatureState := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
+	csiMigrationFeatureState := commonco.ContainerOrchestratorUtility.IsCSIMigrationEnabled(ctx, c.getCNSConfig())
 
 	// Check if requested volume size and source snapshot size matches
 	volumeSource := req.GetVolumeContentSource()
@@ -1587,7 +1598,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 
 	// Fetching the feature state for csi-migration before parsing storage class
 	// params.
-	csiMigrationFeatureState := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
+	csiMigrationFeatureState := commonco.ContainerOrchestratorUtility.IsCSIMigrationEnabled(ctx, c.getCNSConfig())
 	scParams, err := common.ParseStorageClassParams(ctx, req.Parameters, csiMigrationFeatureState)
 	// TODO: Need to figure out the fault returned by ParseStorageClassParams.
 	// Currently, just return "csi.fault.Internal".
@@ -2075,7 +2086,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			volumeType = prometheus.PrometheusBlockVolumeType
 			cnsVolumeType = common.BlockVolumeType
 			// In-tree volume support.
-			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
+			if !commonco.ContainerOrchestratorUtility.IsCSIMigrationEnabled(ctx, c.getCNSConfig()) {
 				// Migration feature switch is disabled.
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
@@ -2257,7 +2268,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			volumeType = prometheus.PrometheusBlockVolumeType
 			if strings.Contains(req.VolumeId, ".vmdk") {
 				// In-tree volume support.
-				if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
+				if !commonco.ContainerOrchestratorUtility.IsCSIMigrationEnabled(ctx, c.getCNSConfig()) {
 					// Migration feature switch is disabled.
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"volume-migration feature switch is disabled. Cannot use volume with vmdk path :%q", req.VolumeId)
@@ -2392,7 +2403,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		} else {
 			// In-tree volume support.
 			volumeType = prometheus.PrometheusBlockVolumeType
-			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration) {
+			if !commonco.ContainerOrchestratorUtility.IsCSIMigrationEnabled(ctx, c.getCNSConfig()) {
 				// Migration feature switch is disabled.
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"volume-migration feature switch is disabled. Cannot use volume with vmdk path: %q", req.VolumeId)
