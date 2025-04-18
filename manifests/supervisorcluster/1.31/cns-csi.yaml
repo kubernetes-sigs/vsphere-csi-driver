@@ -98,7 +98,7 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshots" ]
-    verbs: [ "get", "list", "patch" ]
+    verbs: [ "get", "list", "patch", "update" ]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshotclasses" ]
     verbs: [ "watch", "get", "list" ]
@@ -116,6 +116,9 @@ rules:
     verbs: ["get", "watch", "list"]
   - apiGroups: ["encryption.vmware.com"]
     resources: ["encryptionclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources: ["clusters"]
     verbs: ["get", "list", "watch"]
 ---
 kind: ClusterRoleBinding
@@ -509,6 +512,7 @@ data:
   "cns-unregister-volume": "false"
   "workload-domain-isolation": "false"
   "WCP_VMService_BYOK": "false"
+  "sv-pvc-snapshot-protection-finalizer": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

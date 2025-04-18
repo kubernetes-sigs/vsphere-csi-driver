@@ -24,6 +24,16 @@ const (
 	// to avoid Detach-Delete race which in-turn avoids ResourceInUse errors
 	CNSPvcFinalizer = "cns.vmware.com/pvc-protection"
 
+	// CNSVolumeFinalizer is the finalizer on Supervisor PVC created from Guest cluster
+	// and associated with Guest cluster PVC,
+	// This finalizer is added to avoid deletion of such PVCs directly from Supervisor.
+	CNSVolumeFinalizer = "cns.vmware.com/pvc-delete-protection"
+
+	// CNSSnapshotFinalizer is the finalizer on Supervisor VolumeSnapshot created from Guest cluster
+	// and associated with Guest cluster VolumeSnapshot,
+	// This finalizer is added to avoid deletion of such VolumeSnapshots directly from Supervisor.
+	CNSSnapshotFinalizer = "cns.vmware.com/volumesnapshot-protection"
+
 	// VSphereCSIDriverName is the vsphere CSI driver name
 	VSphereCSIDriverName = "csi.vsphere.vmware.com"
 )

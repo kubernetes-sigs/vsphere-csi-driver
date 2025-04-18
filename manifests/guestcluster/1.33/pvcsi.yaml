@@ -667,6 +667,7 @@ data:
   "cnsmgr-suspend-create-volume": "true"
   "csi-windows-support": "true"
   "workload-domain-isolation": "true"
+  "sv-pvc-snapshot-protection-finalizer": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

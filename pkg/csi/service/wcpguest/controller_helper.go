@@ -213,13 +213,14 @@ func getAccessMode(accessMode csi.VolumeCapability_AccessMode_Mode) v1.Persisten
 // getPersistentVolumeClaimSpecWithStorageClass return the PersistentVolumeClaim spec with specified storage class
 func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace string, diskSize string,
 	storageClassName string, pvcAccessMode v1.PersistentVolumeAccessMode, annotations map[string]string,
-	labels map[string]string, volumeSnapshotName string) *v1.PersistentVolumeClaim {
+	labels map[string]string, finalizers []string, volumeSnapshotName string) *v1.PersistentVolumeClaim {
 	claim := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        pvcName,
 			Namespace:   namespace,
 			Annotations: annotations,
 			Labels:      labels,
+			Finalizers:  finalizers,
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
 			AccessModes: []v1.PersistentVolumeAccessMode{
@@ -247,12 +248,15 @@ func getPersistentVolumeClaimSpecWithStorageClass(pvcName string, namespace stri
 }
 
 func constructVolumeSnapshotWithVolumeSnapshotClass(volumeSnapshotName string, namespace string,
-	volumeSnapshotClassName string, pvcName string, annotation map[string]string) *snap.VolumeSnapshot {
+	volumeSnapshotClassName string, pvcName string, annotation map[string]string,
+	labels map[string]string, finalizers []string) *snap.VolumeSnapshot {
 	volumeSnapshot := &snap.VolumeSnapshot{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        volumeSnapshotName,
 			Namespace:   namespace,
+			Labels:      labels,
 			Annotations: annotation,
+			Finalizers:  finalizers,
 		},
 		Spec: snap.VolumeSnapshotSpec{
 			Source: snap.VolumeSnapshotSource{

@@ -157,7 +157,6 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 
 		if originalVC1PasswordChanged {
 			clientIndex := 0
-			vcAddress := strings.Split(vCenterIP, ",")[0] + ":" + sshdPort
 			username := strings.Split(vCenterUser, ",")[0]
 			originalPassword := strings.Split(vCenterPassword, ",")[0]
 			newPassword := e2eTestPassword
@@ -169,7 +168,6 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 
 		if originalVC3PasswordChanged {
 			clientIndex2 := 2
-			vcAddress3 := strings.Split(vCenterIP, ",")[2] + ":" + sshdPort
 			username3 := strings.Split(vCenterUser, ",")[2]
 			originalPassword3 := strings.Split(vCenterPassword, ",")[2]
 			newPassword3 := "Admin!23"
@@ -242,8 +240,6 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		// read original vsphere config secret
 		vsphereCfg, err := readVsphereConfSecret(client, ctx, csiNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		vcAddress := strings.Split(vsphereCfg.Global.VCenterHostname, ",")[0] + ":" + sshdPort
 		framework.Logf("vcAddress - %s ", vcAddress)
 		username := strings.Split(vsphereCfg.Global.User, ",")[0]
 		originalPassword := strings.Split(vsphereCfg.Global.Password, ",")[0]
@@ -734,7 +730,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		scaleUpReplicaCount = 5
 		scaleDownReplicaCount = 2
 		var clientIndex2 int
-		var username3, newPassword3, originalPassword3, vcAddress3 string
+		var username3, newPassword3, originalPassword3 string
 
 		// read original vsphere config secret
 		vsphereCfg, err := readVsphereConfSecret(client, ctx, csiNamespace)
@@ -751,20 +747,18 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		}()
 
 		// read VC1 credentials
-		vcAddress1 := strings.Split(vsphereCfg.Global.VCenterHostname, ",")[0] + ":" + sshdPort
 		username1 := strings.Split(vsphereCfg.Global.User, ",")[0]
 		originalPassword1 := strings.Split(vsphereCfg.Global.Password, ",")[0]
 		newPassword1 := "E2E-test-password!23"
 
 		ginkgo.By("Changing password on the vCenter VC1 host")
 		clientIndex0 := 0
-		err = invokeVCenterChangePassword(ctx, username1, originalPassword1, newPassword1, vcAddress1, clientIndex0)
+		err = invokeVCenterChangePassword(ctx, username1, originalPassword1, newPassword1, vcAddress, clientIndex0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVC1PasswordChanged = true
 
 		if multiVCSetupType == "multi-3vc-setup" {
 			// read VC3 credentials
-			vcAddress3 = strings.Split(vsphereCfg.Global.VCenterHostname, ",")[2] + ":" + sshdPort
 			username3 = strings.Split(vsphereCfg.Global.User, ",")[2]
 			originalPassword3 = strings.Split(vsphereCfg.Global.Password, ",")[2]
 			newPassword3 = "Admin!23"
@@ -794,7 +788,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		defer func() {
 			if originalVC1PasswordChanged {
 				ginkgo.By("Reverting the password change")
-				err = invokeVCenterChangePassword(ctx, username1, newPassword1, originalPassword1, vcAddress1,
+				err = invokeVCenterChangePassword(ctx, username1, newPassword1, originalPassword1, vcAddress,
 					clientIndex0)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				originalVC1PasswordChanged = false
@@ -846,20 +840,18 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		}()
 
 		ginkgo.By("Rebooting VC2")
-		vCenterHostname := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		vcAddress := vCenterHostname[1] + ":" + sshdPort
-		framework.Logf("vcAddress - %s ", vcAddress)
-		err = invokeVCenterReboot(ctx, vcAddress)
+		framework.Logf("vcAddress - %s ", vcAddress2)
+		err = invokeVCenterReboot(ctx, vcAddress2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(vCenterHostname[1])
+		err = waitForHostToBeUp(vcAddress2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 
 		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
-		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
+		checkVcenterServicesRunning(ctx, vcAddress2, essentialServices)
 
 		ginkgo.By("Reverting the password change on VC1")
-		err = invokeVCenterChangePassword(ctx, username1, newPassword1, originalPassword1, vcAddress1,
+		err = invokeVCenterChangePassword(ctx, username1, newPassword1, originalPassword1, vcAddress,
 			clientIndex0)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		originalVC1PasswordChanged = false
@@ -918,7 +910,6 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		// read original vsphere config secret
 		vsphereCfg, err := readVsphereConfSecret(client, ctx, csiNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		vcAddress := strings.Split(vsphereCfg.Global.VCenterHostname, ",")[0] + ":" + sshdPort
 		framework.Logf("vcAddress - %s ", vcAddress)
 		username := strings.Split(vsphereCfg.Global.User, ",")[0]
 		originalPassword := strings.Split(vsphereCfg.Global.Password, ",")[0]
