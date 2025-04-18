@@ -7618,3 +7618,44 @@ func getPortNumAndIP(ip string) (string, string, error) {
 
 	return ip, port, nil
 }
+
+/*
+This function is to scale up and  verify the STS in VKC env
+*/
+func scaleUpAndVerifySts(ctx context.Context,
+	client clientset.Interface,
+	statefulset *appsv1.StatefulSet,
+	replicas int32,
+	namespace string) {
+	ginkgo.By(fmt.Sprintf("Scaling up statefulsets to number of Replica: %v", replicas))
+	_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
+	gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
+	fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
+	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+
+	ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
+		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+	gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
+		"Number of Pods in the statefulset should match with number of replicas")
+
+	// After scale up, verify all vSphere volumes are attached to node VMs.
+	ginkgo.By("Verify all volumes are attached to Nodes after Statefulsets is scaled up")
+	for _, sspod := range ssPodsAfterScaleUp.Items {
+		err := fpod.WaitTimeoutForPodReadyInNamespace(ctx, client, sspod.Name, statefulset.Namespace, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pod, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		for _, volumespec := range pod.Spec.Volumes {
+			if volumespec.PersistentVolumeClaim != nil {
+				persistentvolume := getPvFromClaim(client, statefulset.Namespace,
+					volumespec.PersistentVolumeClaim.ClaimName)
+
+				pvcNameInSV := persistentvolume.Spec.CSI.VolumeHandle
+				gomega.Expect(pvcNameInSV).NotTo(gomega.BeEmpty())
+				fcdIDInCNS := getVolumeIDFromSupervisorCluster(pvcNameInSV)
+				gomega.Expect(fcdIDInCNS).NotTo(gomega.BeEmpty())
+			}
+		}
+	}
+}
