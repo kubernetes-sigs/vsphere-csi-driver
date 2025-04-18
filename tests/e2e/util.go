@@ -5334,7 +5334,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 				defer cancel()
 				if vanillaCluster {
 					vmUUID = getNodeUUID(ctx, client, sspod.Spec.NodeName)
-				} else {
+				} else if supervisorCluster {
 					annotations := pod.Annotations
 					vmUUID, exists = annotations[vmUUIDLabel]
 					if !exists {
@@ -5352,35 +5352,37 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 						}
 					}
 				}
-				if !multivc {
-					if !rwxAccessMode {
-						isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+				if !guestCluster {
+					if !multivc {
+						if !rwxAccessMode {
+							isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+							if err != nil {
+								return err
+							}
+							if !isDiskAttached {
+								return fmt.Errorf("disk is not attached to the node")
+							}
+						}
+						err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 						if err != nil {
 							return err
 						}
-						if !isDiskAttached {
-							return fmt.Errorf("disk is not attached to the node")
+					} else {
+						if !rwxAccessMode {
+							isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(pv.Spec.CSI.VolumeHandle, vmUUID)
+							if err != nil {
+								return err
+							}
+							if !isDiskAttached {
+								return fmt.Errorf("disk is not attached to the node")
+							}
 						}
-					}
-					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					if err != nil {
-						return err
-					}
-				} else {
-					if !rwxAccessMode {
-						isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(pv.Spec.CSI.VolumeHandle, vmUUID)
+						err = verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 						if err != nil {
 							return err
 						}
-						if !isDiskAttached {
-							return fmt.Errorf("disk is not attached to the node")
-						}
-					}
-					err = verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					if err != nil {
-						return err
 					}
 				}
 			}
