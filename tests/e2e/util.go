@@ -7618,3 +7618,81 @@ func getPortNumAndIP(ip string) (string, string, error) {
 
 	return ip, port, nil
 }
+
+/*
+createStaticVolumeOnSvc utility function to create a static volume on a service, register it with CNS,
+and verify the PV/PVC setup
+*/
+func createStaticVolumeOnSvc(ctx context.Context, client clientset.Interface, namespace string, datastoreUrl string,
+	storagePolicyName string) (string, *v1.PersistentVolumeClaim, *v1.PersistentVolume, error) {
+	var datacenters []string
+	var defaultDatacenter *object.Datacenter
+	var pandoraSyncWaitTime int
+	var defaultDatastore *object.Datastore
+	curtime := time.Now().Unix()
+	curtimestring := strconv.FormatInt(curtime, 10)
+	pvcName := "cns-pvc-" + curtimestring
+
+	// Get Kubernetes client configuration
+	restConfig := getRestConfigClient()
+
+	finder := find.NewFinder(e2eVSphere.Client.Client, false)
+	cfg, err := getConfig()
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("failed to get config: %v", err)
+	}
+	dcList := strings.Split(cfg.Global.Datacenters, ",")
+	for _, dc := range dcList {
+		dcName := strings.TrimSpace(dc)
+		if dcName != "" {
+			datacenters = append(datacenters, dcName)
+		}
+	}
+
+	for _, dc := range datacenters {
+		defaultDatacenter, err = finder.Datacenter(ctx, dc)
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("failed to get datacenter: %v", err)
+		}
+		finder.SetDatacenter(defaultDatacenter)
+		defaultDatastore, err = getDatastoreByURL(ctx, datastoreUrl, defaultDatacenter)
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("failed to get datastore: %v", err)
+		}
+	}
+
+	profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+
+	ginkgo.By("Creating FCD (CNS Volume)")
+	fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
+		"staticfcd"+curtimestring, profileID, diskSizeInMb, defaultDatastore.Reference())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	if os.Getenv(envPandoraSyncWaitTime) != "" {
+		pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+	}
+
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
+		pandoraSyncWaitTime, fcdID))
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+	ginkgo.By("Create CNS register volume with above created FCD ")
+	cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteOnce)
+	err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx, restConfig,
+		namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
+	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+	framework.Logf("CNS register volume name : %s", cnsRegisterVolumeName)
+
+	ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
+	pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	pv := getPvFromClaim(client, namespace, pvcName)
+	verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
+
+	return fcdID, pvc, pv, nil // Return FCD ID, PVC, PV, and no error
+}

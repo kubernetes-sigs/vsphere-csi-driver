@@ -477,6 +477,8 @@ var (
 	envZonal3StoragePolicyName            = "ZONAL3_STORAGE_POLICY_IMM"
 	topologyDomainIsolation               = "Workload_Management_Isolation"
 	envIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
+	envZone24SharedStoragePolicyName      = "ZONAL24_SHARED_STORAGE_POLICY_IMM"
+	envZone24SharedDatastoreUrl           = "ZONAL24_SHARED_DATASTORE_URL"
 )
 
 // GetAndExpectEnvVar returns the value of an environment variable or fails the regression if it's not set.
