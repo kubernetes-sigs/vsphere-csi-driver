@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -545,11 +545,9 @@ func TestVirtualMachineVolumePatchWithOptimisticMerge(t *testing.T) {
 				Volumes: []vmoperatortypes.VirtualMachineVolume{
 					{
 						Name: "my-vol-1",
-						VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-							PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-								PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
-									ClaimName: "my-pvc-1",
-								},
+						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+							PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+								ClaimName: "my-pvc-1",
 							},
 						},
 					},
@@ -577,11 +575,9 @@ func TestVirtualMachineVolumePatchWithOptimisticMerge(t *testing.T) {
 		vm1.Spec.Volumes,
 		vmoperatortypes.VirtualMachineVolume{
 			Name: "my-vol-2",
-			VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-				PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-					PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
-						ClaimName: "my-pvc-2",
-					},
+			PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+					ClaimName: "my-pvc-2",
 				},
 			},
 		})
@@ -612,11 +608,9 @@ func TestVirtualMachineVolumePatchWithOptimisticMerge(t *testing.T) {
 	vm2.Spec.Volumes = []vmoperatortypes.VirtualMachineVolume{
 		{
 			Name: "my-vol-2",
-			VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-				PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-					PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
-						ClaimName: "my-pvc-2",
-					},
+			PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+					ClaimName: "my-pvc-2",
 				},
 			},
 		},

@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"time"
 
-	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -218,8 +218,8 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 			log.Errorf("failed to add to scheme for %s with err: %+v", ccV1beta1.GroupVersion.Group, err)
 			return nil, err
 		}
-	case vmoperatorv1alpha3.GroupName:
-		err = vmoperatorv1alpha3.AddToScheme(scheme)
+	case vmoperatorv1alpha1.GroupName:
+		err = vmoperatorv1alpha1.AddToScheme(scheme)
 		if err != nil {
 			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err
@@ -307,14 +307,14 @@ func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config,
 	log := logger.GetLogger(ctx)
 
 	scheme := runtime.NewScheme()
-	err = vmoperatorv1alpha3.AddToScheme(scheme)
+	err = vmoperatorv1alpha1.AddToScheme(scheme)
 	if err != nil {
 		log.Errorf("failed to add to scheme with err: %+v", err)
 	}
 
 	gvk := schema.GroupVersionKind{
-		Group:   vmoperatorv1alpha3.GroupVersion.Group,
-		Version: vmoperatorv1alpha3.GroupVersion.Version,
+		Group:   vmoperatorv1alpha1.GroupVersion.Group,
+		Version: vmoperatorv1alpha1.GroupVersion.Version,
 		Kind:    virtualMachineKind,
 	}
 

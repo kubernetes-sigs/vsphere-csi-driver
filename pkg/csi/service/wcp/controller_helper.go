@@ -24,7 +24,7 @@ import (
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -161,12 +161,12 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 			return logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to get config with error: %+v", err)
 		}
-		vmOperatorClient, err := k8s.NewClientForGroup(ctx, cfg, vmoperatorv1alpha3.GroupName)
+		vmOperatorClient, err := k8s.NewClientForGroup(ctx, cfg, vmoperatorv1alpha1.GroupName)
 		if err != nil {
 			return logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get client for group %s with error: %+v", vmoperatorv1alpha3.GroupName, err)
+				"failed to get client for group %s with error: %+v", vmoperatorv1alpha1.GroupName, err)
 		}
-		vmList := &vmoperatorv1alpha3.VirtualMachineList{}
+		vmList := &vmoperatorv1alpha1.VirtualMachineList{}
 		err = vmOperatorClient.List(ctx, vmList)
 		if err != nil {
 			return logger.LogNewErrorCodef(log, codes.Internal,
