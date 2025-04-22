@@ -687,19 +687,13 @@ func setSShdPort() {
 	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
 
 	if multivc {
-		vCenterHostnames := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		if len(vCenterHostnames) >= 3 {
-			vcAddress = vCenterHostnames[0]
-			vcAddress2 = vCenterHostnames[1]
-			vcAddress3 = vCenterHostnames[2]
-		}
+		vcAddress2 = GetAndExpectEnvVar(envVcIP2)
+		vcAddress3 = GetAndExpectEnvVar(envVcIP3)
 	}
 
 	if isPrivateNetwork {
 		if multivc {
-			vcAddress2 = GetorIgnoreStringEnvVar(envVcIP2)
 			vcIp2SshPortNum = GetorIgnoreStringEnvVar(envVc2SshdPortNum)
-			vcAddress3 = GetorIgnoreStringEnvVar(envVcIP3)
 			vcIp3SshPortNum = GetorIgnoreStringEnvVar(envVc3SshdPortNum)
 
 			safeInsertToMap(vcAddress2, vcIp2SshPortNum)
