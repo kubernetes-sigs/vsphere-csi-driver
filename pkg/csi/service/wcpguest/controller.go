@@ -393,7 +393,11 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 			log.Errorf("Last observed events on the pvc %q/%q in supervisor cluster: %+v",
 				c.supervisorNamespace, pvc.Name, spew.Sdump(eventList.Items))
-			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+			// Note: Set the return code to codes.DeadlineExceeded if PVC is still not bound
+			// to indicate that the volume provisioning has timed out
+			// so that external-provisioner will keep retrying and won't leave
+			// orphan volumes behind.
+			return nil, csifault.CSIInternalFault, status.Errorf(codes.DeadlineExceeded, msg)
 		}
 		attributes := make(map[string]string)
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) && isFileVolumeRequest {
