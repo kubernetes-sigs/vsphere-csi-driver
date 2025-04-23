@@ -259,4 +259,100 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		err = verifyVmServiceVmAnnotationAffinity(vm, allowedTopologiesMap, nodeList)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
+
+	/*
+		Testcase-2
+		Brief:
+		Static volume attached to Vm Service VM
+		Multizones -> zone-2 and zone-4 tagged to WCP namespace
+		storage policy compatible only with zone-2 and zone-4
+		Immediate Binding mode
+
+		Steps:
+		1. Create a WCP namespace tagged to workload domain zone-2 and zone-4 with a shared storage policy
+		(compatible only with zone-2 and zone-4 workload domain) and assign it to the namespace.
+		2. Create FCD using the above policy.
+		3. Create a static PV and PVC using cns register volume API
+		4. Wait for static PV and PVC to reach the Bound state.
+		5. Verify PVC annotation.
+		6. Verify PV affinity. It should show zone-2 and zone-4 topology affinity details.
+		7. Create a VMservice VM using the static volume created in step #3.
+		8. Wait for VM to get an IP and to be in a power-on state.
+		9. Once the VM is up, verify that the volume is accessible inside the VM.
+		10. Write some IO to the CSI volumes and read it back from them and verify the data integrity
+		11. Verify VM node annotation.
+		12. Perform cleanup: Delete VM, PVC and Namespace.
+	*/
+
+	ginkgo.It("Static volume attachment to vm using shared policy", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		var secretName string
+		var vm *vmopv1.VirtualMachine
+		var vmlbsvc *vmopv1.VirtualMachineService
+
+		// reading shared storage policy of zone-2 and zone-4 workload domain and its datastore url
+		storagePolicyNameZone24 := GetAndExpectStringEnvVar(envSharedZone2Zone4StoragePolicyName)
+		storageProfileIdZone24 := e2eVSphere.GetSpbmPolicyID(storagePolicyNameZone24)
+		storageDatastoreUrlZone24 := GetAndExpectStringEnvVar(envSharedZone2Zone4DatastoreUrl)
+
+		ginkgo.By("Create a WCP namespace and tag zone-2 and zone-4 to it")
+		zone4 := allowedTopologies[0].Values[3]
+		allowedTopologies[0].Values = []string{zone2, zone4}
+		allowedTopologiesMap := convertToTopologyMap(allowedTopologies)
+		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
+			[]string{storageProfileIdZone24}, getSvcId(vcRestSessionId),
+			[]string{zone2, zone4}, vmClass, contentLibId)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
+		defer func() {
+			delTestWcpNs(vcRestSessionId, namespace)
+			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+		}()
+
+		ginkgo.By("Read shared storage policy which is tagged to wcp namespace")
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZone24, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Create static volume")
+		fcdID, defaultDatastore, staticPvc, staticPv, err := createStaticVolumeOnSvc(ctx, client,
+			namespace, storageDatastoreUrlZone24, storagePolicyNameZone24)
+		defer func() {
+			ginkgo.By("Deleting loadbalancing service, VM and its bootstrap data")
+			err = deleteVmServiceVmWithItsConfig(ctx, client, vmopC,
+				vmlbsvc, namespace, vm, secretName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Delete FCD")
+			err := e2eVSphere.deleteFCD(ctx, fcdID, defaultDatastore.Reference())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Delete PVC")
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, staticPvc.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(staticPv.Spec.CSI.VolumeHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Refresh PVC state")
+		staticPvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, staticPvc.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify volume affinity annotation state")
+		err = verifyVolumeAnnotationAffinity(staticPvc, staticPv, allowedTopologiesMap, topologyCategories)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create vm service vm")
+		secretName, vm, vmlbsvc, err = createVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
+			[]*v1.PersistentVolumeClaim{staticPvc}, vmClass, storageclass.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify vm affinity annotation state")
+		err = verifyVmServiceVmAnnotationAffinity(vm, allowedTopologiesMap, nodeList)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
 })
