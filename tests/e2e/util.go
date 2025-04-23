@@ -7620,3 +7620,108 @@ func getPortNumAndIP(ip string) (string, string, error) {
 
 	return ip, port, nil
 }
+
+/*
+createStaticVolumeOnSvc utility function to create a static volume on a service, register it with CNS,
+and verify the PV/PVC setup
+*/
+func createStaticVolumeOnSvc(ctx context.Context, client clientset.Interface, namespace string, datastoreUrl string,
+	storagePolicyName string) (string, *object.Datastore, *v1.PersistentVolumeClaim, *v1.PersistentVolume, error) {
+	var datacenters []string
+	var defaultDatacenter *object.Datacenter
+	var pandoraSyncWaitTime int
+	var defaultDatastore *object.Datastore
+	curtime := time.Now().Unix()
+	curtimestring := strconv.FormatInt(curtime, 10)
+	pvcName := "cns-pvc-" + curtimestring
+
+	// Get Kubernetes client configuration
+	restConfig := getRestConfigClient()
+
+	// Find and load datacenters
+	finder := find.NewFinder(e2eVSphere.Client.Client, false)
+	cfg, err := getConfig()
+	if err != nil {
+		return "", nil, nil, nil, fmt.Errorf("failed to get config: %v", err)
+	}
+
+	dcList := strings.Split(cfg.Global.Datacenters, ",")
+	for _, dc := range dcList {
+		dcName := strings.TrimSpace(dc)
+		if dcName != "" {
+			datacenters = append(datacenters, dcName)
+		}
+	}
+
+	// Loop through datacenters to find the right one
+	for _, dc := range datacenters {
+		defaultDatacenter, err = finder.Datacenter(ctx, dc)
+		if err != nil {
+			return "", nil, nil, nil, fmt.Errorf("failed to get datacenter '%s': %v", dc, err)
+		}
+		finder.SetDatacenter(defaultDatacenter)
+		defaultDatastore, err = getDatastoreByURL(ctx, datastoreUrl, defaultDatacenter)
+		if err != nil {
+			return "", nil, nil, nil, fmt.Errorf("failed to get datastore from "+
+				"URL '%s' in datacenter '%s': %v", datastoreUrl, dc, err)
+		}
+	}
+
+	// Get Storage Profile ID
+	profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+
+	// Create FCD (CNS Volume)
+	fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
+		"staticfcd"+curtimestring, profileID, diskSizeInMb, defaultDatastore.Reference())
+	if err != nil {
+		return "", defaultDatastore, nil, nil, fmt.Errorf("failed to create FCD with profile ID '%s': %v", profileID, err)
+	}
+
+	// Sync time for Pandora (if set in environment variable)
+	if os.Getenv(envPandoraSyncWaitTime) != "" {
+		pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+		if err != nil {
+			return fcdID, defaultDatastore, nil, nil, fmt.Errorf("invalid Pandora sync "+
+				"wait time '%s': %v", os.Getenv(envPandoraSyncWaitTime), err)
+		}
+	} else {
+		pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+	}
+
+	// Sleep to allow FCD to sync with Pandora
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created "+
+		"FCD:%s to sync with Pandora", pandoraSyncWaitTime, fcdID))
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+	// Register volume with CNS
+	cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteOnce)
+	err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+	if err != nil {
+		return fcdID, defaultDatastore, nil, nil,
+			fmt.Errorf("failed to create CNS register volume for FCD '%s': %v", fcdID, err)
+	}
+
+	// Wait for CNS volume creation to complete
+	framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx, restConfig,
+		namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
+	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+	framework.Logf("CNS register volume name: %s", cnsRegisterVolumeName)
+
+	// Retrieve and verify PV and PVC
+	ginkgo.By("Verifying created PV, PVC, and checking bidirectional reference")
+	pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		return fcdID, defaultDatastore, nil, nil,
+			fmt.Errorf("failed to get PVC '%s' from namespace '%s': %v", pvcName, namespace, err)
+	}
+
+	pv := getPvFromClaim(client, namespace, pvcName)
+	if pv == nil {
+		return fcdID, defaultDatastore, pvc, nil,
+			fmt.Errorf("failed to retrieve PV for PVC '%s' in namespace '%s'", pvcName, namespace)
+	}
+
+	verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
+
+	return fcdID, defaultDatastore, pvc, pv, nil
+}
