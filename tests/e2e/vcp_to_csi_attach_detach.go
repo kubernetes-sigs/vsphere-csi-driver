@@ -1112,6 +1112,7 @@ func verifyVolMountsInPods(ctx context.Context, client clientset.Interface, pods
 				volHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 			}
+			framework.Logf("podName: %s, pvcName: %s, volHandle: %s", pod.Name, pvc.Name, volHandle)
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s, VMUUID : %s",
 				volHandle, pod.Spec.NodeName, vmUUID))
 			isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
