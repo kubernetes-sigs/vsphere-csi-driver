@@ -23,31 +23,36 @@ import (
 	"reflect"
 	"strconv"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	vmoperatorv1alpha2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
+	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 // getVirtualMachine gets the virtual machine instance with a name on a SV
 // namespace.
 func getVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
-	vmName string, namespace string) (*vmoperatortypes.VirtualMachine, error) {
+	vmName string, namespace string) (*vmoperatorv1alpha1.VirtualMachine,
+	*vmoperatorv1alpha2.VirtualMachine, *vmoperatorv1alpha3.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
-	virtualMachine := &vmoperatortypes.VirtualMachine{}
 	vmKey := apitypes.NamespacedName{
 		Namespace: namespace,
 		Name:      vmName,
 	}
-	if err := vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
+	vmV1alpha1, vmV1alpha2, vmV1alpha3, err := utils.GetVirtualMachineAllApiVersions(ctx,
+		vmKey, vmOperatorClient)
+	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v", vmName, err)
 		log.Error(msg)
-		return nil, err
+		return nil, nil, nil, err
 	}
-	return virtualMachine, nil
+	return vmV1alpha1, vmV1alpha2, vmV1alpha3, nil
 }
 
 // setInstanceOwnerRef sets ownerRef on CnsFileAccessConfig instance to VM
@@ -56,7 +61,7 @@ func setInstanceOwnerRef(instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConf
 	vmUID apitypes.UID) {
 	bController := true
 	bOwnerDeletion := true
-	kind := reflect.TypeOf(vmoperatortypes.VirtualMachine{}).Name()
+	kind := reflect.TypeOf(vmoperatorv1alpha1.VirtualMachine{}).Name()
 	instance.OwnerReferences = []metav1.OwnerReference{
 		{
 			APIVersion:         "v1",

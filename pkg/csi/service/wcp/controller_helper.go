@@ -24,7 +24,7 @@ import (
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -42,6 +42,7 @@ import (
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -161,20 +162,19 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 			return logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to get config with error: %+v", err)
 		}
-		vmOperatorClient, err := k8s.NewClientForGroup(ctx, cfg, vmoperatorv1alpha3.GroupName)
+		vmOperatorClient, err := k8s.NewClientForGroup(ctx, cfg, vmoperatorv1alpha1.GroupName)
 		if err != nil {
 			return logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get client for group %s with error: %+v", vmoperatorv1alpha3.GroupName, err)
+				"failed to get client for group %s with error: %+v", vmoperatorv1alpha1.GroupName, err)
 		}
-		vmList := &vmoperatorv1alpha3.VirtualMachineList{}
-		err = vmOperatorClient.List(ctx, vmList)
+
+		vmListV1alpha1, vmListV1alpha2, vmListV1alpha3, err := utils.GetVirtualMachineListAllApiVersions(ctx, "", vmOperatorClient)
 		if err != nil {
 			return logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to list virtualmachines with error: %+v", err)
 		}
-
 		// Get BIOS UUID from VMs to create VirtualMachine object.
-		for _, vmInstance := range vmList.Items {
+		for _, vmInstance := range vmListV1alpha3.Items {
 			biosUUID := vmInstance.Status.BiosUUID
 			vm, err := dc.GetVirtualMachineByUUID(ctx, biosUUID, false)
 			if err != nil {
@@ -183,7 +183,24 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 			}
 			nodes = append(nodes, vm)
 		}
-
+		for _, vmInstance := range vmListV1alpha2.Items {
+			biosUUID := vmInstance.Status.BiosUUID
+			vm, err := dc.GetVirtualMachineByUUID(ctx, biosUUID, false)
+			if err != nil {
+				return logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get vm with biosUUID: %q with error: %+v", biosUUID, err)
+			}
+			nodes = append(nodes, vm)
+		}
+		for _, vmInstance := range vmListV1alpha1.Items {
+			biosUUID := vmInstance.Status.BiosUUID
+			vm, err := dc.GetVirtualMachineByUUID(ctx, biosUUID, false)
+			if err != nil {
+				return logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get vm with biosUUID: %q with error: %+v", biosUUID, err)
+			}
+			nodes = append(nodes, vm)
+		}
 		return common.IsOnlineExpansion(ctx, req.GetVolumeId(), nodes)
 	}
 	return nil

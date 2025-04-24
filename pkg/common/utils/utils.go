@@ -20,9 +20,15 @@ import (
 	"context"
 	"math"
 	"strconv"
+	"strings"
 
+	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	vmoperatorv1alpha2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
+	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"google.golang.org/grpc/codes"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -264,4 +270,84 @@ func QueryAllVolumesForCluster(ctx context.Context, m cnsvolume.Manager, cluster
 			"QueryAllVolume failed with err=%+v", err.Error())
 	}
 	return queryAllResult, nil
+}
+
+func GetVirtualMachineAllApiVersions(ctx context.Context, vmKey types.NamespacedName,
+	vmOperatorClient client.Client) (*vmoperatorv1alpha1.VirtualMachine, *vmoperatorv1alpha2.VirtualMachine,
+	*vmoperatorv1alpha3.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
+	vmV1alpha1 := &vmoperatorv1alpha1.VirtualMachine{}
+	vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}
+	vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}
+	var err error
+	log.Info("get machine with vm-oeprator api version v1alpha3")
+	err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha3)
+	if err != nil && isKindNotFound(err.Error()) {
+		vmV1alpha3 = nil
+		log.Errorf("failed to get VirtualMachines. Error: %+v", err)
+		err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha2)
+		if err != nil && isKindNotFound(err.Error()) {
+			vmV1alpha2 = nil
+			log.Errorf("failed to get VirtualMachines. Error: %+v", err)
+			err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha1)
+			if err != nil && isKindNotFound(err.Error()) {
+				log.Errorf("failed to get VirtualMachines. Error: %+v", err)
+				vmV1alpha1 = nil
+			}
+		}
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	log.Infof("successfully fetched the virtual machines with name %s and namespace %s",
+		vmKey.Name, vmKey.Namespace)
+	return vmV1alpha1, vmV1alpha2, vmV1alpha3, nil
+}
+func isKindNotFound(errMsg string) bool {
+	return strings.Contains(errMsg, "no matches for kind")
+}
+func GetVirtualMachineListAllApiVersions(ctx context.Context, namespace string,
+	vmOperatorClient client.Client) (*vmoperatorv1alpha1.VirtualMachineList, *vmoperatorv1alpha2.VirtualMachineList,
+	*vmoperatorv1alpha3.VirtualMachineList, error) {
+	log := logger.GetLogger(ctx)
+	vmListV1alpha1 := &vmoperatorv1alpha1.VirtualMachineList{}
+	vmListV1alpha2 := &vmoperatorv1alpha2.VirtualMachineList{}
+	vmListV1alpha3 := &vmoperatorv1alpha3.VirtualMachineList{}
+	var err error
+	if namespace != "" {
+		log.Infof("list virtualmachines for namespace %s", namespace)
+		err = vmOperatorClient.List(ctx, vmListV1alpha3, client.InNamespace(namespace))
+		if err != nil || len(vmListV1alpha3.Items) == 0 {
+			vmListV1alpha3 = nil
+			err := vmOperatorClient.List(ctx, vmListV1alpha2, client.InNamespace(namespace))
+			if err != nil || len(vmListV1alpha2.Items) == 0 {
+				vmListV1alpha2 = nil
+				err := vmOperatorClient.List(ctx, vmListV1alpha1, client.InNamespace(namespace))
+				if err != nil {
+					vmListV1alpha1 = nil
+					return vmListV1alpha1, vmListV1alpha2, vmListV1alpha3, err
+				}
+			}
+		}
+	} else {
+		log.Info("list all virtualmachines")
+		err = vmOperatorClient.List(ctx, vmListV1alpha3)
+		if err != nil || len(vmListV1alpha3.Items) == 0 {
+			vmListV1alpha3 = nil
+			err := vmOperatorClient.List(ctx, vmListV1alpha2)
+			if err != nil || len(vmListV1alpha2.Items) == 0 {
+				vmListV1alpha2 = nil
+				err := vmOperatorClient.List(ctx, vmListV1alpha1)
+				if err != nil {
+					vmListV1alpha1 = nil
+					return vmListV1alpha1, vmListV1alpha2, vmListV1alpha3, err
+				}
+			}
+		}
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	log.Infof("successfully fetched the virtual machines for namespace '%s'", namespace)
+	return vmListV1alpha1, vmListV1alpha2, vmListV1alpha3, nil
 }

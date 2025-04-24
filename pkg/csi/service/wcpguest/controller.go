@@ -31,7 +31,9 @@ import (
 	"github.com/fsnotify/fsnotify"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	vmoperatorv1alpha2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
+	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -55,6 +57,7 @@ import (
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -119,7 +122,7 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 		return err
 	}
 
-	c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, vmoperatortypes.GroupName)
+	c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, vmoperatorv1alpha1.GroupName)
 	if err != nil {
 		log.Errorf("failed to create vmOperatorClient. Error: %+v", err)
 		return err
@@ -231,7 +234,7 @@ func (c *controller) ReloadConfiguration() error {
 			return err
 		}
 		log.Infof("successfully re-created supervisorClient using updated configuration")
-		c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, vmoperatortypes.GroupName)
+		c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, vmoperatorv1alpha1.GroupName)
 		if err != nil {
 			log.Errorf("failed to create vmOperatorClient. Error: %+v", err)
 			return err
@@ -660,8 +663,9 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 	var isVolumePresentInSpec, isVolumeAttached bool
 	var diskUUID string
 	var err error
-
-	virtualMachine := &vmoperatortypes.VirtualMachine{}
+	vmV1alpha1 := &vmoperatorv1alpha1.VirtualMachine{}
+	vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}
+	vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}
 	vmKey := types.NamespacedName{
 		Namespace: c.supervisorNamespace,
 		Name:      req.NodeId,
@@ -670,121 +674,342 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 	for {
-		if err = c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
+		vmV1alpha1, vmV1alpha2, vmV1alpha3, err = utils.GetVirtualMachineAllApiVersions(
+			ctx, vmKey, c.vmOperatorClient)
+		if err != nil {
 			msg := fmt.Sprintf("failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 		}
-		// Check if volume is already present in the virtualMachine.Spec.Volumes
-		for _, volume := range virtualMachine.Spec.Volumes {
-			if volume.PersistentVolumeClaim != nil && volume.Name == req.VolumeId {
-				log.Infof("Volume %q is already present in the virtualMachine.Spec.Volumes", volume.Name)
-				isVolumePresentInSpec = true
+		if vmV1alpha3 != nil {
+			virtualMachine := vmV1alpha3
+			// Check if volume is already present in the virtualMachine.Spec.Volumes
+			for _, volume := range virtualMachine.Spec.Volumes {
+				if volume.PersistentVolumeClaim != nil && volume.Name == req.VolumeId {
+					log.Infof("Volume %q is already present in the virtualMachine.Spec.Volumes", volume.Name)
+					isVolumePresentInSpec = true
+					break
+				}
+			}
+			if isVolumePresentInSpec {
 				break
 			}
-		}
-		if isVolumePresentInSpec {
-			break
-		}
+			// Create a patch for the VM prior to modifying it with the new volumes.
+			vmPatch := client.MergeFromWithOptions(
+				virtualMachine.DeepCopy(),
+				client.MergeFromWithOptimisticLock{})
 
-		// Create a patch for the VM prior to modifying it with the new volumes.
-		vmPatch := client.MergeFromWithOptions(
-			virtualMachine.DeepCopy(),
-			client.MergeFromWithOptimisticLock{})
+			// Volume is not present in the virtualMachine.Spec.Volumes, so adding
+			// volume in the spec and patching virtualMachine instance.
+			vmvolumes := vmoperatorv1alpha3.VirtualMachineVolume{
+				Name: req.VolumeId,
+				VirtualMachineVolumeSource: vmoperatorv1alpha3.VirtualMachineVolumeSource{
+					PersistentVolumeClaim: &vmoperatorv1alpha3.PersistentVolumeClaimVolumeSource{
+						PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
+							ClaimName: req.VolumeId,
+						},
+					},
+				},
+			}
+			virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
 
-		// Volume is not present in the virtualMachine.Spec.Volumes, so adding
-		// volume in the spec and patching virtualMachine instance.
-		vmvolumes := vmoperatortypes.VirtualMachineVolume{
-			Name: req.VolumeId,
-			VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-				PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+			// Issue a patch with the modified VM against the patch created above.
+			if err := c.vmOperatorClient.Patch(ctx, virtualMachine, vmPatch); err == nil {
+				break
+			} else {
+				log.Errorf("failed to update virtualmachine. Err: %v", err)
+			}
+			if time.Now().After(timeout) {
+				msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+			}
+			virtualMachine = &vmoperatorv1alpha3.VirtualMachine{}
+		} else if vmV1alpha2 != nil {
+			virtualMachine := vmV1alpha2
+			// Check if volume is already present in the virtualMachine.Spec.Volumes
+			for _, volume := range virtualMachine.Spec.Volumes {
+				if volume.PersistentVolumeClaim != nil && volume.Name == req.VolumeId {
+					log.Infof("Volume %q is already present in the virtualMachine.Spec.Volumes", volume.Name)
+					isVolumePresentInSpec = true
+					break
+				}
+			}
+			if isVolumePresentInSpec {
+				break
+			}
+			// Create a patch for the VM prior to modifying it with the new volumes.
+			vmPatch := client.MergeFromWithOptions(
+				virtualMachine.DeepCopy(),
+				client.MergeFromWithOptimisticLock{})
+
+			// Volume is not present in the virtualMachine.Spec.Volumes, so adding
+			// volume in the spec and patching virtualMachine instance.
+			vmvolumes := vmoperatorv1alpha2.VirtualMachineVolume{
+				Name: req.VolumeId,
+				VirtualMachineVolumeSource: vmoperatorv1alpha2.VirtualMachineVolumeSource{
+					PersistentVolumeClaim: &vmoperatorv1alpha2.PersistentVolumeClaimVolumeSource{
+						PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
+							ClaimName: req.VolumeId,
+						},
+					},
+				},
+			}
+			virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
+
+			// Issue a patch with the modified VM against the patch created above.
+			if err := c.vmOperatorClient.Patch(ctx, virtualMachine, vmPatch); err == nil {
+				break
+			} else {
+				log.Errorf("failed to update virtualmachine. Err: %v", err)
+			}
+			if time.Now().After(timeout) {
+				msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+			}
+			virtualMachine = &vmoperatorv1alpha2.VirtualMachine{}
+		} else if vmV1alpha1 != nil {
+			virtualMachine := vmV1alpha1
+			// Check if volume is already present in the virtualMachine.Spec.Volumes
+			for _, volume := range virtualMachine.Spec.Volumes {
+				if volume.PersistentVolumeClaim != nil && volume.Name == req.VolumeId {
+					log.Infof("Volume %q is already present in the virtualMachine.Spec.Volumes", volume.Name)
+					isVolumePresentInSpec = true
+					break
+				}
+			}
+			if isVolumePresentInSpec {
+				break
+			}
+			// Create a patch for the VM prior to modifying it with the new volumes.
+			vmPatch := client.MergeFromWithOptions(
+				virtualMachine.DeepCopy(),
+				client.MergeFromWithOptimisticLock{})
+
+			// Volume is not present in the virtualMachine.Spec.Volumes, so adding
+			// volume in the spec and patching virtualMachine instance.
+			vmvolumes := vmoperatorv1alpha1.VirtualMachineVolume{
+				Name: req.VolumeId,
+				PersistentVolumeClaim: &vmoperatorv1alpha1.PersistentVolumeClaimVolumeSource{
 					PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
 						ClaimName: req.VolumeId,
 					},
 				},
-			},
-		}
-		virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
+			}
+			virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
 
-		// Issue a patch with the modified VM against the patch created above.
-		if err := c.vmOperatorClient.Patch(ctx, virtualMachine, vmPatch); err == nil {
-			break
-		} else {
-			log.Errorf("failed to update virtualmachine. Err: %v", err)
-		}
-		if time.Now().After(timeout) {
-			msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-		}
-		virtualMachine = &vmoperatortypes.VirtualMachine{}
-	}
-
-	for _, volume := range virtualMachine.Status.Volumes {
-		if volume.Name == req.VolumeId && volume.Attached && volume.DiskUUID != "" {
-			diskUUID = volume.DiskUUID
-			isVolumeAttached = true
-			log.Infof("Volume %q is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q",
-				volume.Name, volume.DiskUUID)
-			break
-		}
-	}
-	// volume is not attached, so wait until volume is attached and DiskUuid is set
-	if !isVolumeAttached {
-		watchVirtualMachine, err := c.vmWatcher.Watch(metav1.ListOptions{
-			FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
-			ResourceVersion: virtualMachine.ResourceVersion,
-			TimeoutSeconds:  &timeoutSeconds,
-		})
-		if err != nil {
-			msg := fmt.Sprintf("failed to watch virtualMachine %q with Error: %v", virtualMachine.Name, err)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-		}
-		defer watchVirtualMachine.Stop()
-
-		// Watch all update events made on VirtualMachine instance until volume.DiskUuid is set
-		for diskUUID == "" {
-			// blocking wait for update event
-			log.Debugf("waiting for update on virtualmachine: %q", virtualMachine.Name)
-			event := <-watchVirtualMachine.ResultChan()
-			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
-			if !ok {
-				msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+			// Issue a patch with the modified VM against the patch created above.
+			if err := c.vmOperatorClient.Patch(ctx, virtualMachine, vmPatch); err == nil {
+				break
+			} else {
+				log.Errorf("failed to update virtualmachine. Err: %v", err)
+			}
+			if time.Now().After(timeout) {
+				msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
 				log.Error(msg)
 				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 			}
-			if vm.Name != virtualMachine.Name {
-				log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
-					vm.Name, virtualMachine.Name, req.VolumeId)
-				continue
-			}
-			log.Debugf("observed update on virtualmachine: %q. checking if disk UUID is set for volume: %q ",
-				virtualMachine.Name, req.VolumeId)
-			for _, volume := range vm.Status.Volumes {
-				if volume.Name == req.VolumeId {
-					if volume.Attached && volume.DiskUUID != "" && volume.Error == "" {
-						diskUUID = volume.DiskUUID
-						log.Infof("observed disk UUID %q is set for the volume %q on virtualmachine %q",
-							volume.DiskUUID, volume.Name, vm.Name)
-					} else {
-						if volume.Error != "" {
-							msg := fmt.Sprintf("observed Error: %q is set on the volume %q on virtualmachine %q",
-								volume.Error, volume.Name, vm.Name)
-							log.Error(msg)
-							return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-						}
-					}
-					break
-				}
-			}
-			if diskUUID == "" {
-				log.Debugf("disk UUID is not set for volume: %q ", req.VolumeId)
+			virtualMachine = &vmoperatorv1alpha1.VirtualMachine{}
+		}
+	}
+	if vmV1alpha3 != nil {
+		virtualMachine := vmV1alpha3
+		for _, volume := range virtualMachine.Status.Volumes {
+			if volume.Name == req.VolumeId && volume.Attached && volume.DiskUUID != "" {
+				diskUUID = volume.DiskUUID
+				isVolumeAttached = true
+				log.Infof("Volume %q is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q",
+					volume.Name, volume.DiskUUID)
+				break
 			}
 		}
-		log.Debugf("disk UUID %v is set for the volume: %q ", diskUUID, req.VolumeId)
-	}
+		// volume is not attached, so wait until volume is attached and DiskUuid is set
+		if !isVolumeAttached {
+			watchVirtualMachine, err := c.vmWatcher.Watch(metav1.ListOptions{
+				FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
+				ResourceVersion: virtualMachine.ResourceVersion,
+				TimeoutSeconds:  &timeoutSeconds,
+			})
+			if err != nil {
+				msg := fmt.Sprintf("failed to watch virtualMachine %q with Error: %v", virtualMachine.Name, err)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+			}
+			defer watchVirtualMachine.Stop()
 
+			// Watch all update events made on VirtualMachine instance until volume.DiskUuid is set
+			for diskUUID == "" {
+				// blocking wait for update event
+				log.Debugf("waiting for update on virtualmachine: %q", virtualMachine.Name)
+				event := <-watchVirtualMachine.ResultChan()
+				vm, ok := event.Object.(*vmoperatorv1alpha3.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+				}
+				if vm.Name != virtualMachine.Name {
+					log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
+						vm.Name, virtualMachine.Name, req.VolumeId)
+					continue
+				}
+				log.Debugf("observed update on virtualmachine: %q. checking if disk UUID is set for volume: %q ",
+					virtualMachine.Name, req.VolumeId)
+				for _, volume := range vm.Status.Volumes {
+					if volume.Name == req.VolumeId {
+						if volume.Attached && volume.DiskUUID != "" && volume.Error == "" {
+							diskUUID = volume.DiskUUID
+							log.Infof("observed disk UUID %q is set for the volume %q on virtualmachine %q",
+								volume.DiskUUID, volume.Name, vm.Name)
+						} else {
+							if volume.Error != "" {
+								msg := fmt.Sprintf("observed Error: %q is set on the volume %q on virtualmachine %q",
+									volume.Error, volume.Name, vm.Name)
+								log.Error(msg)
+								return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+							}
+						}
+						break
+					}
+				}
+				if diskUUID == "" {
+					log.Debugf("disk UUID is not set for volume: %q ", req.VolumeId)
+				}
+			}
+		}
+	} else if vmV1alpha2 != nil {
+		virtualMachine := vmV1alpha2
+		for _, volume := range virtualMachine.Status.Volumes {
+			if volume.Name == req.VolumeId && volume.Attached && volume.DiskUUID != "" {
+				diskUUID = volume.DiskUUID
+				isVolumeAttached = true
+				log.Infof("Volume %q is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q",
+					volume.Name, volume.DiskUUID)
+				break
+			}
+		}
+		// volume is not attached, so wait until volume is attached and DiskUuid is set
+		if !isVolumeAttached {
+			watchVirtualMachine, err := c.vmWatcher.Watch(metav1.ListOptions{
+				FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
+				ResourceVersion: virtualMachine.ResourceVersion,
+				TimeoutSeconds:  &timeoutSeconds,
+			})
+			if err != nil {
+				msg := fmt.Sprintf("failed to watch virtualMachine %q with Error: %v", virtualMachine.Name, err)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+			}
+			defer watchVirtualMachine.Stop()
+
+			// Watch all update events made on VirtualMachine instance until volume.DiskUuid is set
+			for diskUUID == "" {
+				// blocking wait for update event
+				log.Debugf("waiting for update on virtualmachine: %q", virtualMachine.Name)
+				event := <-watchVirtualMachine.ResultChan()
+				vm, ok := event.Object.(*vmoperatorv1alpha2.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+				}
+				if vm.Name != virtualMachine.Name {
+					log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
+						vm.Name, virtualMachine.Name, req.VolumeId)
+					continue
+				}
+				log.Debugf("observed update on virtualmachine: %q. checking if disk UUID is set for volume: %q ",
+					virtualMachine.Name, req.VolumeId)
+				for _, volume := range vm.Status.Volumes {
+					if volume.Name == req.VolumeId {
+						if volume.Attached && volume.DiskUUID != "" && volume.Error == "" {
+							diskUUID = volume.DiskUUID
+							log.Infof("observed disk UUID %q is set for the volume %q on virtualmachine %q",
+								volume.DiskUUID, volume.Name, vm.Name)
+						} else {
+							if volume.Error != "" {
+								msg := fmt.Sprintf("observed Error: %q is set on the volume %q on virtualmachine %q",
+									volume.Error, volume.Name, vm.Name)
+								log.Error(msg)
+								return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+							}
+						}
+						break
+					}
+				}
+				if diskUUID == "" {
+					log.Debugf("disk UUID is not set for volume: %q ", req.VolumeId)
+				}
+			}
+		}
+	} else if vmV1alpha1 != nil {
+		virtualMachine := vmV1alpha1
+		for _, volume := range virtualMachine.Status.Volumes {
+			if volume.Name == req.VolumeId && volume.Attached && volume.DiskUuid != "" {
+				diskUUID = volume.DiskUuid
+				isVolumeAttached = true
+				log.Infof("Volume %q is already attached in the virtualMachine.Spec.Volumes. Disk UUID: %q",
+					volume.Name, volume.DiskUuid)
+				break
+			}
+		}
+		// volume is not attached, so wait until volume is attached and DiskUuid is set
+		if !isVolumeAttached {
+			watchVirtualMachine, err := c.vmWatcher.Watch(metav1.ListOptions{
+				FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
+				ResourceVersion: virtualMachine.ResourceVersion,
+				TimeoutSeconds:  &timeoutSeconds,
+			})
+			if err != nil {
+				msg := fmt.Sprintf("failed to watch virtualMachine %q with Error: %v", virtualMachine.Name, err)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+			}
+			defer watchVirtualMachine.Stop()
+
+			// Watch all update events made on VirtualMachine instance until volume.DiskUuid is set
+			for diskUUID == "" {
+				// blocking wait for update event
+				log.Debugf("waiting for update on virtualmachine: %q", virtualMachine.Name)
+				event := <-watchVirtualMachine.ResultChan()
+				vm, ok := event.Object.(*vmoperatorv1alpha1.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+				}
+				if vm.Name != virtualMachine.Name {
+					log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
+						vm.Name, virtualMachine.Name, req.VolumeId)
+					continue
+				}
+				log.Debugf("observed update on virtualmachine: %q. checking if disk UUID is set for volume: %q ",
+					virtualMachine.Name, req.VolumeId)
+				for _, volume := range vm.Status.Volumes {
+					if volume.Name == req.VolumeId {
+						if volume.Attached && volume.DiskUuid != "" && volume.Error == "" {
+							diskUUID = volume.DiskUuid
+							log.Infof("observed disk UUID %q is set for the volume %q on virtualmachine %q",
+								volume.DiskUuid, volume.Name, vm.Name)
+						} else {
+							if volume.Error != "" {
+								msg := fmt.Sprintf("observed Error: %q is set on the volume %q on virtualmachine %q",
+									volume.Error, volume.Name, vm.Name)
+								log.Error(msg)
+								return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+							}
+						}
+						break
+					}
+				}
+				if diskUUID == "" {
+					log.Debugf("disk UUID is not set for volume: %q ", req.VolumeId)
+				}
+			}
+		}
+	}
+	log.Debugf("disk UUID %v is set for the volume: %q ", diskUUID, req.VolumeId)
 	// return PublishContext with diskUUID of the volume attached to node.
 	publishInfo := make(map[string]string)
 	publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
@@ -1012,7 +1237,9 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest, c *controller) (
 	*csi.ControllerUnpublishVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
-	virtualMachine := &vmoperatortypes.VirtualMachine{}
+	vmV1alpha1 := &vmoperatorv1alpha1.VirtualMachine{}
+	vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}
+	vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}
 	vmKey := types.NamespacedName{
 		Namespace: c.supervisorNamespace,
 		Name:      req.NodeId,
@@ -1021,7 +1248,9 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 	for {
-		if err := c.vmOperatorClient.Get(ctx, vmKey, virtualMachine); err != nil {
+		vmV1alpha1, vmV1alpha2, vmV1alpha3, err = utils.GetVirtualMachineAllApiVersions(
+			ctx, vmKey, c.vmOperatorClient)
+		if err != nil {
 			if errors.IsNotFound(err) {
 				log.Infof("VirtualMachine %s/%s not found. Assuming volume %s was detached.",
 					c.supervisorNamespace, req.NodeId, req.VolumeId)
@@ -1032,94 +1261,285 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 		}
 		log.Debugf("Found VirtualMachine for node: %q.", req.NodeId)
-
-		for index, volume := range virtualMachine.Spec.Volumes {
-			if volume.Name == req.VolumeId {
-				log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, virtualMachine.Name)
-				virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes[:index],
-					virtualMachine.Spec.Volumes[index+1:]...)
-				err = c.vmOperatorClient.Update(ctx, virtualMachine)
-				break
+		if vmV1alpha3 != nil {
+			virtualMachine := vmV1alpha3
+			for index, volume := range virtualMachine.Spec.Volumes {
+				if volume.Name == req.VolumeId {
+					log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, virtualMachine.Name)
+					virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes[:index],
+						virtualMachine.Spec.Volumes[index+1:]...)
+					err = c.vmOperatorClient.Update(ctx, virtualMachine)
+					break
+				}
 			}
-		}
-		if err == nil {
-			break
-		} else {
-			log.Errorf("failed to update virtualmachine. Err: %v", err)
-		}
-		if time.Now().After(timeout) {
-			msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-		}
-		virtualMachine = &vmoperatortypes.VirtualMachine{}
-	}
-	isVolumePresentInVMStatus := false
-	for _, volume := range virtualMachine.Status.Volumes {
-		if volume.Name == req.VolumeId {
-			isVolumePresentInVMStatus = true
-		}
-	}
-	if !isVolumePresentInVMStatus {
-		log.Infof("ControllerUnpublishVolume: Volume %q not found in VM %q status field. Assuming it's already detached",
-			req.VolumeId, req.NodeId)
-	} else {
-		// Watch virtual machine object and wait for volume name to be removed from the status field.
-		watchVirtualMachine, err := c.vmWatcher.Watch(metav1.ListOptions{
-			FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
-			ResourceVersion: virtualMachine.ResourceVersion,
-			TimeoutSeconds:  &timeoutSeconds,
-		})
-		if err != nil {
-			msg := fmt.Sprintf("failed to watch VirtualMachine %q with Error: %v", virtualMachine.Name, err)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-		}
-		if watchVirtualMachine == nil {
-			msg := fmt.Sprintf("watchVirtualMachine for %q is nil", virtualMachine.Name)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-
-		}
-		defer watchVirtualMachine.Stop()
-
-		// Loop until the volume is removed from virtualmachine status
-		isVolumeDetached := false
-		for !isVolumeDetached {
-			log.Debugf("Waiting for update on VirtualMachine: %q", virtualMachine.Name)
-			// Block on update events
-			event := <-watchVirtualMachine.ResultChan()
-			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
-			if !ok {
-				msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+			if err == nil {
+				break
+			} else {
+				log.Errorf("failed to update virtualmachine. Err: %v", err)
+			}
+			if time.Now().After(timeout) {
+				msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
 				log.Error(msg)
 				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 			}
-			if vm.Name != virtualMachine.Name {
-				log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
-					vm.Name, virtualMachine.Name, req.VolumeId)
-				continue
-			}
-			switch event.Type {
-			case watch.Added, watch.Modified:
-				isVolumeDetached = true
-				for _, volume := range vm.Status.Volumes {
-					if volume.Name == req.VolumeId {
-						log.Debugf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name)
-						isVolumeDetached = false
-						if volume.Attached && volume.Error != "" {
-							msg := fmt.Sprintf("failed to detach volume %q from VirtualMachine %q with Error: %v",
-								volume.Name, virtualMachine.Name, volume.Error)
-							log.Error(msg)
-							return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
-						}
-						break
-					}
+			virtualMachine = &vmoperatorv1alpha3.VirtualMachine{}
+		}
+		if vmV1alpha2 != nil {
+			virtualMachine := vmV1alpha2
+			for index, volume := range virtualMachine.Spec.Volumes {
+				if volume.Name == req.VolumeId {
+					log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, virtualMachine.Name)
+					virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes[:index],
+						virtualMachine.Spec.Volumes[index+1:]...)
+					err = c.vmOperatorClient.Update(ctx, virtualMachine)
+					break
 				}
-			case watch.Deleted:
-				log.Infof("VirtualMachine %s/%s deleted. Assuming volume %s was detached.",
-					c.supervisorNamespace, req.NodeId, req.VolumeId)
-				isVolumeDetached = true
+			}
+			if err == nil {
+				break
+			} else {
+				log.Errorf("failed to update virtualmachine. Err: %v", err)
+			}
+			if time.Now().After(timeout) {
+				msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+			}
+			virtualMachine = &vmoperatorv1alpha2.VirtualMachine{}
+		}
+		if vmV1alpha1 != nil {
+			virtualMachine := vmV1alpha1
+			for index, volume := range virtualMachine.Spec.Volumes {
+				if volume.Name == req.VolumeId {
+					log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, virtualMachine.Name)
+					virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes[:index],
+						virtualMachine.Spec.Volumes[index+1:]...)
+					err = c.vmOperatorClient.Update(ctx, virtualMachine)
+					break
+				}
+			}
+			if err == nil {
+				break
+			} else {
+				log.Errorf("failed to update virtualmachine. Err: %v", err)
+			}
+			if time.Now().After(timeout) {
+				msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+			}
+			virtualMachine = &vmoperatorv1alpha1.VirtualMachine{}
+		}
+	}
+	isVolumePresentInVMStatus := false
+	if vmV1alpha3 != nil {
+		virtualMachine := vmV1alpha3
+		for _, volume := range virtualMachine.Status.Volumes {
+			if volume.Name == req.VolumeId {
+				isVolumePresentInVMStatus = true
+			}
+		}
+		if !isVolumePresentInVMStatus {
+			log.Infof("ControllerUnpublishVolume: Volume %q not found in VM %q status field. Assuming it's already detached",
+				req.VolumeId, req.NodeId)
+		} else {
+			// Watch virtual machine object and wait for volume name to be removed from the status field.
+			watchVirtualMachine, err := c.vmWatcher.Watch(metav1.ListOptions{
+				FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
+				ResourceVersion: virtualMachine.ResourceVersion,
+				TimeoutSeconds:  &timeoutSeconds,
+			})
+			if err != nil {
+				msg := fmt.Sprintf("failed to watch VirtualMachine %q with Error: %v", virtualMachine.Name, err)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+			}
+			if watchVirtualMachine == nil {
+				msg := fmt.Sprintf("watchVirtualMachine for %q is nil", virtualMachine.Name)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+
+			}
+			defer watchVirtualMachine.Stop()
+
+			// Loop until the volume is removed from virtualmachine status
+			isVolumeDetached := false
+			for !isVolumeDetached {
+				log.Debugf("Waiting for update on VirtualMachine: %q", virtualMachine.Name)
+				// Block on update events
+				event := <-watchVirtualMachine.ResultChan()
+				vm, ok := event.Object.(*vmoperatorv1alpha3.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+				}
+				if vm.Name != virtualMachine.Name {
+					log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
+						vm.Name, virtualMachine.Name, req.VolumeId)
+					continue
+				}
+				switch event.Type {
+				case watch.Added, watch.Modified:
+					isVolumeDetached = true
+					for _, volume := range vm.Status.Volumes {
+						if volume.Name == req.VolumeId {
+							log.Debugf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name)
+							isVolumeDetached = false
+							if volume.Attached && volume.Error != "" {
+								msg := fmt.Sprintf("failed to detach volume %q from VirtualMachine %q with Error: %v",
+									volume.Name, virtualMachine.Name, volume.Error)
+								log.Error(msg)
+								return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+							}
+							break
+						}
+					}
+				case watch.Deleted:
+					log.Infof("VirtualMachine %s/%s deleted. Assuming volume %s was detached.",
+						c.supervisorNamespace, req.NodeId, req.VolumeId)
+					isVolumeDetached = true
+				}
+			}
+		}
+	} else if vmV1alpha2 != nil {
+		virtualMachine := vmV1alpha2
+		for _, volume := range virtualMachine.Status.Volumes {
+			if volume.Name == req.VolumeId {
+				isVolumePresentInVMStatus = true
+			}
+		}
+		if !isVolumePresentInVMStatus {
+			log.Infof("ControllerUnpublishVolume: Volume %q not found in VM %q status field. Assuming it's already detached",
+				req.VolumeId, req.NodeId)
+		} else {
+			// Watch virtual machine object and wait for volume name to be removed from the status field.
+			watchVirtualMachine, err := c.vmWatcher.Watch(metav1.ListOptions{
+				FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
+				ResourceVersion: virtualMachine.ResourceVersion,
+				TimeoutSeconds:  &timeoutSeconds,
+			})
+			if err != nil {
+				msg := fmt.Sprintf("failed to watch VirtualMachine %q with Error: %v", virtualMachine.Name, err)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+			}
+			if watchVirtualMachine == nil {
+				msg := fmt.Sprintf("watchVirtualMachine for %q is nil", virtualMachine.Name)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+
+			}
+			defer watchVirtualMachine.Stop()
+
+			// Loop until the volume is removed from virtualmachine status
+			isVolumeDetached := false
+			for !isVolumeDetached {
+				log.Debugf("Waiting for update on VirtualMachine: %q", virtualMachine.Name)
+				// Block on update events
+				event := <-watchVirtualMachine.ResultChan()
+				vm, ok := event.Object.(*vmoperatorv1alpha2.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+				}
+				if vm.Name != virtualMachine.Name {
+					log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
+						vm.Name, virtualMachine.Name, req.VolumeId)
+					continue
+				}
+				switch event.Type {
+				case watch.Added, watch.Modified:
+					isVolumeDetached = true
+					for _, volume := range vm.Status.Volumes {
+						if volume.Name == req.VolumeId {
+							log.Debugf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name)
+							isVolumeDetached = false
+							if volume.Attached && volume.Error != "" {
+								msg := fmt.Sprintf("failed to detach volume %q from VirtualMachine %q with Error: %v",
+									volume.Name, virtualMachine.Name, volume.Error)
+								log.Error(msg)
+								return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+							}
+							break
+						}
+					}
+				case watch.Deleted:
+					log.Infof("VirtualMachine %s/%s deleted. Assuming volume %s was detached.",
+						c.supervisorNamespace, req.NodeId, req.VolumeId)
+					isVolumeDetached = true
+				}
+			}
+		}
+	} else if vmV1alpha1 != nil {
+		virtualMachine := vmV1alpha1
+		for _, volume := range virtualMachine.Status.Volumes {
+			if volume.Name == req.VolumeId {
+				isVolumePresentInVMStatus = true
+			}
+		}
+		if !isVolumePresentInVMStatus {
+			log.Infof("ControllerUnpublishVolume: Volume %q not found in VM %q status field. Assuming it's already detached",
+				req.VolumeId, req.NodeId)
+		} else {
+			// Watch virtual machine object and wait for volume name to be removed from the status field.
+			watchVirtualMachine, err := c.vmWatcher.Watch(metav1.ListOptions{
+				FieldSelector:   fields.SelectorFromSet(fields.Set{"metadata.name": string(virtualMachine.Name)}).String(),
+				ResourceVersion: virtualMachine.ResourceVersion,
+				TimeoutSeconds:  &timeoutSeconds,
+			})
+			if err != nil {
+				msg := fmt.Sprintf("failed to watch VirtualMachine %q with Error: %v", virtualMachine.Name, err)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+			}
+			if watchVirtualMachine == nil {
+				msg := fmt.Sprintf("watchVirtualMachine for %q is nil", virtualMachine.Name)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+
+			}
+			defer watchVirtualMachine.Stop()
+
+			// Loop until the volume is removed from virtualmachine status
+			isVolumeDetached := false
+			for !isVolumeDetached {
+				log.Debugf("Waiting for update on VirtualMachine: %q", virtualMachine.Name)
+				// Block on update events
+				event := <-watchVirtualMachine.ResultChan()
+				vm, ok := event.Object.(*vmoperatorv1alpha1.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+				}
+				if vm.Name != virtualMachine.Name {
+					log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
+						vm.Name, virtualMachine.Name, req.VolumeId)
+					continue
+				}
+				switch event.Type {
+				case watch.Added, watch.Modified:
+					isVolumeDetached = true
+					for _, volume := range vm.Status.Volumes {
+						if volume.Name == req.VolumeId {
+							log.Debugf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name)
+							isVolumeDetached = false
+							if volume.Attached && volume.Error != "" {
+								msg := fmt.Sprintf("failed to detach volume %q from VirtualMachine %q with Error: %v",
+									volume.Name, virtualMachine.Name, volume.Error)
+								log.Error(msg)
+								return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
+							}
+							break
+						}
+					}
+				case watch.Deleted:
+					log.Infof("VirtualMachine %s/%s deleted. Assuming volume %s was detached.",
+						c.supervisorNamespace, req.NodeId, req.VolumeId)
+					isVolumeDetached = true
+				}
 			}
 		}
 	}
@@ -1259,15 +1679,14 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend) {
-			vmList := &vmoperatortypes.VirtualMachineList{}
-			err = c.vmOperatorClient.List(ctx, vmList, client.InNamespace(c.supervisorNamespace))
+			vmListV1alpha1, vmListV1alpha2, vmListV1alpha3, err := utils.GetVirtualMachineListAllApiVersions(ctx, c.supervisorNamespace, c.vmOperatorClient)
 			if err != nil {
 				msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
 				log.Error(msg)
 				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 			}
 
-			for _, vmInstance := range vmList.Items {
+			for _, vmInstance := range vmListV1alpha3.Items {
 				for _, vmVolume := range vmInstance.Status.Volumes {
 					if vmVolume.Name == volumeID && vmVolume.Attached {
 						msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to pod. "+
@@ -1277,6 +1696,29 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 					}
 				}
 			}
+
+			for _, vmInstance := range vmListV1alpha2.Items {
+				for _, vmVolume := range vmInstance.Status.Volumes {
+					if vmVolume.Name == volumeID && vmVolume.Attached {
+						msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to pod. "+
+							"Only offline volume expansion is supported", volumeID)
+						log.Error(msg)
+						return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.FailedPrecondition, msg)
+					}
+				}
+			}
+
+			for _, vmInstance := range vmListV1alpha1.Items {
+				for _, vmVolume := range vmInstance.Status.Volumes {
+					if vmVolume.Name == volumeID && vmVolume.Attached {
+						msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to pod. "+
+							"Only offline volume expansion is supported", volumeID)
+						log.Error(msg)
+						return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.FailedPrecondition, msg)
+					}
+				}
+			}
+
 		}
 
 		// Retrieve Supervisor PVC

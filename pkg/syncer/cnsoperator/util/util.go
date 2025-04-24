@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -29,6 +28,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -96,21 +96,32 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 	vmNamespace, vmName string, network_provider_type string) (string, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("Determining external IP Address of VM: %s/%s", vmNamespace, vmName)
-	virtualMachineInstance := &vmoperatortypes.VirtualMachine{}
 	vmKey := apitypes.NamespacedName{
 		Namespace: vmNamespace,
 		Name:      vmName,
 	}
-	err := vmOperatorClient.Get(ctx, vmKey, virtualMachineInstance)
+	vmV1alpha1, vmV1alpha2, vmV1alpha3, err := utils.GetVirtualMachineAllApiVersions(ctx,
+		vmKey, vmOperatorClient)
 	if err != nil {
 		log.Errorf("failed to get virtualmachine %s/%s with error: %v", vmNamespace, vmName, err)
 		return "", err
 	}
 
 	var networkNames []string
-	for _, networkInterface := range virtualMachineInstance.Spec.Network.Interfaces {
-		networkNames = append(networkNames, networkInterface.Network.Name)
+	if vmV1alpha3 != nil {
+		for _, networkInterface := range vmV1alpha3.Spec.Network.Interfaces {
+			networkNames = append(networkNames, networkInterface.Network.Name)
+		}
+	} else if vmV1alpha2 != nil {
+		for _, networkInterface := range vmV1alpha2.Spec.Network.Interfaces {
+			networkNames = append(networkNames, networkInterface.Network.Name)
+		}
+	} else if vmV1alpha1 != nil {
+		for _, networkInterface := range vmV1alpha1.Spec.NetworkInterfaces {
+			networkNames = append(networkNames, networkInterface.NetworkName)
+		}
 	}
+
 	log.Debugf("VirtualMachine %s/%s is configured with networks %v", vmNamespace, vmName, networkNames)
 
 	var ip string
@@ -135,14 +146,31 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 				vmNamespace, vmName)
 		}
 	} else if network_provider_type == VDSNetworkProvider {
-		ip = virtualMachineInstance.Status.Network.PrimaryIP4
-		if ip == "" {
-			ip = virtualMachineInstance.Status.Network.PrimaryIP6
+		if vmV1alpha3 != nil {
+			ip = vmV1alpha3.Status.Network.PrimaryIP4
 			if ip == "" {
-				return "", fmt.Errorf("vm.Status.Network.PrimaryIP6 & PrimaryIP4 is not populated for %s/%s",
-					vmNamespace, vmName)
+				ip = vmV1alpha3.Status.Network.PrimaryIP6
+				if ip == "" {
+					return "", fmt.Errorf("vm.Status.Network.PrimaryIP6 & PrimaryIP4 is not populated for %s/%s",
+						vmNamespace, vmName)
+				}
+			}
+		} else if vmV1alpha2 != nil {
+			ip = vmV1alpha2.Status.Network.PrimaryIP4
+			if ip == "" {
+				ip = vmV1alpha2.Status.Network.PrimaryIP6
+				if ip == "" {
+					return "", fmt.Errorf("vm.Status.Network.PrimaryIP6 & PrimaryIP4 is not populated for %s/%s",
+						vmNamespace, vmName)
+				}
+			}
+		} else if vmV1alpha1 != nil {
+			ip = vmV1alpha1.Status.VmIp
+			if ip == "" {
+				return "", fmt.Errorf("vm.Status.VmIp is not populated for %s/%s", vmNamespace, vmName)
 			}
 		}
+
 	} else {
 		vpcName := vmNamespace
 		networkInfoInstance, err := dc.Resource(networkInfoGVR).Namespace(vmNamespace).Get(ctx,

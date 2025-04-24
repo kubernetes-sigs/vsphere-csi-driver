@@ -26,12 +26,13 @@ import (
 	"sync"
 	"time"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -42,8 +43,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
@@ -107,7 +108,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatorv1alpha1.GroupName)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
 		log.Error(msg)
@@ -496,7 +497,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				// Now that VM on VC is not found, check VirtualMachine CRD instance exists.
 				// This check is needed in scenarios where VC inventory is stale due
 				// to upgrade or back-up and restore.
-				vmInstance, err := isVmCrPresent(ctx, r.vmOperatorClient, nodeUUID,
+				vmExists, deleteTimeStamp, err := isVmCrPresent(ctx, r.vmOperatorClient, nodeUUID,
 					request.Namespace)
 				if err != nil {
 					msg = fmt.Sprintf("failed to verify is VM CR is present with UUID: %s "+
@@ -504,7 +505,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
 				}
-				if vmInstance == nil {
+				if !vmExists {
 					// This is a case where VirtualMachine is not present on the VC and VM CR
 					// is also not found in the API server. The detach will be marked as
 					// successful in CnsNodeVmAttachment
@@ -515,7 +516,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					// This is a case where VirtualMachine is not present on the VC and VM CR
 					// has the deletionTimestamp set. The CnsNodeVmAttachment
 					// can be marked as a success since the VM CR has deletionTimestamp set
-					if vmInstance.DeletionTimestamp != nil {
+					if deleteTimeStamp != nil {
 						msg = fmt.Sprintf("VM on VC not found but VM CR with UUID: %s "+
 							"is still present in namespace: %s and is being deleted. "+
 							"Hence returning success.", nodeUUID, request.Namespace)
@@ -770,27 +771,43 @@ func updateSVPVC(ctx context.Context, client client.Client,
 // isVmCrPresent checks whether VM CR is present in SV namespace
 // with given vmuuid and returns the VirtualMachine CR object if it is found
 func isVmCrPresent(ctx context.Context, vmOperatorClient client.Client,
-	vmuuid string, namespace string) (*vmoperatortypes.VirtualMachine, error) {
+	vmuuid string, namespace string) (bool, *metav1.Time, error) {
 	log := logger.GetLogger(ctx)
-	vmList := &vmoperatortypes.VirtualMachineList{}
-	err := vmOperatorClient.List(ctx, vmList, client.InNamespace(namespace))
+	vmListV1alpha1, vmListV1alpha2, vmListV1alpha3, err := utils.GetVirtualMachineListAllApiVersions(ctx, namespace, vmOperatorClient)
 	if err != nil {
 		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
 		log.Error(msg)
-		return nil, err
+		return false, nil, err
 	}
-	for _, vmInstance := range vmList.Items {
+
+	for _, vmInstance := range vmListV1alpha3.Items {
 		if vmInstance.Status.BiosUUID == vmuuid {
 			msg := fmt.Sprintf("VM CR with BiosUUID: %s found in namespace: %s",
 				vmuuid, namespace)
 			log.Infof(msg)
-			return &vmInstance, nil
+			return true, vmInstance.DeletionTimestamp, nil
+		}
+	}
+	for _, vmInstance := range vmListV1alpha2.Items {
+		if vmInstance.Status.BiosUUID == vmuuid {
+			msg := fmt.Sprintf("VM CR with BiosUUID: %s found in namespace: %s",
+				vmuuid, namespace)
+			log.Infof(msg)
+			return true, vmInstance.DeletionTimestamp, nil
+		}
+	}
+	for _, vmInstance := range vmListV1alpha1.Items {
+		if vmInstance.Status.BiosUUID == vmuuid {
+			msg := fmt.Sprintf("VM CR with BiosUUID: %s found in namespace: %s",
+				vmuuid, namespace)
+			log.Infof(msg)
+			return true, vmInstance.DeletionTimestamp, nil
 		}
 	}
 	msg := fmt.Sprintf("VM CR with BiosUUID: %s not found in namespace: %s",
 		vmuuid, namespace)
 	log.Info(msg)
-	return nil, nil
+	return false, nil, nil
 }
 
 // getVCDatacenterFromConfig returns datacenter registered for each vCenter

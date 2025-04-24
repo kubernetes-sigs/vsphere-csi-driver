@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -46,6 +46,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -425,22 +426,21 @@ func validateVolumeNotInUse(ctx context.Context, cnsVol cnstypes.CnsVolume, pvcN
 		return err
 	}
 
-	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatorv1alpha1.GroupName)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
 		log.Error(msg)
 		return err
 	}
 
-	vmList := &vmoperatortypes.VirtualMachineList{}
-	err = vmOperatorClient.List(ctx, vmList, client.InNamespace(pvcNamespace))
+	vmListV1alpha1, vmListV1alpha2, vmListV1alpha3, err := utils.GetVirtualMachineListAllApiVersions(ctx, pvcNamespace, vmOperatorClient)
 	if err != nil {
 		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
 		log.Error(msg)
 		return err
 	}
 
-	for _, vmInstance := range vmList.Items {
+	for _, vmInstance := range vmListV1alpha3.Items {
 		for _, vmVol := range vmInstance.Spec.Volumes {
 			if vmVol.PersistentVolumeClaim != nil &&
 				vmVol.PersistentVolumeClaim.ClaimName == pvcName {
@@ -451,7 +451,28 @@ func validateVolumeNotInUse(ctx context.Context, cnsVol cnstypes.CnsVolume, pvcN
 			}
 		}
 	}
-
+	for _, vmInstance := range vmListV1alpha2.Items {
+		for _, vmVol := range vmInstance.Spec.Volumes {
+			if vmVol.PersistentVolumeClaim != nil &&
+				vmVol.PersistentVolumeClaim.ClaimName == pvcName {
+				log.Debugf("Volume %s is in use by VirtualMachine %s in namespace %s", cnsVol.VolumeId.Id,
+					vmInstance.Name, pvcNamespace)
+				return fmt.Errorf("cannot unregister the volume %s as it's in use by VirtualMachine %s in namespace %s",
+					cnsVol.VolumeId.Id, vmInstance.Name, pvcNamespace)
+			}
+		}
+	}
+	for _, vmInstance := range vmListV1alpha1.Items {
+		for _, vmVol := range vmInstance.Spec.Volumes {
+			if vmVol.PersistentVolumeClaim != nil &&
+				vmVol.PersistentVolumeClaim.ClaimName == pvcName {
+				log.Debugf("Volume %s is in use by VirtualMachine %s in namespace %s", cnsVol.VolumeId.Id,
+					vmInstance.Name, pvcNamespace)
+				return fmt.Errorf("cannot unregister the volume %s as it's in use by VirtualMachine %s in namespace %s",
+					cnsVol.VolumeId.Id, vmInstance.Name, pvcNamespace)
+			}
+		}
+	}
 	return nil
 }
 
