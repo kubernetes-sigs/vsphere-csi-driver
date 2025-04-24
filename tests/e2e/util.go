@@ -7725,3 +7725,66 @@ func createStaticVolumeOnSvc(ctx context.Context, client clientset.Interface, na
 
 	return fcdID, defaultDatastore, pvc, pv, nil
 }
+
+/*
+This util will fetch and compare the storage policy usage CR created for each storage class for a namespace
+*/
+func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restClientConfig *rest.Config,
+	namespace string, storageclass []string) error {
+	// Build expected usage names directly from passed storageclass names
+	expectedUsages := make(map[string]bool)
+	for _, sc := range storageclass {
+		for _, suffix := range usageSuffixes {
+			expectedUsages[fmt.Sprintf("%s%s", sc, suffix)] = false
+		}
+	}
+
+	if len(expectedUsages) == 0 {
+		return fmt.Errorf("no storage class names provided")
+	}
+
+	// CNS Operator client
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		return fmt.Errorf("failed to create CNS operator client: %w", err)
+	}
+
+	// Poll until all expected usages are found
+	waitErr := wait.PollUntilContextTimeout(ctx, storagePolicyUsagePollInterval, storagePolicyUsagePollTimeout,
+		true, func(ctx context.Context) (bool, error) {
+			spuList := &storagepolicyv1alpha2.StoragePolicyUsageList{}
+			err := cnsOperatorClient.List(ctx, spuList, &client.ListOptions{Namespace: namespace})
+			if err != nil {
+				return false, nil // retry
+			}
+
+			// Reset all expected usages to false
+			for k := range expectedUsages {
+				expectedUsages[k] = false
+			}
+
+			// Mark found usages
+			for _, spu := range spuList.Items {
+				if _, exists := expectedUsages[spu.Name]; exists {
+					expectedUsages[spu.Name] = true
+				}
+			}
+
+			// Check if all usages have been found
+			for name, found := range expectedUsages {
+				if !found {
+					fmt.Printf("Waiting for usage: %s\n", name)
+					return false, nil
+				}
+			}
+
+			return true, nil
+		})
+
+	if waitErr != nil {
+		return fmt.Errorf("timed out waiting for all storage policy usages: %w", waitErr)
+	}
+
+	fmt.Println("All required storage policy usages are available.")
+	return nil
+}
