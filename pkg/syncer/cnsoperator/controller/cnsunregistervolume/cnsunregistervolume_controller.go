@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -46,6 +46,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -425,15 +426,14 @@ func validateVolumeNotInUse(ctx context.Context, cnsVol cnstypes.CnsVolume, pvcN
 		return err
 	}
 
-	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatorv1alpha3.GroupName)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
 		log.Error(msg)
 		return err
 	}
 
-	vmList := &vmoperatortypes.VirtualMachineList{}
-	err = vmOperatorClient.List(ctx, vmList, client.InNamespace(pvcNamespace))
+	vmList, err := utils.GetVirtualMachineListAllApiVersions(ctx, pvcNamespace, vmOperatorClient)
 	if err != nil {
 		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
 		log.Error(msg)
@@ -451,7 +451,6 @@ func validateVolumeNotInUse(ctx context.Context, cnsVol cnstypes.CnsVolume, pvcN
 			}
 		}
 	}
-
 	return nil
 }
 
