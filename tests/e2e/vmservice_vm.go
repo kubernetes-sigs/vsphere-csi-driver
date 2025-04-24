@@ -33,7 +33,6 @@ import (
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -109,8 +108,14 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			vmClass = vmClassBestEffortSmall
 		}
 
+		framework.Logf("Create a WCP namespace for the test")
 		namespace = createTestWcpNs(
 			vcRestSessionId, storageProfileId, vmClass, contentLibId, getSvcId(vcRestSessionId))
+
+		ginkgo.By("Verifying storage policies usage for each storage class")
+		restConfig = getRestConfigClient()
+		err = ListStoragePolicyUsages(ctx, client, restConfig, namespace, []string{storageClassName})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		vmopScheme := runtime.NewScheme()
 		gomega.Expect(vmopv1.AddToScheme(vmopScheme)).Should(gomega.Succeed())
@@ -1405,9 +1410,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		curtimeinstring := strconv.FormatInt(curtime, 10)
 		pvcName := "cns-pvc-" + curtimeinstring
 		framework.Logf("pvc name :%s", pvcName)
-		namespace = getNamespaceToRunTests(f)
 
-		restConfig := getRestConfigClient()
 		ginkgo.By("Get storage Policy")
 		ginkgo.By(fmt.Sprintf("storagePolicyName: %s", storagePolicyName))
 		profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
@@ -1415,24 +1418,12 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
 
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
-		if !apierrors.IsNotFound(err) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, storagePolicyName)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-		framework.Logf("storageclass name :%s", storageclass.GetName())
-
-		ginkgo.By("Sleeping for a minute for storage policy to get " +
-			"refresh and added to namespace")
-		time.Sleep(1 * time.Minute)
-		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
+		setStoragePolicyQuota(ctx, restConfig, storageClassName, namespace, rqLimit)
 
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storagePolicyName, namespace, pvcUsage, volExtensionName)
+					storageClassName, namespace, pvcUsage, volExtensionName)
 		}
 
 		ginkgo.By("Creating FCD Disk")
@@ -1462,9 +1453,8 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		if isQuotaValidationSupported {
-
 			validateQuotaUsageAfterResourceCreation(ctx, restConfig,
-				storagePolicyName, namespace, pvcUsage, volExtensionName,
+				storageClassName, namespace, pvcUsage, volExtensionName,
 				diskSizeInMb, totalQuotaUsedBefore, storagePolicyQuotaBefore,
 				storagePolicyUsageBefore)
 		}
@@ -1478,7 +1468,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		}()
 		ginkgo.By("Creating VM")
 		vm := createVmServiceVmWithPvcs(
-			ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi, storagePolicyName, secretName)
+			ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi, storageClassName, secretName)
 		defer func() {
 			ginkgo.By("Deleting VM")
 			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{

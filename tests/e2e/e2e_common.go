@@ -481,6 +481,21 @@ var (
 	envSharedZone2Zone4DatastoreUrl       = "SHARED_ZONE2_ZONE4_DATASTORE_URL"
 )
 
+// storage policy usages for storage quota validation
+var usageSuffixes = []string{
+	"-pvc-usage",
+	"-latebinding-pvc-usage",
+	"-snapshot-usage",
+	"-latebinding-snapshot-usage",
+	"-vm-usage",
+	"-latebinding-vm-usage",
+}
+
+const (
+	storagePolicyUsagePollInterval = 10 * time.Second
+	storagePolicyUsagePollTimeout  = 1 * time.Minute
+)
+
 // GetAndExpectEnvVar returns the value of an environment variable or fails the regression if it's not set.
 func GetAndExpectEnvVar(varName string) string {
 	ctx, cancel := context.WithCancel(context.Background())
