@@ -114,8 +114,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		ginkgo.By("Verifying storage policies usage for each storage class")
 		restConfig = getRestConfigClient()
-		err = ListStoragePolicyUsages(ctx, client, restConfig, namespace, []string{storageClassName})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ListStoragePolicyUsages(ctx, client, restConfig, namespace, []string{storageClassName})
 
 		vmopScheme := runtime.NewScheme()
 		gomega.Expect(vmopv1.AddToScheme(vmopScheme)).Should(gomega.Succeed())
@@ -208,37 +207,40 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		var pandoraSyncWaitTime int
 		var err error
+		curtime := time.Now().Unix()
+		curtimestring := strconv.FormatInt(curtime, 10)
+		pvcName := "cns-pvc-" + curtimestring
+		framework.Logf("pvc name :%s", pvcName)
+
 		if os.Getenv(envPandoraSyncWaitTime) != "" {
 			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
-		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		datastore := getDsMoRefFromURL(ctx, datastoreURL)
-		ginkgo.By("Creating FCD Disk")
-		fcdID, err := e2eVSphere.createFCD(ctx, fcdName, diskSizeInMb, datastore.Reference())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		ginkgo.By("Creating FCD Disk")
+		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
+			"staticfcd"+curtimestring, storageProfileId, diskSizeInMb, defaultDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
 			pandoraSyncWaitTime, fcdID))
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
-		ginkgo.By(fmt.Sprintf("Creating the PV with the fcdID %s", fcdID))
-		staticPVLabels := make(map[string]string)
-		staticPVLabels["fcd-id"] = fcdID
-		staticPv := getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimDelete, nil, ext4FSType)
-		staticPv, err = client.CoreV1().PersistentVolumes().Create(ctx, staticPv, metav1.CreateOptions{})
+		ginkgo.By("Create CNS register volume with above created FCD ")
+		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteOnce)
+		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx, restConfig,
+			namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
+		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+		framework.Logf("CNS register volume name : %s", cnsRegisterVolumeName)
 
-		err = e2eVSphere.waitForCNSVolumeToBeCreated(staticPv.Spec.CSI.VolumeHandle)
+		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
+		staticPvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Creating a static PVC")
-		staticPvc := getPersistentVolumeClaimSpec(namespace, staticPVLabels, staticPv.Name)
-		staticPvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(
-			ctx, staticPvc, metav1.CreateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		staticPv := getPvFromClaim(client, namespace, pvcName)
+		verifyBidirectionalReferenceOfPVandPVC(ctx, client, staticPvc, staticPv, fcdID)
 
 		ginkgo.By("Create a storageclass")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
@@ -1431,10 +1433,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			"staticfcd"+curtimeinstring, profileID, diskSizeInMb, defaultDatastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("FCD ID: %s", fcdID)
-		defer func() {
-			err := e2eVSphere.deleteFCD(ctx, fcdID, defaultDatastore.Reference())
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Create CNS register volume with above created FCD")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteOnce)
