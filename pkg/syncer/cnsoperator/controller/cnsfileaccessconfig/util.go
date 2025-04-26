@@ -24,7 +24,6 @@ import (
 	"strconv"
 
 	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
-	vmoperatorv1alpha2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -38,21 +37,20 @@ import (
 // getVirtualMachine gets the virtual machine instance with a name on a SV
 // namespace.
 func getVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
-	vmName string, namespace string) (*vmoperatorv1alpha1.VirtualMachine,
-	*vmoperatorv1alpha2.VirtualMachine, *vmoperatorv1alpha3.VirtualMachine, error) {
+	vmName string, namespace string) (*vmoperatorv1alpha3.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	vmKey := apitypes.NamespacedName{
 		Namespace: namespace,
 		Name:      vmName,
 	}
-	vmV1alpha1, vmV1alpha2, vmV1alpha3, err := utils.GetVirtualMachineAllApiVersions(ctx,
+	vmV1alpha3, err := utils.GetVirtualMachineAllApiVersions(ctx,
 		vmKey, vmOperatorClient)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v", vmName, err)
 		log.Error(msg)
-		return nil, nil, nil, err
+		return nil, err
 	}
-	return vmV1alpha1, vmV1alpha2, vmV1alpha3, nil
+	return vmV1alpha3, nil
 }
 
 // setInstanceOwnerRef sets ownerRef on CnsFileAccessConfig instance to VM

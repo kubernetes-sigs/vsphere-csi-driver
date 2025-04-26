@@ -428,37 +428,19 @@ func getNodeTopologyInfoForGuest(ctx context.Context, instance *csinodetopologyv
 		Name:      instance.Name, // use the nodeName as the VM key
 	}
 	log.Info("fetching virutal machines with all versions")
-	vmV1alpha1, vmV1alpha2, vmV1alpha3, err := utils.GetVirtualMachineAllApiVersions(
+	virtualmachine, err := utils.GetVirtualMachineAllApiVersions(
 		ctx, vmKey, vmOperatorClient)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log,
 			"failed to get VirtualMachines for the node: %q. Error: %+v", instance.Name, err)
 	}
 	var topologyLabels []csinodetopologyv1alpha1.TopologyLabel
-	if vmV1alpha3 != nil && vmV1alpha3.Status.Zone != "" {
+	if virtualmachine != nil && virtualmachine.Status.Zone != "" {
 		topologyLabels = make([]csinodetopologyv1alpha1.TopologyLabel, 0)
 		topologyLabels = append(topologyLabels,
 			csinodetopologyv1alpha1.TopologyLabel{
 				Key:   corev1.LabelTopologyZone,
-				Value: vmV1alpha3.Status.Zone,
-			},
-		)
-	}
-	if vmV1alpha2 != nil && vmV1alpha2.Status.Zone != "" {
-		topologyLabels = make([]csinodetopologyv1alpha1.TopologyLabel, 0)
-		topologyLabels = append(topologyLabels,
-			csinodetopologyv1alpha1.TopologyLabel{
-				Key:   corev1.LabelTopologyZone,
-				Value: vmV1alpha2.Status.Zone,
-			},
-		)
-	}
-	if vmV1alpha1 != nil && vmV1alpha1.Status.Zone != "" {
-		topologyLabels = make([]csinodetopologyv1alpha1.TopologyLabel, 0)
-		topologyLabels = append(topologyLabels,
-			csinodetopologyv1alpha1.TopologyLabel{
-				Key:   corev1.LabelTopologyZone,
-				Value: vmV1alpha1.Status.Zone,
+				Value: virtualmachine.Status.Zone,
 			},
 		)
 	}

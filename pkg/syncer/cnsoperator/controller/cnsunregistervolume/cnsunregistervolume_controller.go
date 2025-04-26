@@ -433,7 +433,7 @@ func validateVolumeNotInUse(ctx context.Context, cnsVol cnstypes.CnsVolume, pvcN
 		return err
 	}
 
-	vmListV1alpha1, vmListV1alpha2, vmListV1alpha3, err := utils.GetVirtualMachineListAllApiVersions(ctx, pvcNamespace, vmOperatorClient)
+	vmListV1alpha3, err := utils.GetVirtualMachineListAllApiVersions(ctx, pvcNamespace, vmOperatorClient)
 	if err != nil {
 		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
 		log.Error(msg)
@@ -441,28 +441,6 @@ func validateVolumeNotInUse(ctx context.Context, cnsVol cnstypes.CnsVolume, pvcN
 	}
 
 	for _, vmInstance := range vmListV1alpha3.Items {
-		for _, vmVol := range vmInstance.Spec.Volumes {
-			if vmVol.PersistentVolumeClaim != nil &&
-				vmVol.PersistentVolumeClaim.ClaimName == pvcName {
-				log.Debugf("Volume %s is in use by VirtualMachine %s in namespace %s", cnsVol.VolumeId.Id,
-					vmInstance.Name, pvcNamespace)
-				return fmt.Errorf("cannot unregister the volume %s as it's in use by VirtualMachine %s in namespace %s",
-					cnsVol.VolumeId.Id, vmInstance.Name, pvcNamespace)
-			}
-		}
-	}
-	for _, vmInstance := range vmListV1alpha2.Items {
-		for _, vmVol := range vmInstance.Spec.Volumes {
-			if vmVol.PersistentVolumeClaim != nil &&
-				vmVol.PersistentVolumeClaim.ClaimName == pvcName {
-				log.Debugf("Volume %s is in use by VirtualMachine %s in namespace %s", cnsVol.VolumeId.Id,
-					vmInstance.Name, pvcNamespace)
-				return fmt.Errorf("cannot unregister the volume %s as it's in use by VirtualMachine %s in namespace %s",
-					cnsVol.VolumeId.Id, vmInstance.Name, pvcNamespace)
-			}
-		}
-	}
-	for _, vmInstance := range vmListV1alpha1.Items {
 		for _, vmVol := range vmInstance.Spec.Volumes {
 			if vmVol.PersistentVolumeClaim != nil &&
 				vmVol.PersistentVolumeClaim.ClaimName == pvcName {

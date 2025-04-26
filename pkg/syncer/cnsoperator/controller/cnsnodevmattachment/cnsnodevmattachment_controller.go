@@ -773,7 +773,7 @@ func updateSVPVC(ctx context.Context, client client.Client,
 func isVmCrPresent(ctx context.Context, vmOperatorClient client.Client,
 	vmuuid string, namespace string) (bool, *metav1.Time, error) {
 	log := logger.GetLogger(ctx)
-	vmListV1alpha1, vmListV1alpha2, vmListV1alpha3, err := utils.GetVirtualMachineListAllApiVersions(ctx, namespace, vmOperatorClient)
+	vmListV1alpha3, err := utils.GetVirtualMachineListAllApiVersions(ctx, namespace, vmOperatorClient)
 	if err != nil {
 		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
 		log.Error(msg)
@@ -788,22 +788,7 @@ func isVmCrPresent(ctx context.Context, vmOperatorClient client.Client,
 			return true, vmInstance.DeletionTimestamp, nil
 		}
 	}
-	for _, vmInstance := range vmListV1alpha2.Items {
-		if vmInstance.Status.BiosUUID == vmuuid {
-			msg := fmt.Sprintf("VM CR with BiosUUID: %s found in namespace: %s",
-				vmuuid, namespace)
-			log.Infof(msg)
-			return true, vmInstance.DeletionTimestamp, nil
-		}
-	}
-	for _, vmInstance := range vmListV1alpha1.Items {
-		if vmInstance.Status.BiosUUID == vmuuid {
-			msg := fmt.Sprintf("VM CR with BiosUUID: %s found in namespace: %s",
-				vmuuid, namespace)
-			log.Infof(msg)
-			return true, vmInstance.DeletionTimestamp, nil
-		}
-	}
+
 	msg := fmt.Sprintf("VM CR with BiosUUID: %s not found in namespace: %s",
 		vmuuid, namespace)
 	log.Info(msg)

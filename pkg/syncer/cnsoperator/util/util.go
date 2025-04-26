@@ -100,7 +100,7 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 		Namespace: vmNamespace,
 		Name:      vmName,
 	}
-	vmV1alpha1, vmV1alpha2, vmV1alpha3, err := utils.GetVirtualMachineAllApiVersions(ctx,
+	virtualmachine, err := utils.GetVirtualMachineAllApiVersions(ctx,
 		vmKey, vmOperatorClient)
 	if err != nil {
 		log.Errorf("failed to get virtualmachine %s/%s with error: %v", vmNamespace, vmName, err)
@@ -108,17 +108,9 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 	}
 
 	var networkNames []string
-	if vmV1alpha3 != nil {
-		for _, networkInterface := range vmV1alpha3.Spec.Network.Interfaces {
+	if virtualmachine != nil {
+		for _, networkInterface := range virtualmachine.Spec.Network.Interfaces {
 			networkNames = append(networkNames, networkInterface.Network.Name)
-		}
-	} else if vmV1alpha2 != nil {
-		for _, networkInterface := range vmV1alpha2.Spec.Network.Interfaces {
-			networkNames = append(networkNames, networkInterface.Network.Name)
-		}
-	} else if vmV1alpha1 != nil {
-		for _, networkInterface := range vmV1alpha1.Spec.NetworkInterfaces {
-			networkNames = append(networkNames, networkInterface.NetworkName)
 		}
 	}
 
@@ -146,28 +138,14 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 				vmNamespace, vmName)
 		}
 	} else if network_provider_type == VDSNetworkProvider {
-		if vmV1alpha3 != nil {
-			ip = vmV1alpha3.Status.Network.PrimaryIP4
+		if virtualmachine != nil {
+			ip = virtualmachine.Status.Network.PrimaryIP4
 			if ip == "" {
-				ip = vmV1alpha3.Status.Network.PrimaryIP6
+				ip = virtualmachine.Status.Network.PrimaryIP6
 				if ip == "" {
 					return "", fmt.Errorf("vm.Status.Network.PrimaryIP6 & PrimaryIP4 is not populated for %s/%s",
 						vmNamespace, vmName)
 				}
-			}
-		} else if vmV1alpha2 != nil {
-			ip = vmV1alpha2.Status.Network.PrimaryIP4
-			if ip == "" {
-				ip = vmV1alpha2.Status.Network.PrimaryIP6
-				if ip == "" {
-					return "", fmt.Errorf("vm.Status.Network.PrimaryIP6 & PrimaryIP4 is not populated for %s/%s",
-						vmNamespace, vmName)
-				}
-			}
-		} else if vmV1alpha1 != nil {
-			ip = vmV1alpha1.Status.VmIp
-			if ip == "" {
-				return "", fmt.Errorf("vm.Status.VmIp is not populated for %s/%s", vmNamespace, vmName)
 			}
 		}
 

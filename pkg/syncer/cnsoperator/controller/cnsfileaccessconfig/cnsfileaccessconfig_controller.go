@@ -241,7 +241,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	backOffDurationMapMutex.Unlock()
 
 	// Get the virtualmachine instance
-	vmV1alpha1, vmV1alpha2, vmV1alpha3, err := getVirtualMachine(ctx, r.vmOperatorClient, instance.Spec.VMName, instance.Namespace)
+	virtualmachine, err := getVirtualMachine(ctx, r.vmOperatorClient, instance.Spec.VMName, instance.Namespace)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v",
 			instance.Spec.VMName, err)
@@ -297,23 +297,12 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	}
 	var vmUID types.UID
 	vmKey := types.NamespacedName{}
-	if vmV1alpha3 != nil {
-		vmKey.Name = vmV1alpha3.Name
-		vmKey.Namespace = vmV1alpha3.Namespace
-		vmUID = vmV1alpha3.UID
-		log.Debugf("Found virtualMachine instance for VM: %q/%q: %+v", instance.Namespace, instance.Spec.VMName, vmV1alpha3)
-	} else if vmV1alpha2 != nil {
-		vmKey.Name = vmV1alpha2.Name
-		vmKey.Namespace = vmV1alpha2.Namespace
-		vmUID = vmV1alpha2.UID
-		log.Debugf("Found virtualMachine instance for VM: %q/%q: %+v", instance.Namespace, instance.Spec.VMName, vmV1alpha2)
-	} else if vmV1alpha1 != nil {
-		vmKey.Name = vmV1alpha1.Name
-		vmKey.Namespace = vmV1alpha1.Namespace
-		vmUID = vmV1alpha1.UID
-		log.Debugf("Found virtualMachine instance for VM: %q/%q: %+v", instance.Namespace, instance.Spec.VMName, vmV1alpha1)
+	if virtualmachine != nil {
+		vmKey.Name = virtualmachine.Name
+		vmKey.Namespace = virtualmachine.Namespace
+		vmUID = virtualmachine.UID
+		log.Debugf("Found virtualMachine instance for VM: %q/%q: %+v", instance.Namespace, instance.Spec.VMName, virtualmachine)
 	}
-
 	if instance.DeletionTimestamp != nil {
 		log.Infof("CnsFileAccessConfig instance %q has deletion timestamp set", instance.Name)
 		volumeID, err := cnsoperatorutil.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)

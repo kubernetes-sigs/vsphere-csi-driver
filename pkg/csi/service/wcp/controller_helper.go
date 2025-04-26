@@ -168,7 +168,7 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 				"failed to get client for group %s with error: %+v", vmoperatorv1alpha1.GroupName, err)
 		}
 
-		vmListV1alpha1, vmListV1alpha2, vmListV1alpha3, err := utils.GetVirtualMachineListAllApiVersions(ctx, "", vmOperatorClient)
+		vmListV1alpha3, err := utils.GetVirtualMachineListAllApiVersions(ctx, "", vmOperatorClient)
 		if err != nil {
 			return logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to list virtualmachines with error: %+v", err)
@@ -183,24 +183,7 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 			}
 			nodes = append(nodes, vm)
 		}
-		for _, vmInstance := range vmListV1alpha2.Items {
-			biosUUID := vmInstance.Status.BiosUUID
-			vm, err := dc.GetVirtualMachineByUUID(ctx, biosUUID, false)
-			if err != nil {
-				return logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to get vm with biosUUID: %q with error: %+v", biosUUID, err)
-			}
-			nodes = append(nodes, vm)
-		}
-		for _, vmInstance := range vmListV1alpha1.Items {
-			biosUUID := vmInstance.Status.BiosUUID
-			vm, err := dc.GetVirtualMachineByUUID(ctx, biosUUID, false)
-			if err != nil {
-				return logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to get vm with biosUUID: %q with error: %+v", biosUUID, err)
-			}
-			nodes = append(nodes, vm)
-		}
+
 		return common.IsOnlineExpansion(ctx, req.GetVolumeId(), nodes)
 	}
 	return nil
