@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -29,6 +28,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -96,12 +96,12 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 	vmNamespace, vmName string, network_provider_type string) (string, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("Determining external IP Address of VM: %s/%s", vmNamespace, vmName)
-	virtualMachineInstance := &vmoperatortypes.VirtualMachine{}
 	vmKey := apitypes.NamespacedName{
 		Namespace: vmNamespace,
 		Name:      vmName,
 	}
-	err := vmOperatorClient.Get(ctx, vmKey, virtualMachineInstance)
+	virtualMachineInstance, err := utils.GetVirtualMachineAllApiVersions(ctx,
+		vmKey, vmOperatorClient)
 	if err != nil {
 		log.Errorf("failed to get virtualmachine %s/%s with error: %v", vmNamespace, vmName, err)
 		return "", err
