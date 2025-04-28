@@ -3420,7 +3420,6 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	ginkgo.By("Creating a new pod to attach PV again to the node")
 	pod, err = createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	ginkgo.By(fmt.Sprintf("Verify volume after expansion: %s is attached to the node: %s",
 		volHandle, pod.Spec.NodeName))
 	vmUUID = getNodeUUID(ctx, client, pod.Spec.NodeName)
