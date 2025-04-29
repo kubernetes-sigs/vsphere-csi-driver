@@ -5334,7 +5334,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 				defer cancel()
 				if vanillaCluster {
 					vmUUID = getNodeUUID(ctx, client, sspod.Spec.NodeName)
-				} else {
+				} else if supervisorCluster {
 					annotations := pod.Annotations
 					vmUUID, exists = annotations[vmUUIDLabel]
 					if !exists {
@@ -5352,35 +5352,37 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 						}
 					}
 				}
-				if !multivc {
-					if !rwxAccessMode {
-						isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+				if !guestCluster {
+					if !multivc {
+						if !rwxAccessMode {
+							isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
+							if err != nil {
+								return err
+							}
+							if !isDiskAttached {
+								return fmt.Errorf("disk is not attached to the node")
+							}
+						}
+						err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 						if err != nil {
 							return err
 						}
-						if !isDiskAttached {
-							return fmt.Errorf("disk is not attached to the node")
+					} else {
+						if !rwxAccessMode {
+							isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(pv.Spec.CSI.VolumeHandle, vmUUID)
+							if err != nil {
+								return err
+							}
+							if !isDiskAttached {
+								return fmt.Errorf("disk is not attached to the node")
+							}
 						}
-					}
-					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					if err != nil {
-						return err
-					}
-				} else {
-					if !rwxAccessMode {
-						isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(pv.Spec.CSI.VolumeHandle, vmUUID)
+						err = verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 						if err != nil {
 							return err
 						}
-						if !isDiskAttached {
-							return fmt.Errorf("disk is not attached to the node")
-						}
-					}
-					err = verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
-						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
-					if err != nil {
-						return err
 					}
 				}
 			}
@@ -7617,4 +7619,172 @@ func getPortNumAndIP(ip string) (string, string, error) {
 	}
 
 	return ip, port, nil
+}
+
+/*
+createStaticVolumeOnSvc utility function to create a static volume on a service, register it with CNS,
+and verify the PV/PVC setup
+*/
+func createStaticVolumeOnSvc(ctx context.Context, client clientset.Interface, namespace string, datastoreUrl string,
+	storagePolicyName string) (string, *object.Datastore, *v1.PersistentVolumeClaim, *v1.PersistentVolume, error) {
+	var datacenters []string
+	var defaultDatacenter *object.Datacenter
+	var pandoraSyncWaitTime int
+	var defaultDatastore *object.Datastore
+	curtime := time.Now().Unix()
+	curtimestring := strconv.FormatInt(curtime, 10)
+	pvcName := "cns-pvc-" + curtimestring
+
+	// Get Kubernetes client configuration
+	restConfig := getRestConfigClient()
+
+	// Find and load datacenters
+	finder := find.NewFinder(e2eVSphere.Client.Client, false)
+	cfg, err := getConfig()
+	if err != nil {
+		return "", nil, nil, nil, fmt.Errorf("failed to get config: %v", err)
+	}
+
+	dcList := strings.Split(cfg.Global.Datacenters, ",")
+	for _, dc := range dcList {
+		dcName := strings.TrimSpace(dc)
+		if dcName != "" {
+			datacenters = append(datacenters, dcName)
+		}
+	}
+
+	// Loop through datacenters to find the right one
+	for _, dc := range datacenters {
+		defaultDatacenter, err = finder.Datacenter(ctx, dc)
+		if err != nil {
+			return "", nil, nil, nil, fmt.Errorf("failed to get datacenter '%s': %v", dc, err)
+		}
+		finder.SetDatacenter(defaultDatacenter)
+		defaultDatastore, err = getDatastoreByURL(ctx, datastoreUrl, defaultDatacenter)
+		if err != nil {
+			return "", nil, nil, nil, fmt.Errorf("failed to get datastore from "+
+				"URL '%s' in datacenter '%s': %v", datastoreUrl, dc, err)
+		}
+	}
+
+	// Get Storage Profile ID
+	profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+
+	// Create FCD (CNS Volume)
+	fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
+		"staticfcd"+curtimestring, profileID, diskSizeInMb, defaultDatastore.Reference())
+	if err != nil {
+		return "", defaultDatastore, nil, nil, fmt.Errorf("failed to create FCD with profile ID '%s': %v", profileID, err)
+	}
+
+	// Sync time for Pandora (if set in environment variable)
+	if os.Getenv(envPandoraSyncWaitTime) != "" {
+		pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
+		if err != nil {
+			return fcdID, defaultDatastore, nil, nil, fmt.Errorf("invalid Pandora sync "+
+				"wait time '%s': %v", os.Getenv(envPandoraSyncWaitTime), err)
+		}
+	} else {
+		pandoraSyncWaitTime = defaultPandoraSyncWaitTime
+	}
+
+	// Sleep to allow FCD to sync with Pandora
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created "+
+		"FCD:%s to sync with Pandora", pandoraSyncWaitTime, fcdID))
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+
+	// Register volume with CNS
+	cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteOnce)
+	err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+	if err != nil {
+		return fcdID, defaultDatastore, nil, nil,
+			fmt.Errorf("failed to create CNS register volume for FCD '%s': %v", fcdID, err)
+	}
+
+	// Wait for CNS volume creation to complete
+	framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx, restConfig,
+		namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
+	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+	framework.Logf("CNS register volume name: %s", cnsRegisterVolumeName)
+
+	// Retrieve and verify PV and PVC
+	ginkgo.By("Verifying created PV, PVC, and checking bidirectional reference")
+	pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		return fcdID, defaultDatastore, nil, nil,
+			fmt.Errorf("failed to get PVC '%s' from namespace '%s': %v", pvcName, namespace, err)
+	}
+
+	pv := getPvFromClaim(client, namespace, pvcName)
+	if pv == nil {
+		return fcdID, defaultDatastore, pvc, nil,
+			fmt.Errorf("failed to retrieve PV for PVC '%s' in namespace '%s'", pvcName, namespace)
+	}
+
+	verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
+
+	return fcdID, defaultDatastore, pvc, pv, nil
+}
+
+/*
+This util will fetch and compare the storage policy usage CR created for each storage class for a namespace
+*/
+func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restClientConfig *rest.Config,
+	namespace string, storageclass []string) error {
+	// Build expected usage names directly from passed storageclass names
+	expectedUsages := make(map[string]bool)
+	for _, sc := range storageclass {
+		for _, suffix := range usageSuffixes {
+			expectedUsages[fmt.Sprintf("%s%s", sc, suffix)] = false
+		}
+	}
+
+	if len(expectedUsages) == 0 {
+		return fmt.Errorf("no storage class names provided")
+	}
+
+	// CNS Operator client
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		return fmt.Errorf("failed to create CNS operator client: %w", err)
+	}
+
+	// Poll until all expected usages are found
+	waitErr := wait.PollUntilContextTimeout(ctx, storagePolicyUsagePollInterval, storagePolicyUsagePollTimeout,
+		true, func(ctx context.Context) (bool, error) {
+			spuList := &storagepolicyv1alpha2.StoragePolicyUsageList{}
+			err := cnsOperatorClient.List(ctx, spuList, &client.ListOptions{Namespace: namespace})
+			if err != nil {
+				return false, nil // retry
+			}
+
+			// Reset all expected usages to false
+			for k := range expectedUsages {
+				expectedUsages[k] = false
+			}
+
+			// Mark found usages
+			for _, spu := range spuList.Items {
+				if _, exists := expectedUsages[spu.Name]; exists {
+					expectedUsages[spu.Name] = true
+				}
+			}
+
+			// Check if all usages have been found
+			for name, found := range expectedUsages {
+				if !found {
+					fmt.Printf("Waiting for usage: %s\n", name)
+					return false, nil
+				}
+			}
+
+			return true, nil
+		})
+
+	if waitErr != nil {
+		return fmt.Errorf("timed out waiting for all storage policy usages: %w", waitErr)
+	}
+
+	fmt.Println("All required storage policy usages are available.")
+	return nil
 }

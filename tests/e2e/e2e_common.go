@@ -477,6 +477,23 @@ var (
 	envZonal3StoragePolicyName            = "ZONAL3_STORAGE_POLICY_IMM"
 	topologyDomainIsolation               = "Workload_Management_Isolation"
 	envIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
+	envSharedZone2Zone4StoragePolicyName  = "SHARED_ZONE2_ZONE4_STORAGE_POLICY_IMM"
+	envSharedZone2Zone4DatastoreUrl       = "SHARED_ZONE2_ZONE4_DATASTORE_URL"
+)
+
+// storage policy usages for storage quota validation
+var usageSuffixes = []string{
+	"-pvc-usage",
+	"-latebinding-pvc-usage",
+	"-snapshot-usage",
+	"-latebinding-snapshot-usage",
+	"-vm-usage",
+	"-latebinding-vm-usage",
+}
+
+const (
+	storagePolicyUsagePollInterval = 10 * time.Second
+	storagePolicyUsagePollTimeout  = 1 * time.Minute
 )
 
 // GetAndExpectEnvVar returns the value of an environment variable or fails the regression if it's not set.
@@ -687,19 +704,13 @@ func setSShdPort() {
 	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
 
 	if multivc {
-		vCenterHostnames := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")
-		if len(vCenterHostnames) >= 3 {
-			vcAddress = vCenterHostnames[0]
-			vcAddress2 = vCenterHostnames[1]
-			vcAddress3 = vCenterHostnames[2]
-		}
+		vcAddress2 = GetAndExpectEnvVar(envVcIP2)
+		vcAddress3 = GetAndExpectEnvVar(envVcIP3)
 	}
 
 	if isPrivateNetwork {
 		if multivc {
-			vcAddress2 = GetorIgnoreStringEnvVar(envVcIP2)
 			vcIp2SshPortNum = GetorIgnoreStringEnvVar(envVc2SshdPortNum)
-			vcAddress3 = GetorIgnoreStringEnvVar(envVcIP3)
 			vcIp3SshPortNum = GetorIgnoreStringEnvVar(envVc3SshdPortNum)
 
 			safeInsertToMap(vcAddress2, vcIp2SshPortNum)
