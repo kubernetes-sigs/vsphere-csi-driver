@@ -525,7 +525,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		restConfig := getRestConfigClient()
 		totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 			getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-				storageclass.Name, namespace, pvcUsage, volExtensionName)
+				storageclass.Name, namespace, pvcUsage, volExtensionName, false)
 
 	}
 
@@ -703,11 +703,15 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		}
 	}()
 
+	newdiskSizeInMb := diskSizeInMb * int64(volumeOpsScale)
+	newdiskSizeInMbstr := convertInt64ToStrMbFormat(newdiskSizeInMb)
 	if supervisorCluster {
-		validateQuotaUsageAfterResourceCreation(ctx, restConfig,
+		sp_quota_pvc_status, sp_usage_pvc_status := validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 			storageclass.Name, namespace, pvcUsage, volExtensionName,
-			diskSizeInMb*int64(volumeOpsScale), totalQuotaUsedBefore, storagePolicyQuotaBefore,
-			storagePolicyUsageBefore)
+			[]string{newdiskSizeInMbstr}, totalQuotaUsedBefore, storagePolicyQuotaBefore,
+			storagePolicyUsageBefore, false)
+		gomega.Expect(sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
+
 	}
 
 }
@@ -795,7 +799,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		restConfig := getRestConfigClient()
 		totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 			getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-				storageclass.Name, namespace, pvcUsage, volExtensionName)
+				storageclass.Name, namespace, pvcUsage, volExtensionName, false)
 	}
 
 	ginkgo.By("Creating PVCs using the Storage Class")
@@ -831,11 +835,15 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		}
 	}()
 
+	newdiskSizeInMb := diskSizeInMb * int64(volumeOpsScale)
+	newdiskSizeInMbStr := convertInt64ToStrMbFormat(newdiskSizeInMb)
 	if supervisorCluster {
-		validateQuotaUsageAfterResourceCreation(ctx, restConfig,
+		sp_quota_pvc_status, sp_usage_pvc_status := validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 			storageclass.Name, namespace, pvcUsage, volExtensionName,
-			diskSizeInMb*int64(volumeOpsScale), totalQuotaUsedBefore, storagePolicyQuotaBefore,
-			storagePolicyUsageBefore)
+			[]string{newdiskSizeInMbStr}, totalQuotaUsedBefore, storagePolicyQuotaBefore,
+			storagePolicyUsageBefore, false)
+		gomega.Expect(sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
+
 	}
 
 	ginkgo.By("Create POD")
@@ -943,25 +951,28 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 	if supervisorCluster {
 		totalquotaAfterExpansion, _ := getTotalQuotaConsumedByStoragePolicy(ctx,
-			restConfig, storageclass.Name, namespace)
+			restConfig, storageclass.Name, namespace, false)
 		framework.Logf("totalquotaAfterExpansion :%v", totalquotaAfterExpansion)
 
 		storagepolicyquotaAfterExpansion, _ := getStoragePolicyQuotaForSpecificResourceType(ctx,
-			restConfig, storageclass.Name, namespace, volExtensionName)
+			restConfig, storageclass.Name, namespace, volExtensionName, false)
 		framework.Logf("storagepolicyquotaAfterExpansion :%v", storagepolicyquotaAfterExpansion)
 
 		storagepolicyUsageAfterExpansion, _ := getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
 			storageclass.Name, namespace, pvcUsage)
 		framework.Logf("storagepolicy_usage_pvc_after_expansion :%v", storagepolicyUsageAfterExpansion)
 
+		newDiskSizeinMb := diskSizeInMb * 3 * int64(volumeOpsScale)
+		newDiskSizeinMbstr := convertInt64ToStrMbFormat(newDiskSizeinMb)
+
 		//New size is 6Gi, diskSizeInMb is 2Gi so multiplying by 3 to make the expected quota consumption value
-		quotavalidationStatus := validate_totalStoragequota(ctx, diskSizeInMb*3*int64(volumeOpsScale),
+		quotavalidationStatus := validate_totalStoragequota(ctx, []string{newDiskSizeinMbstr},
 			totalQuotaUsedBefore, totalquotaAfterExpansion)
 		gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
-		quotavalidationStatus = validate_totalStoragequota(ctx, diskSizeInMb*3*int64(volumeOpsScale),
+		quotavalidationStatus = validate_totalStoragequota(ctx, []string{newDiskSizeinMbstr},
 			storagePolicyQuotaBefore, storagepolicyquotaAfterExpansion)
 		gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
-		quotavalidationStatus = validate_totalStoragequota(ctx, diskSizeInMb*3*int64(volumeOpsScale),
+		quotavalidationStatus = validate_totalStoragequota(ctx, []string{newDiskSizeinMbstr},
 			storagePolicyUsageBefore, storagepolicyUsageAfterExpansion)
 		gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
 	}

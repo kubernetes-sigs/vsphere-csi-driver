@@ -22,10 +22,12 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand"
 	"net/http"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,11 +37,10 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
-
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	vmopv3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	vmopv3common "github.com/vmware-tanzu/vm-operator/api/v1alpha3/common"
+	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,9 +48,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
+
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 )
 
@@ -87,6 +90,8 @@ func createTestWcpNs(
         },
         "supervisor": "%s"
     }`, namespace, storagePolicyId, vmClass, contentLibId, supervisorId)
+
+	fmt.Println(reqBody)
 
 	_, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, nsCreationUrl, reqBody)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
@@ -1397,4 +1402,70 @@ func verifyVmServiceVMNodeLocation(vm *vmopv1.VirtualMachine, nodeList *v1.NodeL
 		}
 	}
 	return false, fmt.Errorf("VM: %s is not running on any node with matching IP", vm.Name)
+}
+
+// getVmsvcVmDetailedOutput  gets the detailed status output of the vm
+func getVmsvcVmDetailedOutput(ctx context.Context, c ctlrclient.Client, namespace string, name string) string {
+	vm, _ := getVmsvcVM(ctx, c, namespace, name)
+	// Command to write data and sync it
+	cmd := []string{"get", "vm", vm.Name, "-o", "yaml"}
+	output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
+	framework.Logf("StatusCode of addContentLibToNamespace : %s", output)
+
+	return output
+}
+
+// getVMStorageData returs the vmDiskUsage of the vm
+func getVMStorageData(ctx context.Context, c ctlrclient.Client, namespace string, vmName string) string {
+	yamlOutput := getVmsvcVmDetailedOutput(ctx, c, namespace, vmName)
+
+	// Regex to match the line with "total: <value>"
+	re := regexp.MustCompile(`(?i)total:\s*([^\s]+)`)
+	matches := re.FindStringSubmatch(yamlOutput)
+	framework.Logf("matches : %s", matches)
+	if len(matches) < 2 {
+		log.Fatal("Total value not found")
+	}
+
+	vmDiskUsage := matches[1]
+	fmt.Println("Extracted vmDiskUsage:", vmDiskUsage)
+
+	return vmDiskUsage
+}
+
+// getVmImages: get's all the images assigned to the given namespace
+func getVmImages(ctx context.Context, namespace string) string {
+	// Command to write data and sync it
+	cmd := []string{"get", "vmi"}
+	output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
+	framework.Logf("StatusCode of addContentLibToNamespace : %s", output)
+
+	return output
+}
+
+// Waits for vm images to get listed in namespace
+func pollWaitForVMImageToSync(ctx context.Context, namespace string, expectedImage string, Poll,
+	timeout time.Duration) error {
+
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+		listOfVmImages := getVmImages(ctx, namespace)
+		// Split output into lines and search for the expected image
+		lines := strings.Split(listOfVmImages, "\n")
+		found := false
+		for _, line := range lines {
+			if strings.Contains(line, expectedImage) {
+				found = true
+				framework.Logf("Found : %t, Image: %s\n", found, expectedImage)
+				break
+			}
+		}
+		if !found {
+			continue
+		} else {
+			return nil
+		}
+
+	}
+	return fmt.Errorf("failed to load vm-image timed out after %v", timeout)
+
 }

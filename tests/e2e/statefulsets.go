@@ -173,8 +173,10 @@ var _ = ginkgo.Describe("statefulset", func() {
 	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] [stretched-svc] Statefulset "+
 		"testing with default podManagementPolicy", ginkgo.Label(p0, vanilla, block, wcp, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
+
 		defer cancel()
-		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
+		var totalQuotaUsedBefore, pvc_storagePolicyQuotaBefore, pvc_storagePolicyUsageBefore *resource.Quantity
+		var islatebinding bool
 
 		ginkgo.By("Creating StorageClass for Statefulset")
 		// decide which test setup is available to run
@@ -197,10 +199,12 @@ var _ = ginkgo.Describe("statefulset", func() {
 		}
 
 		restConfig := getRestConfigClient()
-		if supervisorCluster && isQuotaValidationSupported {
-			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
+		//if quotaValidation is supported in VC then this block will be executed
+		if isQuotaValidationSupported && supervisorCluster {
+			//Reads quota Details for PVC  before workload creation
+			totalQuotaUsedBefore, _, pvc_storagePolicyQuotaBefore, _, pvc_storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storagePolicyName, namespace, pvcUsage, volExtensionName)
+					storageClassName, namespace, pvcUsage, volExtensionName, islatebinding)
 		}
 
 		ginkgo.By("Creating service")
@@ -254,11 +258,23 @@ var _ = ginkgo.Describe("statefulset", func() {
 			}
 		}
 
-		if supervisorCluster && isQuotaValidationSupported {
-			validateQuotaUsageAfterResourceCreation(ctx, restConfig,
-				storagePolicyName, namespace, pvcUsage, volExtensionName,
-				diskSize1Gi*3, totalQuotaUsedBefore, storagePolicyQuotaBefore,
-				storagePolicyUsageBefore)
+		diskInGb := (diskSize1Gi / 1024) * 3
+		diskInGbStr := convertInt64ToStrGbFormat(diskInGb)
+
+		//if quotaValidation is supported in VC then this block will be executed
+		if isQuotaValidationSupported && supervisorCluster {
+			var expectedTotalStorage []string
+			expectedTotalStorage = append(expectedTotalStorage, diskInGbStr)
+			//Verifies the expected quota details once the workloads are created
+			_, quotavalidationStatus := validateTotalQuota(ctx, restConfig, storageClassName, namespace,
+				expectedTotalStorage, totalQuotaUsedBefore, islatebinding)
+			gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
+
+			sp_quota_pvc_status, sp_usage_pvc_status := validateQuotaUsageAfterResourceCreation(ctx, restConfig,
+				storageClassName, namespace, pvcUsage,
+				volExtensionName, []string{diskInGbStr}, totalQuotaUsedBefore, pvc_storagePolicyQuotaBefore,
+				pvc_storagePolicyUsageBefore, islatebinding)
+			gomega.Expect(sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
 
 		}
 
