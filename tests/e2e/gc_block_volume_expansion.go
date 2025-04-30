@@ -1870,7 +1870,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 9. Trigger online volume expansion on gc-pvc and make sure volume
 	//    expansion is successful.
 	// 10. Delete all the above created PV, PVC and resource quota.
-	ginkgo.It("777Online volume resize on statically created PVC on guest cluster svcPVC=gcPVC", func() {
+	ginkgo.It("Online volume resize on statically created PVC on guest cluster svcPVC=gcPVC", func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
