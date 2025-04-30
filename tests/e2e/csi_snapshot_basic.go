@@ -244,12 +244,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] [supervisor-snapshot] Verify snapshot dynamic provisioning "+
 		"workflow", ginkgo.Label(p0, block, tkg, vanilla, wcp, snapshot, stable, vc90), func() {
-
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var islatebinding bool
 
-		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
-		var totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter *resource.Quantity
+		var totalQuotaUsedBefore, pvc_storagePolicyQuotaBefore, pvc_storagePolicyUsageBefore *resource.Quantity
+		var snap_storagePolicyQuotaBefore, snap_storagePolicyUsageBefore *resource.Quantity
 
 		ginkgo.By("Create storage class")
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, scName)
@@ -261,10 +261,21 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			}
 		}()
 
+		if isQuotaValidationSupported && supervisorCluster {
+			totalQuotaUsedBefore, _, pvc_storagePolicyQuotaBefore, _, pvc_storagePolicyUsageBefore, _ =
+				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, pvcUsage, volExtensionName, islatebinding)
+
+			totalQuotaUsedBefore, _, snap_storagePolicyQuotaBefore, _, snap_storagePolicyUsageBefore, _ =
+				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName, islatebinding)
+		}
+
 		ginkgo.By("Create PVC")
 		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		volHandle = persistentVolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
@@ -277,16 +288,15 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		if isQuotaValidationSupported && supervisorCluster {
-			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
-				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName)
-		}
-
 		ginkgo.By("Create Pod to attach to Pvc")
 		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false,
 			execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+			err = fpod.DeletePodWithWait(ctx, client, pod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
 
 		var vmUUID string
 		var exists bool
@@ -302,12 +312,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
-			err = fpod.DeletePodWithWait(ctx, client, pod)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Create volume snapshot class")
 		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
@@ -339,29 +343,42 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 				err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc,
 					*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 			}
 		}()
 
 		snapshotSize := getAggregatedSnapshotCapacityInMb(e2eVSphere, volHandle)
+		snapshotSizeStr := convertInt64ToStrMbFormat(snapshotSize)
+		framework.Logf("Aggregator snapshot size : %s", snapshotSizeStr)
 
 		if isQuotaValidationSupported && supervisorCluster {
-			totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter =
-				validateQuotaUsageAfterResourceCreation(ctx, restConfig,
-					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName,
-					snapshotSize, totalQuotaUsedBefore, storagePolicyQuotaBefore,
-					storagePolicyUsageBefore)
+			var expectedTotalStorage []string
+			expectedTotalStorage = append(expectedTotalStorage, diskSize, snapshotSizeStr)
+
+			validateTotalQuota(ctx, restConfig, storageclass.Name, namespace, expectedTotalStorage,
+				totalQuotaUsedBefore, islatebinding)
+
+			validateQuotaUsageAfterResourceCreation(ctx, restConfig, storageclass.Name, namespace, pvcUsage, volExtensionName, []string{diskSize},
+				totalQuotaUsedBefore, pvc_storagePolicyQuotaBefore, pvc_storagePolicyUsageBefore, islatebinding)
+
+			validateQuotaUsageAfterResourceCreation(ctx, restConfig, storageclass.Name, namespace, snapshotUsage, snapshotExtensionName, []string{snapshotSizeStr},
+				totalQuotaUsedBefore, snap_storagePolicyQuotaBefore, snap_storagePolicyUsageBefore, islatebinding)
 		}
 
 		ginkgo.By("Delete dynamic volume snapshot")
-
 		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
 			volumeSnapshot, pandoraSyncWaitTime, volHandle, snapshotId, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if isQuotaValidationSupported && supervisorCluster {
-			validateQuotaUsageAfterCleanUp(ctx, restConfig, storageclass.Name, namespace, snapshotUsage,
-				snapshotExtensionName, snapshotSize, totalQuotaUsedAfter, storagePolicyQuotaAfter,
-				storagePolicyUsageAfter)
+			_, _, storagePolicyQuotaAfterCleanup, _, storagePolicyUsageAfterCleanup, _ :=
+				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName, islatebinding)
+			framework.Logf("storagePolicyQuotaAfterCleanup: %t ", storagePolicyQuotaAfterCleanup.Cmp(*snap_storagePolicyQuotaBefore) == 0)
+			framework.Logf("storagePolicyUsageAfterCleanup: %t ", storagePolicyUsageAfterCleanup.Cmp(*snap_storagePolicyUsageBefore) == 0)
+
+			gomega.Expect(storagePolicyQuotaAfterCleanup.Cmp(*snap_storagePolicyQuotaBefore) == 0).NotTo(gomega.BeFalse())
+			gomega.Expect(storagePolicyUsageAfterCleanup.Cmp(*snap_storagePolicyUsageBefore) == 0).NotTo(gomega.BeFalse())
 
 		}
 
@@ -1558,7 +1575,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
+		var totalQuotaUsedBefore, pvc_storagePolicyQuotaBefore, pvc_storagePolicyUsageBefore *resource.Quantity
+		var snap_storagePolicyQuotaBefore, snap_storagePolicyUsageBefore *resource.Quantity
+		var islatebinding bool
 
 		ginkgo.By("Create storage class")
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, scName)
@@ -1569,6 +1588,16 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
+
+		if isQuotaValidationSupported && supervisorCluster {
+			totalQuotaUsedBefore, _, pvc_storagePolicyQuotaBefore, _, pvc_storagePolicyUsageBefore, _ =
+				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, pvcUsage, volExtensionName, islatebinding)
+
+			totalQuotaUsedBefore, _, snap_storagePolicyQuotaBefore, _, snap_storagePolicyUsageBefore, _ =
+				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName, islatebinding)
+		}
 
 		ginkgo.By("Create PVC")
 		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
@@ -1585,12 +1614,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
-
-		if isQuotaValidationSupported && supervisorCluster {
-			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
-				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName)
-		}
 
 		ginkgo.By("Create volume snapshot class")
 		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
@@ -1626,13 +1649,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		snapshotSize := getAggregatedSnapshotCapacityInMb(e2eVSphere, volHandle)
-
-		if isQuotaValidationSupported && supervisorCluster {
-			validateQuotaUsageAfterResourceCreation(ctx, restConfig,
-				storageclass.Name, namespace, snapshotUsage, snapshotExtensionName,
-				snapshotSize, totalQuotaUsedBefore, storagePolicyQuotaBefore,
-				storagePolicyUsageBefore)
-		}
+		snapshotSizeStr := convertInt64ToStrMbFormat(snapshotSize)
 
 		scParameters1 := make(map[string]string)
 		curtime := time.Now().Unix()
@@ -1682,6 +1699,20 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
+
+		if isQuotaValidationSupported && supervisorCluster {
+			var expectedTotalStorage []string
+			expectedTotalStorage = append(expectedTotalStorage, diskSize, diskSize, snapshotSizeStr)
+
+			validateTotalQuota(ctx, restConfig, storageclass.Name, namespace, expectedTotalStorage,
+				totalQuotaUsedBefore, islatebinding)
+
+			validateQuotaUsageAfterResourceCreation(ctx, restConfig, storageclass.Name, namespace, pvcUsage, volExtensionName, []string{diskSize, diskSize},
+				totalQuotaUsedBefore, pvc_storagePolicyQuotaBefore, pvc_storagePolicyUsageBefore, islatebinding)
+
+			validateQuotaUsageAfterResourceCreation(ctx, restConfig, storageclass.Name, namespace, snapshotUsage, snapshotExtensionName, []string{snapshotSizeStr},
+				totalQuotaUsedBefore, snap_storagePolicyQuotaBefore, snap_storagePolicyUsageBefore, islatebinding)
+		}
 
 		ginkgo.By("Delete dynamic volume snapshot")
 		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
@@ -2327,8 +2358,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		"statefulsets", ginkgo.Label(p0, block, vanilla, snapshot, wcp, tkg, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
-		var totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter *resource.Quantity
+		var totalQuotaUsedBefore, snap_storagePolicyQuotaBefore, snap_storagePolicyUsageBefore *resource.Quantity
+		var islatebinding bool
 
 		ginkgo.By("Create storage class")
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, scName)
@@ -2339,6 +2370,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
+
+		if isQuotaValidationSupported && supervisorCluster {
+			totalQuotaUsedBefore, _, snap_storagePolicyQuotaBefore, _, snap_storagePolicyUsageBefore, _ =
+				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName, islatebinding)
+		}
 
 		ginkgo.By("Creating service")
 		service := CreateService(namespace, client)
@@ -2425,12 +2462,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		if isQuotaValidationSupported && supervisorCluster {
-			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
-				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName)
-		}
-
 		ginkgo.By("Create volume snapshot class")
 		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2490,17 +2521,15 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		snapshotSize1 := getAggregatedSnapshotCapacityInMb(e2eVSphere, volHandle1)
 		snapshotSize2 := getAggregatedSnapshotCapacityInMb(e2eVSphere, volHandle2)
 		snapshotSize := snapshotSize1 + snapshotSize2
+		snapshotSizeStr := convertInt64ToStrMbFormat(snapshotSize)
+
 		framework.Logf("snapshotSize1  + snapshotSize2 = snapshotSize, %d + %d = %d",
 			snapshotSize1, snapshotSize2, snapshotSize)
 
 		if isQuotaValidationSupported && supervisorCluster {
-			totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter =
-				validateQuotaUsageAfterResourceCreation(ctx, restConfig,
-					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName,
-					snapshotSize, totalQuotaUsedBefore, storagePolicyQuotaBefore,
-					storagePolicyUsageBefore)
-			framework.Logf("totalQuotaUsedAfter :%v, storagePolicyQuotaAfter: %v "+
-				"storagePolicyUsageAfter: %v", totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter)
+			validateQuotaUsageAfterResourceCreation(ctx, restConfig, storageclass.Name, namespace, snapshotUsage,
+				snapshotExtensionName, []string{snapshotSizeStr}, totalQuotaUsedBefore, snap_storagePolicyQuotaBefore,
+				snap_storagePolicyUsageBefore, islatebinding)
 		}
 
 		ginkgo.By(fmt.Sprintf("Scaling down statefulsets to number of Replica: %v", replicas-1))
@@ -2529,10 +2558,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}
 		gomega.Expect(volHandle3).NotTo(gomega.BeEmpty())
 
-		totalQuotaUsedAfter, _ = getTotalQuotaConsumedByStoragePolicy(ctx, restConfig,
-			storageclass.Name, namespace)
-		framework.Logf("totalquota_used_after_snapshotCreation :%v", totalQuotaUsedAfter)
-
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod3.Name, namespace))
 			err = fpod.DeletePodWithWait(ctx, client, pod3)
@@ -2555,9 +2580,16 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if isQuotaValidationSupported && supervisorCluster {
-			validateQuotaUsageAfterCleanUp(ctx, restConfig, storageclass.Name, namespace, snapshotUsage,
-				snapshotExtensionName, snapshotSize, totalQuotaUsedAfter, storagePolicyQuotaAfter,
-				storagePolicyUsageAfter)
+
+			_, _, storagePolicyQuotaAfterCleanup, _, storagePolicyUsageAfterCleanup, _ :=
+				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName, islatebinding)
+
+			framework.Logf("storagePolicyQuotaAfterCleanup: %t ", storagePolicyQuotaAfterCleanup.Cmp(*snap_storagePolicyQuotaBefore) == 0)
+			framework.Logf("storagePolicyUsageAfterCleanup: %t ", storagePolicyUsageAfterCleanup.Cmp(*snap_storagePolicyUsageBefore) == 0)
+
+			gomega.Expect(storagePolicyQuotaAfterCleanup.Cmp(*snap_storagePolicyQuotaBefore) == 0).NotTo(gomega.BeFalse())
+			gomega.Expect(storagePolicyUsageAfterCleanup.Cmp(*snap_storagePolicyUsageBefore) == 0).NotTo(gomega.BeFalse())
 
 		}
 	})
@@ -3639,8 +3671,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		"is Down", ginkgo.Label(p2, block, vanilla, snapshot, disruptive, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
-		var totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter *resource.Quantity
+		var totalQuotaUsedBefore, pvc_storagePolicyQuotaBefore, pvc_storagePolicyUsageBefore *resource.Quantity
+		var snap_storagePolicyQuotaBefore, snap_storagePolicyUsageBefore *resource.Quantity
+		var islatebinding bool
 
 		ginkgo.By("Create storage class")
 		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, scName)
@@ -3651,6 +3684,16 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
+
+		if isQuotaValidationSupported && supervisorCluster {
+			totalQuotaUsedBefore, _, pvc_storagePolicyQuotaBefore, _, pvc_storagePolicyUsageBefore, _ =
+				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, pvcUsage, volExtensionName, islatebinding)
+
+			totalQuotaUsedBefore, _, snap_storagePolicyQuotaBefore, _, snap_storagePolicyUsageBefore, _ =
+				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName, islatebinding)
+		}
 
 		ginkgo.By("Create PVC")
 		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
@@ -3667,12 +3710,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
-
-		if isQuotaValidationSupported && supervisorCluster {
-			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
-				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName)
-		}
 
 		ginkgo.By("Create volume snapshot class")
 		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
@@ -3708,16 +3745,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		snapshotSize := getAggregatedSnapshotCapacityInMb(e2eVSphere, volHandle)
-
-		if isQuotaValidationSupported && supervisorCluster {
-			totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter =
-				validateQuotaUsageAfterResourceCreation(ctx, restConfig,
-					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName,
-					snapshotSize, totalQuotaUsedBefore, storagePolicyQuotaBefore,
-					storagePolicyUsageBefore)
-			framework.Logf("totalQuotaUsedAfter :%v, storagePolicyQuotaAfter: %v "+
-				"storagePolicyUsageAfter: %v", totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter)
-		}
+		snapshotSizeStr := convertInt64ToStrMbFormat(snapshotSize)
 
 		ginkgo.By("Identify the host on which the PV resides")
 		framework.Logf("pvName %v", persistentVolumes[0].Name)
@@ -3762,24 +3790,28 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		totalQuotaUsedAfter, _ = getTotalQuotaConsumedByStoragePolicy(ctx, restConfig,
-			storageclass.Name, namespace)
-		framework.Logf("totalquota_used_after_snapshotCreation :%v", totalQuotaUsedAfter)
-
 		ginkgo.By("Start hostd service on the host on which the PV is present")
 		startHostDOnHost(ctx, hostIP)
+
+		if isQuotaValidationSupported && supervisorCluster {
+			var expectedTotalStorage []string
+			expectedTotalStorage = append(expectedTotalStorage, diskSize, diskSize, snapshotSizeStr)
+
+			validateTotalQuota(ctx, restConfig, storageclass.Name, namespace, expectedTotalStorage,
+				totalQuotaUsedBefore, islatebinding)
+
+			validateQuotaUsageAfterResourceCreation(ctx, restConfig, storageclass.Name, namespace, pvcUsage, volExtensionName,
+				[]string{diskSize, diskSize}, totalQuotaUsedBefore, pvc_storagePolicyQuotaBefore, pvc_storagePolicyUsageBefore, islatebinding)
+
+			validateQuotaUsageAfterResourceCreation(ctx, restConfig, storageclass.Name, namespace, snapshotUsage,
+				snapshotExtensionName, []string{snapshotSizeStr}, totalQuotaUsedBefore, snap_storagePolicyQuotaBefore,
+				snap_storagePolicyUsageBefore, islatebinding)
+		}
 
 		ginkgo.By("Delete dynamic volume snapshot")
 		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
 			volumeSnapshot, pandoraSyncWaitTime, volHandle, snapshotId, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		if isQuotaValidationSupported && supervisorCluster {
-			validateQuotaUsageAfterCleanUp(ctx, restConfig, storageclass.Name, namespace, snapshotUsage,
-				snapshotExtensionName, snapshotSize, totalQuotaUsedAfter, storagePolicyQuotaAfter,
-				storagePolicyUsageAfter)
-
-		}
 
 	})
 
