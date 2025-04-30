@@ -35,11 +35,10 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
-
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	vmopv3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	vmopv3common "github.com/vmware-tanzu/vm-operator/api/v1alpha3/common"
+	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -50,6 +49,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
+
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 )
 
@@ -1397,4 +1397,29 @@ func verifyVmServiceVMNodeLocation(vm *vmopv1.VirtualMachine, nodeList *v1.NodeL
 		}
 	}
 	return false, fmt.Errorf("VM: %s is not running on any node with matching IP", vm.Name)
+}
+
+// createTestWcpNs create a wcp namespace with given storage policy, vm class and content lib via REST API
+func addContentLibToNamespace(ctx context.Context, namespace string, vmClass string, contentLibId string) int {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	vcRestSessionId := createVcSession4RestApis(ctx)
+	supervisorId := getSvcId(vcRestSessionId)
+
+	updateReqUrl := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace
+	reqBody := fmt.Sprintf(`{
+        "vm_service_spec":  {
+            "vm_classes": [
+                "%s"
+            ],
+            "content_libraries": [
+                "%s"
+            ]
+        },
+        "supervisor": "%s"
+    }`, vmClass, contentLibId, supervisorId)
+
+	// Make the API request
+	_, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, updateReqUrl, reqBody)
+	framework.Logf("StatusCode of addContentLibToNamespace : %v", statusCode)
+	return statusCode
 }
