@@ -1405,8 +1405,9 @@ func addContentLibToNamespace(ctx context.Context, namespace string, vmClass str
 	vcRestSessionId := createVcSession4RestApis(ctx)
 	supervisorId := getSvcId(vcRestSessionId)
 
-	updateReqUrl := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace
+	updateReqUrl := "https://" + vcIp + "/api/vcenter/namespace_management/lifecycle/content/libreries/"
 	reqBody := fmt.Sprintf(`{
+		"namespace": "%s",
         "vm_service_spec":  {
             "vm_classes": [
                 "%s"
@@ -1416,7 +1417,7 @@ func addContentLibToNamespace(ctx context.Context, namespace string, vmClass str
             ]
         },
         "supervisor": "%s"
-    }`, vmClass, contentLibId, supervisorId)
+    }`, namespace, vmClass, contentLibId, supervisorId)
 
 	// Make the API request
 	_, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, updateReqUrl, reqBody)
