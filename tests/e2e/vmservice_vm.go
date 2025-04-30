@@ -28,10 +28,9 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
-
-	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1504,5 +1503,4 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			verifyDataIntegrityOnVmDisk(vmIp, volFolder)
 		}
 	})
-
 })
