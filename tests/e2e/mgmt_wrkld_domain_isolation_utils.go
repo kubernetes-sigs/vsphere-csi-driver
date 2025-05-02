@@ -113,12 +113,10 @@ func verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx context.Context, client
 					return fmt.Errorf("no ready and schedulable nodes found")
 				}
 
-				if supervisorCluster {
-					// Verify SV PVC topology annotations
-					err = checkPvcTopologyAnnotationOnSvc(svcPVC, allowedTopologiesMap, topologyCategories)
-					if err != nil {
-						return fmt.Errorf("topology annotation verification failed for SVC PVC %s: %w", svcPVC.Name, err)
-					}
+				// Verify SV PVC topology annotations
+				err = checkPvcTopologyAnnotationOnSvc(svcPVC, allowedTopologiesMap, topologyCategories)
+				if err != nil {
+					return fmt.Errorf("topology annotation verification failed for SVC PVC %s: %w", svcPVC.Name, err)
 				}
 
 				// Verify SV PV node affinity details
@@ -134,12 +132,10 @@ func verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx context.Context, client
 					return fmt.Errorf("pod node annotation verification failed for pod %s: %w", pod.Name, err)
 				}
 
-				if supervisorCluster {
-					// Verify CNS volume metadata
-					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, svPvcName, pv.ObjectMeta.Name, pod.Name)
-					if err != nil {
-						return fmt.Errorf("CNS volume metadata verification failed for pod %s: %w", pod.Name, err)
-					}
+				// Verify CNS volume metadata
+				err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle, svPvcName, pv.ObjectMeta.Name, pod.Name)
+				if err != nil {
+					return fmt.Errorf("CNS volume metadata verification failed for pod %s: %w", pod.Name, err)
 				}
 			}
 		}
@@ -479,4 +475,26 @@ func verifyVmServiceVmAnnotationAffinity(vm *vmopv1.VirtualMachine, allowedTopol
 	}
 
 	return nil
+}
+
+func removeZonesFromMap(m map[string][]string, zonesToStay ...string) map[string][]string {
+	zoneSet := make(map[string]struct{}, len(zonesToStay))
+	for _, z := range zonesToStay {
+		zoneSet[z] = struct{}{}
+	}
+
+	for key, zones := range m {
+		filtered := make([]string, 0, len(zones))
+		for _, zone := range zones {
+			if _, keep := zoneSet[zone]; keep {
+				filtered = append(filtered, zone)
+			}
+		}
+		if len(filtered) > 0 {
+			m[key] = filtered
+		} else {
+			delete(m, key)
+		}
+	}
+	return m
 }

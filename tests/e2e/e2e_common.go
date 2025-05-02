@@ -471,14 +471,17 @@ var (
 
 // For management workload domain isolation
 var (
-	envZonal2StoragePolicyName            = "ZONAL2_STORAGE_POLICY_IMM"
-	envZonal2StoragePolicyNameLateBidning = "ZONAL2_STORAGE_POLICY_WFFC"
-	envZonal1StoragePolicyName            = "ZONAL1_STORAGE_POLICY_IMM"
-	envZonal3StoragePolicyName            = "ZONAL3_STORAGE_POLICY_IMM"
-	topologyDomainIsolation               = "Workload_Management_Isolation"
-	envIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
-	envSharedZone2Zone4StoragePolicyName  = "SHARED_ZONE2_ZONE4_STORAGE_POLICY_IMM"
-	envSharedZone2Zone4DatastoreUrl       = "SHARED_ZONE2_ZONE4_DATASTORE_URL"
+	envZonal2StoragePolicyName                = "ZONAL2_STORAGE_POLICY_IMM"
+	envZonal2StoragePolicyNameLateBidning     = "ZONAL2_STORAGE_POLICY_WFFC"
+	envZonal1StoragePolicyName                = "ZONAL1_STORAGE_POLICY_IMM"
+	envZonal1StoragePolicyNameLateBinding     = "ZONAL1_STORAGE_POLICY_WFFC"
+	envZonal3StoragePolicyName                = "ZONAL3_STORAGE_POLICY_IMM"
+	topologyDomainIsolation                   = "Workload_Management_Isolation"
+	envIsolationSharedStoragePolicyName       = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
+	envSharedZone2Zone4StoragePolicyName      = "SHARED_ZONE2_ZONE4_STORAGE_POLICY_IMM"
+	envSharedZone2Zone4DatastoreUrl           = "SHARED_ZONE2_ZONE4_DATASTORE_URL"
+	envZone2DatastoreUrl                      = "ZONAL_ZONE2__DATASTORE_URL"
+	envSharedZone1Zone2Zone3StoragePolicyName = "SHARED_ZONE1_ZONE2_ZONE3_STORAGE_POLICY_IMM"
 )
 
 // storage policy usages for storage quota validation
