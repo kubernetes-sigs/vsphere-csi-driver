@@ -221,7 +221,8 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 	}
 
-	pods := fss.GetPodList(ctx, client, statefulset)
+	pods, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for _, pod := range pods.Items {
 		if pod.Status.Phase != v1.PodPending {
 			framework.Failf("Expected pod to be in: %s state but is in: %s state", v1.PodPending,
@@ -450,7 +451,8 @@ func verifyVolumeMetadataOnStatefulsets(client clientset.Interface, ctx context.
 	if !windowsEnv {
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 	}
-	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
+	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -491,14 +493,15 @@ func verifyVolumeMetadataOnStatefulsets(client clientset.Interface, ctx context.
 	}
 
 	replicas = 5
-	framework.Logf(fmt.Sprintf("Scaling up statefulset: %v to number of Replica: %v",
-		statefulset.Name, replicas))
+	framework.Logf("Scaling up statefulset: %v to number of Replica: %v",
+		statefulset.Name, replicas)
 	_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 	gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 
 	fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-	ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
+	ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -527,8 +530,8 @@ func verifyVolumeMetadataOnStatefulsets(client clientset.Interface, ctx context.
 				verifyAnnotationsAndNodeAffinity(allowedTopologyHAMap, categories, pod,
 					nodeList, svcPVC, pv, svcPVCName)
 
-				framework.Logf(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
-					pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+				framework.Logf("Verify volume: %s is attached to the node: %s",
+					pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
 				var vmUUID string
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
@@ -893,7 +896,8 @@ func verifyStsVolumeMetadata(client clientset.Interface, ctx context.Context, na
 	if !windowsEnv {
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 	}
-	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
+	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -930,8 +934,8 @@ func verifyStsVolumeMetadata(client clientset.Interface, ctx context.Context, na
 					pv, pod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				framework.Logf(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
-					pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+				framework.Logf("Verify volume: %s is attached to the node: %s",
+					pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
 				var vmUUID string
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()

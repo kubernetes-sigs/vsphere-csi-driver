@@ -914,13 +914,13 @@ func (c *controller) getAccessibleTopologiesForDatastore(ctx context.Context, vc
 		// Get UUID from VM reference.
 		vmUUID, err := cnsvsphere.GetUUIDFromVMReference(ctx, vcenter, vmref.Reference())
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			return nil, logger.LogNewErrorCode(log, codes.Internal,
 				err.Error())
 		}
 		// Get NodeVM name from VM UUID.
 		nodeName, err := c.nodeMgr.GetNodeNameByUUID(ctx, vmUUID)
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			return nil, logger.LogNewErrorCode(log, codes.Internal,
 				err.Error())
 		}
 		accessibleNodeNames = append(accessibleNodeNames, nodeName)
@@ -1546,13 +1546,13 @@ func (c *controller) calculateAccessibleTopologiesForDatastore(ctx context.Conte
 		// Get UUID from VM reference.
 		vmUUID, err := cnsvsphere.GetUUIDFromVMReference(ctx, vcenter, vmref.Reference())
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			return nil, logger.LogNewErrorCode(log, codes.Internal,
 				err.Error())
 		}
 		// Get NodeVM name from VM UUID.
 		nodeName, err := c.nodeMgr.GetNodeNameByUUID(ctx, vmUUID)
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			return nil, logger.LogNewErrorCode(log, codes.Internal,
 				err.Error())
 		}
 		accessibleNodeNames = append(accessibleNodeNames, nodeName)

@@ -1743,7 +1743,7 @@ func createGC(wcpHost string, wcpToken string, tkgImageName string, clusterName 
 	bodyBytes, statusCode := httpRequest(client, req)
 
 	response := string(bodyBytes)
-	framework.Logf(response)
+	framework.Logf("%q", response)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 201))
 }
 
@@ -1901,7 +1901,7 @@ func getGC(wcpHost string, wcpToken string, gcName string) error {
 			}
 			return false, nil
 		})
-	framework.Logf(response)
+	framework.Logf("%q", response)
 	return waitErr
 }
 
@@ -2949,7 +2949,7 @@ func verifyCNSFileAccessConfigCRDInSupervisor(ctx context.Context,
 				instanceFound = true
 				break
 			} else {
-				framework.Logf("CRD is not matching : " + instance.Name)
+				framework.Logf("CRD is not matching : %q", instance.Name)
 			}
 		}
 	}
@@ -3714,7 +3714,7 @@ func runCommandOnESX(username string, addr string, cmd string) (string, error) {
 			consider the SSH itself successful and cmd executed successfully on the host.
 			If  exit code is non zero we'll consider the SSH is successful but
 			cmd failed on the host. */
-			framework.Logf(exiterr.Error())
+			framework.Logf("%q", exiterr.Error())
 			if code == 0 {
 				err = nil
 			} else {
@@ -3760,7 +3760,7 @@ func getHostDStatusOnHost(addr string) string {
 	framework.Logf("Running status check on hostd service for the host  %s ...", addr)
 	statusHostDCmd := fmt.Sprintf("/etc/init.d/hostd %s", statusOperation)
 	output, err := runCommandOnESX("root", addr, statusHostDCmd)
-	framework.Logf("hostd status command output is : " + output)
+	framework.Logf("hostd status command output is %q:", output)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return output
 }
@@ -4475,11 +4475,11 @@ func getDefaultDatastore(ctx context.Context, forceRefresh ...bool) *object.Data
 			defaultDatacenter, err := finder.Datacenter(ctx, dc)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(defaultDatacenter)
-			framework.Logf("Looking for default datastore in DC: " + dc)
+			framework.Logf("Looking for default datastore in DC: %q", dc)
 			datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
 			if err == nil {
-				framework.Logf("Datstore found for DS URL:" + datastoreURL)
+				framework.Logf("Datstore found for DS URL:%q", datastoreURL)
 				break
 			}
 		}
@@ -4834,7 +4834,8 @@ which PV is provisioned.
 func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context,
 	client clientset.Interface, statefulset *appsv1.StatefulSet,
 	namespace string, zoneValues []string, regionValues []string) {
-	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
+	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for _, sspod := range ssPodsBeforeScaleDown.Items {
 		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5025,7 +5026,8 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 	if parallelStatefulSetCreation {
 		ssPodsBeforeScaleDown = GetListOfPodsInSts(client, statefulset)
 	} else {
-		ssPodsBeforeScaleDown = fss.GetPodList(ctx, client, statefulset)
+		ssPodsBeforeScaleDown, err = fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
 	for _, sspod := range ssPodsBeforeScaleDown.Items {
@@ -5199,7 +5201,8 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 			return scaledownErr
 		}
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		ssPodsAfterScaleDown = fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleDown, err = fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
 	// After scale down, verify vSphere volumes are detached from deleted pods
@@ -5303,7 +5306,8 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
-		ssPodsAfterScaleUp = fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleUp, err = fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		if len(ssPodsAfterScaleUp.Items) == 0 {
 			return fmt.Errorf("unable to get list of Pods from the Statefulset: %v", statefulset.Name)
 		}
@@ -5934,8 +5938,8 @@ func createParallelStatefulSets(client clientset.Interface, namespace string,
 	ginkgo.By("Creating statefulset")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	framework.Logf(fmt.Sprintf("Creating statefulset %v/%v with %d replicas and selector %+v",
-		statefulset.Namespace, statefulset.Name, replicas, statefulset.Spec.Selector))
+	framework.Logf("Creating statefulset %v/%v with %d replicas and selector %+v",
+		statefulset.Namespace, statefulset.Name, replicas, statefulset.Spec.Selector)
 	_, err := client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
