@@ -122,7 +122,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		}()
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 1)
 
-		podList := fss.GetPodList(ctx, client, statefulset)
+		podList, err := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(podList.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(podList.Items) == 1).To(gomega.BeTrue(), "Number of Pods in the statefulset should be 1")
@@ -180,7 +180,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 
-		podList = fss.GetPodList(ctx, client, statefulset)
+		podList, err = fss.GetPodList(ctx, client, statefulset)
 		pod = podList.Items[0]
 		failoverNode := pod.Spec.NodeName
 
@@ -263,7 +263,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		}()
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 1)
 
-		podList := fss.GetPodList(ctx, client, statefulset)
+		podList, err := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(podList.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(podList.Items) == 1).To(gomega.BeTrue(), "Number of Pods in the statefulset should be 1")
@@ -315,7 +315,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is not detached from the node")
 
-		podList = fss.GetPodList(ctx, client, statefulset)
+		podList, err = fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).To(gomega.BeNil())
 		pod = podList.Items[0]
 		nodeNameAfterPodReschedule := pod.Spec.NodeName
 		ginkgo.By("Verify if the pod was not scheduled on other node")

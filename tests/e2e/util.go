@@ -4834,7 +4834,8 @@ which PV is provisioned.
 func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context,
 	client clientset.Interface, statefulset *appsv1.StatefulSet,
 	namespace string, zoneValues []string, regionValues []string) {
-	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
+	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).To(gomega.BeNil())
 	for _, sspod := range ssPodsBeforeScaleDown.Items {
 		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5025,7 +5026,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 	if parallelStatefulSetCreation {
 		ssPodsBeforeScaleDown = GetListOfPodsInSts(client, statefulset)
 	} else {
-		ssPodsBeforeScaleDown = fss.GetPodList(ctx, client, statefulset)
+		ssPodsBeforeScaleDown, err = fss.GetPodList(ctx, client, statefulset)
 	}
 
 	for _, sspod := range ssPodsBeforeScaleDown.Items {
@@ -5199,7 +5200,7 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 			return scaledownErr
 		}
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		ssPodsAfterScaleDown = fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleDown, err = fss.GetPodList(ctx, client, statefulset)
 	}
 
 	// After scale down, verify vSphere volumes are detached from deleted pods
@@ -5303,7 +5304,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
-		ssPodsAfterScaleUp = fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleUp, err = fss.GetPodList(ctx, client, statefulset)
 		if len(ssPodsAfterScaleUp.Items) == 0 {
 			return fmt.Errorf("unable to get list of Pods from the Statefulset: %v", statefulset.Name)
 		}

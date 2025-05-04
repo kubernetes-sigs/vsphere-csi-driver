@@ -157,7 +157,7 @@ var _ = ginkgo.Describe("Upgrade TKG", func() {
 		// Waiting for pods status to be Ready.
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleUp := fss.GetPodList(ctx, client, statefulset)
+		ssPodsBeforeScaleUp, err := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -209,7 +209,7 @@ var _ = ginkgo.Describe("Upgrade TKG", func() {
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas+5)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas+5)
-		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas+5)).To(gomega.BeTrue(),
@@ -254,7 +254,7 @@ var _ = ginkgo.Describe("Upgrade TKG", func() {
 		_, scaledownErr := fss.Scale(ctx, client, statefulset, 0)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 0)
-		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(0)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 

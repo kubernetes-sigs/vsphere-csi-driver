@@ -222,7 +222,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		ginkgo.By("Verify all the workload Pods are in up and running state")
 		/* here passing any one statefulset name created in a namespace, GetPodList method
 		will fetch all the sts pods running in a given namespace */
-		ssPods = fss.GetPodList(ctx, client, statefulSets[0])
+		ssPods, err = fss.GetPodList(ctx, client, statefulSets[0])
 		for _, pod := range ssPods.Items {
 			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -272,7 +272,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods = fss.GetPodList(ctx, client, statefulSets[0])
+		ssPods, err = fss.GetPodList(ctx, client, statefulSets[0])
 		for _, pod := range ssPods.Items {
 			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -289,7 +289,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulSets[1])
+		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -431,7 +431,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		ginkgo.By("Verify all the workload Pods are in up and running state")
 		/* here passing any one statefulset name created in a namespace, GetPodList
 		will fetch all the pods running in a given namespace */
-		ssPods = fss.GetPodList(ctx, client, statefulSets[0])
+		ssPods, err = fss.GetPodList(ctx, client, statefulSets[0])
 		for _, pod := range ssPods.Items {
 			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -490,7 +490,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulSets[1])
+		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -688,7 +688,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulSets[1])
+		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -823,7 +823,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 		ginkgo.By("Verify all the workload Pods are in up and running state")
 		/* here passing any one statefulset name created in a namespace, GetPodList
 		will fetch all the sts pods running in a given namespace */
-		ssPods = fss.GetPodList(ctx, client, statefulSets[1])
+		ssPods, err = fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPods.Items {
 			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -885,7 +885,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulSets[1])
+		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1024,7 +1024,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods = fss.GetPodList(ctx, client, statefulSets[1])
+		ssPods, err = fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPods.Items {
 			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1083,7 +1083,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulSets[1])
+		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1301,7 +1301,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Verify all the workload Pods are in up and running state
 		ginkgo.By("Verify all the workload Pods are in up and running state")
-		ssPods = fss.GetPodList(ctx, client, statefulSets[0])
+		ssPods, err = fss.GetPodList(ctx, client, statefulSets[0])
 		for _, pod := range ssPods.Items {
 			err := fpod.WaitForPodRunningInNamespace(ctx, client, &pod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1318,7 +1318,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// verifyVolumeMetadataInCNS
 		ginkgo.By("Verify pod entry in CNS volume-metadata for the volumes associated with the PVC")
-		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulSets[1])
+		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulSets[1])
 		for _, pod := range ssPodsBeforeScaleDown.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

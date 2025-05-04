@@ -128,7 +128,8 @@ func createCustomisedStatefulSets(ctx context.Context, client clientset.Interfac
 	framework.Logf("Wait for StatefulSet pods to be in up and running state")
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 	gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
+	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).To(gomega.BeNil())
 	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
