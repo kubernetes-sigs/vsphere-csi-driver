@@ -431,7 +431,7 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 			// Add label to Supervisor PVC that contains guest cluster details, if not present already.
 			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
 				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
-			if _, ok := svPVC.Labels[key]; !ok {
+			if val, ok := svPVC.Labels[key]; !ok || val != metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
 				if svPVC.Labels == nil {
 					svPVC.Labels = make(map[string]string)
 				}
@@ -523,7 +523,7 @@ func setGuestClusterDetailsOnSupervisorSnapshot(ctx context.Context, metadataSyn
 			tkcLabelPresent := true
 			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
 				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
-			if _, ok := svVS.Labels[key]; !ok {
+			if val, ok := svVS.Labels[key]; !ok || val != metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
 				if svVS.Labels == nil {
 					svVS.Labels = make(map[string]string)
 				}
