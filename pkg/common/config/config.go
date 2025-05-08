@@ -382,7 +382,7 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 
 		if vcConfig.User == "" {
 			vcConfig.User = cfg.Global.User
-			if vcConfig.User == "" {
+			if vcConfig.User == "" && vcConfig.VCSessionManagerURL == "" {
 				log.Errorf("vcConfig.User is empty for vc %s!", vcServer)
 				return ErrUsernameMissing
 			}
@@ -390,7 +390,7 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 
 		// vCenter server username provided in vSphere config secret should contain domain name,
 		// CSI driver will crash if username doesn't contain domain name.
-		if !isValidvCenterUsernameWithDomain(vcConfig.User) {
+		if !isValidvCenterUsernameWithDomain(vcConfig.User) && vcConfig.VCSessionManagerURL == "" {
 			log.Errorf("username %v specified in vSphere config secret is invalid, "+
 				"make sure that username is a fully qualified domain name.", vcConfig.User)
 			return ErrInvalidUsername
@@ -398,7 +398,7 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 
 		if vcConfig.Password == "" {
 			vcConfig.Password = cfg.Global.Password
-			if vcConfig.Password == "" {
+			if vcConfig.Password == "" && vcConfig.VCSessionManagerURL == "" {
 				log.Errorf("vcConfig.Password is empty for vc %s!", vcServer)
 				return ErrPasswordMissing
 			}
