@@ -2284,6 +2284,8 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 			if metadataSyncer.host != newVCConfig.Host ||
 				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User != newVCConfig.Username ||
 				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].Password != newVCConfig.Password ||
+				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].VCSessionManagerURL != newVCConfig.VCSessionManagerURL ||
+				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].VCSessionManagerToken != newVCConfig.VCSessionManagerToken ||
 				reconnectToVCFromNewConfig {
 				// Verify if new configuration has valid credentials by connecting
 				// to vCenter. Proceed only if the connection succeeds, else return
