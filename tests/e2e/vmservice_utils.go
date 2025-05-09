@@ -881,11 +881,18 @@ func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
 // wait4PvcAttachmentFailure waits for PVC attachment to given VM to fail
 func wait4PvcAttachmentFailure(
 	ctx context.Context, vmopC ctlrclient.Client, vm *vmopv1.VirtualMachine, pvc *v1.PersistentVolumeClaim) error {
+
 	var returnErr error
+	var lastErr error
+
 	waitErr := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
 		func(ctx context.Context) (bool, error) {
 			vm, err := getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if err != nil {
+				lastErr = err
+				return false, nil
+			}
+
 			for _, vol := range vm.Status.Volumes {
 				if vol.Name == pvc.Name {
 					if !vol.Attached {
@@ -897,7 +904,10 @@ func wait4PvcAttachmentFailure(
 			}
 			return false, nil
 		})
-	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
+
+	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred(), "Polling failed unexpectedly")
+	gomega.Expect(lastErr).To(gomega.BeNil(), "Final VM fetch had unexpected error")
+
 	return returnErr
 }
 

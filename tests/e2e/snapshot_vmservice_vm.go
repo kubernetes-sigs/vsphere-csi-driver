@@ -130,7 +130,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 
 		framework.Logf("Verifying storage policies usage for each storage class")
 		restConfig = getRestConfigClient()
-		err = ListStoragePolicyUsages(ctx, client, restConfig, namespace, []string{storageClassName})
+		ListStoragePolicyUsages(ctx, client, restConfig, namespace, []string{storageClassName})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// creating vm schema
@@ -1708,9 +1708,9 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 			}
 		}()
 
-		ginkgo.By("Power off vm1")
-		vm1 = setVmPowerState(ctx, vmopC, vm1, vmopv1.VirtualMachinePoweredOff)
-		vm1, err = wait4Vm2ReachPowerStateInSpec(ctx, vmopC, vm1)
+		ginkgo.By("Power off vm2")
+		vm2 = setVmPowerState(ctx, vmopC, vm2, vmopv1.VirtualMachinePoweredOff)
+		vm2, err = wait4Vm2ReachPowerStateInSpec(ctx, vmopC, vm2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
