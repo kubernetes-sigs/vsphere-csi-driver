@@ -191,7 +191,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		// Waiting for pods status to be Ready.
 		fss.WaitForStatusReadyReplicas(ctx, clientNewGc, statefulset, replicas)
 
-		ssPodsBeforeScaledown := fss.GetPodList(ctx, clientNewGc, statefulset)
+		ssPodsBeforeScaledown, err := fss.GetPodList(ctx, clientNewGc, statefulset)
 		gomega.Expect(ssPodsBeforeScaledown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaledown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -258,7 +258,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		_, scaledownErr := fss.Scale(ctx, clientNewGc, statefulset, replicas-1)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(ctx, clientNewGc, statefulset, replicas-1)
-		ssPodsAfterScaleDown := fss.GetPodList(ctx, clientNewGc, statefulset)
+		ssPodsAfterScaleDown, err := fss.GetPodList(ctx, clientNewGc, statefulset)
 		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas-1)).To(gomega.BeTrue(),
@@ -322,7 +322,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(ctx, clientNewGc, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(ctx, clientNewGc, statefulset, replicas)
-		ssPodsAfterScaleUp := fss.GetPodList(ctx, clientNewGc, statefulset)
+		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, clientNewGc, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),

@@ -278,7 +278,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 
 		// Check Pod status after recreating Storage class with different binding mode
 		ginkgo.By("Verify Pod status after recreating Storage class with different binding mode")
-		pod_status := fpod.VerifyPodsRunning(ctx, client, namespace, pod.Name, true, 0)
+		pod_status := fpod.VerifyPodsRunning(ctx, client, namespace, pod.Name, nil, true, 0)
 		if pod.Status.Phase == v1.PodRunning {
 			framework.Logf("Pod is in Running state after recreating Storage Class")
 		}

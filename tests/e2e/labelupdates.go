@@ -705,7 +705,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(ctx, f.ClientSet, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(ctx, f.ClientSet, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleup := fss.GetPodList(ctx, f.ClientSet, statefulset)
+		ssPodsBeforeScaleup, err := fss.GetPodList(ctx, f.ClientSet, statefulset)
+		gomega.Expect(err).To(gomega.BeNil())
 		gomega.Expect(ssPodsBeforeScaleup.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleup.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -748,7 +749,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		pvlabels := make(map[string]string)
 		pvlabels[pvlabelKey] = pvlabelValue
 
-		ssPodsAfterScaleUp := fss.GetPodList(ctx, f.ClientSet, statefulset)
+		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, f.ClientSet, statefulset)
 
 		for _, spod := range ssPodsAfterScaleUp.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, spod.Name, metav1.GetOptions{})
@@ -775,7 +776,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		_, scaledownErr := fss.Scale(ctx, f.ClientSet, statefulset, 0)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(ctx, f.ClientSet, statefulset, 0)
-		ssPodsAfterScaleDown := fss.GetPodList(ctx, f.ClientSet, statefulset)
+		ssPodsAfterScaleDown, err := fss.GetPodList(ctx, f.ClientSet, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(0)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 	})

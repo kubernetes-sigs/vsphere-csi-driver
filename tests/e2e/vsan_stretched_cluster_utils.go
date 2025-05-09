@@ -694,7 +694,8 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 	// Waiting for pods status to be Ready
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 	gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
+	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).To(gomega.BeNil())
 	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 		"Unable to get list of Pods from the Statefulset: %v", statefulset.Name)
 	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -900,7 +901,8 @@ func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Inte
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 	}
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-	ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
+	ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).To(gomega.BeNil())
 	gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -1001,7 +1003,8 @@ func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interf
 
 	fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-	ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
+	ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).To(gomega.BeNil())
 	gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),

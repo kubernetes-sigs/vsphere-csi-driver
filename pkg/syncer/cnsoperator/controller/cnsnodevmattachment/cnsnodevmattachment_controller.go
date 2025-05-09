@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -107,7 +107,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatorv1alpha3.GroupName)
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatorv1alpha4.GroupName)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
 		log.Error(msg)
@@ -770,7 +770,7 @@ func updateSVPVC(ctx context.Context, client client.Client,
 // isVmCrPresent checks whether VM CR is present in SV namespace
 // with given vmuuid and returns the VirtualMachine CR object if it is found
 func isVmCrPresent(ctx context.Context, vmOperatorClient client.Client,
-	vmuuid string, namespace string) (*vmoperatorv1alpha3.VirtualMachine, error) {
+	vmuuid string, namespace string) (*vmoperatorv1alpha4.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	vmList, err := utils.GetVirtualMachineListAllApiVersions(ctx, namespace, vmOperatorClient)
 	if err != nil {

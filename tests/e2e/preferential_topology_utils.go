@@ -280,12 +280,14 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 	multipleAllowedTopology bool, parallelStatefulSetCreation bool, multiVCDsUrls []string) error {
 	counter := 0
 	stsPodCount := 0
+	var err error
 	var dsUrls []string
 	var ssPodsBeforeScaleDown *v1.PodList
 	if parallelStatefulSetCreation {
 		ssPodsBeforeScaleDown = GetListOfPodsInSts(client, statefulset)
 	} else {
-		ssPodsBeforeScaleDown = fss.GetPodList(ctx, client, statefulset)
+		ssPodsBeforeScaleDown, err = fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	stsPodCount = len(ssPodsBeforeScaleDown.Items)
 	if !multivc {

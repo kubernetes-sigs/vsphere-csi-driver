@@ -1401,7 +1401,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 					fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 			}
 
-			pods := fss.GetPodList(ctx, client, statefulset)
+			pods, err := fss.GetPodList(ctx, client, statefulset)
 			for _, pod := range pods.Items {
 				if pod.Status.Phase != v1.PodPending {
 					framework.Failf("Expected pod to be in: %s state but is in: %s state", v1.PodPending,
@@ -1927,7 +1927,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			if !windowsEnv {
 				gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 			}
-			ssPods = fss.GetPodList(ctx, client, statefulset)
+			ssPods, err = fss.GetPodList(ctx, client, statefulset)
 			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -1985,7 +1985,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		for _, statefulset := range stsList {
 			fss.WaitForStatusReplicas(ctx, client, statefulset, statefulSetReplicaCount)
 			fss.WaitForStatusReadyReplicas(ctx, client, statefulset, statefulSetReplicaCount)
-			ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
+			ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+			gomega.Expect(err).To(gomega.BeNil())
 			gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -3109,7 +3110,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -3282,7 +3283,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(ctx, client, stsList[0], replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, stsList[0], replicas)
-		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, stsList[0])
+		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, stsList[0])
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", stsList[0].Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
