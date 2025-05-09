@@ -25,6 +25,7 @@ import (
 	restclient "k8s.io/client-go/rest"
 
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
@@ -47,6 +48,9 @@ type COCommonInterface interface {
 	IsPVCSIFSSEnabled(ctx context.Context, featureName string) bool
 	// EnableFSS helps enable feature state switch in the FSS config map
 	EnableFSS(ctx context.Context, featureName string) error
+	// Check if CSI migration is enabled. In true multi-VC clusters CSI
+	// migration will be disabled by default
+	IsCSIMigrationEnabled(ctx context.Context, cfg *config.Config) bool
 	// DisableFSS helps disable feature state switch in the FSS config map
 	// This method is added for Unit tests coverage
 	DisableFSS(ctx context.Context, featureName string) error
