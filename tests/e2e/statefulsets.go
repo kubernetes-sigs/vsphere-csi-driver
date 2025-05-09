@@ -1288,6 +1288,10 @@ func contains(volumes []string, volumeID string) bool {
 func CreateStatefulSet(ns string, ss *apps.StatefulSet, c clientset.Interface) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if policy4kn {
+		ss.Annotations = make(map[string]string)
+		ss.Annotations[policy4knKey] = policy4knValue
+	}
 	framework.Logf(fmt.Sprintf("Creating statefulset %v/%v with %d replicas and selector %+v",
 		ss.Namespace, ss.Name, *(ss.Spec.Replicas), ss.Spec.Selector))
 	_, err := c.AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
