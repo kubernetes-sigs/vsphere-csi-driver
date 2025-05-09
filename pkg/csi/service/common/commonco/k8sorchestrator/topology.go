@@ -636,8 +636,20 @@ func topoCRUpdated(oldObj interface{}, newObj interface{}) {
 func topoCRDeleted(obj interface{}) {
 	ctx, log := logger.GetNewContextWithLogger()
 	// Verify object received.
+	if unknown, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		if unknown.Obj == nil {
+			log.Errorf("topoCRDeleted: received empty DeletedFinalStateUnknown object, ignoring")
+			return
+		}
+		obj = unknown.Obj
+	}
+	unstruct, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		log.Errorf("topoCRDeleted: received non-unstructured object %T, ignoring", obj)
+		return
+	}
 	var nodeTopoObj csinodetopologyv1alpha1.CSINodeTopology
-	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &nodeTopoObj)
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstruct.Object, &nodeTopoObj)
 	if err != nil {
 		log.Errorf("topoCRDeleted: failed to cast object %+v to %s type. Error: %+v",
 			obj, csinodetopology.CRDSingular, err)
