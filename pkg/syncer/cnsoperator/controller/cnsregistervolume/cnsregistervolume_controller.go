@@ -86,41 +86,40 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
-		log.Debug("Not initializing the CnsRegisterVolume Controller as its a non-WCP CSI deployment")
+		log.Debug("Not initializing the CnsRegisterVolume Controller as it's not a WCP CSI deployment")
 		return nil
 	}
+
 	workloadDomainIsolationEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.WorkloadDomainIsolation)
 
 	var volumeInfoService cnsvolumeinfo.VolumeInfoService
-	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-			var err error
-			clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+		var err error
+		clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
+		if err != nil {
+			log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+			return err
+		}
+		if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
+			topologyMgr, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
 			if err != nil {
-				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+				log.Errorf("failed to init topology manager. err: %v", err)
 				return err
 			}
-			if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
-				topologyMgr, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
-				if err != nil {
-					log.Errorf("failed to init topology manager. err: %v", err)
-					return err
-				}
-				log.Info("Creating CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
-				volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
-				if err != nil {
-					return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
-				}
-				log.Infof("Successfully initialized VolumeInfoService")
-			} else {
-				if len(clusterComputeResourceMoIds) > 1 {
-					log.Infof("Not initializing the CnsRegisterVolume Controller as stretched supervisor is detected.")
-					return nil
-				}
+			log.Info("Creating CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
+			volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
+			if err != nil {
+				return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
 			}
+			log.Infof("Successfully initialized VolumeInfoService")
+		} else if len(clusterComputeResourceMoIds) > 1 {
+			log.Infof("Stretched Supervisor detected but PodVM is not enabled. " +
+				"Not initializing the CnsRegisterVolume controller.")
+			return nil
 		}
 	}
+
 	// Initializes kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
@@ -202,7 +201,6 @@ type ReconcileCnsRegisterVolume struct {
 func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
-	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 	// Fetch the CnsRegisterVolume instance.
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
@@ -211,11 +209,13 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			log.Infof("CnsRegisterVolume resource not found. Ignoring since object must be deleted.")
 			return reconcile.Result{}, nil
 		}
+
 		log.Errorf("Error reading the CnsRegisterVolume with name: %q on namespace: %q. Err: %+v",
 			request.Name, request.Namespace, err)
 		// Error reading the object - return with err.
 		return reconcile.Result{}, err
 	}
+
 	// Initialize backOffDuration for the instance, if required.
 	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
@@ -241,16 +241,22 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	if err != nil {
 		log.Errorf(err.Error())
 		setInstanceError(ctx, r, instance, err.Error())
-		return reconcile.Result{RequeueAfter: timeout}, nil
+		backOffDurationMapMutex.Lock()
+		delete(backOffDuration, instance.Name)
+		backOffDurationMapMutex.Unlock()
+		return reconcile.Result{}, nil
 	}
+
 	// Verify if CnsRegisterVolume request is for block volume registration
 	// Currently file volume registration is not supported.
-	ok := isBlockVolumeRegisterRequest(ctx, instance)
-	if !ok {
+	if !isBlockVolumeRegisterRequest(ctx, instance) {
 		msg := fmt.Sprintf("AccessMode: %s is not supported", instance.Spec.AccessMode)
 		log.Error(msg)
 		setInstanceError(ctx, r, instance, msg)
-		return reconcile.Result{RequeueAfter: timeout}, nil
+		backOffDurationMapMutex.Lock()
+		delete(backOffDuration, instance.Name)
+		backOffDurationMapMutex.Unlock()
+		return reconcile.Result{}, nil
 	}
 
 	vc, err := cnsvsphere.GetVirtualCenterInstance(ctx, r.configInfo, false)
@@ -260,14 +266,16 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		setInstanceError(ctx, r, instance, "Unable to connect to VC for volume registration")
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
+
 	var (
 		volumeID       string
 		pvName         string
 		pvNodeAffinity *v1.VolumeNodeAffinity
 	)
 	// Create Volume for the input CnsRegisterVolume instance.
+	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 	createSpec := constructCreateSpecForInstance(r, instance, vc.Config.Host, isTKGSHAEnabled)
-	log.Infof("Creating CNS volume: %+v for CnsRegisterVolume request with name: %q on namespace: %q",
+	log.Infof("Creating CNS volume: %+v for CnsRegisterVolume request with name: %q in namespace: %q",
 		instance, instance.Name, instance.Namespace)
 	log.Debugf("CNS Volume create spec is: %+v", createSpec)
 	volInfo, _, err := r.volumeManager.CreateVolume(ctx, createSpec, nil)
@@ -283,15 +291,15 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		// confirm using CNS Volume ID, if another PV is already present with same volume ID
 		// If yes then fail.
 		pvName, found := commonco.ContainerOrchestratorUtility.GetPVNameFromCSIVolumeID(volInfo.VolumeID.Id)
-		if found {
-			if pvName != staticPvNamePrefix+volInfo.VolumeID.Id {
-				msg := fmt.Sprintf("PV: %q with the volume ID: %q for volume path: %q"+
-					"is already present. Can not create multiple PV with same disk.", pvName, volInfo.VolumeID.Id,
-					instance.Spec.DiskURLPath)
-				log.Errorf(msg)
-				setInstanceError(ctx, r, instance, msg)
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
+		if found && pvName != staticPvNamePrefix+volInfo.VolumeID.Id {
+			msg := fmt.Sprintf("PV: %q with the volume ID: %q for volume path: %q"+
+				"is already present. Can not create multiple PV with same disk.", pvName, volInfo.VolumeID.Id,
+				instance.Spec.DiskURLPath)
+			log.Errorf(msg)
+			setInstanceError(ctx, r, instance, msg)
+			delete(backOffDuration, instance.Name)
+			backOffDurationMapMutex.Unlock()
+			return reconcile.Result{}, nil
 		}
 	}
 
@@ -299,7 +307,6 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	log.Infof("Created CNS volume with volumeID: %s", volumeID)
 
 	pvName = staticPvNamePrefix + volumeID
-	// Query volume
 	log.Infof("Querying volume: %s for CnsRegisterVolume request with name: %q on namespace: %q",
 		volumeID, instance.Name, instance.Namespace)
 	querySelection := cnstypes.CnsQuerySelection{
@@ -324,20 +331,19 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
-		if workloadDomainIsolationEnabled || len(clusterComputeResourceMoIds) > 1 {
-			azClustersMap := topologyMgr.GetAZClustersMap(ctx)
-			isAccessible := isDatastoreAccessibleToAZClusters(ctx, vc, azClustersMap, volume.DatastoreUrl)
-			if !isAccessible {
-				log.Errorf("Volume: %s present on datastore: %s is not accessible to any of the AZ clusters: %v",
-					volumeID, volume.DatastoreUrl, azClustersMap)
-				setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to any of the AZ clusters")
-				_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
-				if err != nil {
-					log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
-				}
-				return reconcile.Result{RequeueAfter: timeout}, nil
+	if syncer.IsPodVMOnStretchSupervisorFSSEnabled &&
+		(workloadDomainIsolationEnabled || len(clusterComputeResourceMoIds) > 1) {
+		azClustersMap := topologyMgr.GetAZClustersMap(ctx)
+		isAccessible := isDatastoreAccessibleToAZClusters(ctx, vc, azClustersMap, volume.DatastoreUrl)
+		if !isAccessible {
+			log.Errorf("Volume: %s present on datastore: %s is not accessible to any of the AZ clusters: %v",
+				volumeID, volume.DatastoreUrl, azClustersMap)
+			setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to any of the AZ clusters")
+			_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+			if err != nil {
+				log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
 			}
+			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	} else {
 		// Verify if the volume is accessible to Supervisor cluster.
@@ -354,6 +360,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	}
+
 	// Verify if storage policy is empty.
 	if volume.StoragePolicyId == "" {
 		log.Errorf("Volume: %s doesn't have storage policy associated with it", volumeID)
@@ -695,41 +702,34 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 // validateCnsRegisterVolumeSpec validates the input params of
 // CnsRegisterVolume instance.
 func validateCnsRegisterVolumeSpec(ctx context.Context, instance *cnsregistervolumev1alpha1.CnsRegisterVolume) error {
-	var msg string
-	if instance.Spec.VolumeID != "" && instance.Spec.DiskURLPath != "" {
-		msg = "VolumeID and DiskURLPath cannot be specified together"
-	} else if instance.Spec.DiskURLPath != "" && instance.Spec.AccessMode != "" &&
-		instance.Spec.AccessMode != v1.ReadWriteOnce {
-		msg = fmt.Sprintf("DiskURLPath cannot be used with accessMode: %q", instance.Spec.AccessMode)
+	if instance.Spec.VolumeID == "" && instance.Spec.DiskURLPath == "" {
+		return errors.New("VolumeID or DiskURLPath must be specified")
 	}
+
+	if instance.Spec.VolumeID != "" && instance.Spec.DiskURLPath != "" {
+		return errors.New("VolumeID and DiskURLPath cannot be specified together")
+	}
+
+	// DiskURLPath is only supported for block volumes i.e, ReadWriteOnce
+	if instance.Spec.DiskURLPath != "" && instance.Spec.AccessMode != v1.ReadWriteOnce {
+		return fmt.Errorf("DiskURLPath cannot be used with accessMode: %q", instance.Spec.AccessMode)
+	}
+
 	if instance.Spec.VolumeID != "" {
 		pvName, found := commonco.ContainerOrchestratorUtility.GetPVNameFromCSIVolumeID(instance.Spec.VolumeID)
-		if found {
-			if pvName != staticPvNamePrefix+instance.Spec.VolumeID {
-				msg = fmt.Sprintf("PV: %q with the volume ID: %q "+
-					"is already present. Can not create multiple PV with same volume Id.", pvName, instance.Spec.VolumeID)
-			}
+		if found && pvName != staticPvNamePrefix+instance.Spec.VolumeID {
+			return fmt.Errorf("PV: %q with the volume ID: %q "+
+				"is already present. Can not create multiple PV with same volume Id", pvName, instance.Spec.VolumeID)
 		}
 	}
-	if msg != "" {
-		return errors.New(msg)
-	}
+
 	return nil
 }
 
 // isBlockVolumeRegisterRequest verifies if block volume register is requested
 // via CnsRegisterVolume instance.
 func isBlockVolumeRegisterRequest(ctx context.Context, instance *cnsregistervolumev1alpha1.CnsRegisterVolume) bool {
-	if instance.Spec.AccessMode != "" {
-		if instance.Spec.AccessMode == v1.ReadWriteOnce {
-			return true
-		}
-	} else {
-		if instance.Spec.DiskURLPath != "" {
-			return true
-		}
-	}
-	return false
+	return instance.Spec.AccessMode == v1.ReadWriteOnce || instance.Spec.DiskURLPath != ""
 }
 
 // setInstanceError sets error and records an event on the CnsRegisterVolume
@@ -782,21 +782,21 @@ func setInstanceOwnerRef(instance *cnsregistervolumev1alpha1.CnsRegisterVolume, 
 // appropriately and logs the message.
 // backOffDuration is reset to 1 second on success and doubled on failure.
 func recordEvent(ctx context.Context, r *ReconcileCnsRegisterVolume,
-	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, eventtype string, msg string) {
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, eventType string, message string) {
 	log := logger.GetLogger(ctx)
-	log.Debugf("Event type is %s", eventtype)
-	switch eventtype {
+	log.Debugf("Event type is %s", eventType)
+	switch eventType {
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
-		r.recorder.Event(instance, v1.EventTypeWarning, "CnsRegisterVolumeFailed", msg)
+		r.recorder.Event(instance, v1.EventTypeWarning, "CnsRegisterVolumeFailed", message)
 		backOffDurationMapMutex.Unlock()
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second.
 		backOffDurationMapMutex.Lock()
 		backOffDuration[instance.Name] = time.Second
-		r.recorder.Event(instance, v1.EventTypeNormal, "CnsRegisterVolumeSucceeded", msg)
+		r.recorder.Event(instance, v1.EventTypeNormal, "CnsRegisterVolumeSucceeded", message)
 		backOffDurationMapMutex.Unlock()
 	}
 }
