@@ -1460,7 +1460,7 @@ func fetchPVs(ctx context.Context, metadataSyncer *metadataSyncInformer) (map[st
 
 	volumeMap := make(map[string]*v1.PersistentVolume)
 	for _, pv := range pvList {
-		if pv.Status.Phase != v1.VolumePending {
+		if pv.Spec.ClaimRef != nil && pv.Status.Phase != v1.VolumePending {
 			volumeMap[pv.Spec.ClaimRef.Name] = pv
 		}
 	}
