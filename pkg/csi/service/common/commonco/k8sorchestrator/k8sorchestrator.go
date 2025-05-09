@@ -1168,7 +1168,9 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 			log.Infof("Feature %q is a WCP defined feature state. Reading the capabilities CR %q.",
 				featureName, common.WCPCapabilitiesCRName)
 
-			if wcpCapabilitiesMap == nil {
+			if len(wcpCapabilitiesMap) == 0 {
+				// TODO: remove
+				log.Infof("wcpCpabilitiesMap is empty")
 				restConfig, err := clientconfig.GetConfig()
 				if err != nil {
 					log.Errorf("failed to get Kubernetes config. Err: %+v", err)
