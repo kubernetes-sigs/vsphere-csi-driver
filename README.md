@@ -75,3 +75,4 @@ Please see [CONTRIBUTING.md](CONTRIBUTING.md) for instructions on how to contrib
 ## Contact
 
 * [Slack](https://kubernetes.slack.com/messages/provider-vsphere)
+
