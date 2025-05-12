@@ -146,3 +146,21 @@ const (
 	// storagePolicyQuotaWorkers represents the number of running worker threads
 	storagePolicyQuotaWorkers = 10
 )
+
+const (
+	// pvcRetryIntervalStart represents the start retry interval of the PVC reconciler
+	pvcRetryIntervalStart = time.Second
+	// pvcRetryIntervalMax represents the max retry interval of the PVC reconciler
+	pvcRetryIntervalMax = 5 * time.Minute
+	// pvcWorkers represents the number of running worker threads
+	pvcWorkers = 5
+)
+
+const (
+	// snapRetryIntervalStart represents the start retry interval of the VolumeSnapshot reconciler
+	snapRetryIntervalStart = time.Second
+	// snapRetryIntervalMax represents the max retry interval of the VolumeSnapshot reconciler
+	snapRetryIntervalMax = 5 * time.Minute
+	// snapWorkers represents the number of running worker threads
+	snapWorkers = 5
+)

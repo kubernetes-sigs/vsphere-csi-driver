@@ -30,6 +30,8 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-co-op/gocron"
+	versioned "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
+	snapv1informer "github.com/kubernetes-csi/external-snapshotter/client/v8/informers/externalversions/volumesnapshot/v1"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -233,6 +235,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	k8sClient, err := k8s.NewClient(ctx)
 	if err != nil {
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
+		return err
+	}
+
+	snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
+	if err != nil {
+		log.Errorf("Creating Kubernetes snapshotter client failed. Err: %v", err)
 		return err
 	}
 
@@ -945,6 +953,36 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					ctx, log = logger.GetNewContextWithLogger()
 					if err := initStoragePolicyQuotaReconciler(ctx, metadataSyncer); err != nil {
 						log.Warnf("Error while initializing StoragePolicyQuota reconciler. Err:%+v. "+
+							"Retry will be triggered at %v",
+							err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
+						continue
+					}
+					break
+				}
+			}()
+		}
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
+			// Trigger PVC and Snapshot reconciler to cleanup CNS finalizer(set from guest cluster)
+			// in case of namespace deletion.
+			pvcSnapTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
+			defer pvcSnapTicker.Stop()
+			go func() {
+				for ; true; <-pvcSnapTicker.C {
+					ctx, log = logger.GetNewContextWithLogger()
+					if err := initPersistentVolumeClaimReconciler(ctx, k8sClient, metadataSyncer); err != nil {
+						log.Warnf("Error while initializing PVC reconciler. Err:%+v. "+
+							"Retry will be triggered at %v",
+							err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
+						continue
+					}
+					break
+				}
+			}()
+			go func() {
+				for ; true; <-pvcSnapTicker.C {
+					ctx, log = logger.GetNewContextWithLogger()
+					if err := initVolumeSnapshotReconciler(ctx, snapshotterClient, metadataSyncer); err != nil {
+						log.Warnf("Error while initializing VolumeSnapshot reconciler. Err:%+v. "+
 							"Retry will be triggered at %v",
 							err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
 						continue
@@ -3586,6 +3624,47 @@ func initStoragePolicyQuotaReconciler(ctx context.Context, metadataSyncInformer 
 		return err
 	}
 	rc.Run(ctx, storagePolicyQuotaWorkers)
+	return nil
+}
+
+func initPersistentVolumeClaimReconciler(ctx context.Context, k8sClient clientset.Interface,
+	metadataSyncInformer *metadataSyncInformer) error {
+	log := logger.GetLogger(ctx)
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	log.Infof("initPersistentVolumeClaimReconciler is triggered")
+	// TODO: Refactor the code to use existing NewInformer function to get informerFactory
+	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/585
+	informerFactory := informers.NewSharedInformerFactory(k8sClient, pvcRetryIntervalMax)
+	rc, err := newPersistentVolumeClaimReconciler(ctx, metadataSyncInformer,
+		informerFactory, workqueue.NewTypedItemExponentialFailureRateLimiter[any](pvcRetryIntervalStart,
+			pvcRetryIntervalMax), stopCh)
+	if err != nil {
+		log.Errorf("initPersistentVolumeClaimReconciler: err received %v", err)
+		return err
+	}
+	rc.Run(ctx, pvcWorkers)
+	return nil
+}
+
+func initVolumeSnapshotReconciler(ctx context.Context, snapshotterClient versioned.Interface,
+	metadataSyncInformer *metadataSyncInformer) error {
+	log := logger.GetLogger(ctx)
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	log.Infof("initVolumeSnapshotReconciler is triggered")
+	// TODO: Refactor the code to use existing NewInformer function to get informerFactory
+	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/585
+	informerFactory := snapv1informer.NewVolumeSnapshotInformer(snapshotterClient, metav1.NamespaceAll,
+		pvcRetryIntervalMax, cache.Indexers{})
+	rc, err := newVolumeSnapshotReconciler(ctx, metadataSyncInformer,
+		informerFactory, workqueue.NewTypedItemExponentialFailureRateLimiter[any](snapRetryIntervalStart,
+			snapRetryIntervalMax), stopCh)
+	if err != nil {
+		log.Errorf("initVolumeSnapshotReconciler: err received %v", err)
+		return err
+	}
+	rc.Run(ctx, snapWorkers)
 	return nil
 }
 
