@@ -238,7 +238,6 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return err
 	}
-
 	// Initialize the k8s orchestrator interface.
 	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx,
 		common.Kubernetes, clusterFlavor, COInitParams)
