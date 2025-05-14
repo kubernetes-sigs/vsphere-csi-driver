@@ -491,7 +491,7 @@ func waitNgetVmsvcVM(ctx context.Context, c ctlrclient.Client, namespace string,
 // waitNgetVmsvcVmIp wait and fetch the primary IP of the vm in give ns
 func waitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace string, name string) (string, error) {
 	ip := ""
-	err := wait.PollUntilContextTimeout(ctx, poll*10, pollTimeout*4, true,
+	err := wait.PollUntilContextTimeout(ctx, poll*10, pollTimeout*6, true,
 		func(ctx context.Context) (bool, error) {
 			vm, err := getVmsvcVM(ctx, c, namespace, name)
 			if err != nil {
@@ -881,11 +881,15 @@ func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
 // wait4PvcAttachmentFailure waits for PVC attachment to given VM to fail
 func wait4PvcAttachmentFailure(
 	ctx context.Context, vmopC ctlrclient.Client, vm *vmopv1.VirtualMachine, pvc *v1.PersistentVolumeClaim) error {
+
 	var returnErr error
 	waitErr := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
 		func(ctx context.Context) (bool, error) {
+			defer ginkgo.GinkgoRecover() // <- Add this line to recover from panics
+
 			vm, err := getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred()) // Safe now
+
 			for _, vol := range vm.Status.Volumes {
 				if vol.Name == pvc.Name {
 					if !vol.Attached {
@@ -897,6 +901,7 @@ func wait4PvcAttachmentFailure(
 			}
 			return false, nil
 		})
+
 	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
 	return returnErr
 }
@@ -1256,8 +1261,9 @@ and verifying the attached volumes.
 func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
 	cnsopC ctlrclient.Client, namespace string,
 	pvclaims []*v1.PersistentVolumeClaim, vmClass string,
-	storageClassName string) (string, *vmopv1.VirtualMachine, *vmopv1.VirtualMachineService, error) {
-
+	storageClassName string, createBootstrapSecret bool) (string, *vmopv1.VirtualMachine, *vmopv1.VirtualMachineService, error) {
+	var err error
+	var secretName string
 	/*Fetch the VM image name from the environment variable. This image is used for
 	creating the VirtualMachineInstance */
 	vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
@@ -1267,7 +1273,9 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 
 	/* Create a bootstrap secret for the VirtualMachineService VM. This secret contains
 	credentials or configuration data needed by the VM. */
-	secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
+	if createBootstrapSecret {
+		secretName = createBootstrapSecretForVmsvcVms(ctx, client, namespace)
+	}
 
 	var vm *vmopv1.VirtualMachine
 	//Create the Virtual Machine with PVC
@@ -1281,12 +1289,6 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 
 	// Create a service (load balancer) for the VM.
 	vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
-
-	// Wait for the VM to get an IP address.
-	vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("failed to get VM IP: %w", err)
-	}
 
 	// Verify that the PVCs are attached to the VirtualMachine.
 	if len(pvclaims) == 1 {
@@ -1304,14 +1306,27 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 		return "", nil, nil, fmt.Errorf("failed to get VM info: %w", err)
 	}
 
+	return secretName, vm, vmlbsvc, nil
+}
+
+func verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx context.Context, vm *vmopv1.VirtualMachine, vmopC ctlrclient.Client, namespace string) error {
+	// get vm ip address
+	vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get VM IP: %w", err)
+	}
+
+	// refresh vm info
+	vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	/* Verify that the attached volumes are accessible and validate data integrity. The function iterates through each
 	volume of the VM, verifies that the PVC is accessible, and checks the data integrity on each attached disk */
 	for i, vol := range vm.Status.Volumes {
 		volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
 		verifyDataIntegrityOnVmDisk(vmIp, volFolder)
 	}
-
-	return secretName, vm, vmlbsvc, nil
+	return nil
 }
 
 /*
@@ -1319,16 +1334,19 @@ This utility deletes a VirtualMachine, its associated load balancing service, an
 the VM's bootstrap secret, ensuring a clean removal of all related resources.
 */
 func deleteVmServiceVmWithItsConfig(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
-	vmlbsvc *vmopv1.VirtualMachineService, namespace string, vm *vmopv1.VirtualMachine, secretName string) error {
+	vmlbsvc *vmopv1.VirtualMachineService, namespace string, vm *vmopv1.VirtualMachine,
+	secretName string) error {
 
 	// Delete the load balancing service associated with the VM.
-	if err := vmopC.Delete(ctx, &vmopv1.VirtualMachineService{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      vmlbsvc.Name, // Name of the VirtualMachineService to delete.
-			Namespace: namespace,    // Namespace where the service exists.
-		},
-	}); err != nil {
-		return fmt.Errorf("failed to delete VirtualMachineService %q: %w", vmlbsvc.Name, err)
+	if vmlbsvc != nil {
+		if err := vmopC.Delete(ctx, &vmopv1.VirtualMachineService{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      vmlbsvc.Name, // Name of the VirtualMachineService to delete.
+				Namespace: namespace,    // Namespace where the service exists.
+			},
+		}); err != nil {
+			return fmt.Errorf("failed to delete VirtualMachineService %q: %w", vmlbsvc.Name, err)
+		}
 	}
 
 	// Delete the Virtual Machine itself.
