@@ -296,7 +296,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC " + pvcUID)
+		framework.Logf("PVC UUID in GC %q", pvcUID)
 
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
@@ -504,19 +504,19 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		}()
 
 		gcClusterID := strings.Replace(pvcNameInSV, pvcUID, "", -1)
-		framework.Logf("gcClusterId " + gcClusterID)
+		framework.Logf("gcClusterId %q", gcClusterID)
 
 		pv1UID := string(persistentvolumes[0].UID)
-		framework.Logf("PV1 uuid " + pv1UID)
+		framework.Logf("PV1 uuid %q", pv1UID)
 
 		pv2UID := string(pv2.UID)
-		framework.Logf("PV2 uuid " + pv2UID)
+		framework.Logf("PV2 uuid %q", pv2UID)
 
 		podUID := string(pod.UID)
-		framework.Logf("Pod uuid : " + podUID)
+		framework.Logf("Pod uuid : %q", podUID)
 
 		pod2UID := string(pod2.UID)
-		framework.Logf("Pod uuid : " + pod2UID)
+		framework.Logf("Pod uuid : %q", pod2UID)
 
 		//Add a check to validate CnsVolumeMetadata crd
 		verifyCRDInSupervisorWithWait(ctx, f, pvcNameInSV, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
@@ -633,7 +633,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC " + pvcUID)
+		framework.Logf("PVC UUID in GC %q", pvcUID)
 
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))

@@ -338,7 +338,7 @@ func getControllerRuntimeDetails(client clientset.Interface, nameSpace string) (
 	var podNameList []string
 	for _, pod := range pods.Items {
 		if strings.HasPrefix(pod.Name, vSphereCSIControllerPodNamePrefix) {
-			framework.Logf(fmt.Sprintf("Found vSphereCSIController pod %s PodStatus %s", pod.Name, pod.Status.Phase))
+			framework.Logf("Found vSphereCSIController pod %s PodStatus %s", pod.Name, pod.Status.Phase)
 			nodeNameList = append(nodeNameList, pod.Spec.NodeName)
 			podNameList = append(podNameList, pod.Name)
 		}

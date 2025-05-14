@@ -116,7 +116,7 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 		fault := result.GetCnsVolumeOperationResult().Fault
 		if fault != nil {
 			log.Errorf("Fault: %+v encountered while relocating volume %v", fault, volumeID)
-			return fmt.Errorf(fault.LocalizedMessage)
+			return fmt.Errorf("fault: %+v", fault.LocalizedMessage)
 		}
 	}
 	return nil

@@ -905,7 +905,7 @@ func psodHost(hostIP string, psodTimeOut string) error {
 	}
 	sshCmd := fmt.Sprintf("vsish -e set /config/Misc/intOpts/BlueScreenTimeout %s", timeout)
 	op, err := runCommandOnESX(rootUser, hostIP, sshCmd)
-	framework.Logf(op)
+	framework.Logf("%q", op)
 	if err != nil {
 		return fmt.Errorf("failed to set BlueScreenTimeout: %w", err)
 	}
@@ -913,7 +913,7 @@ func psodHost(hostIP string, psodTimeOut string) error {
 	ginkgo.By("Injecting PSOD")
 	psodCmd := "vsish -e set /reliability/crashMe/Panic 1; exit"
 	op, err = runCommandOnESX(rootUser, hostIP, psodCmd)
-	framework.Logf(op)
+	framework.Logf("%q", op)
 	if err != nil {
 		return fmt.Errorf("failed to inject PSOD: %w", err)
 	}
@@ -977,7 +977,7 @@ func updateVsphereConfSecretForFileVolumes(client clientset.Interface, ctx conte
 
 	result += fmt.Sprintf("[Labels]\ntopology-categories = \"%s\"\n", cfg.Labels.TopologyCategories)
 
-	framework.Logf(result)
+	framework.Logf("%q", result)
 
 	// update config secret with newly updated vshere conf file
 	framework.Logf("Updating the secret to reflect new conf credentials")

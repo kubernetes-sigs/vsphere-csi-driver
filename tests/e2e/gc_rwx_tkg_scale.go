@@ -157,7 +157,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		// Waiting for pods status to be Ready.
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaledown := fss.GetPodList(ctx, client, statefulset)
+		ssPodsBeforeScaledown, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(ssPodsBeforeScaledown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaledown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -252,7 +253,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
-		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -400,7 +402,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		// Waiting for pods status to be Ready.
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaledown := fss.GetPodList(ctx, client, statefulset)
+		ssPodsBeforeScaledown, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(ssPodsBeforeScaledown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaledown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -496,7 +499,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),

@@ -49,7 +49,6 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	fvolume "k8s.io/kubernetes/test/e2e/framework/volume"
 
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 
@@ -3062,7 +3061,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 		for _, pvc := range pvclaims {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			newpv := getPvFromClaim(client, namespace, pvc.Name)
-			framework.Logf("Processing PVC: %s" + pvc.Name)
+			framework.Logf("Processing PVC: %s", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc, newpv, nil)
@@ -4185,7 +4184,8 @@ func waitForFSResize(pvc *v1.PersistentVolumeClaim, c clientset.Interface) (*v1.
 func getFSSizeMb(f *framework.Framework, pod *v1.Pod) (int64, error) {
 	var output string
 	var err error
-
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	if supervisorCluster {
 		namespace := getNamespaceToRunTests(f)
 		var cmd []string
@@ -4197,7 +4197,7 @@ func getFSSizeMb(f *framework.Framework, pod *v1.Pod) (int64, error) {
 		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
 		gomega.Expect(strings.Contains(output, ext4FSType)).NotTo(gomega.BeFalse())
 	} else {
-		output, _, err = fvolume.PodExec(f, pod, "df -T -m | grep /mnt/volume1")
+		output, _, err = fpod.ExecShellInPodWithFullOutput(ctx, f, pod.Name, "df -T -m | grep /mnt/volume1")
 		if err != nil {
 			return -1, fmt.Errorf("unable to find mount path via `df -T`: %v", err)
 		}

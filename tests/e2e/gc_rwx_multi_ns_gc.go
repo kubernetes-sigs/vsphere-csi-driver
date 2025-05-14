@@ -145,7 +145,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", func(
 		}()
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC " + pvcUID)
+		framework.Logf("PVC UUID in GC %q", pvcUID)
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
@@ -301,19 +301,19 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", func(
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		}()
 
-		framework.Logf("PVC name in SV " + pvcNameInSV)
+		framework.Logf("PVC name in SV %q", pvcNameInSV)
 
 		gcClusterID := strings.Replace(pvcNameInSV, pvcUID, "", -1)
-		framework.Logf("gcClusterId " + gcClusterID)
+		framework.Logf("gcClusterId %q", gcClusterID)
 
 		pvUID := string(pv.UID)
-		framework.Logf("PV uuid " + pvUID)
+		framework.Logf("PV uuid %q", pvUID)
 
 		pv2UID := string(pv2.UID)
-		framework.Logf("PV2 uuid " + pv2UID)
+		framework.Logf("PV2 uuid %q", pv2UID)
 
 		pod2UID := string(pod2.UID)
-		framework.Logf("Pod uuid : " + pod2UID)
+		framework.Logf("Pod uuid : %q", pod2UID)
 
 		//Add a check to validate CnsVolumeMetadata crd
 		verifyCRDInSupervisorWithWait(ctx, f, pvcNameInSV, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)

@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		}()
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC " + pvcUID)
+		framework.Logf("PVC UUID in GC %q", pvcUID)
 
 		// Verify using CNS Query API if VolumeID retrieved from PV is present.
 		framework.Logf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", fcdIDInCNS)
@@ -243,10 +243,10 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		}()
 
 		gcClusterID := strings.Replace(pvcNameInSV, pvcUID, "", -1)
-		framework.Logf("gcClusterId " + gcClusterID)
+		framework.Logf("gcClusterId %q", gcClusterID)
 
 		pvUID := string(persistentvolumes[0].UID)
-		framework.Logf("PV uuid " + pvUID)
+		framework.Logf("PV uuid %q", pvUID)
 
 		for _, multipod := range pods {
 			ginkgo.By(fmt.Sprintf("Wait for pod %s to be up and running", multipod.Name))
@@ -257,7 +257,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			podUID := string(tempPod.UID)
-			framework.Logf("Pod uuid : " + podUID)
+			framework.Logf("Pod uuid : %q", podUID)
 
 			//Add a check to validate CnsVolumeMetadata crd
 			verifyCRDInSupervisorWithWait(ctx, f, pvcNameInSV, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)

@@ -329,7 +329,7 @@ func IsVolumeSnapshotReady(ctx context.Context, client snapshotterClientSet.Inte
 					"from supervisor cluster with err: %+v",
 					namespace, supervisorVolumeSnapshotName, err)
 				log.Warnf(msg)
-				return false, logger.LogNewErrorf(log, msg)
+				return false, logger.LogNewError(log, msg)
 			}
 			if svs == nil || svs.Status == nil || svs.Status.ReadyToUse == nil {
 				log.Infof("Waiting up to %d seconds for VolumeSnapshot %v in namespace %s to be ReadyToUse, %+vs "+
@@ -385,7 +385,7 @@ func WaitForPVCDeleted(ctx context.Context, client clientset.Interface, pvcName 
 				msg := fmt.Sprintf("unable to fetch PersistentVolumeClaim %s/%s with err: %+v",
 					namespace, pvcName, err)
 				log.Warnf(msg)
-				return false, logger.LogNewErrorf(log, msg)
+				return false, logger.LogNewError(log, msg)
 			}
 			log.Infof("Waiting up to %d seconds for PersistentVolumeClaim %s/%s to be deleted, %+vs "+
 				"since the start time", timeoutSeconds, namespace, pvcName,
@@ -429,7 +429,7 @@ func WaitForVolumeSnapshotDeleted(ctx context.Context, client snapshotterClientS
 				msg := fmt.Sprintf("unable to fetch VolumeSnapshot %s/%s with err: %+v",
 					namespace, snapshotName, err)
 				log.Warnf(msg)
-				return false, logger.LogNewErrorf(log, msg)
+				return false, logger.LogNewError(log, msg)
 			}
 			log.Infof("Waiting up to %d seconds for VolumeSnapshot %s/%s to be deleted, %+vs "+
 				"since the start time", timeoutSeconds, namespace, snapshotName,

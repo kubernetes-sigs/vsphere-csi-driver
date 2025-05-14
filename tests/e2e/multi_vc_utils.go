@@ -128,7 +128,8 @@ func createCustomisedStatefulSets(ctx context.Context, client clientset.Interfac
 	framework.Logf("Wait for StatefulSet pods to be in up and running state")
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 	gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
+	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -842,7 +843,7 @@ func writeNewDataAndUpdateVsphereConfSecret(client clientset.Interface, ctx cont
 		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
 	result += fmt.Sprintf("[Labels]\ntopology-categories = \"%s\"\n", cfg.Labels.TopologyCategories)
 
-	framework.Logf(result)
+	framework.Logf("%q", result)
 
 	// update config secret with newly updated vshere conf file
 	framework.Logf("Updating the secret to reflect new conf credentials")
@@ -1234,7 +1235,7 @@ func (vs *multiVCvSphere) deleteFCDInMultiVc(ctx context.Context, fcdID string,
 	task := object.NewTask(vs.multiVcClient[clientIndex].Client, res.Returnval)
 	_, err = task.WaitForResultEx(ctx, nil)
 	if err != nil {
-		framework.Logf(err.Error())
+		framework.Logf("%q", err.Error())
 	}
 	return nil
 }

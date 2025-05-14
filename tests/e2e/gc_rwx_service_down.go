@@ -286,7 +286,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC " + pvcUID)
+		framework.Logf("PVC UUID in GC %q", pvcUID)
 
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -518,7 +518,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC " + pvcUID)
+		framework.Logf("PVC UUID in GC %q", pvcUID)
 
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))

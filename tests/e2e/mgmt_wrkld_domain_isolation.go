@@ -148,7 +148,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		eventList, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, item := range eventList.Items {
-			framework.Logf(item.Message)
+			framework.Logf("%q", item.Message)
 		}
 	})
 

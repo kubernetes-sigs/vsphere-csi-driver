@@ -16,7 +16,7 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.22
+ARG GOLANG_IMAGE=golang:1.24
 ARG OSVERSION
 ARG ARCH=amd64
 

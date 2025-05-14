@@ -1401,7 +1401,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 					fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 			}
 
-			pods := fss.GetPodList(ctx, client, statefulset)
+			pods, err := fss.GetPodList(ctx, client, statefulset)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, pod := range pods.Items {
 				if pod.Status.Phase != v1.PodPending {
 					framework.Failf("Expected pod to be in: %s state but is in: %s state", v1.PodPending,
@@ -1927,7 +1928,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			if !windowsEnv {
 				gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 			}
-			ssPods = fss.GetPodList(ctx, client, statefulset)
+			ssPods, err = fss.GetPodList(ctx, client, statefulset)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -1970,8 +1972,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		statefulSetReplicaCount = 5
 		for i := 0; i < len(stsList); i++ {
-			framework.Logf(fmt.Sprintf("Scaling down statefulset: %v to number of Replica: %v",
-				stsList[i].Name, statefulSetReplicaCount))
+			framework.Logf("Scaling down statefulset: %v to number of Replica: %v",
+				stsList[i].Name, statefulSetReplicaCount)
 
 			_, scaleDownErr := fss.Scale(ctx, client, stsList[i], statefulSetReplicaCount)
 			gomega.Expect(scaleDownErr).NotTo(gomega.HaveOccurred())
@@ -1985,7 +1987,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		for _, statefulset := range stsList {
 			fss.WaitForStatusReplicas(ctx, client, statefulset, statefulSetReplicaCount)
 			fss.WaitForStatusReadyReplicas(ctx, client, statefulset, statefulSetReplicaCount)
-			ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
+			ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -3102,14 +3105,15 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			allowedTopologyHAMap, categories, zonalPolicy, nodeList, f)
 
 		replicas = 5
-		framework.Logf(fmt.Sprintf("Scaling up statefulset: %v to number of Replica: %v",
-			statefulset.Name, replicas))
+		framework.Logf("Scaling up statefulset: %v to number of Replica: %v",
+			statefulset.Name, replicas)
 		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -3275,14 +3279,15 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}
 
 		replicas = 5
-		framework.Logf(fmt.Sprintf("Increase statefulset %v to number of Replica: %v",
-			stsList[0].Name, replicas))
+		framework.Logf("Increase statefulset %v to number of Replica: %v",
+			stsList[0].Name, replicas)
 		time.Sleep(60 * time.Second)
 		_, scaleupErr := fss.Scale(ctx, client, stsList[0], replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(ctx, client, stsList[0], replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, stsList[0], replicas)
-		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, stsList[0])
+		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, stsList[0])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", stsList[0].Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -3415,15 +3420,15 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		staticPVLabels := make(map[string]string)
 		staticPVLabels["fcd-id"] = volumeID
 
-		framework.Logf("PVC name in SV " + svcPVCName)
+		framework.Logf("PVC name in SV %q", svcPVCName)
 		pvcUID := string(svPvclaim.GetUID())
-		framework.Logf("PVC UUID in GC " + pvcUID)
+		framework.Logf("PVC UUID in GC %q", pvcUID)
 		gcClusterID := strings.Replace(svcPVCName, pvcUID, "", -1)
 
-		framework.Logf("gcClusterId " + gcClusterID)
+		framework.Logf("gcClusterId %q", gcClusterID)
 		pv := getPvFromClaim(svClient, svPvclaim.Namespace, svPvclaim.Name)
 		pvUID := string(pv.UID)
-		framework.Logf("PV uuid " + pvUID)
+		framework.Logf("PV uuid %q", pvUID)
 
 		defer func() {
 			if isSVCPvcCreated {
@@ -3560,11 +3565,11 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		volumeIDNewGC = getVolumeIDFromSupervisorCluster(svcNewPVCName)
 		gomega.Expect(volumeIDNewGC).NotTo(gomega.BeEmpty())
 
-		framework.Logf("PVC name in SV " + svcNewPVCName)
+		framework.Logf("PVC name in SV %q", svcNewPVCName)
 		pvcNewUID := string(pvcNew.GetUID())
-		framework.Logf("pvcNewUID in GC " + pvcNewUID)
+		framework.Logf("pvcNewUID in GC %q", pvcNewUID)
 		gcNewClusterID := strings.Replace(svcNewPVCName, pvcNewUID, "", -1)
-		framework.Logf("pvNew uuid " + gcNewClusterID)
+		framework.Logf("pvNew uuid %q", gcNewClusterID)
 
 		ginkgo.By("Creating PV in new guest cluster with volume handle from SVC")
 		pvNew := getPersistentVolumeSpec(svPvclaim.Name, v1.PersistentVolumeReclaimDelete, nil, ext4FSType)
@@ -3576,7 +3581,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvNewUID := string(pvNew.UID)
-		framework.Logf("pvNew uuid " + pvNewUID)
+		framework.Logf("pvNew uuid %q", pvNewUID)
 
 		defer func() {
 			ginkgo.By("Delete PVC in GC2")
