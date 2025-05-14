@@ -889,7 +889,7 @@ func wait4PvcAttachmentFailure(
 			for _, vol := range vm.Status.Volumes {
 				if vol.Name == pvc.Name {
 					if !vol.Attached {
-						returnErr = fmt.Errorf(vol.Error)
+						returnErr = fmt.Errorf("%+v", vol.Error)
 						return true, nil
 					}
 					break

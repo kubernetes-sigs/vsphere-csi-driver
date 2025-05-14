@@ -128,7 +128,7 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 		eventList, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, item := range eventList.Items {
-			framework.Logf(item.Message)
+			framework.Logf("%q", item.Message)
 		}
 	})
 
@@ -204,7 +204,8 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 
 		// Now, take a volume snaphot of any 2 statefulset volumes.
 		framework.Logf("Fetching pod 1, pvc1 and pv1 details")
-		ssPods := fss.GetPodList(ctx, client, statefulset)
+		ssPods, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPods.Items) == int(replicas)).To(gomega.BeTrue(),

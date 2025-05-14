@@ -497,8 +497,8 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("error verifying PV node affinity and POD node details: %v", err))
 
-		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
-
+		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Fetching pod 1, pvc1 and pv1 details")
 		pod1, err := client.CoreV1().Pods(namespace).Get(ctx,
 			ssPodsBeforeScaleDown.Items[0].Name, metav1.GetOptions{})

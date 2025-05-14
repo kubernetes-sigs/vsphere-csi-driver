@@ -750,7 +750,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
+		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -779,7 +780,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown = fss.GetPodList(ctx, client, statefulset)
+		ssPodsBeforeScaleDown, err = fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -789,7 +791,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		_, scaledownErr := fss.Scale(ctx, client, statefulset, 1)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 1)
-		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == 1).To(gomega.BeTrue(),
@@ -802,7 +805,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		_, scaledUpErr := fss.Scale(ctx, client, statefulset, 4)
 		gomega.Expect(scaledUpErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 4)
-		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == 4).To(gomega.BeTrue(),
@@ -823,7 +827,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		_, scaledownErr2 := fss.Scale(ctx, client, statefulset, 0)
 		gomega.Expect(scaledownErr2).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 0)
-		ssPodsAfterScaleDown2 := fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleDown2, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(len(ssPodsAfterScaleDown2.Items) == 0).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 		fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -1511,7 +1516,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 			ginkgo.By("Creating statefulset and waiting for the replicas to be ready")
 			CreateStatefulSet(ns.Name, statefulset, client)
 			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-			ssPods := fss.GetPodList(ctx, client, statefulset)
+			ssPods, err := fss.GetPodList(ctx, client, statefulset)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPods.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -1554,7 +1560,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 			ginkgo.By("Creating statefulset and waiting for the replicas to be ready")
 			CreateStatefulSet(ns.Name, statefulset, client)
 			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-			ssPods := fss.GetPodList(ctx, client, statefulset)
+			ssPods, err := fss.GetPodList(ctx, client, statefulset)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPods.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -1585,7 +1592,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 				_, scaledownErr2 := fss.Scale(ctx, client, statefulset, 0)
 				gomega.Expect(scaledownErr2).NotTo(gomega.HaveOccurred())
 				fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 0)
-				ssPodsAfterScaleDown2 := fss.GetPodList(ctx, client, statefulset)
+				ssPodsAfterScaleDown2, err := fss.GetPodList(ctx, client, statefulset)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(len(ssPodsAfterScaleDown2.Items) == 0).To(gomega.BeTrue(),
 					"Number of Pods in the statefulset should match with number of replicas")
 				err = client.AppsV1().StatefulSets(ns.Name).Delete(ctx,
