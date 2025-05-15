@@ -140,8 +140,6 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 		return err
 	}
 
-	// TODO: Check if we can directly look for WorkloadDomainIsolation FSS value from guest cluster by
-	// looking at capability CR in supervisor namespace. We need to replace all instances in wcpguest.
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
 		err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, c.restClientConfig, c.supervisorNamespace)
 		if err != nil {
