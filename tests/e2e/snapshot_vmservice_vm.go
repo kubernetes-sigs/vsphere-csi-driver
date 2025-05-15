@@ -130,7 +130,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 
 		framework.Logf("Verifying storage policies usage for each storage class")
 		restConfig = getRestConfigClient()
-		err = ListStoragePolicyUsages(ctx, client, restConfig, namespace, []string{storageClassName})
+		ListStoragePolicyUsages(ctx, client, restConfig, namespace, []string{storageClassName})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// creating vm schema
@@ -1713,14 +1713,15 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vm1, err = wait4Vm2ReachPowerStateInSpec(ctx, vmopC, vm1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("edit vm2 spec and try to attach pvc to vm2, which should fail")
 		vm2.Spec.Volumes = append(vm2.Spec.Volumes, vmopv1.VirtualMachineVolume{Name: pvc.Name,
 			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
 				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
 			}})
 		err = vmopC.Update(ctx, vm2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		time.Sleep(1 * time.Minute)
+		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = wait4PvcAttachmentFailure(ctx, vmopC, vm2, pvc)
 		gomega.Expect(err).To(gomega.HaveOccurred())
@@ -1731,7 +1732,6 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vm2.Spec.Volumes = nil
 		err = vmopC.Update(ctx, vm2)
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create a volume from a snapshot")
