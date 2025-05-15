@@ -47,7 +47,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/go-logr/zapr"
 	clientconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -712,7 +711,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		log.Infof("%q feature flag is enabled. Using TriggerCsiFullSync API to trigger full sync",
 			common.TriggerCsiFullSync)
 		// Get a config to talk to the apiserver.
-		restConfig, err := config.GetConfig()
+		restConfig, err := clientconfig.GetConfig()
 		if err != nil {
 			log.Errorf("failed to get Kubernetes config. Err: %+v", err)
 			return err
@@ -953,7 +952,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 // addFinalizerOnCnsFileVolumeClientCRs checks and adds finalizer on CnsFileVolumeClient CRs if it is missing.
 func addFinalizerOnCnsFileVolumeClientCRs(ctx context.Context) error {
 	log := logger.GetLogger(ctx).WithOptions()
-	cfg, err := config.GetConfig()
+	cfg, err := clientconfig.GetConfig()
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get config. Err: %+v", err)
 		log.Error(msg)
@@ -1029,7 +1028,7 @@ func initStorageQuotaPeriodicSync(ctx context.Context, metadataSyncer *metadataS
 	// create storagequotaperiodicsync CR
 
 	log.Info("initStorageQuotaPeriodicSync: Initialize the storage quota periodic sync")
-	restConfig, err := config.GetConfig()
+	restConfig, err := clientconfig.GetConfig()
 	if err != nil {
 		log.Errorf("initStorageQuotaPeriodicSync: failed to get Kubernetes config. Err: %+v", err)
 		return err
@@ -1587,7 +1586,7 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 			storagePolicyUsageInstanceName = cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.
 				StorageClassName + "-" + storagepolicyv1alpha2.NameSuffixForPVC
 		}
-		restConfig, err := config.GetConfig()
+		restConfig, err := clientconfig.GetConfig()
 		if err != nil {
 			log.Errorf("cnsvolumeoperationrequestCRAdded: failed to get Kubernetes config. Err: %+v", err)
 			return
@@ -1670,7 +1669,7 @@ func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
 	if cnsvolumeoperationrequestObj.Status.StorageQuotaDetails != nil &&
 		cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved != nil {
 		// Update StoragePolicyUsage reserved field
-		restConfig, err := config.GetConfig()
+		restConfig, err := clientconfig.GetConfig()
 		if err != nil {
 			log.Errorf("failed to get Kubernetes config. Err: %+v", err)
 			return
@@ -1763,7 +1762,7 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 		(oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value() !=
 			newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value()) {
 		// Update StoragePolicyUsage reserved field
-		restConfig, err := config.GetConfig()
+		restConfig, err := clientconfig.GetConfig()
 		if err != nil {
 			log.Errorf("failed to get Kubernetes config. Err: %+v", err)
 			return
@@ -3132,7 +3131,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			log.Errorf("failed to fetch CnsVolumeInfo CR. Error: %+v", err)
 			return
 		}
-		restConfig, err := config.GetConfig()
+		restConfig, err := clientconfig.GetConfig()
 		if err != nil {
 			log.Errorf("failed to fetch kubernetes config. Error: %+v", err)
 			return
@@ -3763,7 +3762,7 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 	}
 
 	// Prepare Config and NewClientForGroup for cnsOperatorClient
-	restConfig, err := config.GetConfig()
+	restConfig, err := clientconfig.GetConfig()
 	if err != nil {
 		log.Errorf("createStoragePolicyUsageCRS: Failed to get Kubernetes k8sconfig. Err: %+v", err)
 		return
@@ -3867,7 +3866,7 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 	log := logger.GetLogger(ctx)
 	log.Infof("storagePolicyUsageCRSync: Starting storage policy usage CR sync")
 	// Prepare Config and NewClientForGroup for cnsOperatorClient
-	restConfig, err := config.GetConfig()
+	restConfig, err := clientconfig.GetConfig()
 	if err != nil {
 		log.Errorf("storagePolicyUsageCRSync: Failed to get Kubernetes k8sconfig. Err: %+v", err)
 		return
@@ -4064,7 +4063,7 @@ func cnsVolumeInfoCRUpdated(oldObj interface{}, newObj interface{}, metadataSync
 		oldCnsVolumeInfoObj, newCnsVolumeInfoObj)
 
 	// Fetch StoragePolicyUsage instance for StorageClass associated with the snapshot.
-	restConfig, err := config.GetConfig()
+	restConfig, err := clientconfig.GetConfig()
 	if err != nil {
 		log.Errorf("cnsVolumeInfoCRUpdated: failed to get Kubernetes config. Err: %+v", err)
 		return

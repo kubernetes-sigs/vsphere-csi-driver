@@ -32,13 +32,18 @@ const (
 
 // Notes on Supervisor Level Capability:
 // 1. Supervisor-level capability is associated with functionality that would only make changes to IaaS controllers.
-// 2. The capability is associated with functionality that would require changes to infrastructure (VC) as well as to IaaS controllers.
+// 2. The capability is associated with functionality that would require changes to infrastructure (VC) as well as to
+//	IaaS controllers.
 // 3. All functionalities must expose supervisor-level capability if they fall into one of the above cases.
 // 4. Supervisor capability can exist independently or depend on Kubernetes versions and/or VC capabilities.
-// 5. Capability specification defines supervisor-level capabilities and their dependencies (if any) with Kubernetes version and VC capabilities.
-// Each capability will transition through the states enable=false --> enable=true --> (enable=true, activated=false) --> (enable=true, activated=true) --> Deprecate.
-// The enable status is statically set in-house at the time of feature completion, and the activated state is evaluated at runtime during supervisor install and upgrade.
-// Capability enablement rules can be specified though ActivatedWhenRule. The rule is evaluated when specified and the effective capability status is set in the status field.
+// 5. Capability specification defines supervisor-level capabilities and their dependencies (if any) with Kubernetes
+//	version and VC capabilities.
+// Each capability will transition through the states enable=false --> enable=true --> (enable=true, activated=false)
+//	--> (enable=true, activated=true) --> Deprecate.
+// The enable status is statically set in-house at the time of feature completion, and the activated state is evaluated
+// at runtime during supervisor install and upgrade.
+// Capability enablement rules can be specified though ActivatedWhenRule. The rule is evaluated when specified and the
+// effective capability status is set in the status field.
 
 // Capability represents a feature and its specification (enablement status, activation rules, user facing).
 type Capability struct {
@@ -52,7 +57,8 @@ type Capability struct {
 	// Description of the capability
 	Description string `json:"description,omitempty"`
 
-	// Enabled represents if the capability is enabled or not. This is a build time status, and it need not necessarily mean its activated.
+	// Enabled represents if the capability is enabled or not. This is a build time status,
+	// and it need not necessarily mean its activated.
 	// +kubebuilder:default:=false
 	Enabled bool `json:"enabled"`
 
@@ -77,25 +83,32 @@ type Capability struct {
 	//				"name": "Resume_Failed_Supervisor_Upgrade_Supported",
 	//				"type": "Supervisor",
 	//				"enabled": true
-	//				"activatedWhenRule": `kubernetesVersion >= "1.25" && self.infra.exists(e, e.name = 'supports_supervisor_upgrade_improvements' && e.enabled)`
+	//				"activatedWhenRule": `kubernetesVersion >= "1.25" && self.infra.exists(e,
+	//					e.name = 'supports_supervisor_upgrade_improvements' && e.enabled)`
 	//			},
 	//			{
 	//				"name": "MultipleCL_For_TKG_Supported",
 	//				"enabled": true
-	//				"activationRule": `self.services.exists(svc, svc.name == 'tkg.vmware.com' && svc.capabilities.exists(e, e.name == 'supports_multiple_cl' && e.enabled))
+	//				"activationRule": `self.services.exists(svc, svc.name == 'tkg.vmware.com' &&
+	//					svc.capabilities.exists(e, e.name == 'supports_multiple_cl' && e.enabled))
 	//			}
 	//  	]
 	//  }
 	//}
-	// then, the CEL expression activatedWhenRule would evaluate to true and set effective CapabilityStatus.Activated for Resume_Failed_Supervisor_Upgrade_Supported to true
+	// then, the CEL expression activatedWhenRule would evaluate to true and set effective CapabilityStatus.Activated
+	// for Resume_Failed_Supervisor_Upgrade_Supported to true
 
-	// ActivatedWhenRule is the CEL-Go(https://github.com/google/cel-go?tab=readme-ov-file) rule(s) that helps in computing the effective status of the supervisor capability at runtime.
-	// If ActivatedWhenRule is not specified, that means the supervisor capability is not dependent on infra(VC) or Service capabilities.
+	// ActivatedWhenRule is the CEL-Go(https://github.com/google/cel-go?tab=readme-ov-file) rule(s) that helps in
+	// computing the effective status of the supervisor capability at runtime.
+	// If ActivatedWhenRule is not specified, that means the supervisor capability is not dependent on infra(VC)
+	// or Service capabilities.
 	// In that case, Supervisor Capability enabled value will be considered as effective activated status value.
 	ActivatedWhenRule string `json:"activatedWhenRule,omitempty"`
 
-	// ActivationRule is the CEL-Go(https://github.com/google/cel-go?tab=readme-ov-file) rule(s) that helps in computing the effective status of the supervisor capability at runtime.
-	// If ActivationRule is not specified, that means the supervisor capability is not dependent on infra(VC) or Service capabilities.
+	// ActivationRule is the CEL-Go(https://github.com/google/cel-go?tab=readme-ov-file) rule(s) that helps in
+	// computing the effective status of the supervisor capability at runtime.
+	// If ActivationRule is not specified, that means the supervisor capability is not dependent on infra(VC) or
+	// Service capabilities.
 	// In that case, Supervisor Capability enabled value will be considered as effective activated status value.
 	ActivationRule string `json:"activationRule,omitempty"`
 
@@ -111,7 +124,8 @@ type CapabilitiesSpec struct {
 	// +listMapKey=name
 	InfraCapabilities []Capability `json:"infra,omitempty"`
 
-	// SupervisorCapabilities Supervisor cluster capabilities. This structure will include all the Supervisor cluster level capabilities that
+	// SupervisorCapabilities Supervisor cluster capabilities. This structure will include all the Supervisor
+	// cluster level capabilities that
 	// exist either independently or depend on the infrastructure or service capabilities.
 	// +listType=map
 	// +listMapKey=name
@@ -136,7 +150,8 @@ type ServiceCapabilitiesSpec struct {
 
 // CapabilityStatus represents capability status for given capability
 type CapabilityStatus struct {
-	// Activated status represents the effective supervisor capability that decides whether the supervisor supports the capability or not
+	// Activated status represents the effective supervisor capability that decides whether the supervisor supports the
+	// capability or not
 	Activated bool `json:"activated"`
 }
 
@@ -151,12 +166,25 @@ type CapabilitiesStatus struct {
 
 /*
 Summary of Capabilities Specification:
-1. Supervisor capabilities are exposed at the supervisor level to identify the new functionality added to Supervisor. Any supervisor service can have its local set of capabilities that may or may not rely on the supervisor capabilities. If a supervisor service needs an infrastructure change, then a capability to be defined at the supervisor level and then define VC-level capability if VC changes are required.
+1. Supervisor capabilities are exposed at the supervisor level to identify the new functionality added to Supervisor.
+   Any supervisor service can have its local set of capabilities that may or may not rely on the supervisor
+   capabilities. If a supervisor service needs an infrastructure change, then a capability to be defined at the
+   supervisor level and then define VC-level capability if VC changes are required.
 2. Supervisor capability can exist independently or depend on Kubernetes versions and/or VC capabilities.
-3. The supervisor capabilities specification defines supervisor-level capabilities and their dependencies (if any) with Kubernetes version and VC capabilities. Each capability will transition through the states enable=false --> enable=true --> (enable=true, activated=false) --> (enable=true, activated=true) --> Deprecate. The enable status is statically set in-house at the time of feature completion, and the activated state is evaluated at runtime during supervisor install and upgrade. To define such a structure, a CRD is helpful and will be extensible for future use cases. Evaluation of the activated state is performed in WCP Service as it is needed to find feature incompatibilities with infrastructure. IaaS controllers will use the activated state to turn on the new functionality.
-4. A static supervisor capabilities file will exist in CSP for component owners to start their feature development, or component owners can also come up with a capability patch managed in their component SCM repository. The CSP build will merge all the documents into a single manifest YAML.
-5. The supervisor capabilities manifest YAML is distributed along with an async release for WCP Service to find feature incompatibilities and evaluate the activated state and then update the state during supervisor install and upgrade.
-A supervisor service would re-release a new patch if one of its local capability runs into issue.
+3. The supervisor capabilities specification defines supervisor-level capabilities and their dependencies (if any) with
+   Kubernetes version and VC capabilities. Each capability will transition through the states enable=false -->
+   enable=true --> (enable=true, activated=false) --> (enable=true, activated=true) --> Deprecate.
+   The enable status is statically set in-house at the time of feature completion, and the activated state is
+   evaluated at runtime during supervisor install and upgrade. To define such a structure, a CRD is helpful and
+   will be extensible for future use cases. Evaluation of the activated state is performed in WCP Service as it
+   is needed to find feature incompatibilities with infrastructure. IaaS controllers will use the activated state
+   to turn on the new functionality.
+4. A static supervisor capabilities file will exist in CSP for component owners to start their feature development,
+   or component owners can also come up with a capability patch managed in their component SCM repository.
+   The CSP build will merge all the documents into a single manifest YAML.
+5. The supervisor capabilities manifest YAML is distributed along with an async release for WCP Service to find feature
+   incompatibilities and evaluate the activated state and then update the state during supervisor install and upgrade.
+   A supervisor service would re-release a new patch if one of its local capability runs into issue.
 */
 
 // +kubebuilder:object:root=true

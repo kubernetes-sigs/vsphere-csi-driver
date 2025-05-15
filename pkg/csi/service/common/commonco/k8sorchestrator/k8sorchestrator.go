@@ -1049,7 +1049,7 @@ func (c *K8sOrchestrator) GetAllK8sVolumes() []string {
 }
 
 // GetWcpCapabilitiesMap reads the capabilities values from 'supervisor-capabilities' CR in
-// supervsior cluster and returns capabilities name to value map.
+// supervisor cluster and returns capabilities name to value map.
 func GetWcpCapabilitiesMap(ctx context.Context, cnsOperatorClient client.Client) (map[string]bool, error) {
 	log := logger.GetLogger(ctx)
 	wcpCapabilitiesNameValueMap := make(map[string]bool)
