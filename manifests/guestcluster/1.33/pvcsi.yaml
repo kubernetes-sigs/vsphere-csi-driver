@@ -77,6 +77,9 @@ rules:
   - apiGroups: [ "storage.k8s.io" ]
     resources: [ "csistoragecapacities" ]
     verbs: [ "create", "get", "list", "watch", "update", "delete", "patch" ]
+#  - apiGroups: ["iaas.vmware.com"]
+#    resources: ["capabilities"]
+#    verbs: ["get", "list", "watch"]
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
