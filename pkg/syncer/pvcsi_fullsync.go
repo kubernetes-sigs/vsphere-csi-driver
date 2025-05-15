@@ -58,7 +58,6 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 			(time.Since(fullSyncStartTime)).Seconds())
 	}()
 
-	// TODO: can we check for WorkloadDomainIsolation instead?
 	isWorkloadDomainIsolationEnabledInPVCSI := metadataSyncer.coCommonInterface.IsFSSEnabled(
 		ctx, common.WorkloadDomainIsolationFSS)
 	if isWorkloadDomainIsolationEnabledInPVCSI {
