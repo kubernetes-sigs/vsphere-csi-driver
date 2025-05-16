@@ -53,7 +53,7 @@ import (
 		10. Delete storage class.
 */
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Volume Operations Storm", func() {
+var _ = ginkgo.Describe("Volume Operations Storm", func() {
 
 	// TODO: Enable this test for WCP after it provides consistent results
 	f := framework.NewDefaultFramework("volume-ops-storm")
@@ -344,5 +344,90 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvCount++
 		}
+	})
+
+	/*
+		Test to verify multiple namespace deletion keeping 1 webhook replica
+
+		Steps
+		1. Create Multiple namespaces
+		2. Bring down webhook replica to 1
+		3. Delete above created namespace
+		4. Verify that namespace deletion should be successful
+	*/
+
+	ginkgo.It("[csi-supervisor] Delete Multiple Namespace keeping 1 webhook replica", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ginkgo.By(fmt.Sprintf("Running test with VOLUME_OPS_SCALE: %v", volumeOpsScale))
+		ginkgo.By("Creating Storage Class")
+
+		vcRestSessionId := createVcSession4RestApis(ctx)
+		datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
+		dsRef := getDsMoRefFromURL(ctx, datastoreURL)
+		framework.Logf("dsmoId: %v", dsRef.Value)
+
+		storageProfileId := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+		contentLibId, err := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
+			dsRef.Value)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		framework.Logf("Create a WCP namespace for the test")
+		vmClass := os.Getenv(envVMClass)
+		if vmClass == "" {
+			vmClass = vmClassBestEffortSmall
+		}
+
+		count := 0
+		namespaces := make([]string, volumeOpsScale)
+		framework.Logf("volumeOpsScale : %d", volumeOpsScale)
+		for count < volumeOpsScale {
+			vcRestSessionId := createVcSession4RestApis(ctx)
+			framework.Logf("Create a WCP namespace for the test")
+			ns := createTestWcpNs(
+				vcRestSessionId, storageProfileId, vmClass, contentLibId, getSvcId(vcRestSessionId))
+			namespaces[count] = ns
+			count = count + 1
+		}
+
+		deployment, err := client.AppsV1().Deployments(kubeSystemNamespace).Get(ctx,
+			storageQuotaWebhookPrefix, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		csiReplicaCount := *deployment.Spec.Replicas
+		defer func() {
+			framework.Logf("Starting storage-quota-webhook driver")
+			_, err = startStorageQuotaWebhookPodInKubeSystem(ctx, client, csiReplicaCount, kubeSystemNamespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("scale down CSI driver POD to 1 , so that it will" +
+			"be easy to validate all Listvolume response on one driver POD")
+		collectPodLogs(ctx, client, csiSystemNamespace)
+		scaledownCSIDriver, err := scaleCSIDriver(ctx, client, csiSystemNamespace, 1)
+		gomega.Expect(scaledownCSIDriver).To(gomega.BeTrue(), "csi driver scaledown is not successful")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			ginkgo.By("Scale up the csi-driver replica to 3")
+			success, err := scaleCSIDriver(ctx, client, csiSystemNamespace, 3)
+			gomega.Expect(success).To(gomega.BeTrue(), "csi driver scale up to 3 replica not successful")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		framework.Logf("Keeping 1 replica of storage-quota-webhook ")
+		_, err = startStorageQuotaWebhookPodInKubeSystem(ctx, client, 1, kubeSystemNamespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			count = 0
+			for count < volumeOpsScale {
+				framework.Logf("Deleting Namspace: %s", namespaces[count])
+				err = client.CoreV1().Namespaces().Delete(ctx, namespaces[count], metav1.DeleteOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				framework.ExpectNoError(waitForNamespaceToGetDeleted(ctx,
+					client, namespaces[count], poll, supervisorClusterOperationsTimeout))
+				count = count + 1
+			}
+		}()
+
 	})
 })
