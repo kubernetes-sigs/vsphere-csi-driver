@@ -144,7 +144,9 @@ func IsFileVolumeRequest(ctx context.Context, capabilities []*csi.VolumeCapabili
 		if capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY ||
 			capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER ||
 			capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER {
-			return true
+			if _, ok := capability.GetAccessType().(*csi.VolumeCapability_Block); !ok {
+				return true
+			}
 		}
 	}
 	return false
@@ -180,30 +182,29 @@ func validateVolumeCapabilities(volCaps []*csi.VolumeCapability,
 				csi.VolumeCapability_AccessMode_Mode_name[int32(volCap.AccessMode.GetMode())], volumeType)
 		}
 
-		if volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER {
-			// For ReadWriteOnce access mode we only support following filesystems:
+		if volumeType == BlockVolumeType {
+			if volCap.GetBlock() != nil {
+				// Raw block volume, filesystem is not required.
+				return nil
+			}
+
+			// For Block volumes with RWO access mode we only support following filesystems:
 			// ext3, ext4, xfs for Linux and ntfs for Windows.
 			if volCap.GetMount() != nil && !(volCap.GetMount().FsType == Ext4FsType ||
 				volCap.GetMount().FsType == Ext3FsType || volCap.GetMount().FsType == XFSType ||
 				strings.ToLower(volCap.GetMount().FsType) == NTFSFsType || volCap.GetMount().FsType == "") {
-				return fmt.Errorf("fstype %s not supported for ReadWriteOnce volume creation",
+				return fmt.Errorf("fstype %s not supported for Block volume creation",
 					volCap.GetMount().FsType)
 			}
-		} else if volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY ||
-			volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER ||
-			volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER {
+		} else if volumeType == FileVolumeType {
 			// For ReadWriteMany or ReadOnlyMany access modes we only support nfs or nfs4 filesystem.
 			// external-provisioner sets default fstype as ext4 when none is specified in StorageClass,
 			// but we overwrite it to nfs4 while mounting the volume.
 			if volCap.GetMount() != nil && !(volCap.GetMount().FsType == NfsV4FsType ||
 				volCap.GetMount().FsType == NfsFsType || volCap.GetMount().FsType == Ext4FsType ||
 				volCap.GetMount().FsType == "") {
-				return fmt.Errorf("fstype %s not supported for ReadWriteMany or ReadOnlyMany volume creation",
+				return fmt.Errorf("fstype %s not supported for File volume creation",
 					volCap.GetMount().FsType)
-			} else if volCap.GetBlock() != nil {
-				// Raw Block volumes are not supported with ReadWriteMany or ReadOnlyMany access modes,
-				return fmt.Errorf("block volume mode is not supported for ReadWriteMany or ReadOnlyMany " +
-					"volume creation")
 			}
 		}
 	}
