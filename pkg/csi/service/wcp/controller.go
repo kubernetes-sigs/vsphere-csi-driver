@@ -445,6 +445,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		zoneLabelPresent     bool
 		err                  error
 	)
+
 	isVdppOnStretchedSVEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VdppOnStretchedSupervisor)
 	// Support case insensitive parameters.
 	for paramName := range req.Parameters {
@@ -484,6 +485,21 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to get vCenter from Manager. Error: %v", err)
 	}
+
+	profileId := "996d3126-3ead-4ba5-9d9b-2ee1287d0648"
+	log.Info("Salko --- check IO filter")
+	isEncrypted, err := vc.PbmIsEcryptionEnabled(ctx, profileId)
+	if err != nil {
+		log.Errorf("failed to find if encryption is enabled. Err %+v", err)
+	}
+
+	if isEncrypted {
+		log.Info("Encryption is enabled")
+	} else {
+		log.Info("Encryption is not enabled")
+
+	}
+
 	// Fetch the accessibility requirements from the request.
 	topologyRequirement = req.GetAccessibilityRequirements()
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
