@@ -1168,7 +1168,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
 		// Later we may need to define different csi faults.
 
-		isBlockRequest := !common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities())
+		isBlockRequest := !isFileVolumeRequestInWcp(ctx, req.GetVolumeCapabilities())
 		if isBlockRequest {
 			volumeType = prometheus.PrometheusBlockVolumeType
 		} else {
@@ -1413,7 +1413,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				log.Infof("Volume attachment failed. Checking if it can be fake attached")
 				var capabilities []*csi.VolumeCapability
 				capabilities = append(capabilities, req.VolumeCapability)
-				if !common.IsFileVolumeRequest(ctx, capabilities) { // Block volume.
+				if !isFileVolumeRequestInWcp(ctx, capabilities) { // Block volume.
 					allowed, err := commonco.ContainerOrchestratorUtility.IsFakeAttachAllowed(ctx,
 						req.VolumeId, c.manager.VolumeManager)
 					if err != nil {
@@ -1755,7 +1755,7 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if err := common.IsValidVolumeCapabilities(ctx, volCaps); err == nil {
+	if err := isValidVolumeCapabilitiesInWcp(ctx, volCaps); err == nil {
 		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
 	}
 	return &csi.ValidateVolumeCapabilitiesResponse{

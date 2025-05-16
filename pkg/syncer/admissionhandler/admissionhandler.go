@@ -62,6 +62,7 @@ var (
 	featureGateTopologyAwareFileVolumeEnabled bool
 	featureGateByokEnabled                    bool
 	featureFileVolumesWithVmServiceEnabled    bool
+	featureIsSharedDiskEnabled                bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
@@ -147,6 +148,8 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 		featureGateVolumeHealthEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeHealth)
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		featureGateByokEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK)
+		featureIsSharedDiskEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
+
 		if err := startCNSCSIWebhookManager(ctx, enableWebhookClientCertVerification); err != nil {
 			return fmt.Errorf("unable to run the webhook manager: %w", err)
 		}

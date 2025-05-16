@@ -36,10 +36,12 @@ var (
 		},
 	}
 
-	// FileVolumeCaps represents how the file volume could be accessed.
-	// CNS file volumes supports MULTI_NODE_READER_ONLY, MULTI_NODE_SINGLE_WRITER
+	// MultiNodeVolumeCaps represents how the file volume or shared raw block volume
+	// could be accessed.
+	// CNS file volumes or shared raw block volumes support
+	//  MULTI_NODE_READER_ONLY, MULTI_NODE_SINGLE_WRITER
 	// and MULTI_NODE_MULTI_WRITER
-	FileVolumeCaps = []csi.VolumeCapability_AccessMode{
+	MultiNodeVolumeCaps = []csi.VolumeCapability_AccessMode{
 		{
 			Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
 		},

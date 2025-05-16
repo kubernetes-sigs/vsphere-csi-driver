@@ -101,6 +101,9 @@ var (
 	// isMultiVCenterFssEnabled is true if the Multi VC support FSS is enabled, false otherwise.
 	isMultiVCenterFssEnabled bool
 
+	// isSharedDiskEabled is true if shared disks are supported on the supervisor cluster
+	isSharedDiskEabled bool
+
 	//IsMigrationEnabled is true when in-tree to CSI Migration FSS is enabled for the driver, false otherwise.
 	IsMigrationEnabled bool
 	// nodeMgr stores the manager to interact with nodeVMs.
@@ -246,6 +249,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	metadataSyncer.clusterFlavor = clusterFlavor
 	clusterIDforVolumeMetadata = configInfo.Cfg.Global.ClusterID
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		isSharedDiskEabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
 		if !configInfo.Cfg.Global.InsecureFlag && configInfo.Cfg.Global.CAFile != cnsconfig.SupervisorCAFilePath {
 			log.Warnf("Invalid CA file: %q is set in the vSphere Config Secret. "+
 				"Setting correct CA file: %q", configInfo.Cfg.Global.CAFile, cnsconfig.SupervisorCAFilePath)
@@ -3006,7 +3010,7 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 		!isdynamicCSIPV && newPv.Spec.CSI != nil {
 		// Static PV is Created.
 		var volumeType string
-		if IsMultiAttachAllowed(oldPv) {
+		if IsFileVolume(oldPv) {
 
 			if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
 				// If it is a multi VC setup, then skip this volume as we do not support file share volumes
@@ -3241,7 +3245,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 		return
 	}
 
-	if IsMultiAttachAllowed(pv) {
+	if IsFileVolume(pv) {
 		// If PV is file share volume.
 
 		// If TopologyAwareFileVolume FSS is false and it is a multi VC setup, then skip this volume
