@@ -209,7 +209,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			eventList, err := svcClient.CoreV1().Events(svcNamespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, item := range eventList.Items {
-				framework.Logf(item.Message)
+				framework.Logf("%q", item.Message)
 			}
 		}
 
@@ -967,7 +967,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		framework.Logf("Deleting volume snapshot 1 " + snapshot1.Name)
+		framework.Logf("Deleting volume snapshot 1 %q", snapshot1.Name)
 		deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, snapshot1.Name, pandoraSyncWaitTime)
 		snapshotCreated = false
 
@@ -1735,7 +1735,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 				newEventList, err := client.CoreV1().Events(newNamespaceName).List(ctx, metav1.ListOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				for _, item := range newEventList.Items {
-					framework.Logf(fmt.Sprintf(item.Message))
+					framework.Logf("%q", item.Message)
 				}
 				ginkgo.By("Delete namespace")
 				err = client.CoreV1().Namespaces().Delete(ctx, newNamespaceName, *metav1.NewDeleteOptions(0))
@@ -1876,8 +1876,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 					"static-vsc-cns", namespace2Name), metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else if guestCluster {
-			framework.Logf(fmt.Sprintf("Creating static VolumeSnapshotContent in Guest Cluster using "+
-				"supervisor VolumeSnapshotName %s", svcVolumeSnapshotName))
+			framework.Logf("Creating static VolumeSnapshotContent in Guest Cluster using "+
+				"supervisor VolumeSnapshotName %s", svcVolumeSnapshotName)
 			snapshotcontent2, err = snapc.SnapshotV1().VolumeSnapshotContents().Create(ctx,
 				getVolumeSnapshotContentSpec(snapV1.DeletionPolicy("Delete"), svcVolumeSnapshotName,
 					"static-vsc-cns", namespace2Name), metav1.CreateOptions{})
@@ -2366,7 +2366,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		if !windowsEnv {
 			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 		}
-		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
+		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -2508,7 +2509,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas-1)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas-1)
-		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
+		ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas-1)).To(gomega.BeTrue(),
@@ -7246,8 +7248,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		framework.Logf(fmt.Sprintf("Creating static VolumeSnapshotContent in GC2 using "+
-			"supervisor VolumeSnapshotName %s", svcVolumeSnapshotName))
+		framework.Logf("Creating static VolumeSnapshotContent in GC2 using "+
+			"supervisor VolumeSnapshotName %s", svcVolumeSnapshotName)
 		staticSnapshotContent, err := snapc1.SnapshotV1().VolumeSnapshotContents().Create(ctx,
 			getVolumeSnapshotContentSpec(snapV1.DeletionPolicy("Delete"), svcVolumeSnapshotName,
 				"static-vs", namespace2.Name), metav1.CreateOptions{})

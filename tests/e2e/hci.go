@@ -265,7 +265,8 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		ginkgo.By("Perform sts scale up and down and verify they are successful")
 		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, replicas+1, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPods := fss.GetPodList(ctx, client, statefulset)
+		ssPods, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, ssPods, replicas-1, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 
@@ -277,7 +278,8 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		ginkgo.By("Perform sts scale up and down and verify they are successful")
 		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, replicas+2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPods = fss.GetPodList(ctx, client, statefulset)
+		ssPods, err = fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, ssPods, replicas-2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 
@@ -365,7 +367,8 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		ginkgo.By("Perform sts scale up and down and verify they are successful")
 		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, replicas+1, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPods := fss.GetPodList(ctx, client, statefulset)
+		ssPods, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, ssPods, replicas-1, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 	})
@@ -429,8 +432,10 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pods1 := fss.GetPodList(ctx, client, sts1)
-		pods2 := fss.GetPodList(ctx, client, sts2)
+		pods1, err := fss.GetPodList(ctx, client, sts1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pods2, err := fss.GetPodList(ctx, client, sts2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		workersPodMap := make(map[string]int)
 		targetWorkerName := ""
 		max := 0
@@ -507,7 +512,8 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		ginkgo.By("Scale up statefulset2 and scale down statefulset1 to 2 replicas")
 		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts2, replicas2+1, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts2, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPods1 := fss.GetPodList(ctx, client, sts1)
+		ssPods1, err := fss.GetPodList(ctx, client, sts1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, sts1, ssPods1, replicas1-1, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts1, mountPath)).NotTo(gomega.HaveOccurred())
 
@@ -521,7 +527,8 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		ginkgo.By("Scale up statefulset2 to 3 replicas and scale down statefulset1 to 1 replica")
 		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts2, replicas2+2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts2, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPods1 = fss.GetPodList(ctx, client, sts1)
+		ssPods1, err = fss.GetPodList(ctx, client, sts1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, sts1, ssPods1, replicas1-2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts1, mountPath)).NotTo(gomega.HaveOccurred())
 
@@ -584,7 +591,8 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pods := fss.GetPodList(ctx, client, sts)
+		pods, err := fss.GetPodList(ctx, client, sts)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		targetWorkerName := pods.Items[0].Spec.NodeName
 
 		ginkgo.By("Isolate the host which has a k8s-worker with attached PVs in cluster1")
@@ -712,7 +720,8 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 			}
 		}()
 
-		pods := fss.GetPodList(ctx, client, sts)
+		pods, err := fss.GetPodList(ctx, client, sts)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		targetWorkerName := pods.Items[0].Spec.NodeName
 
 		ginkgo.By(fmt.Sprintf("Power off the node: %v", targetWorkerName))
@@ -839,7 +848,8 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pods := fss.GetPodList(ctx, client, sts)
+		pods, err := fss.GetPodList(ctx, client, sts)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		targetWorkerName := pods.Items[0].Spec.NodeName
 
 		ginkgo.By("Make the host lose storage connectivity to remote cluster")

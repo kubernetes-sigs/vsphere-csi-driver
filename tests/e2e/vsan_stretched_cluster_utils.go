@@ -385,7 +385,7 @@ func runCmdOnHostsInParallel(hostIP string, sshCmd string, wg *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	op, err := runCommandOnESX("root", hostIP, sshCmd)
-	framework.Logf(op)
+	framework.Logf("%q", op)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
@@ -474,8 +474,8 @@ func updatePvcLabelsInParallel(ctx context.Context, client clientset.Interface, 
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	for _, pvc := range pvclaims {
-		framework.Logf(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s",
-			labels, pvc.Name, namespace))
+		framework.Logf("Updating labels %+v for pvc %s in namespace %s",
+			labels, pvc.Name, namespace)
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvc.Labels = labels
@@ -694,7 +694,8 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 	// Waiting for pods status to be Ready
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 	gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
+	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 		"Unable to get list of Pods from the Statefulset: %v", statefulset.Name)
 	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -894,13 +895,14 @@ func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Inte
 	namespace string, statefulset *appsv1.StatefulSet, ssPodsBeforeScaleDown *v1.PodList,
 	replicas int32, isScaleDownRequired bool, verifyCnsVolumes bool) {
 	if isScaleDownRequired {
-		framework.Logf(fmt.Sprintf("Scaling down statefulset: %v to number of Replica: %v",
-			statefulset.Name, replicas))
+		framework.Logf("Scaling down statefulset: %v to number of Replica: %v",
+			statefulset.Name, replicas)
 		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 	}
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-	ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
+	ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -993,15 +995,16 @@ func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interf
 	namespace string, statefulset *appsv1.StatefulSet,
 	replicas int32, isScaleUpRequired bool, verifyCnsVolumes bool) {
 	if isScaleUpRequired {
-		framework.Logf(fmt.Sprintf("Scaling up statefulset: %v to number of Replica: %v",
-			statefulset.Name, replicas))
+		framework.Logf("Scaling up statefulset: %v to number of Replica: %v",
+			statefulset.Name, replicas)
 		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 	}
 
 	fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-	ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
+	ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -1020,8 +1023,8 @@ func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interf
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-					framework.Logf(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
-						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
+					framework.Logf("Verify volume: %s is attached to the node: %s",
+						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
 					var vmUUID, volHandle string
 					var exists bool
 					ctx, cancel := context.WithCancel(context.Background())
@@ -1260,7 +1263,7 @@ func checkForEventWithMessage(client clientset.Interface, namespace string,
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	eventFound := false
-	framework.Logf("Checking for error in events related to " + name)
+	framework.Logf("Checking for error in events related to %q", name)
 	eventList, _ := client.CoreV1().Events(namespace).List(ctx,
 		metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", name)})
 	for _, item := range eventList.Items {

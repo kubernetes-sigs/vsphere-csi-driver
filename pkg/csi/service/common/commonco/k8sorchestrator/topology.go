@@ -636,8 +636,20 @@ func topoCRUpdated(oldObj interface{}, newObj interface{}) {
 func topoCRDeleted(obj interface{}) {
 	ctx, log := logger.GetNewContextWithLogger()
 	// Verify object received.
+	if unknown, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		if unknown.Obj == nil {
+			log.Errorf("topoCRDeleted: received empty DeletedFinalStateUnknown object, ignoring")
+			return
+		}
+		obj = unknown.Obj
+	}
+	unstruct, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		log.Errorf("topoCRDeleted: received non-unstructured object %T, ignoring", obj)
+		return
+	}
 	var nodeTopoObj csinodetopologyv1alpha1.CSINodeTopology
-	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, &nodeTopoObj)
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstruct.Object, &nodeTopoObj)
 	if err != nil {
 		log.Errorf("topoCRDeleted: failed to cast object %+v to %s type. Error: %+v",
 			obj, csinodetopology.CRDSingular, err)
@@ -752,7 +764,7 @@ func (volTopology *nodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context
 	if volTopology.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		err = createCSINodeTopologyInstance(ctx, volTopology, nodeInfo)
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal, err.Error())
+			return nil, logger.LogNewErrorCodef(log, codes.Internal, "error %+v", err.Error())
 		}
 	} else {
 		csiNodeTopology := &csinodetopologyv1alpha1.CSINodeTopology{}
@@ -764,12 +776,12 @@ func (volTopology *nodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				msg := fmt.Sprintf("failed to get CsiNodeTopology for the node: %q. Error: %+v", nodeInfo.NodeName, err)
-				return nil, logger.LogNewErrorCodef(log, codes.Internal, msg)
+				return nil, logger.LogNewErrorCode(log, codes.Internal, msg)
 			}
 			csiNodeTopologyFound = false
 			err = createCSINodeTopologyInstance(ctx, volTopology, nodeInfo)
 			if err != nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal, err.Error())
+				return nil, logger.LogNewErrorCodef(log, codes.Internal, "error %+v", err.Error())
 			}
 		}
 		// There is an already existing topology.
@@ -783,7 +795,7 @@ func (volTopology *nodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context
 				msg := fmt.Sprintf("Fail to patch CsiNodeTopology for the node: %q "+
 					"with nodeUUID: %s. Error: %+v",
 					nodeInfo.NodeName, nodeInfo.NodeID, err)
-				return nil, logger.LogNewErrorCodef(log, codes.Internal, msg)
+				return nil, logger.LogNewErrorCode(log, codes.Internal, msg)
 			}
 			log.Infof("Successfully patched CSINodeTopology instance: %q with Uuid: %q",
 				nodeInfo.NodeName, nodeInfo.NodeID)
@@ -792,7 +804,7 @@ func (volTopology *nodeVolumeTopology) GetNodeTopologyLabels(ctx context.Context
 
 	// Create a watcher for CSINodeTopology CRs.
 	timeoutSeconds := int64((time.Duration(getCSINodeTopologyWatchTimeoutInMin(ctx)) * time.Minute).Seconds())
-	watchCSINodeTopology, err := volTopology.csiNodeTopologyWatcher.Watch(metav1.ListOptions{
+	watchCSINodeTopology, err := volTopology.csiNodeTopologyWatcher.WatchWithContext(ctx, metav1.ListOptions{
 		FieldSelector:  fields.OneTermEqualSelector("metadata.name", nodeInfo.NodeName).String(),
 		TimeoutSeconds: &timeoutSeconds,
 		Watch:          true,
