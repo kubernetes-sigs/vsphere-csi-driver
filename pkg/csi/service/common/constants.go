@@ -436,6 +436,8 @@ const (
 	// SVPVCSnapshotProtectionFinalizer is FSS that controls add/remove
 	// CNS finalizer on supervisor PVC/Snapshots from PVCSI
 	SVPVCSnapshotProtectionFinalizer = "sv-pvc-snapshot-protection-finalizer"
+	// SharedDiskSupport enables support for sharing a block volume with multiple VMs.
+	SharedDiskSupport = "csi-shared-disk-support"
 )
 
 var WCPFeatureStates = map[string]struct{}{
