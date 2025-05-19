@@ -720,6 +720,17 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		volumeInfo *cnsvolume.CnsVolumeInfo
 		faultType  string
 	)
+
+	// If fss is enabled and is raw block rwx volume
+	candidateDatastoresWithClusteredVmdk := getDatastoresWithClusteredVmdk(candidateDatastores)
+	if len(candidateDatastoresWithClusteredVmdk) != 0 {
+		log.Debug("No clustered vmdk datastored found.")
+		candidateDatastores = candidateDatastoresWithClusteredVmdk
+	} else {
+		log.Debug("Found list of clustered VMDK datastores %+v", candidateDatastoresWithClusteredVmdk)
+		candidateDatastores = candidateDatastoresWithClusteredVmdk
+	}
+
 	if isPodVMOnStretchSupervisorFSSEnabled {
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
 			c.manager, &createVolumeSpec, candidateDatastores, createVolumeOpts,

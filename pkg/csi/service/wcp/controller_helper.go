@@ -683,3 +683,14 @@ func getVolumeIDToVMMap(ctx context.Context, volumeIDs []string, vmMoidToHostMoi
 	}
 	return response, nil
 }
+
+// getDatastoresWithClusteredVmdk return the list of datastores which have clustered VMDK enabled.
+func getDatastoresWithClusteredVmdk(candidateDatastores []*vsphere.DatastoreInfo) []*vsphere.DatastoreInfo {
+	datastoresWithClusteredVmdk := []*vsphere.DatastoreInfo{}
+	for _, datastore := range candidateDatastores {
+		if datastore.ClusteredVmdkSupported {
+			datastoresWithClusteredVmdk = append(datastoresWithClusteredVmdk, datastore)
+		}
+	}
+	return datastoresWithClusteredVmdk
+}

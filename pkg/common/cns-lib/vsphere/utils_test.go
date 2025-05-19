@@ -28,7 +28,8 @@ func TestFilterSuspendedDatastoresWhenDatastoreIsSuspended(t *testing.T) {
 			Info: &types.DatastoreInfo{
 				Name: "test-ds",
 			},
-			CustomValues: []types.BaseCustomFieldValue{baseCustomFieldValue},
+			CustomValues:           []types.BaseCustomFieldValue{baseCustomFieldValue},
+			ClusteredVmdkSupported: false,
 		},
 	}
 
@@ -52,7 +53,8 @@ func TestFilterSuspendedDatastoresWhenDatastoreIsNotSuspended(t *testing.T) {
 			Info: &types.DatastoreInfo{
 				Name: "test-ds",
 			},
-			CustomValues: []types.BaseCustomFieldValue{baseCustomFieldValue},
+			CustomValues:           []types.BaseCustomFieldValue{baseCustomFieldValue},
+			ClusteredVmdkSupported: false,
 		},
 	}
 

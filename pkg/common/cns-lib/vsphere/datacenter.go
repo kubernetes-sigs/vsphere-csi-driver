@@ -63,7 +63,7 @@ func (dc *Datacenter) GetDatastoreInfoByURL(ctx context.Context, datastoreURL st
 
 	var dsMoList []mo.Datastore
 	pc := property.DefaultCollector(dc.Client())
-	properties := []string{DatastoreInfoProperty, "customValue"}
+	properties := []string{DatastoreInfoProperty, "customValue", "capability"}
 	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 	if err != nil {
 		log.Errorf("failed to get Datastore managed objects from datastore objects."+
@@ -77,7 +77,7 @@ func (dc *Datacenter) GetDatastoreInfoByURL(ctx context.Context, datastoreURL st
 			return &DatastoreInfo{
 				&Datastore{object.NewDatastore(dc.Client(), dsMo.Reference()),
 					dc},
-				dsMo.Info.GetDatastoreInfo(), dsMo.CustomValue}, nil
+				dsMo.Info.GetDatastoreInfo(), dsMo.CustomValue, *dsMo.Capability.ClusteredVmdkSupported}, nil
 		}
 	}
 	err = fmt.Errorf("couldn't find Datastore given URL %q", datastoreURL)
@@ -221,7 +221,7 @@ func (dc *Datacenter) GetAllDatastores(ctx context.Context) (map[string]*Datasto
 	}
 	var dsMoList []mo.Datastore
 	pc := property.DefaultCollector(dc.Client())
-	properties := []string{"info"}
+	properties := []string{"info", "capability"}
 	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
 	if err != nil {
 		log.Errorf("failed to get datastore managed objects from datastore objects %v with properties %v: %v",
@@ -233,7 +233,7 @@ func (dc *Datacenter) GetAllDatastores(ctx context.Context) (map[string]*Datasto
 		dsURLInfoMap[dsMo.Info.GetDatastoreInfo().Url] = &DatastoreInfo{
 			&Datastore{object.NewDatastore(dc.Client(), dsMo.Reference()),
 				dc},
-			dsMo.Info.GetDatastoreInfo(), []types.BaseCustomFieldValue{}}
+			dsMo.Info.GetDatastoreInfo(), []types.BaseCustomFieldValue{}, *dsMo.Capability.ClusteredVmdkSupported}
 	}
 	return dsURLInfoMap, nil
 }
