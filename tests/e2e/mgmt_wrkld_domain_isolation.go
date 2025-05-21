@@ -27,10 +27,16 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	"golang.org/x/crypto/ssh"
+	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
+	cnsop "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -80,6 +86,11 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		sharedStoragePolicyName string
 		sharedStorageProfileId  string
 		statuscode              int
+		vmopC                   ctlrclient.Client
+		vmClass                 string
+		cnsopC                  ctlrclient.Client
+		contentLibId            string
+		datastoreURL            string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -130,6 +141,40 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		} else {
 			sharedStorageProfileId = e2eVSphere.GetSpbmPolicyID(sharedStoragePolicyName)
 		}
+
+		/* Sets up a Kubernetes client with a custom scheme, adds the vmopv1 API types to the scheme,
+		and ensures that the client is properly initialized without errors */
+		vmopScheme := runtime.NewScheme()
+		gomega.Expect(vmopv1.AddToScheme(vmopScheme)).Should(gomega.Succeed())
+		vmopC, err = ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: vmopScheme})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		cnsOpScheme := runtime.NewScheme()
+		gomega.Expect(cnsop.AddToScheme(cnsOpScheme)).Should(gomega.Succeed())
+		cnsopC, err = ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: cnsOpScheme})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// get or set vm class required for VM creation
+		vmClass = os.Getenv(envVMClass)
+		if vmClass == "" {
+			vmClass = vmClassBestEffortSmall
+		}
+
+		// fetch shared vsphere datatsore url
+		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
+		dsRef := getDsMoRefFromURL(ctx, datastoreURL)
+		framework.Logf("dsmoId: %v", dsRef.Value)
+
+		// read or create content library if it is empty
+		if contentLibId == "" {
+			contentLibId, err = createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
+				dsRef.Value)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		restConfig = getRestConfigClient()
+		snapc, err = snapclient.NewForConfig(restConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	ginkgo.AfterEach(func() {
@@ -836,5 +881,280 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		errorOccurred := checkEventsforError(client, pvclaim.Namespace,
 			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
 		gomega.Expect(errorOccurred).To(gomega.BeTrue())
+	})
+
+	/*
+		Testcase-3 from Negative scenario
+		Add tests for all supported operations on PVC
+		Ex: Snapshot create/delete, restore snapshot, expand, migrate, attach/detach with zone marked for delete.
+		Use both zonal policy and shared datastore policy
+	*/
+
+	ginkgo.It("Run all supported operations on PVC", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// statefulset replica count
+		replicas = 3
+
+		// reading zonal storage policy of zone-1 mgmt domain
+		storagePolicyNameZ1 := GetAndExpectStringEnvVar(envZonal1StoragePolicyName)
+		storageProfileIdZ1 := e2eVSphere.GetSpbmPolicyID(storagePolicyNameZ1)
+		storagePolicyNameZ2 := GetAndExpectStringEnvVar(envZonal2StoragePolicyNameLateBidning)
+		storageProfileIdZ2 := e2eVSphere.GetSpbmPolicyID(storagePolicyNameZ2)
+
+		// append late-binding now as it knowns to k8s and not to vc
+		storagePolicyNameZ2 = storagePolicyNameZ2 + "-latebinding"
+
+		// read datastore url
+		zonal2DsUrl := os.Getenv(envZonal2DatastoreUrl)
+
+		ginkgo.By("Create a WCP namespace tagged to zone-1 & zone-2")
+		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
+			[]string{sharedStorageProfileId, storageProfileIdZ1, storageProfileIdZ2}, getSvcId(vcRestSessionId),
+			[]string{zone1, zone2}, vmClass, contentLibId)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
+		defer func() {
+			delTestWcpNs(vcRestSessionId, namespace)
+			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+		}()
+
+		ginkgo.By("Fetch storage class tagged to wcp namespace")
+		sharedStorageclass, err := client.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		zonal1Sc, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ1, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		zonal2Sc, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ2, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Create a PVC using shared policy")
+		pvclaim1, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+			diskSize, sharedStorageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle1 := persistentVolumes[0].Spec.CSI.VolumeHandle
+		_ = persistentVolumes[0].Spec.CSI.VolumeHandle
+		ginkgo.By("Wait for PVC to reach Bound state.")
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
+			[]*v1.PersistentVolumeClaim{pvclaim1}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create a PVC using zonal policy-immediate binding")
+		pvclaim2, _, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+			diskSize, zonal1Sc, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Wait for PVC to reach Bound state.")
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
+			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create a PVC using zonal policy-WFFC binding")
+		pvclaim3, err := createPVC(ctx, client, namespace, labelsMap, diskSize, zonal2Sc, v1.ReadWriteOnce)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating a Deployment using pvc-1")
+		dep, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace,
+			[]*v1.PersistentVolumeClaim{pvclaim1}, execRWXCommandPod1, false, busyBoxImageOnGcr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		_, err = fdep.GetPodsForDeployment(ctx, client, dep)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create Pod to attach to Pvc-2")
+		_, err = createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false,
+			execRWXCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create vm service vm on pvc-3")
+		_, vm, _, err := createVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
+			[]*v1.PersistentVolumeClaim{pvclaim3}, vmClass, storagePolicyNameZ2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Start online expansion of volume")
+		currentPvcSize := pvclaim2.Spec.Resources.Requests[v1.ResourceStorage]
+		newSize := currentPvcSize.DeepCopy()
+		newSize.Add(resource.MustParse("4Gi"))
+		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+		_, err = expandPVCSize(pvclaim2, newSize, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		currentPvcSize = pvclaim3.Spec.Resources.Requests[v1.ResourceStorage]
+		newSize = currentPvcSize.DeepCopy()
+		newSize.Add(resource.MustParse("4Gi"))
+		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+		_, err = expandPVCSize(pvclaim3, newSize, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create volume snapshot class")
+		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create a dynamic volume snapshot of a PVC created on shared sc")
+		volumeSnapshot1, _, _, _, _, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
+			pvclaim1, volHandle1, diskSize, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Mark zone-2 for removal from wcp namespace")
+		err = markZoneForRemovalFromWcpNs(vcRestSessionId, namespace,
+			zone2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating service")
+		_ = CreateService(namespace, client)
+
+		ginkgo.By("Creating statefulset")
+		_ = createCustomisedStatefulSets(ctx, client, namespace, true, replicas, false, nil,
+			false, true, "", "", sharedStorageclass, sharedStorageclass.Name)
+
+		ginkgo.By("Restore a volume snapshot")
+		restoredPvc, restoredPv, _ := verifyVolumeRestoreOperation(ctx, client, namespace, sharedStorageclass,
+			volumeSnapshot1, diskSize, false)
+
+		ginkgo.By("Trigger offline expansion")
+		currentPvcSize = restoredPvc.Spec.Resources.Requests[v1.ResourceStorage]
+		newSize = currentPvcSize.DeepCopy()
+		newSize.Add(resource.MustParse("1Gi"))
+		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+		pvclaim2, err = expandPVCSize(restoredPvc, newSize, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvclaim2).NotTo(gomega.BeNil())
+
+		ginkgo.By("Relocate volume from one datastore to another datastore using" +
+			"CnsRelocateVolume API")
+		dsRefDest := getDsMoRefFromURL(ctx, zonal2DsUrl)
+		volumeID := restoredPv[0].Spec.CSI.VolumeHandle
+		_, err = e2eVSphere.cnsRelocateVolume(e2eVSphere, ctx, volumeID, dsRefDest)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		e2eVSphere.verifyDatastoreMatch(volumeID, []string{zonal2DsUrl})
+
+		ginkgo.By("Power off vm")
+		vm = setVmPowerState(ctx, vmopC, vm, vmopv1.VirtualMachinePoweredOff)
+		vm, err = wait4Vm2ReachPowerStateInSpec(ctx, vmopC, vm)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("edit vm spec and remove pvc")
+		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vm.Spec.Volumes = vm.Spec.Volumes[:1]
+		err = vmopC.Update(ctx, vm)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/*
+		Testcase-5 from Negative scenario
+		Perform out of band operation on VMservice VM with attached PVCs.
+
+		Relocate VM using VM API to the zone (both in the same namespace
+		and with/without marked for removal of zone in the same namespace)
+	*/
+
+	ginkgo.It("Out of band operations on VM service VM", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		//nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+		svcMasterIp := GetAndExpectStringEnvVar(svcMasterIP)
+		svcMasterPwd := GetAndExpectStringEnvVar(svcMasterPassword)
+		sshClientConfig := &ssh.ClientConfig{
+			User: "root",
+			Auth: []ssh.AuthMethod{
+				ssh.Password(svcMasterPwd),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		}
+
+		// reading zonal storage policy of zone-1 mgmt domain
+		storagePolicyNameZ1 := GetAndExpectStringEnvVar(envZonal1StoragePolicyName)
+		storageProfileIdZ1 := e2eVSphere.GetSpbmPolicyID(storagePolicyNameZ1)
+		storagePolicyNameZ2 := GetAndExpectStringEnvVar(envZonal2StoragePolicyName)
+		storageProfileIdZ2 := e2eVSphere.GetSpbmPolicyID(storagePolicyNameZ2)
+
+		ginkgo.By("Create a WCP namespace tagged to zone-1, zone-2 & zone-3")
+		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
+			[]string{sharedStorageProfileId, storageProfileIdZ1, storageProfileIdZ2}, getSvcId(vcRestSessionId),
+			[]string{zone1, zone2, zone3}, vmClass, contentLibId)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
+		defer func() {
+			delTestWcpNs(vcRestSessionId, namespace)
+			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+		}()
+
+		zonal1Sc, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ1, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		zonal2Sc, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ2, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Creating pvc with requested topology annotation set to zone2")
+		pvclaim, err := createPvcWithRequestedTopology(ctx, client, namespace, nil, "", zonal2Sc, "", zone2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Wait for PVC to be in bound state")
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim}, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify volume affinity annotation state")
+		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, 1,
+			2)
+		allowedTopologiesMap := convertToTopologyMap(allowedTopologies)
+		err = verifyVolumeAnnotationAffinity(pvclaim, pvs[0], allowedTopologiesMap, topologyCategories)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create vm service vm")
+		_, vm, _, err := createVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
+			[]*v1.PersistentVolumeClaim{pvclaim}, vmClass, storagePolicyNameZ2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Power on vm")
+		vm = setVmPowerState(ctx, vmopC, vm, vmopv1.VirtualMachinePoweredOn)
+		vm, err = wait4Vm2ReachPowerStateInSpec(ctx, vmopC, vm)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		framework.Logf("Migrate VM to zone-3")
+		zone3DsName := GetAndExpectStringEnvVar(envZone3DatastoreName)
+		dcName := GetAndExpectStringEnvVar(datacenter)
+		isMigrateSuccess, err := migrateVmsToDatastore(svcMasterIp, sshClientConfig, zone3DsName, []string{vm.Name}, dcName)
+		gomega.Expect(isMigrateSuccess).To(gomega.BeTrue(), "Migration of vms failed")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Mark zone-2 for removal from wcp namespace")
+		err = markZoneForRemovalFromWcpNs(vcRestSessionId, namespace,
+			zone2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating pvc with requested topology annotation set to zone1")
+		pvclaim2, err := createPvcWithRequestedTopology(ctx, client, namespace, nil, "", zonal1Sc, "", zone1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Wait for PVC to be in bound state")
+		pvs2, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim2}, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify volume affinity annotation state")
+		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, 0,
+			1)
+		allowedTopologiesMap = convertToTopologyMap(allowedTopologies)
+		err = verifyVolumeAnnotationAffinity(pvclaim2, pvs2[0], allowedTopologiesMap, topologyCategories)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create vm service vm")
+		_, vm2, _, err := createVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
+			[]*v1.PersistentVolumeClaim{pvclaim2}, vmClass, storagePolicyNameZ1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		framework.Logf("Migrate VM to zone-2")
+		zone2DsName := GetAndExpectStringEnvVar(envZone2DatastoreName)
+		isMigrateSuccess2, err := migrateVmsToDatastore(svcMasterIp, sshClientConfig, zone2DsName, []string{vm2.Name}, dcName)
+		gomega.Expect(isMigrateSuccess2).To(gomega.BeTrue(), "Migration of vms failed")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	})
 })
