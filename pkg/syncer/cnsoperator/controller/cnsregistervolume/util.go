@@ -114,7 +114,7 @@ func isDatastoreAccessibleToAZClusters(ctx context.Context, vc *vsphere.VirtualC
 }
 
 // constructCreateSpecForInstance creates CNS CreateVolume spec.
-func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume,
+func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
 	host string, useSupervisorId bool) *cnstypes.CnsVolumeCreateSpec {
 	var volumeName string
@@ -152,7 +152,18 @@ func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume,
 	if instance.Spec.AccessMode == v1.ReadWriteOnce || instance.Spec.AccessMode == "" {
 		createSpec.VolumeType = common.BlockVolumeType
 	} else {
-		createSpec.VolumeType = common.FileVolumeType
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.SharedDiskFss) {
+			// Shared block volume request
+			if instance.Spec.AccessMode == v1.ReadWriteMany &&
+				(instance.Spec.VolumeMode == v1.PersistentVolumeBlock || instance.Spec.VolumeMode == "") {
+				createSpec.VolumeType = common.BlockVolumeType
+			} else {
+				createSpec.VolumeType = common.FileVolume
+			}
+		} else {
+			createSpec.VolumeType = common.FileVolumeType
+		}
 	}
 	return createSpec
 }
@@ -251,8 +262,9 @@ func getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx context.Context
 }
 
 // getPersistentVolumeSpec to create PV volume spec for the given input params.
-func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
-	accessMode v1.PersistentVolumeAccessMode, scName string, claimRef *v1.ObjectReference) *v1.PersistentVolume {
+func getPersistentVolumeSpec(ctx context.Context, volumeName string, volumeID string, capacity int64,
+	accessMode v1.PersistentVolumeAccessMode, volumeMode v1.PersistentVolumeMode, scName string,
+	claimRef *v1.ObjectReference) *v1.PersistentVolume {
 	capacityInMb := strconv.FormatInt(capacity, 10) + "Mi"
 	pv := &v1.PersistentVolume{
 		TypeMeta: metav1.TypeMeta{},
@@ -280,6 +292,20 @@ func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 		},
 		Status: v1.PersistentVolumeStatus{},
 	}
+
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.SharedDiskFss) {
+		if volumeMode == "" {
+			if accessMode == v1.ReadWriteMany {
+				volumeMode = v1.PersistentVolumeBlock
+			} else {
+				// If accessMode is RWO or empty, default to fileSystem.
+				volumeMode = v1.PersistentVolumeFilesystem
+			}
+		}
+		pv.Spec.VolumeMode = &volumeMode
+	}
+
 	annotations := make(map[string]string)
 	annotations["pv.kubernetes.io/provisioned-by"] = cnsoperatortypes.VSphereCSIDriverName
 	pv.Annotations = annotations
@@ -289,7 +315,8 @@ func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 // getPersistentVolumeClaimSpec return the PersistentVolumeClaim spec with
 // specified storage class.
 func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace string, capacity int64,
-	storageClassName string, accessMode v1.PersistentVolumeAccessMode, pvName string,
+	storageClassName string, accessMode v1.PersistentVolumeAccessMode, volumeMode v1.PersistentVolumeMode,
+	pvName string,
 	datastoreAccessibleTopology []map[string]string,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume) (*v1.PersistentVolumeClaim, error) {
 
@@ -345,6 +372,12 @@ func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace st
 			VolumeName:       pvName,
 		},
 	}
+
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.SharedDiskFss) {
+		claim.Spec.VolumeMode = &volumeMode
+	}
+
 	return claim, nil
 }
 
