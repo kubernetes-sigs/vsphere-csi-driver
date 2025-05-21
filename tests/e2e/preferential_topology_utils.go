@@ -740,6 +740,20 @@ func migrateVmsFromDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
 		if !multivc {
 			migrateVm = govcLoginCmd() + "govc vm.migrate -ds " + destDatastore + " " +
 				vMsToMigrate[i]
+		} else if topologyFeature == topologyDomainIsolation {
+			// get datacenter name
+			dcName := GetAndExpectStringEnvVar(datacenter)
+			// get vm migration user credentials
+			username := GetAndExpectStringEnvVar(vmMigrationUserName)
+			password := GetAndExpectStringEnvVar(vmMigrationUserPwd)
+
+			loginCmd := "export GOVC_INSECURE=1;"
+			loginCmd += fmt.Sprintf("export GOVC_URL='https://%s:%s@%s:%s';",
+				username, password,
+				e2eVSphere.Config.Global.VCenterHostname, defaultVcAdminPortNum)
+
+			migrateVm = loginCmd + "export GOVC_DATACENTER=" + dcName + ";govc vm.migrate -ds " + destDatastore + " " +
+				vMsToMigrate[i]
 		} else {
 			migrateVm = govcLoginCmdForMultiVC(itr) + "govc vm.migrate -ds " + destDatastore + " " +
 				vMsToMigrate[i]
