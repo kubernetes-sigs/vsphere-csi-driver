@@ -138,7 +138,7 @@ func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume,
 			BackingDiskUrlPath: instance.Spec.DiskURLPath,
 		}
 	}
-	if instance.Spec.AccessMode == v1.ReadWriteOnce || instance.Spec.AccessMode == "" {
+	if instance.Spec.AccessMode == v1.ReadWriteOnce || instance.Spec.AccessMode == "" || (instance.Spec.AccessMode == v1.ReadWriteMany && instance.Spec.VolumeMode == v1.PersistentVolumeBlock) {
 		createSpec.VolumeType = common.BlockVolumeType
 	} else {
 		createSpec.VolumeType = common.FileVolumeType
@@ -241,8 +241,23 @@ func getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx context.Context
 
 // getPersistentVolumeSpec to create PV volume spec for the given input params.
 func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
-	accessMode v1.PersistentVolumeAccessMode, scName string, claimRef *v1.ObjectReference) *v1.PersistentVolume {
+	accessMode v1.PersistentVolumeAccessMode, volumeMode v1.PersistentVolumeMode, scName string, claimRef *v1.ObjectReference, fsType string) *v1.PersistentVolume {
 	capacityInMb := strconv.FormatInt(capacity, 10) + "Mi"
+	if fsType == "" {
+		if accessMode == v1.ReadWriteOnce {
+			fsType = "ext4"
+		} else {
+			fsType = "ntf4"
+		}
+	}
+	if volumeMode == "" {
+		if accessMode == v1.ReadWriteMany {
+			volumeMode = v1.PersistentVolumeBlock
+		} else {
+			volumeMode = v1.PersistentVolumeFilesystem
+		}
+	}
+
 	pv := &v1.PersistentVolume{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
@@ -258,7 +273,6 @@ func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 					Driver:       cnsoperatortypes.VSphereCSIDriverName,
 					VolumeHandle: volumeID,
 					ReadOnly:     false,
-					FSType:       "ext4",
 				},
 			},
 			AccessModes: []v1.PersistentVolumeAccessMode{
@@ -269,6 +283,10 @@ func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 		},
 		Status: v1.PersistentVolumeStatus{},
 	}
+
+	*pv.Spec.VolumeMode = volumeMode
+	*&pv.Spec.PersistentVolumeSource.CSI.FSType = fsType
+
 	annotations := make(map[string]string)
 	annotations["pv.kubernetes.io/provisioned-by"] = cnsoperatortypes.VSphereCSIDriverName
 	pv.Annotations = annotations
@@ -278,7 +296,7 @@ func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 // getPersistentVolumeClaimSpec return the PersistentVolumeClaim spec with
 // specified storage class.
 func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace string, capacity int64,
-	storageClassName string, accessMode v1.PersistentVolumeAccessMode, pvName string,
+	storageClassName string, accessMode v1.PersistentVolumeAccessMode, volumeMode v1.PersistentVolumeMode, pvName string,
 	datastoreAccessibleTopology []map[string]string) (*v1.PersistentVolumeClaim, error) {
 
 	log := logger.GetLogger(ctx)
@@ -318,6 +336,16 @@ func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace st
 			VolumeName:       pvName,
 		},
 	}
+
+	if volumeMode == "" {
+		if accessMode == v1.ReadWriteOnce {
+			volumeMode = v1.PersistentVolumeFilesystem
+		} else {
+			volumeMode = v1.PersistentVolumeBlock
+		}
+	}
+	*claim.Spec.VolumeMode = volumeMode
+
 	return claim, nil
 }
 
