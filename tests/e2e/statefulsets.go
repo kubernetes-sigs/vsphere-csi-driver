@@ -1305,6 +1305,11 @@ func CreateStatefulSet(ns string, ss *apps.StatefulSet, c clientset.Interface) {
 	defer cancel()
 	framework.Logf("Creating statefulset %v/%v with %d replicas and selector %+v",
 		ss.Namespace, ss.Name, *(ss.Spec.Replicas), ss.Spec.Selector)
+	if policy4kn {
+		framework.Logf("******* Inside 4kn block in statefulset creation******")
+		ss.Annotations = make(map[string]string)
+		ss.Spec.Template.Annotations[policy4knKey] = policy4knValue
+	}
 	_, err := c.AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
 	framework.ExpectNoError(err)
 	fss.WaitForRunningAndReady(ctx, c, *ss.Spec.Replicas, ss)

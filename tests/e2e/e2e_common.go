@@ -358,6 +358,12 @@ var (
 	multipleSvc          bool
 	multivc              bool
 	stretchedSVC         bool
+	policy4kn            bool
+)
+
+var (
+	policy4knKey   = "vmware/4kn-volume-for-pod"
+	policy4knValue = "enabled"
 )
 
 // For busybox pod image
@@ -612,6 +618,12 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	topologyType := os.Getenv("TOPOLOGY_TYPE")
 	if strings.TrimSpace(string(topologyType)) == "MULTI_VC" {
 		multivc = true
+	}
+
+	//Check what type of policy is passed
+	policyType := os.Getenv("POLICY_TYPE")
+	if strings.TrimSpace(string(policyType)) == "POLICY_4KN" {
+		policy4kn = true
 	}
 
 	//Check if its stretched SVC testbed
