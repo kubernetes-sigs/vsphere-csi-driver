@@ -842,7 +842,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		ginkgo.By("create a new pod pod2, using pvc1")
 		pod2, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, execCommand)
-		gomega.Expect(err).To(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := fpod.DeletePodWithWait(ctx, client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

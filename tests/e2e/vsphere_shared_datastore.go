@@ -26,6 +26,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
@@ -278,7 +279,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 
 		// Check Pod status after recreating Storage class with different binding mode
 		ginkgo.By("Verify Pod status after recreating Storage class with different binding mode")
-		pod_status := fpod.VerifyPodsRunning(ctx, client, namespace, pod.Name, nil, true, 0)
+		pod_status := fpod.VerifyPodsRunning(ctx, client, namespace, pod.Name,
+			labels.SelectorFromSet(map[string]string{"name": pod.Name}), true, 0)
 		if pod.Status.Phase == v1.PodRunning {
 			framework.Logf("Pod is in Running state after recreating Storage Class")
 		}
