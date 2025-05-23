@@ -4773,7 +4773,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		defer cancel()
 
 		ginkgo.By("Create storage class")
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, scName)
+		storageclass, err := createStorageClass(client, scParameters, nil, "", "", true, scName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if vanillaCluster {
