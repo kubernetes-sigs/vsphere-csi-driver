@@ -54,6 +54,18 @@ type CnsRegisterVolumeSpec struct {
 	// This is for a 34a9c05d-5f03-e254-e692-02004479cb91/vm2_1.vmdk
 	// file under datacenter "Datacenter-1" and datastore "vsanDatastore".
 	DiskURLPath string `json:"diskURLPath,omitempty"`
+
+	// VolumeMode can either be Block (for raw block volume) or
+	// Filesystem. Default values will be assumed if it is missing:
+	// With RWO accessmode, default is Filesystem.
+	// With RWX accessmode, default is Block.
+	VolumeMode v1.PersistentVolumeMode `json:"volumeMode,omitempty"`
+
+	// FsType represents the filesystem type.
+	// Default values will be assumed if it is missing:
+	// With RWO, it will be ext4.
+	// With RWX with volumeMode as Filsystem, it will be ntf4.
+	FsType string `json:"fsType,omitempty"`
 }
 
 // CnsRegisterVolumeStatus defines the observed state of CnsRegisterVolume
