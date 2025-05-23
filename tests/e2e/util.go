@@ -7792,3 +7792,25 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 	fmt.Println("All required storage policy usages are available.")
 	return nil
 }
+
+/*
+Migrate VM to given datastore
+*/
+func migrateVmsToDatastore(masterIp string, sshClientConfig *ssh.ClientConfig,
+	destDatastore string, vMsToMigrate []string, dcName string) (bool, error) {
+	var migrateVm string
+	for i := 0; i < len(vMsToMigrate); i++ {
+
+		migrateVm = govcLoginCmd() + "export GOVC_DATACENTER=" + dcName + ";govc vm.migrate -ds " + destDatastore + " " +
+			vMsToMigrate[i]
+
+		framework.Logf("cmd : %s ", migrateVm)
+		migrateVmRes, err := sshExec(sshClientConfig, masterIp, migrateVm)
+		if err != nil && migrateVmRes.Code != 0 {
+			fssh.LogResult(migrateVmRes)
+			return false, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+				migrateVm, masterIp, err)
+		}
+	}
+	return true, nil
+}
