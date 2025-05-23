@@ -168,7 +168,7 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 		"for dynamic volume provisioning using storageclass", func() {
 		ginkgo.By(fmt.Sprintf("Invoking test for SPBM policy: %s", f.Namespace.Name))
 		scParameters := make(map[string]string)
-		scParameters[scParamStoragePolicyName] = namespace
+		scParameters[scParamStoragePolicyName] = "storagepolicyname"
 		var expectedErrorMsg string
 		pvc := invokeInvalidPolicyTestNeg(client, namespace, scParameters, scParamStoragePolicyName, pollTimeoutShort)
 		if guestCluster {
