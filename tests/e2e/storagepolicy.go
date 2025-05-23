@@ -54,8 +54,7 @@ import (
 // 7. Delete pod and Wait for Volume Disk to be detached from the Node.
 // 8. Delete PVC, PV and Storage Class.
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
-	"Storage Policy Based Volume Provisioning", func() {
+var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 
 	f := framework.NewDefaultFramework("e2e-spbm-policy")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
@@ -91,8 +90,9 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		}
 	})
 
-	ginkgo.It("[csi-supervisor] [csi-guest] Verify dynamic volume provisioning works "+
-		"when storage policy specified in the storageclass is compliant for shared datastores", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-supervisor] [csi-guest] Verify dynamic "+
+		"volume provisioning works when storage policy specified in the storageclass "+
+		"is compliant for shared datastores", func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		ginkgo.By(fmt.Sprintf("Invoking test for storage policy: %s", storagePolicyNameForSharedDatastores))
 		scParameters := make(map[string]string)
@@ -115,8 +115,9 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			namespace, scParameters, storagePolicyNameForSharedDatastores)
 	})
 
-	ginkgo.It("[csi-supervisor] [csi-guest] Verify dynamic volume provisioning fails "+
-		"when storage policy specified in the storageclass is compliant for non-shared datastores", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-supervisor] [csi-guest] Verify dynamic "+
+		"volume provisioning fails when storage policy specified in the storageclass is compliant "+
+		"for non-shared datastores", func() {
 		storagePolicyNameForNonSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForNonSharedDatastores)
 		ginkgo.By(fmt.Sprintf("Invoking test for storage policy: %s", storagePolicyNameForNonSharedDatastores))
 		scParameters := make(map[string]string)
@@ -163,8 +164,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 
 	})
 
-	ginkgo.It("Verify non-existing SPBM policy is not honored for dynamic volume provisioning "+
-		"using storageclass", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify non-existing SPBM policy is not honored "+
+		"for dynamic volume provisioning using storageclass", func() {
 		ginkgo.By(fmt.Sprintf("Invoking test for SPBM policy: %s", f.Namespace.Name))
 		scParameters := make(map[string]string)
 		scParameters[scParamStoragePolicyName] = f.Namespace.Name
