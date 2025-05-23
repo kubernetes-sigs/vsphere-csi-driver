@@ -1281,7 +1281,7 @@ func fullSyncGetVolumeSpecs(ctx context.Context, vCenterVersion string, pvList [
 		switch operationType {
 		case "createVolume":
 			var volumeType string
-			if IsMultiAttachAllowed(pv) {
+			if IsFileVolume(pv) {
 				// We should never reach here in case of multi VC deployment as file share volumes are already filtered out.
 				volumeType = common.FileVolumeType
 			} else {
@@ -1314,7 +1314,7 @@ func fullSyncGetVolumeSpecs(ctx context.Context, vCenterVersion string, pvList [
 			// to update this volume.
 			log.Debugf("FullSync for VC %s: Volume with id %q added to volume update list", vc, volumeHandle)
 			var volumeType string
-			if IsMultiAttachAllowed(pv) {
+			if IsFileVolume(pv) {
 				// We should never reach here in case of multi VC deployment as file share volumes are already filtered out.
 				volumeType = common.FileVolumeType
 			} else {
