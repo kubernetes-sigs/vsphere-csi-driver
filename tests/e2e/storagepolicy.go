@@ -168,14 +168,14 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 		"for dynamic volume provisioning using storageclass", func() {
 		ginkgo.By(fmt.Sprintf("Invoking test for SPBM policy: %s", f.Namespace.Name))
 		scParameters := make(map[string]string)
-		scParameters[scParamStoragePolicyName] = f.Namespace.Name
+		scParameters[scParamStoragePolicyName] = "storagepolicyname"
 		var expectedErrorMsg string
 		pvc := invokeInvalidPolicyTestNeg(client, namespace, scParameters, scParamStoragePolicyName, pollTimeoutShort)
 		if guestCluster {
 			expectedErrorMsg = "Volume parameter StoragePolicyName is not a valid GC CSI parameter"
 
 		} else {
-			expectedErrorMsg = "no pbm profile found with name: \"" + f.Namespace.Name + "\""
+			expectedErrorMsg = "failed to provision volume with StorageClass"
 		}
 		isFailureFound := checkEventsforError(client, namespace,
 			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvc.Name)}, expectedErrorMsg)
