@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
@@ -138,6 +139,8 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		k8sVersion = v.Major + "." + v.Minor
 
 		if isVsanHealthServiceStopped {
+			vCenterHostname := strings.Split(e2eVSphere.Config.Global.VCenterHostname, ",")
+			vcAddress := vCenterHostname[0] + ":" + sshdPort
 			framework.Logf("Bringing vsanhealth up before terminating the test")
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
@@ -271,7 +274,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 	ginkgo.It("Put some ESX hosts from remote cluster into maintenance "+
 		"mode with EvacuateAlldata", ginkgo.Label(p1, file, vanilla,
-		level5, level2, newTest, disruptive), func() {
+		level5, level2, newTest, disruptive, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -445,7 +448,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 	*/
 
 	ginkgo.It("Partial bring down remote cluster and set remote datastore url in sc", ginkgo.Label(p1, file, vanilla,
-		level5, level2, newTest, disruptive), func() {
+		level5, level2, newTest, disruptive, negative, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -601,7 +604,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 	ginkgo.It("Psod all esxi hosts on hci remote cluster where "+
 		"remote datastore is pass in sc", ginkgo.Label(p1, file, vanilla,
-		level5, level2, newTest, disruptive), func() {
+		level5, level2, newTest, disruptive, negative, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -827,7 +830,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		13. Perform deployment scale up and verify scaleup should go fine.
 		14. Perform cleanup by deleting Pods, PVCs and SC.
 	*/
-	ginkgo.It("vsan partition in remote hci cluster", ginkgo.Label(p0, block, vanilla, hci), func() {
+	ginkgo.It("vsan partition in remote hci cluster", ginkgo.Label(p0, block, vanilla, hci, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -951,7 +954,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 	*/
 
 	ginkgo.It("Any single host isolation from the multicluster hci setup ", ginkgo.Label(p1, file, vanilla,
-		level5, level2, newTest, disruptive), func() {
+		level5, level2, newTest, disruptive, negative, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1090,7 +1093,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 	ginkgo.It("Power off worker nodes in a k8s cluster having hci mesh "+
 		"datastore tagged in sc", ginkgo.Label(p1, file, vanilla,
-		level5, level2, newTest, disruptive), func() {
+		level5, level2, newTest, disruptive, negative, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1267,7 +1270,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 	*/
 
 	ginkgo.It("Full site down of Az2 when remote datastore url is passed in sc", ginkgo.Label(p1, file, vanilla,
-		level5, level2, newTest, disruptive), func() {
+		level5, level2, newTest, disruptive, negative, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1425,7 +1428,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 	ginkgo.It("Full site down of Az2 and partial site down of "+
 		"remote Az where remote ds url is passed in sc", ginkgo.Label(p1, file, vanilla,
-		level5, level2, newTest, disruptive), func() {
+		level5, level2, newTest, disruptive, negative, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1614,7 +1617,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 	*/
 
 	ginkgo.It("Partial multiple sites down and remote site fully down", ginkgo.Label(p1, file, vanilla,
-		level5, level2, newTest, disruptive), func() {
+		level5, level2, newTest, disruptive, negative, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1799,7 +1802,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 
 	ginkgo.It("Psod all esxi hosts on Az2 and Az3 and in between rwx volume "+
 		"creation and workload creation", ginkgo.Label(p1, file, vanilla,
-		level5, level2, newTest, disruptive), func() {
+		level5, level2, newTest, disruptive, negative, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2049,7 +2052,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 	*/
 
 	ginkgo.It("Operation storm with workload creation on scale", ginkgo.Label(p1, file, vanilla,
-		level5, level2, newTest, disruptive), func() {
+		level5, level2, newTest, disruptive, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2215,6 +2218,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		defer func() {

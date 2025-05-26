@@ -64,6 +64,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 		cnsopC                     ctlrclient.Client
 		isVsanHealthServiceStopped bool
 		isSPSserviceStopped        bool
+		vcAddress                  string
 		nodeList                   *v1.NodeList
 	)
 
@@ -85,7 +86,9 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
 		initialiseFdsVar(ctx)
 
+		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		vcRestSessionId = createVcSession4RestApis(ctx)
+		//csiNs = GetAndExpectStringEnvVar(envCSINamespace)
 
 		storageClassName = strings.ReplaceAll(storagePolicyName, " ", "-") // since this is a wcp setup
 		storageClassName = strings.ToLower(storageClassName)
@@ -96,9 +99,8 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 		framework.Logf("dsmoId: %v", dsRef.Value)
 
 		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-		contentLibId, err := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
-			dsRef.Value)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		contentLibId := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
+			dsRef.Value, GetAndExpectStringEnvVar(envContentLibraryUrlSslThumbprint))
 
 		framework.Logf("Create a WCP namespace for the test")
 		vmClass = os.Getenv(envVMClass)

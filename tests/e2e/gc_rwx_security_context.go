@@ -101,7 +101,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		25. Verify CnsVolumeMetadata CRD is deleted
 		26. Verify volume is deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify Pod with SecurityContext can be created with PVC", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify Pod with SecurityContext can be created with PVC", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclasspvc *storagev1.StorageClass
@@ -301,7 +301,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		25. Verify CnsVolumeMetadata CRD is deleted
 		26. Verify volumes are deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify Pod with restricted permission to use files on PVC", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify Pod with restricted permission to use files on PVC", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclasspvc *storagev1.StorageClass
@@ -483,7 +483,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		4. Verify the error message on the failure
 		5. Delete PVC
 	*/
-	ginkgo.It("[rwm-csi-tkg] Exceed resource quota while provisioning file volume", func() {
+	ginkgo.It("[rwm-csi-tkg] Exceed resource quota while provisioning file volume", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclasspvc *storagev1.StorageClass
@@ -538,7 +538,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		18. Verify CnsVolumeMetadata CRD is deleted
 		19. Verify volumes are deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify PVC creation without storage class", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify PVC creation without storage class", ginkgo.Label(p1, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pvclaim *v1.PersistentVolumeClaim
@@ -660,7 +660,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", func() {
 		4. Verify the error message on the failure
 		5. Delete PVC
 	*/
-	ginkgo.It("[rwm-csi-tkg] Exceed resource quota on default SC while provisioning file volume", func() {
+	ginkgo.It("[rwm-csi-tkg] Exceed resource quota on default SC while provisioning file volume", ginkgo.Label(p1, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pvclaim *v1.PersistentVolumeClaim

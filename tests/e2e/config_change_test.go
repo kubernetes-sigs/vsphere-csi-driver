@@ -77,7 +77,7 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		// Create Storage class and PVC
 		ginkgo.By("Creating Storage Class and PVC")
 		_, pvc, err := createPVCAndStorageClass(ctx, client, namespace, nil,
-			scParameters, "", nil, "", true, "", storagePolicyName)
+			scParameters, "", nil, "", false, "", storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
@@ -100,6 +100,7 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Changing password on the vCenter host"))
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		username := vsphereCfg.Global.User
 		currentPassword := vsphereCfg.Global.Password
 		newPassword := e2eTestPassword

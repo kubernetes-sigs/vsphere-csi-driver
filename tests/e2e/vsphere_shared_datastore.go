@@ -26,7 +26,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
@@ -105,7 +104,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		}()
 		ginkgo.By("Expect claim to pass provisioning volume as shared datastore")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx,
-			v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
+			v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			fmt.Sprintf("Failed to provision volume on shared datastore with err: %v", err))
 	})
@@ -176,7 +175,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
-				namespace, nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
+				namespace, nil, scParameters, diskSize, nil, "", false, "", storagePolicyName)
 		} else if vanillaCluster {
 			scParameters[scParamFsType] = ext4FSType
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
@@ -279,8 +278,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 
 		// Check Pod status after recreating Storage class with different binding mode
 		ginkgo.By("Verify Pod status after recreating Storage class with different binding mode")
-		pod_status := fpod.VerifyPodsRunning(ctx, client, namespace, pod.Name,
-			labels.SelectorFromSet(map[string]string{"name": pod.Name}), true, 0)
+		pod_status := fpod.VerifyPodsRunning(ctx, client, namespace, pod.Name, true, 0)
 		if pod.Status.Phase == v1.PodRunning {
 			framework.Logf("Pod is in Running state after recreating Storage Class")
 		}

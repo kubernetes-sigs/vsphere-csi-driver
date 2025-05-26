@@ -138,7 +138,6 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 	f *framework.Framework) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var err error
 
 	ginkgo.By("CNS_TEST: Running for GC setup")
 	nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
@@ -148,6 +147,7 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 	}
 
 	ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", serviceName))
+	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 	err = invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	isServiceStopped = true
@@ -221,8 +221,7 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 	}
 
-	pods, err := fss.GetPodList(ctx, client, statefulset)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	pods := fss.GetPodList(ctx, client, statefulset)
 	for _, pod := range pods.Items {
 		if pod.Status.Phase != v1.PodPending {
 			framework.Failf("Expected pod to be in: %s state but is in: %s state", v1.PodPending,
@@ -451,8 +450,7 @@ func verifyVolumeMetadataOnStatefulsets(client clientset.Interface, ctx context.
 	if !windowsEnv {
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 	}
-	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -493,15 +491,14 @@ func verifyVolumeMetadataOnStatefulsets(client clientset.Interface, ctx context.
 	}
 
 	replicas = 5
-	framework.Logf("Scaling up statefulset: %v to number of Replica: %v",
-		statefulset.Name, replicas)
+	framework.Logf(fmt.Sprintf("Scaling up statefulset: %v to number of Replica: %v",
+		statefulset.Name, replicas))
 	_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 	gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 
 	fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-	ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 	gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -530,8 +527,8 @@ func verifyVolumeMetadataOnStatefulsets(client clientset.Interface, ctx context.
 				verifyAnnotationsAndNodeAffinity(allowedTopologyHAMap, categories, pod,
 					nodeList, svcPVC, pv, svcPVCName)
 
-				framework.Logf("Verify volume: %s is attached to the node: %s",
-					pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
+				framework.Logf(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+					pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
 				var vmUUID string
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
@@ -711,14 +708,9 @@ func getClusterNameFromZone(ctx context.Context, availabilityZone string) string
 	cmd := fmt.Sprintf("dcli +username %s +password %s +skip +show com vmware "+
 		"vcenter consumptiondomains zones cluster associations get --zone "+
 		"%s", adminUser, nimbusGeneratedVcPwd, availabilityZone)
-
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(vcAddress)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
-
-	framework.Logf("Invoking command %v on vCenter host %v", cmd, addr)
-	result, err := fssh.SSH(ctx, cmd, addr, framework.TestContext.Provider)
+	vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+	framework.Logf("Invoking command %v on vCenter host %v", cmd, vcAddress)
+	result, err := fssh.SSH(ctx, cmd, vcAddress, framework.TestContext.Provider)
 	framework.Logf("result: %v", result)
 	clusterId := strings.Split(result.Stdout, "- ")[1]
 	clusterID := strings.TrimSpace(clusterId)
@@ -896,8 +888,7 @@ func verifyStsVolumeMetadata(client clientset.Interface, ctx context.Context, na
 	if !windowsEnv {
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 	}
-	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -934,8 +925,8 @@ func verifyStsVolumeMetadata(client clientset.Interface, ctx context.Context, na
 					pv, pod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				framework.Logf("Verify volume: %s is attached to the node: %s",
-					pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
+				framework.Logf(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+					pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
 				var vmUUID string
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()

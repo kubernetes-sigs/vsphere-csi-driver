@@ -81,7 +81,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Basic File Volume Provision Test", func()
 		9. Delete pod and confirm the CnsFileAccessConfig is deleted
 		10. Delete PVC, PV and Storage Class
 	*/
-	ginkgo.It("Verify Basic RWX volume provision", func() {
+	ginkgo.It("Verify Basic RWX volume provision", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -188,7 +188,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Basic File Volume Provision Test", func()
 		13. Delete PVC, PV and Storage Class.
 	*/
 
-	ginkgo.It("Verify RWX volume can be accessed by multiple pods", func() {
+	ginkgo.It("Verify RWX volume can be accessed by multiple pods", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -334,7 +334,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Basic File Volume Provision Test", func()
 		13. Delete PVC, PV and Storage Class
 	*/
 
-	ginkgo.It("Verify RWX volume can be accessed by multiple pods - pod1 deleted before pvc used in pod2", func() {
+	ginkgo.It("Verify RWX volume can be accessed by multiple pods - pod1 deleted before pvc used in pod2", ginkgo.Label(p0, file, tkg, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

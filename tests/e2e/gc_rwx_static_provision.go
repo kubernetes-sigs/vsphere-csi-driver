@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume static Provision Test", func(
 		19. Delete PVC, PV and Storage Class.
 	*/
 
-	ginkgo.It("Verify RWX Static volume provision - Pod 1 & 2 are using the volume at the same time", func() {
+	ginkgo.It("Verify RWX Static volume provision - Pod 1 & 2 are using the volume at the same time", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -270,7 +270,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume static Provision Test", func(
 		16. Delete PVC, PV and Storage Class
 	*/
 
-	ginkgo.It("Verify RWX Static volume provision - Pod 1 deleted before volume used in Pod 2", func() {
+	ginkgo.It("Verify RWX Static volume provision - Pod 1 deleted before volume used in Pod 2", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

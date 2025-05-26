@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 	// 18. Delete PVC created in step 6.
 	// 19. Delete PV leftover in GC.
 	// 20. Delete SC created in step 1.
-	ginkgo.It("PV with reclaim policy can be reused and resized with pod", func() {
+	ginkgo.It("PV with reclaim policy can be reused and resized with pod", ginkgo.Label(p0, block, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Create a Pod to use this PVC, and verify volume has been attached.
@@ -412,7 +412,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 	// 16. delete SC created in step 1 and step 7.
 	// 17. delete GC2.
 	// Steps 6 and 17 need to run manually before and after this suite.
-	ginkgo.It("PV with reclaim policy retain can be resized when used in a fresh GC", func() {
+	ginkgo.It("PV with reclaim policy retain can be resized when used in a fresh GC", ginkgo.Label(p1, block, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		newGcKubconfigPath := os.Getenv("NEW_GUEST_CLUSTER_KUBE_CONFIG")
@@ -669,7 +669,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 		15. Delete SC
 
 	*/
-	ginkgo.It("Verify online volume expansion when PV with reclaim policy is reused to create PVC", func() {
+	ginkgo.It("Verify online volume expansion when PV with reclaim policy is reused to create PVC", ginkgo.Label(p0, block, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -833,7 +833,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 	//    16. delete SC created in step 1 and step 7.
 	//    17. delete GC1.
 
-	ginkgo.It("online volume expansion-PV with reclaim policy retain can be resized when used in a fresh GC", func() {
+	ginkgo.It("online volume expansion-PV with reclaim policy retain can be resized when used in a fresh GC", ginkgo.Label(p1, block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -994,7 +994,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 	// 12. Delete POD, PVC, PV and SC
 
 	ginkgo.It("Offline resize of PVC in GC1, Delete PVC and PV in GC1. Statically "+
-		"prov same PVC and PV in GC1 and deploy a Pod and trigger online volume expansion", func() {
+		"prov same PVC and PV in GC1 and deploy a Pod and trigger online volume expansion", ginkgo.Label(p1, block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

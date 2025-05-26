@@ -44,6 +44,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		storagePolicyName string
 		scParameters      map[string]string
 		isVcRebooted      bool
+		vcAddress         string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -57,6 +58,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
+		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 
@@ -119,7 +121,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
-				namespace, nil, scParameters, "", nil, "", true, "", storagePolicyName)
+				namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
 		} else if stretchedSVC {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			zonalPolicy := GetAndExpectStringEnvVar(envZonalStoragePolicyName)
@@ -195,7 +197,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		err = invokeVCenterReboot(ctx, vcAddress)
 		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(vcAddress)
+		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 		var essentialServices []string

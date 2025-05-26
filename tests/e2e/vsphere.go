@@ -60,6 +60,8 @@ var (
 const (
 	providerPrefix  = "vsphere://"
 	virtualDiskUUID = "virtualDiskUUID"
+	// cnsDevVersion is the CNS API development version
+	cnsDevVersion = "dev.version"
 )
 
 // queryCNSVolumeWithResult Call CnsQueryVolume and returns CnsQueryResult to client

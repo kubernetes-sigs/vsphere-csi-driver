@@ -156,7 +156,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
-				scParameters, "", nil, "", true, "", storagePolicyName)
+				scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -292,9 +292,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 			nodeNameOfvSphereCSIControllerPod, nodeNameIPMap[nodeNameOfvSphereCSIControllerPod]))
 
 		sshCmd := "systemctl stop kubelet.service"
-		ip, portNum, err := getPortNumAndIP(nodeNameOfvSphereCSIControllerPod)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		host := nodeNameIPMap[ip] + ":" + portNum
+		host := nodeNameIPMap[nodeNameOfvSphereCSIControllerPod] + ":22"
 		ginkgo.By(fmt.Sprintf("Invoking command %+v on host %+v", sshCmd, host))
 		result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
 		ginkgo.By(fmt.Sprintf("%s returned result %s", sshCmd, result.Stdout))
@@ -338,7 +336,7 @@ func getControllerRuntimeDetails(client clientset.Interface, nameSpace string) (
 	var podNameList []string
 	for _, pod := range pods.Items {
 		if strings.HasPrefix(pod.Name, vSphereCSIControllerPodNamePrefix) {
-			framework.Logf("Found vSphereCSIController pod %s PodStatus %s", pod.Name, pod.Status.Phase)
+			framework.Logf(fmt.Sprintf("Found vSphereCSIController pod %s PodStatus %s", pod.Name, pod.Status.Phase))
 			nodeNameList = append(nodeNameList, pod.Spec.NodeName)
 			podNameList = append(podNameList, pod.Name)
 		}

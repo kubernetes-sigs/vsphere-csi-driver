@@ -334,7 +334,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		err = client.CoreV1().Namespaces().Delete(ctx, namespace, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		err = waitForNamespaceToGetDeleted(ctx, client, namespace, healthStatusPollInterval, k8sPodTerminationTimeOutLong)
+		err = waitForNamespaceToGetDeleted(ctx, client, namespace, pollTimeout, k8sPodTerminationTimeOutLong)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify the volumes are deleted from CNS")

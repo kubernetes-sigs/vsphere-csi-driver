@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		36. Verify CnsVolumeMetadata CRD is deleted
 		37. Check if the VolumeID is deleted from CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify Reclaim Policy Retain with file volume", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify Reclaim Policy Retain with file volume", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -132,7 +132,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC %q", pvcUID)
+		framework.Logf("PVC UUID in GC " + pvcUID)
 
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
@@ -330,16 +330,16 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		}()
 
 		gcClusterID := strings.Replace(pvcNameInSV, pvcUID, "", -1)
-		framework.Logf("gcClusterId %q", gcClusterID)
+		framework.Logf("gcClusterId " + gcClusterID)
 
 		pvUID := string(pv.UID)
-		framework.Logf("PV uuid %q", pvUID)
+		framework.Logf("PV uuid " + pvUID)
 
 		pv2UID := string(pv2.UID)
-		framework.Logf("PV2 uuid %q", pv2UID)
+		framework.Logf("PV2 uuid " + pv2UID)
 
 		pod2UID := string(pod2.UID)
-		framework.Logf("Pod uuid %q:", pod2UID)
+		framework.Logf("Pod uuid : " + pod2UID)
 
 		//Add a check to validate CnsVolumeMetadata crd
 		verifyCRDInSupervisorWithWait(ctx, f, pvcNameInSV, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
@@ -388,7 +388,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		18. Verify CnsVolumeMetadata CRD is deleted
 		19. Check if the VolumeID is deleted from CNS by using CNSQuery API
 	*/
-	ginkgo.It("Verify ReadWriteOnce PVC is not usable as ReadWriteMany", func() {
+	ginkgo.It("Verify ReadWriteOnce PVC is not usable as ReadWriteMany", ginkgo.Label(p0, file, tkg, vc70), ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -508,7 +508,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		22. Verify CnsVolumeMetadata CRD is deleted
 		23. Check if the VolumeID is deleted from CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify ReadWriteMany PVC is usable by another PVC as static provision", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify ReadWriteMany PVC is usable by another PVC as static provision", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -524,7 +524,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC %q", pvcUID)
+		framework.Logf("PVC UUID in GC " + pvcUID)
 
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
@@ -633,16 +633,16 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
 		}()
 
 		gcClusterID := strings.Replace(pvcNameInSV, pvcUID, "", -1)
-		framework.Logf("gcClusterId %q", gcClusterID)
+		framework.Logf("gcClusterId " + gcClusterID)
 
 		pvUID := string(persistentvolumes[0].UID)
-		framework.Logf("PV uuid %q", pvUID)
+		framework.Logf("PV uuid " + pvUID)
 
 		pv2UID := string(pv2.UID)
-		framework.Logf("PV2 uuid %q", pv2UID)
+		framework.Logf("PV2 uuid " + pv2UID)
 
 		podUID := string(pod.UID)
-		framework.Logf("Pod uuid : %q", podUID)
+		framework.Logf("Pod uuid : " + podUID)
 
 		//Add a check to validate CnsVolumeMetadata crd
 		verifyCRDInSupervisorWithWait(ctx, f, pvcNameInSV, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)

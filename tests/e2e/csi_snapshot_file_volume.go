@@ -82,7 +82,7 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 		3. Should fail with an appropriate error
 	*/
 	ginkgo.It("Snapshot creation on a file-share volume - expect to fail", ginkgo.Label(p1, block, vanilla,
-		snapshot, negative), func() {
+		snapshot, negative, vc70, vc80, vc90), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

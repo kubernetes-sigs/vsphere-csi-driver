@@ -146,6 +146,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		vcpPvcsPreMig = []*v1.PersistentVolumeClaim{}
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
 
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 			err = invokeVCenterServiceControl(ctx, "start", vsanhealthServiceName, vcAddress)
@@ -750,8 +752,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -780,8 +781,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown, err = fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown = fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -791,8 +791,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		_, scaledownErr := fss.Scale(ctx, client, statefulset, 1)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 1)
-		ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == 1).To(gomega.BeTrue(),
@@ -805,8 +804,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		_, scaledUpErr := fss.Scale(ctx, client, statefulset, 4)
 		gomega.Expect(scaledUpErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 4)
-		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == 4).To(gomega.BeTrue(),
@@ -827,8 +825,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 		_, scaledownErr2 := fss.Scale(ctx, client, statefulset, 0)
 		gomega.Expect(scaledownErr2).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 0)
-		ssPodsAfterScaleDown2, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleDown2 := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown2.Items) == 0).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 		fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -1516,8 +1513,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 			ginkgo.By("Creating statefulset and waiting for the replicas to be ready")
 			CreateStatefulSet(ns.Name, statefulset, client)
 			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-			ssPods, err := fss.GetPodList(ctx, client, statefulset)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ssPods := fss.GetPodList(ctx, client, statefulset)
 			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPods.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -1560,8 +1556,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 			ginkgo.By("Creating statefulset and waiting for the replicas to be ready")
 			CreateStatefulSet(ns.Name, statefulset, client)
 			gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-			ssPods, err := fss.GetPodList(ctx, client, statefulset)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ssPods := fss.GetPodList(ctx, client, statefulset)
 			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPods.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -1592,8 +1587,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 				_, scaledownErr2 := fss.Scale(ctx, client, statefulset, 0)
 				gomega.Expect(scaledownErr2).NotTo(gomega.HaveOccurred())
 				fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 0)
-				ssPodsAfterScaleDown2, err := fss.GetPodList(ctx, client, statefulset)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				ssPodsAfterScaleDown2 := fss.GetPodList(ctx, client, statefulset)
 				gomega.Expect(len(ssPodsAfterScaleDown2.Items) == 0).To(gomega.BeTrue(),
 					"Number of Pods in the statefulset should match with number of replicas")
 				err = client.AppsV1().StatefulSets(ns.Name).Delete(ctx,
@@ -1890,15 +1884,9 @@ func waitForCnsVSphereVolumeMigrationCrd(
 
 // createDir create a directory on the test esx host
 func createDir(ctx context.Context, path string, host string) error {
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
-
 	sshCmd := fmt.Sprintf("mkdir -p %s", path)
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
-
-	result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
+	result, err := fssh.SSH(ctx, sshCmd, host+":22", framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: '%s' on ESX host: %v", sshCmd, err)
@@ -1922,15 +1910,10 @@ func createVmdk(ctx context.Context, host string, size string, objType string, d
 		size = "2g"
 	}
 
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
-
 	vmdkPath := fmt.Sprintf("%s/test-%v-%v.vmdk", dir, time.Now().UnixNano(), rand.Intn(1000))
 	sshCmd := fmt.Sprintf("vmkfstools -c %s -d %s -W %s %s", size, diskFormat, objType, vmdkPath)
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
-	result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
+	result, err := fssh.SSH(ctx, sshCmd, host+":22", framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return vmdkPath, fmt.Errorf("couldn't execute command: '%s' on ESX host: %v", sshCmd, err)
@@ -1940,13 +1923,9 @@ func createVmdk(ctx context.Context, host string, size string, objType string, d
 
 // createVmdk deletes given vmdk
 func deleteVmdk(ctx context.Context, host string, vmdkPath string) error {
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
 	sshCmd := fmt.Sprintf("rm -f %s", vmdkPath)
 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
-	result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
+	result, err := fssh.SSH(ctx, sshCmd, host+":22", framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: '%s' on ESX host: %v", sshCmd, err)

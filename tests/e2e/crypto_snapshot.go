@@ -27,9 +27,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
-	vmopv2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	vmopv3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
-	vmopv4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -131,9 +129,7 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume snapshot enc
 		}
 		vmopScheme := runtime.NewScheme()
 		gomega.Expect(vmopv1.AddToScheme(vmopScheme)).Should(gomega.Succeed())
-		gomega.Expect(vmopv2.AddToScheme(vmopScheme)).Should(gomega.Succeed())
 		gomega.Expect(vmopv3.AddToScheme(vmopScheme)).Should(gomega.Succeed())
-		gomega.Expect(vmopv4.AddToScheme(vmopScheme)).Should(gomega.Succeed())
 		vmopClient, err = ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: vmopScheme})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
@@ -177,7 +173,7 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume snapshot enc
 		4. Create a dynamic volume snapshot from PVC [3]
 		5. Create PVC with EncryptionClass [2] from snapshot [4]
 	*/
-	ginkgo.It("Verify PVC from snapshot is recrypted with the same EncryptionClass", func() {
+	ginkgo.It("Verify PVC from snapshot is recrypted with the same EncryptionClass", ginkgo.Label(p1, wcp, negative, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -222,7 +218,7 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume snapshot enc
 		6. Create second EncryptionClass with encryption key [5]
 		7. Create PVC with EncryptionClass [6] from snapshot [4]
 	*/
-	ginkgo.It("Verify PVC from snapshot is recrypted with different EncryptionClass", func() {
+	ginkgo.It("Verify PVC from snapshot is recrypted with different EncryptionClass", ginkgo.Label(p1, wcp, negative, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -272,7 +268,7 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume snapshot enc
 		4. Create a dynamic volume snapshot from PVC [3]
 		5. Create PVC with EncryptionClass [2] from snapshot [4]
 	*/
-	ginkgo.It("Verify PVC from snapshot is encrypted with EncryptionClass", func() {
+	ginkgo.It("Verify PVC from snapshot is encrypted with EncryptionClass", ginkgo.Label(p1, wcp, negative, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -314,7 +310,7 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume snapshot enc
 		4. Create a dynamic volume snapshot from PVC [3]
 		5. Create PVC without encryption from snapshot [4]
 	*/
-	ginkgo.It("Verify PVC from snapshot is decrypted", func() {
+	ginkgo.It("Verify PVC from snapshot is decrypted", ginkgo.Label(p1, wcp, negative, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

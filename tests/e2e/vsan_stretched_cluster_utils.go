@@ -226,14 +226,9 @@ func waitForHostToBeDown(ctx context.Context, ip string) error {
 	framework.Logf("checking host status of %s", ip)
 	gomega.Expect(ip).NotTo(gomega.BeNil())
 	gomega.Expect(ip).NotTo(gomega.BeEmpty())
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(ip)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
-
 	waitErr := wait.PollUntilContextTimeout(ctx, poll*2, pollTimeoutShort*2, true,
 		func(ctx context.Context) (bool, error) {
-			_, err := net.DialTimeout("tcp", addr, poll)
+			_, err := net.DialTimeout("tcp", ip+":22", poll)
 			if err == nil {
 				framework.Logf("host is reachable")
 				return false, nil
@@ -385,7 +380,7 @@ func runCmdOnHostsInParallel(hostIP string, sshCmd string, wg *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	op, err := runCommandOnESX("root", hostIP, sshCmd)
-	framework.Logf("%q", op)
+	framework.Logf(op)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
@@ -474,8 +469,8 @@ func updatePvcLabelsInParallel(ctx context.Context, client clientset.Interface, 
 	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	for _, pvc := range pvclaims {
-		framework.Logf("Updating labels %+v for pvc %s in namespace %s",
-			labels, pvc.Name, namespace)
+		framework.Logf(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s",
+			labels, pvc.Name, namespace))
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvc.Labels = labels
@@ -694,8 +689,7 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 	// Waiting for pods status to be Ready
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 	gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 		"Unable to get list of Pods from the Statefulset: %v", statefulset.Name)
 	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -895,14 +889,13 @@ func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Inte
 	namespace string, statefulset *appsv1.StatefulSet, ssPodsBeforeScaleDown *v1.PodList,
 	replicas int32, isScaleDownRequired bool, verifyCnsVolumes bool) {
 	if isScaleDownRequired {
-		framework.Logf("Scaling down statefulset: %v to number of Replica: %v",
-			statefulset.Name, replicas)
+		framework.Logf(fmt.Sprintf("Scaling down statefulset: %v to number of Replica: %v",
+			statefulset.Name, replicas))
 		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 	}
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-	ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 	gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -995,16 +988,15 @@ func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interf
 	namespace string, statefulset *appsv1.StatefulSet,
 	replicas int32, isScaleUpRequired bool, verifyCnsVolumes bool) {
 	if isScaleUpRequired {
-		framework.Logf("Scaling up statefulset: %v to number of Replica: %v",
-			statefulset.Name, replicas)
+		framework.Logf(fmt.Sprintf("Scaling up statefulset: %v to number of Replica: %v",
+			statefulset.Name, replicas))
 		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 	}
 
 	fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-	ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 	gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 	gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -1023,8 +1015,8 @@ func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interf
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
-					framework.Logf("Verify volume: %s is attached to the node: %s",
-						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
+					framework.Logf(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
 					var vmUUID, volHandle string
 					var exists bool
 					ctx, cancel := context.WithCancel(context.Background())
@@ -1263,7 +1255,7 @@ func checkForEventWithMessage(client clientset.Interface, namespace string,
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	eventFound := false
-	framework.Logf("Checking for error in events related to %q", name)
+	framework.Logf("Checking for error in events related to " + name)
 	eventList, _ := client.CoreV1().Events(namespace).List(ctx,
 		metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", name)})
 	for _, item := range eventList.Items {
@@ -1344,76 +1336,5 @@ func createDynamicSnapshotInParallel(ctx context.Context, namespace string,
 		lock.Unlock()
 		framework.Logf("Volume snapshot name is : %s", snapshot.Name)
 	}
-}
 
-// makeHostLoseStorageWithOtherHosts causes or removes network fault on a particular host
-func makeHostLoseStorageConnectivityWithOtherHosts(esxHosts []string, causeNetworkFailure bool) {
-	var wg sync.WaitGroup
-	if causeNetworkFailure {
-		framework.Logf("Creating a Network Failure with other hosts")
-		sshCmd := "localcli network firewall set --enabled true;"
-		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id cmmds;"
-		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id rdt;"
-		sshCmd += "localcli network firewall ruleset set --allowed-all 0 --ruleset-id fdm;"
-
-		wg.Add(len(esxHosts))
-		for _, host := range esxHosts {
-			go runCmdOnHostsInParallel(host, sshCmd, &wg)
-		}
-		wg.Wait()
-
-		for i := range esxHosts {
-			sshCmd = ""
-			remainingHosts := append(esxHosts[:i], esxHosts[i+1:]...)
-			for _, host := range remainingHosts {
-				sshCmd = fmt.Sprintf("localcli network firewall ruleset allowedip add -i %s -r rdt;", host)
-				sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip add -i %s -r cmmds;", host)
-				sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip add -i %s -r fdm;", host)
-			}
-			_, err := runCommandOnESX(rootUser, esxHosts[i], sshCmd)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
-		sshCmd = "vsish -e set /vmkModules/esxfw/globaloptions 1 0 0 0 1"
-
-		wg.Add(len(esxHosts))
-		for _, host := range esxHosts {
-			go runCmdOnHostsInParallel(host, sshCmd, &wg)
-		}
-		wg.Wait()
-
-	} else {
-		framework.Logf("Removing network Failure with other hosts")
-		sshCmd := "localcli network firewall set --enabled false;"
-		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id cmmds;"
-		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id rdt;"
-		sshCmd += "localcli network firewall ruleset set --allowed-all 1 --ruleset-id fdm;"
-
-		wg.Add(len(esxHosts))
-		for _, host := range esxHosts {
-			go runCmdOnHostsInParallel(host, sshCmd, &wg)
-		}
-		wg.Wait()
-
-		for i := range esxHosts {
-			sshCmd = ""
-			remainingHosts := append(esxHosts[:i], esxHosts[i+1:]...)
-			for _, host := range remainingHosts {
-				sshCmd = fmt.Sprintf("localcli network firewall ruleset allowedip remove -i %s -r rdt;", host)
-				sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip remove -i %s -r cmmds;", host)
-				sshCmd += fmt.Sprintf("localcli network firewall ruleset allowedip remove -i %s -r fdm;", host)
-			}
-			_, err := runCommandOnESX(rootUser, esxHosts[i], sshCmd)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-
-		sshCmd = "vsish -e set /vmkModules/esxfw/globaloptions 1 1 0 1 1"
-
-		wg.Add(len(esxHosts))
-		for _, host := range esxHosts {
-			go runCmdOnHostsInParallel(host, sshCmd, &wg)
-		}
-		wg.Wait()
-
-	}
 }

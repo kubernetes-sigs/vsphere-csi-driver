@@ -91,13 +91,8 @@ func connect(ctx context.Context, vs *vSphere, forceRefresh ...bool) {
 
 // newClient creates a new client for vSphere connection.
 func newClient(ctx context.Context, vs *vSphere) *govmomi.Client {
-	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	vCenterIp := vs.Config.Global.VCenterHostname
-	if isPrivateNetwork {
-		vCenterIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
-	}
 	url, err := neturl.Parse(fmt.Sprintf("https://%s:%s/sdk",
-		vCenterIp, vs.Config.Global.VCenterPort))
+		vs.Config.Global.VCenterHostname, vs.Config.Global.VCenterPort))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	url.User = neturl.UserPassword(vs.Config.Global.User, vs.Config.Global.Password)
 	client, err := govmomi.NewClient(ctx, url, true)
@@ -105,6 +100,7 @@ func newClient(ctx context.Context, vs *vSphere) *govmomi.Client {
 	err = client.UseServiceVersion(vsanNamespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	client.RoundTripper = vim25.Retry(client.RoundTripper, vim25.TemporaryNetworkError(roundTripperDefaultCount))
+	client.Version = cnsDevVersion
 	return client
 }
 
@@ -122,6 +118,8 @@ func connectCns(ctx context.Context, vs *vSphere) error {
 	if vs.CnsClient == nil {
 		vs.CnsClient, err = newCnsClient(ctx, vs.Client.Client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vs.CnsClient.Version = cnsDevVersion
+		vs.CnsClient.Client.Version = cnsDevVersion
 	}
 	return nil
 }

@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		22. Check if the VolumeID is deleted from CNS by using CNSQuery API
 		23. Cleanup SC
 	*/
-	ginkgo.It("Verify RWX volumes with Deployment", func() {
+	ginkgo.It("Verify RWX volumes with Deployment", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -279,7 +279,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Deployments", 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verifying whether the CnsFileAccessConfig CRD is Deleted or not for Pod with pvc1")
-		framework.Logf("Looking for the CRD %q", missingPod.Spec.NodeName+"-"+pvc1NameInSV)
+		framework.Logf("Looking for the CRD " + missingPod.Spec.NodeName + "-" + pvc1NameInSV)
 		err = waitTillCNSFileAccesscrdDeleted(ctx, f, missingPod.Spec.NodeName+"-"+pvc1NameInSV,
 			crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

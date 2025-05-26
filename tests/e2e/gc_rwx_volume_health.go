@@ -71,6 +71,7 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 		defer cancel()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 		if isVsanHealthServiceStopped {
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
@@ -93,7 +94,7 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 	   11. Verify CnsVolumeMetadata CRD is deleted
 	   12. Verify volume is deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify RWX volume health is accessible", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify RWX volume health is accessible", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclasspvc *storagev1.StorageClass
@@ -171,7 +172,7 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 	   3. Verify health annotation is not added on the PVC
 	   4. Delete PVC
 	*/
-	ginkgo.It("Verify volume health annotation is not added for PVC in pending", func() {
+	ginkgo.It("Verify volume health annotation is not added for PVC in pending", ginkgo.Label(p1, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclasspvc *storagev1.StorageClass
@@ -231,7 +232,7 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 	   15. Verify CnsVolumeMetadata CRD is deleted
 	   16. Verify volume is deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify RWX volume health is accessible on vsan health service restart", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify RWX volume health is accessible on vsan health service restart", ginkgo.Label(p1, file, tkg, negative, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclasspvc *storagev1.StorageClass
@@ -291,6 +292,7 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
 			CapacityInMb == newSizeInMb).To(gomega.BeTrue(), "Volume Capaticy is not matching")
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", vsanhealthServiceName))
 
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

@@ -44,7 +44,7 @@ func govcLoginCmd() string {
 	loginCmd := "export GOVC_INSECURE=1;"
 	loginCmd += fmt.Sprintf("export GOVC_URL='https://%s:%s@%s:%s';",
 		e2eVSphere.Config.Global.User, e2eVSphere.Config.Global.Password,
-		e2eVSphere.Config.Global.VCenterHostname, defaultVcAdminPortNum)
+		e2eVSphere.Config.Global.VCenterHostname, e2eVSphere.Config.Global.VCenterPort)
 	return loginCmd
 }
 
@@ -280,14 +280,12 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 	multipleAllowedTopology bool, parallelStatefulSetCreation bool, multiVCDsUrls []string) error {
 	counter := 0
 	stsPodCount := 0
-	var err error
 	var dsUrls []string
 	var ssPodsBeforeScaleDown *v1.PodList
 	if parallelStatefulSetCreation {
 		ssPodsBeforeScaleDown = GetListOfPodsInSts(client, statefulset)
 	} else {
-		ssPodsBeforeScaleDown, err = fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown = fss.GetPodList(ctx, client, statefulset)
 	}
 	stsPodCount = len(ssPodsBeforeScaleDown.Items)
 	if !multivc {
@@ -541,7 +539,7 @@ func createTagForPreferredDatastore(masterIp string, sshClientConfig *ssh.Client
 		} else {
 			createTagCat = govcLoginCmdForMultiVC(i) +
 				"govc tags.create -d '" + preferredTagDesc + "' -c " + preferredDSCat + " " + tagName[i]
-			framework.Logf("%q", createTagCat)
+			framework.Logf(createTagCat)
 		}
 		framework.Logf("Creating tag for preferred datastore: %s ", createTagCat)
 		createTagCatRes, err := sshExec(sshClientConfig, masterIp, createTagCat)

@@ -32,7 +32,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -109,7 +108,6 @@ var (
 	pvZone                 string
 	pvRegion               string
 	vmIp2MoMap             map[string]vim25types.ManagedObjectReference
-	vcVersion              string
 )
 
 type TKGCluster struct {
@@ -1435,51 +1433,55 @@ func getPersistentVolumeSpecForRWX(fcdID string, persistentVolumeReclaimPolicy v
 // invokeVCenterReboot invokes reboot command on the given vCenter over SSH.
 func invokeVCenterReboot(ctx context.Context, host string) error {
 	sshCmd := "reboot"
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
-	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, addr)
-	result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
 		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
+	// checking for host to be down
+	err = waitForHostToBeDown(ctx, host)
 	return err
 }
 
 // invokeVCenterServiceControl invokes the given command for the given service
 // via service-control on the given vCenter host over SSH.
 func invokeVCenterServiceControl(ctx context.Context, command, service, host string) error {
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
-
 	sshCmd := fmt.Sprintf("service-control --%s %s", command, service)
-	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, addr)
-	result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
-		return fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", sshCmd, addr, err)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host %v: %v", sshCmd, host, err)
 	}
 	return nil
+}
+
+/*
+isFssEnabled invokes the given command to check if vCenter has a particular FSS enabled or not
+*/
+func isFssEnabled(ctx context.Context, host, fss string) bool {
+	sshCmd := fmt.Sprintf("python /usr/sbin/feature-state-wrapper.py %s", fss)
+	framework.Logf("Checking if fss is enabled on vCenter host %v", host)
+	result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
+	fssh.LogResult(result)
+	if err == nil && result.Code == 0 {
+		return strings.TrimSpace(result.Stdout) == "enabled"
+	} else {
+		ginkgo.By(fmt.Sprintf("couldn't execute command: %s on vCenter host: %v", sshCmd, err))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	return false
 }
 
 // waitVCenterServiceToBeInState invokes the status check for the given service and waits
 // via service-control on the given vCenter host over SSH.
 func waitVCenterServiceToBeInState(ctx context.Context, serviceName string, host string, state string) error {
-
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
-
 	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeoutShort*2, true,
 		func(ctx context.Context) (bool, error) {
 			sshCmd := fmt.Sprintf("service-control --%s %s", "status", serviceName)
-			framework.Logf("Invoking command %v on vCenter host %v", sshCmd, addr)
-			result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
+			framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+			result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
 
 			if err != nil || result.Code != 0 {
 				fssh.LogResult(result)
@@ -1507,20 +1509,14 @@ func checkVcenterServicesRunning(
 	} else {
 		pollTime = timeout[0]
 	}
-
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
-
 	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTime, true,
 		func(ctx context.Context) (bool, error) {
 			var runningServices []string
 			var statusMap = make(map[string]bool)
 			allServicesRunning := true
 			sshCmd := fmt.Sprintf("service-control --%s", statusOperation)
-			framework.Logf("Invoking command %v on vCenter host %v", sshCmd, addr)
-			result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
+			framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+			result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
 			if err != nil || result.Code != 0 {
 				fssh.LogResult(result)
 				return false, fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
@@ -1557,7 +1553,7 @@ func checkVcenterServicesRunning(
 		})
 	gomega.Expect(waitErr).NotTo(gomega.HaveOccurred())
 	// Checking for any extra services which needs to be started if in stopped or pending state after vc reboot
-	err = checkVcServicesHealthPostReboot(ctx, host, timeout...)
+	err := checkVcServicesHealthPostReboot(ctx, host, timeout...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 		"Got timed-out while waiting for all required VC services to be up and running")
 }
@@ -1743,7 +1739,7 @@ func createGC(wcpHost string, wcpToken string, tkgImageName string, clusterName 
 	bodyBytes, statusCode := httpRequest(client, req)
 
 	response := string(bodyBytes)
-	framework.Logf("%q", response)
+	framework.Logf(response)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 201))
 }
 
@@ -1901,7 +1897,7 @@ func getGC(wcpHost string, wcpToken string, gcName string) error {
 			}
 			return false, nil
 		})
-	framework.Logf("%q", response)
+	framework.Logf(response)
 	return waitErr
 }
 
@@ -1977,7 +1973,6 @@ func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, e
 			},
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
-
 		output, err = sshExec(sshClientConfig, windowsWorkerIP, cmd)
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2011,12 +2006,6 @@ func getWindowsFileSystemSize(client clientset.Interface, pod *v1.Pod) (int64, e
 //	Vmon-cli is used to restart the wcp service after changing the time.
 func performPasswordRotationOnSupervisor(client clientset.Interface, ctx context.Context,
 	csiNamespace string, host string) (bool, error) {
-
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	host = ip + ":" + portNum
-
 	// getting supervisorID and password
 	vsphereCfg, err := getSvcConfigSecretData(client, ctx, csiNamespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2196,11 +2185,6 @@ func invokeVCenterChangePassword(ctx context.Context, user, adminPassword, newPa
 		err = os.Remove(path)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
-
 	// Remote copy this input file to VC.
 	if !multivc {
 		copyCmd = fmt.Sprintf("/bin/cat %s | /usr/bin/ssh root@%s '/usr/bin/cat >> input_copy.txt'",
@@ -2217,7 +2201,7 @@ func invokeVCenterChangePassword(ctx context.Context, user, adminPassword, newPa
 		// Remove the input_copy.txt file from VC.
 		if !multivc {
 			removeCmd = fmt.Sprintf("/usr/bin/ssh root@%s '/usr/bin/rm input_copy.txt'",
-				vcAddress)
+				e2eVSphere.Config.Global.VCenterHostname)
 		} else {
 			vCenter := strings.Split(multiVCe2eVSphere.multivcConfig.Global.VCenterHostname, ",")[clientIndex]
 			removeCmd = fmt.Sprintf("/usr/bin/ssh root@%s '/usr/bin/rm input_copy.txt'",
@@ -2229,11 +2213,11 @@ func invokeVCenterChangePassword(ctx context.Context, user, adminPassword, newPa
 
 	sshCmd :=
 		fmt.Sprintf("/usr/bin/cat input_copy.txt | /usr/lib/vmware-vmafd/bin/dir-cli password reset --account %s", user)
-	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, addr)
-	result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
+	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+	result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		fssh.LogResult(result)
-		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v, err: %v", sshCmd, addr, err)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v, err: %v", sshCmd, host, err)
 	}
 	if !strings.Contains(result.Stdout, "Password was reset successfully for ") {
 		framework.Logf("failed to change the password for user %s: %s", user, result.Stdout)
@@ -2949,7 +2933,7 @@ func verifyCNSFileAccessConfigCRDInSupervisor(ctx context.Context,
 				instanceFound = true
 				break
 			} else {
-				framework.Logf("CRD is not matching : %q", instance.Name)
+				framework.Logf("CRD is not matching : " + instance.Name)
 			}
 		}
 	}
@@ -3678,13 +3662,10 @@ func runCommandOnESX(username string, addr string, cmd string) (string, error) {
 		},
 	}
 
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(addr)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	result := fssh.Result{Host: addr, Cmd: cmd}
 
-	result := fssh.Result{Host: ip, Cmd: cmd}
 	// Connect.
-	client, err := ssh.Dial("tcp", net.JoinHostPort(ip, portNum), config)
+	client, err := ssh.Dial("tcp", net.JoinHostPort(addr, sshdPort), config)
 	if err != nil {
 		framework.Logf("connection failed due to %v", err)
 		return "", err
@@ -3714,7 +3695,7 @@ func runCommandOnESX(username string, addr string, cmd string) (string, error) {
 			consider the SSH itself successful and cmd executed successfully on the host.
 			If  exit code is non zero we'll consider the SSH is successful but
 			cmd failed on the host. */
-			framework.Logf("%q", exiterr.Error())
+			framework.Logf(exiterr.Error())
 			if code == 0 {
 				err = nil
 			} else {
@@ -3760,7 +3741,7 @@ func getHostDStatusOnHost(addr string) string {
 	framework.Logf("Running status check on hostd service for the host  %s ...", addr)
 	statusHostDCmd := fmt.Sprintf("/etc/init.d/hostd %s", statusOperation)
 	output, err := runCommandOnESX("root", addr, statusHostDCmd)
-	framework.Logf("hostd status command output is %q:", output)
+	framework.Logf("hostd status command output is : " + output)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return output
 }
@@ -3873,12 +3854,6 @@ func waitForEvent(ctx context.Context, client clientset.Interface,
 func bringSvcK8sAPIServerDown(ctx context.Context, vc string) error {
 	file := "master.txt"
 	token := "token.txt"
-
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(vc)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	vc = ip + ":" + portNum
-
 	// Note: /usr/lib/vmware-wcp/decryptK8Pwd.py is not an officially supported
 	// API and may change at any time.
 	sshCmd := fmt.Sprintf("/usr/lib/vmware-wcp/decryptK8Pwd.py > %s", file)
@@ -3914,12 +3889,6 @@ func bringSvcK8sAPIServerDown(ctx context.Context, vc string) error {
 // k8's manifests directory. It takes VC IP and SV K8's master IP as input.
 func bringSvcK8sAPIServerUp(ctx context.Context, client clientset.Interface,
 	pvclaim *v1.PersistentVolumeClaim, vc, healthStatus string) error {
-
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(vc)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	vc = ip + ":" + portNum
-
 	sshCmd := fmt.Sprintf("sshpass -f token.txt ssh root@$(awk 'FNR == 6 {print $2}' master.txt) "+
 		"-o 'StrictHostKeyChecking no' 'mv /root/%s %s'", kubeAPIfile, kubeAPIPath)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, vc)
@@ -3975,25 +3944,19 @@ func waitForHostToBeUp(ip string, pollInfo ...time.Duration) error {
 	}
 	gomega.Expect(ip).NotTo(gomega.BeNil())
 	dialTimeout := 2 * time.Second
-
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(ip)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
-
 	waitErr := wait.PollUntilContextTimeout(context.Background(), pollInterval, pollTimeOut, true,
 		func(ctx context.Context) (bool, error) {
-			_, err := net.DialTimeout("tcp", addr, dialTimeout)
+			_, err := net.DialTimeout("tcp", ip+":22", dialTimeout)
 			if err != nil {
-				framework.Logf("host %s unreachable, error: %s", addr, err.Error())
+				framework.Logf("host %s unreachable, error: %s", ip, err.Error())
 				return false, nil
 			} else {
-				framework.Logf("host %s is reachable", addr)
+				framework.Logf("host %s is reachable", ip)
 				hostReachableCount += 1
 			}
 			// checking if host is reachable 5 times
 			if hostReachableCount == 5 {
-				framework.Logf("host %s is reachable atleast 5 times", addr)
+				framework.Logf("host %s is reachable atleast 5 times", ip)
 				return true, nil
 			}
 			return false, nil
@@ -4173,13 +4136,8 @@ func toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx context.Context,
 
 // sshExec runs a command on the host via ssh.
 func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.Result, error) {
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
-
 	result := fssh.Result{Host: host, Cmd: cmd}
-	sshClient, err := ssh.Dial("tcp", addr, sshClientConfig)
+	sshClient, err := ssh.Dial("tcp", host+":22", sshClientConfig)
 	if err != nil {
 		result.Stdout = ""
 		result.Stderr = ""
@@ -4475,11 +4433,11 @@ func getDefaultDatastore(ctx context.Context, forceRefresh ...bool) *object.Data
 			defaultDatacenter, err := finder.Datacenter(ctx, dc)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(defaultDatacenter)
-			framework.Logf("Looking for default datastore in DC: %q", dc)
+			framework.Logf("Looking for default datastore in DC: " + dc)
 			datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
 			if err == nil {
-				framework.Logf("Datstore found for DS URL:%q", datastoreURL)
+				framework.Logf("Datstore found for DS URL:" + datastoreURL)
 				break
 			}
 		}
@@ -4834,8 +4792,7 @@ which PV is provisioned.
 func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context,
 	client clientset.Interface, statefulset *appsv1.StatefulSet,
 	namespace string, zoneValues []string, regionValues []string) {
-	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 	for _, sspod := range ssPodsBeforeScaleDown.Items {
 		_, err := client.CoreV1().Pods(namespace).Get(ctx, sspod.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4980,7 +4937,7 @@ func verifyVolumeTopologyForLevel5(pv *v1.PersistentVolume, allowedTopologiesMap
 				if topologyFeature == topologyTkgHaName ||
 					topologyFeature == podVMOnStretchedSupervisor ||
 					topologyFeature == topologyDomainIsolation {
-					return false, fmt.Errorf("pv node affinity key: %v does not does not exist in the "+
+					return false, fmt.Errorf("pv node affinity key: %v does not does not exist in the"+
 						"allowed topologies map: %v", topology.Key, allowedTopologiesMap)
 				} else {
 					return false, fmt.Errorf("PV node affinity details does not exist in the allowed " +
@@ -5026,8 +4983,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 	if parallelStatefulSetCreation {
 		ssPodsBeforeScaleDown = GetListOfPodsInSts(client, statefulset)
 	} else {
-		ssPodsBeforeScaleDown, err = fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown = fss.GetPodList(ctx, client, statefulset)
 	}
 
 	for _, sspod := range ssPodsBeforeScaleDown.Items {
@@ -5201,8 +5157,7 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 			return scaledownErr
 		}
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		ssPodsAfterScaleDown, err = fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleDown = fss.GetPodList(ctx, client, statefulset)
 	}
 
 	// After scale down, verify vSphere volumes are detached from deleted pods
@@ -5306,8 +5261,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
-		ssPodsAfterScaleUp, err = fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleUp = fss.GetPodList(ctx, client, statefulset)
 		if len(ssPodsAfterScaleUp.Items) == 0 {
 			return fmt.Errorf("unable to get list of Pods from the Statefulset: %v", statefulset.Name)
 		}
@@ -5338,7 +5292,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 				defer cancel()
 				if vanillaCluster {
 					vmUUID = getNodeUUID(ctx, client, sspod.Spec.NodeName)
-				} else if supervisorCluster {
+				} else {
 					annotations := pod.Annotations
 					vmUUID, exists = annotations[vmUUIDLabel]
 					if !exists {
@@ -5356,37 +5310,35 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 						}
 					}
 				}
-				if !guestCluster {
-					if !multivc {
-						if !rwxAccessMode {
-							isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
-							if err != nil {
-								return err
-							}
-							if !isDiskAttached {
-								return fmt.Errorf("disk is not attached to the node")
-							}
-						}
-						err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
-							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+				if !multivc {
+					if !rwxAccessMode {
+						isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, pv.Spec.CSI.VolumeHandle, vmUUID)
 						if err != nil {
 							return err
 						}
-					} else {
-						if !rwxAccessMode {
-							isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(pv.Spec.CSI.VolumeHandle, vmUUID)
-							if err != nil {
-								return err
-							}
-							if !isDiskAttached {
-								return fmt.Errorf("disk is not attached to the node")
-							}
+						if !isDiskAttached {
+							return fmt.Errorf("disk is not attached to the node")
 						}
-						err = verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
-							volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					}
+					err = verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					if err != nil {
+						return err
+					}
+				} else {
+					if !rwxAccessMode {
+						isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(pv.Spec.CSI.VolumeHandle, vmUUID)
 						if err != nil {
 							return err
 						}
+						if !isDiskAttached {
+							return fmt.Errorf("disk is not attached to the node")
+						}
+					}
+					err = verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
+						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
+					if err != nil {
+						return err
 					}
 				}
 			}
@@ -5784,7 +5736,6 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 		k8sMasterIPs := getK8sMasterIPs(ctx, client)
 		k8sMasterIP = k8sMasterIPs[0]
 	}
-
 	for _, csiPod := range csiPods {
 		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) {
 			// Putting the grepped logs for leader of container of different CSI pods
@@ -5938,8 +5889,8 @@ func createParallelStatefulSets(client clientset.Interface, namespace string,
 	ginkgo.By("Creating statefulset")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	framework.Logf("Creating statefulset %v/%v with %d replicas and selector %+v",
-		statefulset.Namespace, statefulset.Name, replicas, statefulset.Spec.Selector)
+	framework.Logf(fmt.Sprintf("Creating statefulset %v/%v with %d replicas and selector %+v",
+		statefulset.Namespace, statefulset.Name, replicas, statefulset.Spec.Selector))
 	_, err := client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
@@ -6304,20 +6255,16 @@ func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service strin
 // assignPolicyToWcpNamespace assigns a set of storage policies to a wcp namespace
 func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 	namespace string, policyNames []string, resourceQuotaLimit string) {
-	var err error
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	vcAddress := vcIp + ":" + sshdPort
 	sessionId := createVcSession4RestApis(ctx)
+
 	curlStr := ""
 	policyNamesArrLength := len(policyNames)
 	defRqLimit := strings.Split(resourceQuotaLimit, "Gi")[0]
 	limit, err := strconv.Atoi(defRqLimit)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	limit *= 953 // to convert gb to mebibytes
-
-	// Read hosts sshd port number
-	vcIp, portNum, err := getPortNumAndIP(vcAddress)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	vcAddress := vcIp + ":" + portNum
-
 	if policyNamesArrLength >= 1 {
 		curlStr += fmt.Sprintf(`{ "limit": %d, "policy": "%s"}`, limit, e2eVSphere.GetSpbmPolicyID(policyNames[0]))
 	}
@@ -6352,16 +6299,13 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 
 // createVcSession4RestApis generates session ID for VC to use in rest API calls
 func createVcSession4RestApis(ctx context.Context) string {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	vcAddress := vcIp + ":" + sshdPort
 	nimbusGeneratedVcPwd := GetAndExpectStringEnvVar(vcUIPwd)
-	// Read hosts sshd port number
-	vcIp, portNum, err := getPortNumAndIP(vcAddress)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := vcIp + ":" + portNum
-
 	curlCmd := fmt.Sprintf("curl -k -X POST https://%s/rest/com/vmware/cis/session"+
 		" -u 'Administrator@vsphere.local:%s'", vcIp, nimbusGeneratedVcPwd)
 	framework.Logf("Running command: %s", curlCmd)
-	result, err := fssh.SSH(ctx, curlCmd, addr, framework.TestContext.Provider)
+	result, err := fssh.SSH(ctx, curlCmd, vcAddress, framework.TestContext.Provider)
 	fssh.LogResult(result)
 	if err != nil || result.Code != 0 {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
@@ -6900,11 +6844,6 @@ func checkVcServicesHealthPostReboot(ctx context.Context, host string, timeout .
 	} else {
 		pollTime = timeout[0]
 	}
-	// Read hosts sshd port number
-	ip, portNum, err := getPortNumAndIP(host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
-
 	//list of default stopped services in VC
 	var defaultStoppedServicesList = []string{"vmcam", "vmware-imagebuilder", "vmware-netdumper",
 		"vmware-rbd-watchdog", "vmware-vcha"}
@@ -6913,8 +6852,8 @@ func checkVcServicesHealthPostReboot(ctx context.Context, host string, timeout .
 			var pendingServiceslist []string
 			var noAdditionalServiceStopped = false
 			sshCmd := fmt.Sprintf("service-control --%s", statusOperation)
-			framework.Logf("Invoking command %v on vCenter host %v", sshCmd, addr)
-			result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
+			framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+			result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
 			if err != nil || result.Code != 0 {
 				fssh.LogResult(result)
 				return false, fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
@@ -6950,8 +6889,8 @@ func checkVcServicesHealthPostReboot(ctx context.Context, host string, timeout .
 			for _, service := range pendingServiceslist {
 				framework.Logf("Checking status for additional service %s in StartPending state", service)
 				sshCmd := fmt.Sprintf("service-control --%s %s", statusOperation, service)
-				framework.Logf("Invoking command %v on vCenter host %v", sshCmd, addr)
-				result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
+				framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
+				result, err := fssh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
 				if err != nil || result.Code != 0 {
 					fssh.LogResult(result)
 					return false, fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
@@ -7501,294 +7440,4 @@ func expandVolumeInParallel(client clientset.Interface, pvclaims []*v1.Persisten
 			framework.Failf("error updating pvc size %q", pvclaim.Name)
 		}
 	}
-}
-
-/*
-getVCversion returns the VC version
-*/
-func getVCversion(ctx context.Context, vcAddress string) string {
-	if vcVersion == "" {
-		// Read hosts sshd port number
-		ip, portNum, err := getPortNumAndIP(vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		addr := ip + ":" + portNum
-
-		sshCmd := "vpxd -v"
-		framework.Logf("Checking if fss is enabled on vCenter host %v", addr)
-		result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
-		fssh.LogResult(result)
-		if err == nil && result.Code == 0 {
-			vcVersion = strings.TrimSpace(result.Stdout)
-		} else {
-			ginkgo.By(fmt.Sprintf("couldn't execute command: %s on vCenter host: %v", sshCmd, err))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-		// Regex to find version in the format X.Y.Z
-		re := regexp.MustCompile(`\d+\.\d+\.\d+`)
-		vcVersion = re.FindString(vcVersion)
-	}
-	framework.Logf("vcVersion %s", vcVersion)
-	return vcVersion
-}
-
-/*
-isVersionGreaterOrEqual returns true if presentVersion is equal to or greater than expectedVCversion
-*/
-func isVersionGreaterOrEqual(presentVersion, expectedVCversion string) bool {
-	// Split the version strings by dot
-	v1Parts := strings.Split(presentVersion, ".")
-	v2Parts := strings.Split(expectedVCversion, ".")
-
-	// Compare parts
-	for i := 0; i < len(v1Parts); i++ {
-		v1, _ := strconv.Atoi(v1Parts[i]) // Convert each part to integer
-		v2, _ := strconv.Atoi(v2Parts[i])
-
-		if v1 > v2 {
-			return true
-		} else if v1 < v2 {
-			return false
-		}
-	}
-	return true // If all parts are equal, the versions are equal
-}
-
-/*
-Restart WCP with WaitGroup
-*/
-func restartWcpWithWg(ctx context.Context, vcAddress string, wg *sync.WaitGroup) {
-	defer wg.Done()
-	err := restartWcp(ctx, vcAddress)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-}
-
-/*
-Restart WCP
-*/
-func restartWcp(ctx context.Context, vcAddress string) error {
-	err := invokeVCenterServiceControl(ctx, restartOperation, wcpServiceName, vcAddress)
-	if err != nil {
-		return fmt.Errorf("couldn't restart WCP: %v", err)
-	}
-	return nil
-}
-
-/*
-Helper method to verify the status code
-*/
-func checkStatusCode(expectedStatusCode int, actualStatusCode int) error {
-	gomega.Expect(actualStatusCode).Should(gomega.BeNumerically("==", expectedStatusCode))
-	if actualStatusCode != expectedStatusCode {
-		return fmt.Errorf("expected status code: %d, actual status code: %d", expectedStatusCode, actualStatusCode)
-	}
-	return nil
-}
-
-/*
-This helper is to check if a given integer present in a list of intergers.
-*/
-func isAvailable(alpha []int, val int) bool {
-	// iterate using the for loop
-	for i := 0; i < len(alpha); i++ {
-		// check
-		if alpha[i] == val {
-			// return true
-			return true
-		}
-	}
-	return false
-}
-
-/*
-getPortNumAndIP function retrieves the SSHD port number for a given IP address,
-considering whether the network is private or public.
-*/
-func getPortNumAndIP(ip string) (string, string, error) {
-	port := "22"
-
-	// Strip port if it's included in IP string
-	if strings.Contains(ip, ":") {
-		ip = strings.Split(ip, ":")[0]
-	}
-
-	// Check if running in private network
-	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	if isPrivateNetwork {
-		localhost := GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
-
-		if p, exists := ipPortMap[ip]; exists {
-			return localhost, p, nil
-		}
-		return ip, "", fmt.Errorf("port number is missing for IP: %s", ip)
-	}
-
-	return ip, port, nil
-}
-
-/*
-createStaticVolumeOnSvc utility function to create a static volume on a service, register it with CNS,
-and verify the PV/PVC setup
-*/
-func createStaticVolumeOnSvc(ctx context.Context, client clientset.Interface, namespace string, datastoreUrl string,
-	storagePolicyName string) (string, *object.Datastore, *v1.PersistentVolumeClaim, *v1.PersistentVolume, error) {
-	var datacenters []string
-	var defaultDatacenter *object.Datacenter
-	var pandoraSyncWaitTime int
-	var defaultDatastore *object.Datastore
-	curtime := time.Now().Unix()
-	curtimestring := strconv.FormatInt(curtime, 10)
-	pvcName := "cns-pvc-" + curtimestring
-
-	// Get Kubernetes client configuration
-	restConfig := getRestConfigClient()
-
-	// Find and load datacenters
-	finder := find.NewFinder(e2eVSphere.Client.Client, false)
-	cfg, err := getConfig()
-	if err != nil {
-		return "", nil, nil, nil, fmt.Errorf("failed to get config: %v", err)
-	}
-
-	dcList := strings.Split(cfg.Global.Datacenters, ",")
-	for _, dc := range dcList {
-		dcName := strings.TrimSpace(dc)
-		if dcName != "" {
-			datacenters = append(datacenters, dcName)
-		}
-	}
-
-	// Loop through datacenters to find the right one
-	for _, dc := range datacenters {
-		defaultDatacenter, err = finder.Datacenter(ctx, dc)
-		if err != nil {
-			return "", nil, nil, nil, fmt.Errorf("failed to get datacenter '%s': %v", dc, err)
-		}
-		finder.SetDatacenter(defaultDatacenter)
-		defaultDatastore, err = getDatastoreByURL(ctx, datastoreUrl, defaultDatacenter)
-		if err != nil {
-			return "", nil, nil, nil, fmt.Errorf("failed to get datastore from "+
-				"URL '%s' in datacenter '%s': %v", datastoreUrl, dc, err)
-		}
-	}
-
-	// Get Storage Profile ID
-	profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-
-	// Create FCD (CNS Volume)
-	fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
-		"staticfcd"+curtimestring, profileID, diskSizeInMb, defaultDatastore.Reference())
-	if err != nil {
-		return "", defaultDatastore, nil, nil, fmt.Errorf("failed to create FCD with profile ID '%s': %v", profileID, err)
-	}
-
-	// Sync time for Pandora (if set in environment variable)
-	if os.Getenv(envPandoraSyncWaitTime) != "" {
-		pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
-		if err != nil {
-			return fcdID, defaultDatastore, nil, nil, fmt.Errorf("invalid Pandora sync "+
-				"wait time '%s': %v", os.Getenv(envPandoraSyncWaitTime), err)
-		}
-	} else {
-		pandoraSyncWaitTime = defaultPandoraSyncWaitTime
-	}
-
-	// Sleep to allow FCD to sync with Pandora
-	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created "+
-		"FCD:%s to sync with Pandora", pandoraSyncWaitTime, fcdID))
-	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
-
-	// Register volume with CNS
-	cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteOnce)
-	err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
-	if err != nil {
-		return fcdID, defaultDatastore, nil, nil,
-			fmt.Errorf("failed to create CNS register volume for FCD '%s': %v", fcdID, err)
-	}
-
-	// Wait for CNS volume creation to complete
-	framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx, restConfig,
-		namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout))
-	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
-	framework.Logf("CNS register volume name: %s", cnsRegisterVolumeName)
-
-	// Retrieve and verify PV and PVC
-	ginkgo.By("Verifying created PV, PVC, and checking bidirectional reference")
-	pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
-	if err != nil {
-		return fcdID, defaultDatastore, nil, nil,
-			fmt.Errorf("failed to get PVC '%s' from namespace '%s': %v", pvcName, namespace, err)
-	}
-
-	pv := getPvFromClaim(client, namespace, pvcName)
-	if pv == nil {
-		return fcdID, defaultDatastore, pvc, nil,
-			fmt.Errorf("failed to retrieve PV for PVC '%s' in namespace '%s'", pvcName, namespace)
-	}
-
-	verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
-
-	return fcdID, defaultDatastore, pvc, pv, nil
-}
-
-/*
-This util will fetch and compare the storage policy usage CR created for each storage class for a namespace
-*/
-func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restClientConfig *rest.Config,
-	namespace string, storageclass []string) error {
-	// Build expected usage names directly from passed storageclass names
-	expectedUsages := make(map[string]bool)
-	for _, sc := range storageclass {
-		for _, suffix := range usageSuffixes {
-			expectedUsages[fmt.Sprintf("%s%s", sc, suffix)] = false
-		}
-	}
-
-	if len(expectedUsages) == 0 {
-		return fmt.Errorf("no storage class names provided")
-	}
-
-	// CNS Operator client
-	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
-	if err != nil {
-		return fmt.Errorf("failed to create CNS operator client: %w", err)
-	}
-
-	// Poll until all expected usages are found
-	waitErr := wait.PollUntilContextTimeout(ctx, storagePolicyUsagePollInterval, storagePolicyUsagePollTimeout,
-		true, func(ctx context.Context) (bool, error) {
-			spuList := &storagepolicyv1alpha2.StoragePolicyUsageList{}
-			err := cnsOperatorClient.List(ctx, spuList, &client.ListOptions{Namespace: namespace})
-			if err != nil {
-				return false, nil // retry
-			}
-
-			// Reset all expected usages to false
-			for k := range expectedUsages {
-				expectedUsages[k] = false
-			}
-
-			// Mark found usages
-			for _, spu := range spuList.Items {
-				if _, exists := expectedUsages[spu.Name]; exists {
-					expectedUsages[spu.Name] = true
-				}
-			}
-
-			// Check if all usages have been found
-			for name, found := range expectedUsages {
-				if !found {
-					fmt.Printf("Waiting for usage: %s\n", name)
-					return false, nil
-				}
-			}
-
-			return true, nil
-		})
-
-	if waitErr != nil {
-		return fmt.Errorf("timed out waiting for all storage policy usages: %w", waitErr)
-	}
-
-	fmt.Println("All required storage policy usages are available.")
-	return nil
 }

@@ -212,6 +212,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if isVsanHealthServiceStopped {
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
@@ -300,8 +301,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		stsReplicas = 3
 		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
 			false, stsReplicas, "", depReplicaCount, accessMode)
-		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		csipods, err = client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -490,8 +490,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				false, sts1Replicas, "web", dep1ReplicaCount, accessMode)
 			statefulset2, deployment2, _ := createStsDeployment(ctx, client, namespace, sc, true,
 				true, sts2Replicas, "web-nginx", dep2ReplicaCount, accessMode)
-			ss2PodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ss2PodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset2)
+
 			csipods, err = client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1019,8 +1019,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			ginkgo.By("Creating statefulset and deployment with volumes from the stretched datastore")
 			statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
 				false, 3, "", 1, "")
-			ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 			defer func() {
 				pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2142,8 +2141,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			ginkgo.By("Creating statefulset and deployment with volumes from the stretched datastore")
 			statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
 				false, stsReplicas, "", depReplicaCount, accessMode)
-			ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 			defer func() {
 				scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
 				pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
@@ -2334,8 +2332,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			statefulset2, deployment2, _ = createStsDeployment(ctx, client, namespace, sc,
 				true, true, sts2Replicas, "web-nginx", dep2ReplicaCount, accessMode)
 
-			ss2PodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ss2PodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset2)
 			replicas2 := *(statefulset2.Spec.Replicas)
 
 			if guestCluster {
@@ -2597,8 +2594,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			ginkgo.By("Creating statefulset and deployment with volumes from the stretched datastore")
 			statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
 				false, stsReplicas, "", depReplicaCount, accessMode)
-			ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 			defer func() {
 				scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
 				pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
@@ -2723,8 +2719,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			replicas1 := *(statefulset1.Spec.Replicas)
 			statefulset2, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 5, "web-nginx", 1,
 				accessMode)
-			ss2PodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ss2PodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset2)
 			replicas2 := *(statefulset2.Spec.Replicas)
 
 			defer func() {
@@ -3083,8 +3078,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			replicas1 := *(statefulset1.Spec.Replicas)
 			statefulset2, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 5, "web-nginx", 1,
 				accessMode)
-			ss2PodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ss2PodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset2)
 			replicas2 := *(statefulset2.Spec.Replicas)
 
 			defer func() {
@@ -3238,8 +3232,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			replicas1 := *(statefulset1.Spec.Replicas)
 			statefulset2, _, _ := createStsDeployment(ctx, client, namespace, sc, false, true, 5, "web-nginx", 1,
 				accessMode)
-			ss2PodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ss2PodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset2)
 			replicas2 := *(statefulset2.Spec.Replicas)
 
 			defer func() {
@@ -3611,8 +3604,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, true,
 				false, 3, "", 1, accessMode)
 
-			ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 			replicas := *(statefulset.Spec.Replicas)
 			csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4247,6 +4239,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				pods = append(pods, pod)
 			}
 			framework.Logf("Stopping vsan-health on the vCenter host")
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitVCenterServiceToBeInState(ctx, vsanhealthServiceName, vcAddress, svcStoppedMessage)
@@ -4355,6 +4348,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			}
 
 			framework.Logf("Starting vsan-health on the vCenter host")
+			vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 			framework.Logf("Sleeping full-sync interval for vsan health service " +
@@ -4613,6 +4607,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				pods = append(pods, pod)
 			}
 			framework.Logf("Stopping vsan-health on the vCenter host")
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitVCenterServiceToBeInState(ctx, vsanhealthServiceName, vcAddress, svcStoppedMessage)
@@ -4721,6 +4716,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			}
 
 			framework.Logf("Starting vsan-health on the vCenter host")
+			vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 			framework.Logf("Sleeping full-sync interval for vsan health service " +
@@ -4870,8 +4866,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				false, sts1Replicas, "web", dep1ReplicaCount, accessMode)
 			statefulset2, deployment2, _ := createStsDeployment(ctx, client, namespace, sc, true,
 				true, sts2Replicas, "web-nginx", dep2ReplicaCount, accessMode)
-			ss2PodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ss2PodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset2)
+
 			defer func() {
 				scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
 				pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
