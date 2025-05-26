@@ -89,52 +89,53 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 			6. Delete PVC
 			7. Delete Storage class
 	*/
-	ginkgo.It("verify labels are created in CNS after updating pvc and/or pv with new labels for file volume", func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		ginkgo.By("Invoking test to verify labels creation for file volume")
-		scParameters := make(map[string]string)
-		scParameters[scParamFsType] = nfs4FSType
-		// Create Storage class and PVC
-		ginkgo.By(fmt.Sprintf("Creating Storage Class with %q", nfs4FSType))
-		storageclass, pvc, err = createPVCAndStorageClass(ctx, client,
-			namespace, nil, scParameters, "", nil, "", false, v1.ReadWriteMany)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.It("verify labels are created in CNS after updating pvc and/or pv with new labels for file volume",
+		ginkgo.Label(p0, file, vanilla, vc70), func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			ginkgo.By("Invoking test to verify labels creation for file volume")
+			scParameters := make(map[string]string)
+			scParameters[scParamFsType] = nfs4FSType
+			// Create Storage class and PVC
+			ginkgo.By(fmt.Sprintf("Creating Storage Class with %q", nfs4FSType))
+			storageclass, pvc, err = createPVCAndStorageClass(ctx, client,
+				namespace, nil, scParameters, "", nil, "", false, v1.ReadWriteMany)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
-			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
-		pv := pvs[0]
-		fileshareID = pv.Spec.CSI.VolumeHandle
+			ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
+			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+				[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(pvs).NotTo(gomega.BeEmpty())
+			pv := pvs[0]
+			fileshareID = pv.Spec.CSI.VolumeHandle
 
-		labels := make(map[string]string)
-		labels[labelKey] = labelValue
+			labels := make(map[string]string)
+			labels[labelKey] = labelValue
 
-		ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
-		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pvc.Labels = labels
-		_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s", labels, pvc.Name, pvc.Namespace))
+			pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvc.Labels = labels
+			_, err = client.CoreV1().PersistentVolumeClaims(namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Updating labels %+v for pv %s", labels, pv.Name))
-		pv.Labels = labels
+			ginkgo.By(fmt.Sprintf("Updating labels %+v for pv %s", labels, pv.Name))
+			pv.Labels = labels
 
-		_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			_, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
-			labels, pvc.Name, pvc.Namespace))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle,
-			labels, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
+				labels, pvc.Name, pvc.Namespace))
+			err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle,
+				labels, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Name, pvc.Namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
-		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle,
-			labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pv %s", labels, pv.Name))
+			err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle,
+				labels, string(cnstypes.CnsKubernetesEntityTypePV), pv.Name, pv.Namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	})
+		})
 })

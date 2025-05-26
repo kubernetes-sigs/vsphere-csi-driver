@@ -234,7 +234,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 	*/
 
 	ginkgo.It("[csi-multi-svc] Workload creation on each of the clusters",
-		ginkgo.Label(p0, wcp, multiSvc, newTest), func() {
+		ginkgo.Label(p0, wcp, multiSvc, vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -292,7 +292,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 	*/
 
 	ginkgo.It("[csi-multi-svc] Verify volume lifecycle ops post password rotation",
-		ginkgo.Label(p0, wcp, multiSvc, newTest), func() {
+		ginkgo.Label(p0, wcp, multiSvc, vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -391,7 +391,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 	*/
 
 	ginkgo.It("[csi-multi-svc] Verify permissions of the service account",
-		ginkgo.Label(p0, wcp, multiSvc, newTest), func() {
+		ginkgo.Label(p0, wcp, multiSvc, vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -470,7 +470,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 	*/
 
 	ginkgo.It("[csi-multi-svc] Verify that an alarm is raised when a shared datastore "+
-		"becomes non-shared", ginkgo.Label(p0, wcp, multiSvc, newTest), func() {
+		"becomes non-shared", ginkgo.Label(p0, wcp, multiSvc, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -586,7 +586,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 	*/
 
 	ginkgo.It("[csi-multi-svc] Move a shared datastore from one SVC to another and check permission",
-		ginkgo.Label(p0, wcp, multiSvc, newTest), func() {
+		ginkgo.Label(p0, wcp, multiSvc, vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -666,7 +666,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 	*/
 
 	ginkgo.It("[csi-multi-svc] Kill VC session from a service account and attempt CSI ops from "+
-		"the corresponding SVC", ginkgo.Label(p0, wcp, multiSvc, newTest), func() {
+		"the corresponding SVC", ginkgo.Label(p0, wcp, multiSvc, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

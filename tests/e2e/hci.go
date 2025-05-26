@@ -40,8 +40,8 @@ import (
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
-var _ bool = ginkgo.Describe("hci-mesh", func() {
-	f := framework.NewDefaultFramework("hci-mesh")
+var _ bool = ginkgo.Describe("hci", func() {
+	f := framework.NewDefaultFramework("hci")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client                  clientset.Interface
@@ -127,7 +127,7 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 	   8	verify that volumes are accessible for all the pods
 	   9	cleanup all the pods, pvcs and SCs created for the test
 	*/
-	ginkgo.It("Relocate vm between local and remote ds", ginkgo.Label(p0, block, vanilla, hci), func() {
+	ginkgo.It("Relocate vm between local and remote ds", ginkgo.Label(p0, block, vanilla, hci, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Create a SC which points to remote vsan ds")
@@ -212,7 +212,7 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		9	write some data to one of the PVs from statefulset and read I/O back and verify its integrity
 		10	cleanup all objects created during the test
 	*/
-	ginkgo.It("Vsan partition in remote cluster", ginkgo.Label(p0, block, vanilla, hci), func() {
+	ginkgo.It("Vsan partition in remote cluster", ginkgo.Label(p0, block, vanilla, hci, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var err error
@@ -296,7 +296,7 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		6.	cleanup all objects created during the test
 	*/
 	ginkgo.It("Put esx node on remote cluster in and out of maintenance mode", ginkgo.Label(
-		p0, block, vanilla, hci), func() {
+		p1, block, vanilla, hci, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var err error
@@ -385,7 +385,7 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		7	reverse the operations done in step 5 and verify they are successful
 		8	cleanup all objects created during the test
 	*/
-	ginkgo.It("A host down in one AZ", ginkgo.Label(p0, block, vanilla, hci), func() {
+	ginkgo.It("A host down in one AZ", ginkgo.Label(p1, block, vanilla, hci, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var err error
@@ -547,7 +547,7 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		8.  Scale up statefulset to 5 replicas and verify they are successful
 		9.  Cleanup all objects created during the test
 	*/
-	ginkgo.It("HCI mesh - One host isolation", ginkgo.Label(p0, block, vanilla, hci), func() {
+	ginkgo.It("HCI mesh - One host isolation", ginkgo.Label(p1, block, vanilla, hci, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var err error
@@ -679,7 +679,7 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		8.  Scale up statefulset to 5 replicas and verify they are successful
 		9.  Cleanup all objects created during the test
 	*/
-	ginkgo.It("Power off k8s worker with attached PVs", ginkgo.Label(p0, block, vanilla, hci), func() {
+	ginkgo.It("Power off k8s worker with attached PVs", ginkgo.Label(p1, block, vanilla, hci, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var err error
@@ -803,7 +803,8 @@ var _ bool = ginkgo.Describe("hci-mesh", func() {
 		4. Verify the sts replicas are running and volumes are accessible for the pods
 		5. Restore connection which was disrupted in step 2.
 	*/
-	ginkgo.It("One host looses storage connectivity to remote cluster", ginkgo.Label(p0, block, vanilla, hci), func() {
+	ginkgo.It("One host looses storage connectivity to remote cluster", ginkgo.Label(p1, block, vanilla, hci, negative,
+		vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var err error
