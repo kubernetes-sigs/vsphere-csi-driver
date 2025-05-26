@@ -479,6 +479,7 @@ var (
 	envIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
 	envSharedZone2Zone4StoragePolicyName  = "SHARED_ZONE2_ZONE4_STORAGE_POLICY_IMM"
 	envSharedZone2Zone4DatastoreUrl       = "SHARED_ZONE2_ZONE4_DATASTORE_URL"
+	envAllZonalPolicyName                 = "ALL_ZONE_ZONAL_POLICY"
 )
 
 // storage policy usages for storage quota validation
