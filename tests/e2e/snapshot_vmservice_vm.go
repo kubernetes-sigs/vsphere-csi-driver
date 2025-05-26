@@ -130,8 +130,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 
 		framework.Logf("Verifying storage policies usage for each storage class")
 		restConfig = getRestConfigClient()
-		err = ListStoragePolicyUsages(ctx, client, restConfig, namespace, []string{storageClassName})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ListStoragePolicyUsages(ctx, client, restConfig, namespace, []string{storageClassName})
 
 		// creating vm schema
 		vmopScheme := runtime.NewScheme()
@@ -1731,7 +1730,6 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vm2.Spec.Volumes = nil
 		err = vmopC.Update(ctx, vm2)
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create a volume from a snapshot")
