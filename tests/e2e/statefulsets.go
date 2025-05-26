@@ -68,20 +68,20 @@ var _ = ginkgo.Describe("statefulset", func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		namespace                  string
-		client                     clientset.Interface
-		storagePolicyName          string
-		scParameters               map[string]string
-		storageClassName           string
-		zonalPolicy                string
-		zonalWffcPolicy            string
-		categories                 []string
-		labels_ns                  map[string]string
-		allowedTopologyHAMap       map[string][]string
-		nodeList                   *v1.NodeList
-		stsReplicas                int32
-		allowedTopologies          []v1.TopologySelectorLabelRequirement
-		isQuotaValidationSupported bool
+		namespace                string
+		client                   clientset.Interface
+		storagePolicyName        string
+		scParameters             map[string]string
+		storageClassName         string
+		zonalPolicy              string
+		zonalWffcPolicy          string
+		categories               []string
+		labels_ns                map[string]string
+		allowedTopologyHAMap     map[string][]string
+		nodeList                 *v1.NodeList
+		stsReplicas              int32
+		allowedTopologies        []v1.TopologySelectorLabelRequirement
+		isStorageQuotaFSSEnabled bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -103,7 +103,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 		if err == nil && service != nil {
 			deleteService(namespace, client, service)
 		}
-
 		if stretchedSVC {
 			zonalPolicy = GetAndExpectStringEnvVar(envZonalStoragePolicyName)
 			labels_ns = map[string]string{}
@@ -130,12 +129,10 @@ var _ = ginkgo.Describe("statefulset", func() {
 			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
 			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		}
+		//Remove this code once the FSS is enabled
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
 
-		if supervisorCluster || stretchedSVC {
-			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
-			vcVersion = getVCversion(ctx, vcAddress)
-			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
-		}
 	})
 
 	ginkgo.AfterEach(func() {
@@ -197,7 +194,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		}
 
 		restConfig := getRestConfigClient()
-		if supervisorCluster && isQuotaValidationSupported {
+		if supervisorCluster && isStorageQuotaFSSEnabled {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storagePolicyName, namespace, pvcUsage, volExtensionName)
@@ -230,8 +227,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -254,7 +250,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			}
 		}
 
-		if supervisorCluster && isQuotaValidationSupported {
+		if supervisorCluster && isStorageQuotaFSSEnabled {
 			validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 				storagePolicyName, namespace, pvcUsage, volExtensionName,
 				diskSize1Gi*3, totalQuotaUsedBefore, storagePolicyQuotaBefore,
@@ -266,8 +262,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas-1)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas-1)
-		ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas-1)).To(gomega.BeTrue(),
@@ -329,8 +324,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
-		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -381,8 +375,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		_, scaledownErr = fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
-		ssPodsAfterScaleDown, err = fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleDown = fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 	})
@@ -442,8 +435,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -468,8 +460,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -532,8 +523,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
-		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -579,8 +569,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		_, scaledownErr = fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
-		ssPodsAfterScaleDown, err = fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleDown = fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 	})
@@ -653,8 +642,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -735,8 +723,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		fss.WaitForStatusReplicas(ctx, client, statefulset, incresedReplicaCount)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, incresedReplicaCount)
 
-		ssPodsBeforeScaleDown, err = fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown = fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(incresedReplicaCount)).To(gomega.BeTrue(),
@@ -784,8 +771,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
-		ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
@@ -869,8 +855,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -930,8 +915,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
 
-		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -961,8 +945,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		_, scaledownErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
-		ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
@@ -1040,8 +1023,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			}
 		}()
 
-		ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsBeforeScaleDown := fss.GetPodList(ctx, client, statefulset)
 		stsPod := ssPodsBeforeScaleDown.Items[0]
 		nodeName := stsPod.Spec.NodeName
 		framework.Logf("nodeName: %v", nodeName)
@@ -1303,8 +1285,8 @@ func contains(volumes []string, volumeID string) bool {
 func CreateStatefulSet(ns string, ss *apps.StatefulSet, c clientset.Interface) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	framework.Logf("Creating statefulset %v/%v with %d replicas and selector %+v",
-		ss.Namespace, ss.Name, *(ss.Spec.Replicas), ss.Spec.Selector)
+	framework.Logf(fmt.Sprintf("Creating statefulset %v/%v with %d replicas and selector %+v",
+		ss.Namespace, ss.Name, *(ss.Spec.Replicas), ss.Spec.Selector))
 	_, err := c.AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
 	framework.ExpectNoError(err)
 	fss.WaitForRunningAndReady(ctx, c, *ss.Spec.Replicas, ss)

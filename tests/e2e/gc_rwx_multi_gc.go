@@ -119,7 +119,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across TKG clusters", fu
 		33. Check if the VolumeID is deleted from CNS by using CNSQuery API
 	*/
 	ginkgo.It("[rwm-csi-tkg] Verify static provisioning across Guest Clusters within the "+
-		"same WCP namespace - part 1", func() {
+		"same WCP namespace - part 1", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across TKG clusters", fu
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC %q", pvcUID)
+		framework.Logf("PVC UUID in GC " + pvcUID)
 
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
@@ -386,7 +386,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across TKG clusters", fu
 		33. Check if the VolumeID is deleted from CNS by using CNSQuery API
 	*/
 	ginkgo.It("[rwm-csi-tkg] Verify static provisioning across Guest Clusters within the "+
-		"same WCP namespace - part 2", func() {
+		"same WCP namespace - part 2", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -409,7 +409,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across TKG clusters", fu
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC %q", pvcUID)
+		framework.Logf("PVC UUID in GC " + pvcUID)
 
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
@@ -622,7 +622,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across TKG clusters", fu
 		23. Check if the VolumeID is deleted from CNS by using CNSQuery API
 	*/
 	ginkgo.It("[rwm-csi-tkg] Verify static provisioning across Guest Clusters within the "+
-		"same WCP namespace - part 3", func() {
+		"same WCP namespace - part 3", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -645,7 +645,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across TKG clusters", fu
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC %q", pvcUID)
+		framework.Logf("PVC UUID in GC " + pvcUID)
 
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))

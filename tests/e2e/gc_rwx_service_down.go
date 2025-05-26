@@ -86,6 +86,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 
 		if isVsanHealthServiceStopped {
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
@@ -111,7 +112,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		16. Verify PV and PVC are deleted from SV cluster
 		17. Verify volume is deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify create a PVC while CNS is down", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify create a PVC while CNS is down", ginkgo.Label(p1, file, tkg, negative, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -133,6 +134,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", vsanhealthServiceName))
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -208,6 +210,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", vsanhealthServiceName))
+		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -270,7 +273,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		28. Verify CnsVolumeMetadata CRD is deleted
 		29. Verify volume is deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify label update a PVC while CNS is down", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify label update a PVC while CNS is down", ginkgo.Label(p1, file, tkg, negative, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pv *v1.PersistentVolume
@@ -286,7 +289,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC %q", pvcUID)
+		framework.Logf("PVC UUID in GC " + pvcUID)
 
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -344,6 +347,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", vsanhealthServiceName))
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -501,7 +505,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		17. Verify PV also deleted in the SV
 		18. Verify volume is deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify delete volumes when csi connection to sv is broken", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify delete volumes when csi connection to sv is broken", ginkgo.Label(p1, file, tkg, negative, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pv *v1.PersistentVolume
@@ -518,7 +522,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC %q", pvcUID)
+		framework.Logf("PVC UUID in GC " + pvcUID)
 
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -663,7 +667,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		22. Verify CnsVolumeMetadata CRD is deleted
 		23. Verify volume is deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify static provision when csi connection to sv is broken", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify static provision when csi connection to sv is broken", ginkgo.Label(p1, file, tkg, negative, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pv *v1.PersistentVolume
@@ -878,7 +882,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", func() {
 		17. Verify CnsVolumeMetadata CRD is deleted
 		18. Verify volume is deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify label updated when csi-controller is down", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify label updated when csi-controller is down", ginkgo.Label(p1, file, tkg, negative, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclasspvc *storagev1.StorageClass

@@ -125,7 +125,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 	})
 
 	ginkgo.It("[csi-supervisor] verify labels are created in CNS after updating pvc "+
-		"and/or pv with new labels", ginkgo.Label(p1, block, vanilla, wcp, core), func() {
+		"and/or pv with new labels", ginkgo.Label(p1, block, vanilla, wcp, core, vc70), func() {
 		ginkgo.By("Invoking test to verify labels creation")
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
@@ -141,10 +141,9 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			restConfig = getRestConfigClient()
-			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
+			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
-				scParameters, "", nil, "", true, "", storagePolicyName)
+				scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -198,7 +197,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 	})
 
 	ginkgo.It("[csi-supervisor] verify labels are removed in CNS after removing them from pvc and/or "+
-		"pv", ginkgo.Label(p0, block, vanilla, wcp, core), func() {
+		"pv", ginkgo.Label(p0, block, vanilla, wcp, core, vc70), func() {
 		ginkgo.By("Invoking test to verify labels deletion")
 		labels := make(map[string]string)
 		labels[labelKey] = labelValue
@@ -219,7 +218,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
-				scParameters, "", nil, "", true, "", storagePolicyName)
+				scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -286,7 +285,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 	})
 
 	ginkgo.It("[csi-supervisor] verify podname label is created/deleted when pod with cns volume is "+
-		"created/deleted.", ginkgo.Label(p0, block, vanilla, wcp, core), func() {
+		"created/deleted.", ginkgo.Label(p0, block, vanilla, wcp, core, vc70), func() {
 		ginkgo.By("Invoking test to verify pod name label updates")
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
@@ -304,7 +303,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
-				scParameters, "", nil, "", true, "", storagePolicyName)
+				scParameters, "", nil, "", false, "", storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -398,7 +397,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 	*/
 
 	ginkgo.It("[csi-block-vanilla] Verify PVC name is removed from PV entry on CNS after PVC is deleted "+
-		"when Reclaim Policy is set to retain.", ginkgo.Label(p0, block, vanilla, core), func() {
+		"when Reclaim Policy is set to retain.", ginkgo.Label(p0, block, vanilla, core, vc70), func() {
 
 		var err error
 
@@ -529,7 +528,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		13. Delete SC
 	*/
 
-	ginkgo.It("Verify label updates on statically provisioned volume.", ginkgo.Label(p0, block, vanilla, core), func() {
+	ginkgo.It("Verify label updates on statically provisioned volume.", ginkgo.Label(p0, block, vanilla, core, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -663,7 +662,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		11. Delete SC
 	*/
 	ginkgo.It("[csi-supervisor] Verify label updates on PVC and PV attached to a stateful "+
-		"set.", ginkgo.Label(p0, block, vanilla, wcp, core), func() {
+		"set.", ginkgo.Label(p0, block, vanilla, wcp, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// decide which test setup is available to run
@@ -705,8 +704,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		// Waiting for pods status to be Ready
 		fss.WaitForStatusReadyReplicas(ctx, f.ClientSet, statefulset, replicas)
 		gomega.Expect(fss.CheckMount(ctx, f.ClientSet, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
-		ssPodsBeforeScaleup, err := fss.GetPodList(ctx, f.ClientSet, statefulset)
-		gomega.Expect(err).To(gomega.BeNil())
+		ssPodsBeforeScaleup := fss.GetPodList(ctx, f.ClientSet, statefulset)
 		gomega.Expect(ssPodsBeforeScaleup.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsBeforeScaleup.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -749,8 +747,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		pvlabels := make(map[string]string)
 		pvlabels[pvlabelKey] = pvlabelValue
 
-		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, f.ClientSet, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, f.ClientSet, statefulset)
+
 		for _, spod := range ssPodsAfterScaleUp.Items {
 			_, err := client.CoreV1().Pods(namespace).Get(ctx, spod.Name, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -776,8 +774,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		_, scaledownErr := fss.Scale(ctx, f.ClientSet, statefulset, 0)
 		gomega.Expect(scaledownErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReadyReplicas(ctx, f.ClientSet, statefulset, 0)
-		ssPodsAfterScaleDown, err := fss.GetPodList(ctx, f.ClientSet, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleDown := fss.GetPodList(ctx, f.ClientSet, statefulset)
 		gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(0)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 	})

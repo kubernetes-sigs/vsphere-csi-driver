@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", func(
 		31. Verify CnsVolumeMetadata CRD is deleted
 		32. Check if the VolumeID is deleted from CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify static volume provisioning works across Namespace in the same GC", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify static volume provisioning works across Namespace in the same GC", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -145,7 +145,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", func(
 		}()
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC %q", pvcUID)
+		framework.Logf("PVC UUID in GC " + pvcUID)
 
 		ginkgo.By("Expect claim to provision volume successfully")
 		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
@@ -301,19 +301,19 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", func(
 				crdCNSFileAccessConfig, crdVersion, crdGroup, false)
 		}()
 
-		framework.Logf("PVC name in SV %q", pvcNameInSV)
+		framework.Logf("PVC name in SV " + pvcNameInSV)
 
 		gcClusterID := strings.Replace(pvcNameInSV, pvcUID, "", -1)
-		framework.Logf("gcClusterId %q", gcClusterID)
+		framework.Logf("gcClusterId " + gcClusterID)
 
 		pvUID := string(pv.UID)
-		framework.Logf("PV uuid %q", pvUID)
+		framework.Logf("PV uuid " + pvUID)
 
 		pv2UID := string(pv2.UID)
-		framework.Logf("PV2 uuid %q", pv2UID)
+		framework.Logf("PV2 uuid " + pv2UID)
 
 		pod2UID := string(pod2.UID)
-		framework.Logf("Pod uuid : %q", pod2UID)
+		framework.Logf("Pod uuid : " + pod2UID)
 
 		//Add a check to validate CnsVolumeMetadata crd
 		verifyCRDInSupervisorWithWait(ctx, f, pvcNameInSV, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)

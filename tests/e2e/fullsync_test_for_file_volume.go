@@ -80,11 +80,13 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 
 		labelKey = "app"
 		labelValue = "e2e-fullsync"
+
 	})
 
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		if isVsanHealthServiceStopped {
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
@@ -103,7 +105,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 	// 10. Verify pv and pvc label has been updated.
 	// 11. Delete PVC.
 	// 12. Delete Storage class.
-	ginkgo.It("verify labels are created in CNS after updating pvc and/or pv with new labels for file volume", func() {
+	ginkgo.It("verify labels are created in CNS after updating pvc and/or pv with new labels for file volume", ginkgo.Label(p0, file, vanilla, vc70), func() {
 		ginkgo.By("Invoking test to verify labels creation")
 		scParameters := make(map[string]string)
 		scParameters[scParamFsType] = nfs4FSType
@@ -138,6 +140,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 		}()
 
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		isVsanHealthServiceStopped = true
 		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		defer func() {

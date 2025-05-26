@@ -60,8 +60,6 @@ type subscribedContentLibBasic struct {
 	url     string
 }
 
-const vmServiceVmLabelKey = "topology.kubernetes.io/zone"
-
 // createTestWcpNs create a wcp namespace with given storage policy, vm class and content lib via REST API
 func createTestWcpNs(
 	vcRestSessionId string, storagePolicyId string, vmClass string, contentLibId string,
@@ -119,24 +117,15 @@ func getSvcId(vcRestSessionId string) string {
 
 // createAndOrGetContentlibId4Url fetches ID of a content lib that matches the given URL, if none are found it creates a
 // new content lib with the given URL and returns its ID
-func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string, dsMoId string) (string, error) {
+func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string, dsMoId string,
+	sslThumbPrint string) string {
+
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 	contentlibName := fmt.Sprintf("csi-vmsvc-%v", r.Intn(10000))
-
-	// Try to get the existing Content Library ID
 	contentLibId, err := getContentLibId4Url(vcRestSessionId, contentLibUrl)
 	if err == nil {
-		if contentLibId == "" {
-			return "", fmt.Errorf("existing content library ID is empty")
-		}
-		return contentLibId, nil
-	}
-
-	// Get SSL Thumbprint
-	sslThumbPrint, err := getSslThumbprintForContentLibraryCreation(vcRestSessionId,
-		contentLibUrl)
-	if err != nil {
-		return "", fmt.Errorf("failed to get SSL thumbprint: %w", err)
+		gomega.Expect(contentLibId).NotTo(gomega.BeEmpty())
+		return contentLibId
 	}
 
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
@@ -158,56 +147,13 @@ func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string
     }`, contentlibName, dsMoId, contentLibUrl, sslThumbPrint)
 
 	resp, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, contentlbCreationUrl, reqBody)
-	if statusCode != 201 {
-		return "", fmt.Errorf("API call failed with status code %d", statusCode)
-	}
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 201))
 
-	// Unmarshal response to get Content Library ID
-	if err := json.Unmarshal(resp, &contentLibId); err != nil {
-		return "", fmt.Errorf("failed to parse response JSON: %w", err)
-	}
+	gomega.Expect(json.Unmarshal(resp, &contentLibId)).NotTo(gomega.HaveOccurred())
+	gomega.Expect(contentLibId).NotTo(gomega.BeEmpty())
+	framework.Logf("Successfully created content library %s for the test(id: %v)", contentlibName, contentLibId)
 
-	/* Check if the content library ID is empty after creation, as a successful API
-	call (201) may still result in an empty ID */
-	if contentLibId == "" {
-		return "", fmt.Errorf("content library ID is empty after creation")
-	}
-
-	framework.Logf("Successfully created content library %s for the test (id: %v)", contentlibName, contentLibId)
-	return contentLibId, nil
-}
-
-/*
-getSslThumbprintForContentLibraryCreation util will fetch the thumbprint
-required to create a content library
-*/
-func getSslThumbprintForContentLibraryCreation(vcRestSessionId string, contentLibUrl string) (string, error) {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	contentlbCreationUrl := "https://" + vcIp + "/api/content/subscribed-library?action=probe"
-
-	reqBody := fmt.Sprintf(`{
-        "subscription_info": {
-            "subscription_url": "%s"
-        }
-    }`, contentLibUrl)
-
-	resp, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, contentlbCreationUrl, reqBody)
-
-	if statusCode == 200 {
-		var responseData map[string]interface{}
-		if err := json.Unmarshal(resp, &responseData); err != nil {
-			return "", fmt.Errorf("failed to parse response JSON: %w", err)
-		}
-
-		if sslThumbprint, ok := responseData["ssl_thumbprint"].(string); ok {
-			fmt.Println("SSL Thumbprint:", sslThumbprint)
-			return sslThumbprint, nil
-		}
-
-		return "", fmt.Errorf("ssl_thumbprint not found in response")
-	}
-
-	return "", fmt.Errorf("API call failed with status code: %d", statusCode)
+	return contentLibId
 }
 
 // getContentLibId4Url fetches ID of a content lib that matches the given URL
@@ -889,7 +835,7 @@ func wait4PvcAttachmentFailure(
 			for _, vol := range vm.Status.Volumes {
 				if vol.Name == pvc.Name {
 					if !vol.Attached {
-						returnErr = fmt.Errorf("%+v", vol.Error)
+						returnErr = fmt.Errorf(vol.Error)
 						return true, nil
 					}
 					break
@@ -1246,155 +1192,4 @@ func createVMServiceandWaitForVMtoGetIP(ctx context.Context, vmopC ctlrclient.Cl
 			}
 		}
 	}
-}
-
-/*
-This utility creates a VirtualMachine with specified PVCs, waits for the VM to be provisioned,
-verifies PVC attachment, and ensures data integrity by verifying the accessibility of the disks
-and verifying the attached volumes.
-*/
-func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
-	cnsopC ctlrclient.Client, namespace string,
-	pvclaims []*v1.PersistentVolumeClaim, vmClass string,
-	storageClassName string) (string, *vmopv1.VirtualMachine, *vmopv1.VirtualMachineService, error) {
-
-	/*Fetch the VM image name from the environment variable. This image is used for
-	creating the VirtualMachineInstance */
-	vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
-	framework.Logf("Waiting for virtual machine image list to be "+
-		"available in namespace '%s' for image '%s'", namespace, vmImageName)
-	vmi := waitNGetVmiForImageName(ctx, vmopC, vmImageName)
-
-	/* Create a bootstrap secret for the VirtualMachineService VM. This secret contains
-	credentials or configuration data needed by the VM. */
-	secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-
-	var vm *vmopv1.VirtualMachine
-	//Create the Virtual Machine with PVC
-	if len(pvclaims) == 1 {
-		vm = createVmServiceVmWithPvcs(ctx, vmopC, namespace, vmClass,
-			[]*v1.PersistentVolumeClaim{pvclaims[0]}, vmi, storageClassName, secretName)
-	} else {
-		vm = createVmServiceVmWithPvcs(ctx, vmopC, namespace, vmClass,
-			pvclaims, vmi, storageClassName, secretName)
-	}
-
-	// Create a service (load balancer) for the VM.
-	vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
-
-	// Wait for the VM to get an IP address.
-	vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("failed to get VM IP: %w", err)
-	}
-
-	// Verify that the PVCs are attached to the VirtualMachine.
-	if len(pvclaims) == 1 {
-		err = waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm, []*v1.PersistentVolumeClaim{pvclaims[0]})
-	} else {
-		err = waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm, pvclaims)
-	}
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("PVCs not attached to VM: %w", err)
-	}
-
-	// After the VM has been created and the PVCs are attached, fetch the current state of the VM.
-	vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("failed to get VM info: %w", err)
-	}
-
-	/* Verify that the attached volumes are accessible and validate data integrity. The function iterates through each
-	volume of the VM, verifies that the PVC is accessible, and checks the data integrity on each attached disk */
-	for i, vol := range vm.Status.Volumes {
-		volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-		verifyDataIntegrityOnVmDisk(vmIp, volFolder)
-	}
-
-	return secretName, vm, vmlbsvc, nil
-}
-
-/*
-This utility deletes a VirtualMachine, its associated load balancing service, and
-the VM's bootstrap secret, ensuring a clean removal of all related resources.
-*/
-func deleteVmServiceVmWithItsConfig(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
-	vmlbsvc *vmopv1.VirtualMachineService, namespace string, vm *vmopv1.VirtualMachine, secretName string) error {
-
-	// Delete the load balancing service associated with the VM.
-	if err := vmopC.Delete(ctx, &vmopv1.VirtualMachineService{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      vmlbsvc.Name, // Name of the VirtualMachineService to delete.
-			Namespace: namespace,    // Namespace where the service exists.
-		},
-	}); err != nil {
-		return fmt.Errorf("failed to delete VirtualMachineService %q: %w", vmlbsvc.Name, err)
-	}
-
-	// Delete the Virtual Machine itself.
-	if err := vmopC.Delete(ctx, &vmopv1.VirtualMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      vm.Name,   // Name of the VirtualMachine to delete.
-			Namespace: namespace, // Namespace where the VirtualMachine exists.
-		},
-	}); err != nil {
-		return fmt.Errorf("failed to delete VirtualMachine %q: %w", vm.Name, err)
-	}
-
-	//Delete the bootstrap secret for the VM.
-	if err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0)); err != nil {
-		return fmt.Errorf("failed to delete secret %q: %w", secretName, err)
-	}
-	return nil
-}
-
-/*
-verifyAllowedTopologyLabelsForVmServiceVM checks if the VM has a
-topology.kubernetes.io/zone label, verifies if its value is in the allowed zones
-*/
-func verifyAllowedTopologyLabelsForVmServiceVM(vm *vmopv1.VirtualMachine, allowedTopologies map[string][]string) error {
-	label := vm.Labels
-
-	// Check if the topologyKey label exists on the VM
-	zone, labelExists := label[vmServiceVmLabelKey]
-	if !labelExists {
-		return fmt.Errorf("couldn't find label '%s' on svc pvc: %s", vmServiceVmLabelKey, vm.Name)
-	}
-
-	// Check if allowed zones for the key exist in allowedTopologies
-	allowedZones, keyExists := allowedTopologies[vmServiceVmLabelKey]
-	if !keyExists {
-		return fmt.Errorf("couldn't find allowed topologies for key: %s", vmServiceVmLabelKey)
-	}
-
-	// Verify if the VM's zone is in the list of allowed zones
-	if !containsItem(allowedZones, zone) {
-		return fmt.Errorf("zone %q not found in allowed accessible "+
-			"topologies: %v for svc pvc: %s", zone, allowedZones, vm.Name)
-	}
-
-	return nil
-}
-
-/*
-Verifies if the virtual machine is running on a node that matches the
-allowed topologies
-*/
-func verifyVmServiceVMNodeLocation(vm *vmopv1.VirtualMachine, nodeList *v1.NodeList,
-	allowedTopologiesMap map[string][]string) (bool, error) {
-	ip := strings.Replace(vm.Status.Host, ".", "-", -1)
-	for _, node := range nodeList.Items {
-		nodeName := strings.Replace(node.Name, ".", "-", -1)
-		if strings.Contains(nodeName, ip) {
-			for labelKey, labelValue := range node.Labels {
-				if topologyValue, ok := allowedTopologiesMap[labelKey]; ok {
-					if !contains(topologyValue, labelValue) {
-						return false, fmt.Errorf("VM: %s is not running on node located in %s", vm.Name, labelValue)
-					}
-				}
-			}
-			return true, nil
-		}
-	}
-	return false, fmt.Errorf("VM: %s is not running on any node with matching IP", vm.Name)
 }

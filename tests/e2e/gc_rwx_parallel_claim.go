@@ -79,7 +79,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 		3. Wait for either of the PVC bound to fail due to no resource left
 		and one of the PVC to be bound
 	*/
-	ginkgo.It("Test PVCs claiming the available resource in parallel", func() {
+	ginkgo.It("Test PVCs claiming the available resource in parallel", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var err error

@@ -104,7 +104,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		20. Verify CnsVolumeMetadata CRD is deleted
 		21. Verify volumes are deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("Verify multiple Pods concurrently using a one file volume", func() {
+	ginkgo.It("Verify multiple Pods concurrently using a one file volume", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		}()
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC %q", pvcUID)
+		framework.Logf("PVC UUID in GC " + pvcUID)
 
 		// Verify using CNS Query API if VolumeID retrieved from PV is present.
 		framework.Logf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", fcdIDInCNS)
@@ -243,10 +243,10 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		}()
 
 		gcClusterID := strings.Replace(pvcNameInSV, pvcUID, "", -1)
-		framework.Logf("gcClusterId %q", gcClusterID)
+		framework.Logf("gcClusterId " + gcClusterID)
 
 		pvUID := string(persistentvolumes[0].UID)
-		framework.Logf("PV uuid %q", pvUID)
+		framework.Logf("PV uuid " + pvUID)
 
 		for _, multipod := range pods {
 			ginkgo.By(fmt.Sprintf("Wait for pod %s to be up and running", multipod.Name))
@@ -257,7 +257,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			podUID := string(tempPod.UID)
-			framework.Logf("Pod uuid : %q", podUID)
+			framework.Logf("Pod uuid : " + podUID)
 
 			//Add a check to validate CnsVolumeMetadata crd
 			verifyCRDInSupervisorWithWait(ctx, f, pvcNameInSV, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
@@ -337,7 +337,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		18. Verify CnsVolumeMetadata CRD is deleted
 		19. Verify volumes are deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("Verify multiple Pods concurrently using a multiple file volume", func() {
+	ginkgo.It("Verify multiple Pods concurrently using a multiple file volume", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass

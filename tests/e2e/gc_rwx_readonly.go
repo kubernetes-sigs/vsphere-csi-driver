@@ -83,7 +83,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for ReadOnlyMany", func(
 		12. Delete PVC, PV and Storage Class.
 	*/
 
-	ginkgo.It("Verify RWX volume is restricted to write by pod spec", func() {
+	ginkgo.It("Verify RWX volume is restricted to write by pod spec", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -197,7 +197,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for ReadOnlyMany", func(
 		12. Vefiry CNSFileAccessConfig CRD is deleted
 		13. Delete PVCs, PVs and Storage Class.
 	*/
-	ginkgo.It("Verify Pod can identify ReadOnlyMany and ReadWriteMany volumes", func() {
+	ginkgo.It("Verify Pod can identify ReadOnlyMany and ReadWriteMany volumes", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -374,7 +374,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for ReadOnlyMany", func(
 		15. Delete PVC, PV and Storage Class
 	*/
 
-	ginkgo.It("Verify RWX ReadWriteMany Volume created from Pod1 in Pod2 as ReadOnlyMany access", func() {
+	ginkgo.It("Verify RWX ReadWriteMany Volume created from Pod1 in Pod2 as ReadOnlyMany access", ginkgo.Label(p0, file, tkg, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -549,7 +549,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for ReadOnlyMany", func(
 	*/
 
 	ginkgo.It("Verify RWX ReadWriteMany Volume created from Pod1 in Pod2 as statically provisioned "+
-		"ReadOnlyMany access", func() {
+		"ReadOnlyMany access", ginkgo.Label(p0, file, tkg, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

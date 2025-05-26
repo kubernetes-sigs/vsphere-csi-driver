@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 
 		ginkgo.By("Expect claim to be in Bound state and provisioning volume passes")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,
-			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
 
 		pv = getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)

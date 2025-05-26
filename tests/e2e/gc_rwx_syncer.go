@@ -74,6 +74,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		defer cancel()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 		if isVsanHealthServiceStopped {
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
@@ -102,7 +103,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		18. Verify CnsVolumeMetadata CRD is deleted
 		19. Verify volume is deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify RWX volume labels", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify RWX volume labels", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclasspvc *storagev1.StorageClass
@@ -278,7 +279,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		34. Verify CnsVolumeMetadata CRD is deleted
 		35. Verify volume is deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify PVC metadata reflects pods names", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify PVC metadata reflects pods names", ginkgo.Label(p0, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -296,7 +297,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC %q", pvcUID)
+		framework.Logf("PVC UUID in GC " + pvcUID)
 
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
@@ -504,19 +505,19 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		}()
 
 		gcClusterID := strings.Replace(pvcNameInSV, pvcUID, "", -1)
-		framework.Logf("gcClusterId %q", gcClusterID)
+		framework.Logf("gcClusterId " + gcClusterID)
 
 		pv1UID := string(persistentvolumes[0].UID)
-		framework.Logf("PV1 uuid %q", pv1UID)
+		framework.Logf("PV1 uuid " + pv1UID)
 
 		pv2UID := string(pv2.UID)
-		framework.Logf("PV2 uuid %q", pv2UID)
+		framework.Logf("PV2 uuid " + pv2UID)
 
 		podUID := string(pod.UID)
-		framework.Logf("Pod uuid : %q", podUID)
+		framework.Logf("Pod uuid : " + podUID)
 
 		pod2UID := string(pod2.UID)
-		framework.Logf("Pod uuid : %q", pod2UID)
+		framework.Logf("Pod uuid : " + pod2UID)
 
 		//Add a check to validate CnsVolumeMetadata crd
 		verifyCRDInSupervisorWithWait(ctx, f, pvcNameInSV, crdCNSVolumeMetadatas, crdVersion, crdGroup, true)
@@ -616,7 +617,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		21. Verify CnsVolumeMetadata CRD is deleted
 		22. Verify volume is deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify Pod mounted with PVC while the csi-controller in SV is down", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify Pod mounted with PVC while the csi-controller in SV is down", ginkgo.Label(p1, file, tkg, negative, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -633,7 +634,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcUID := string(pvclaim.GetUID())
-		framework.Logf("PVC UUID in GC %q", pvcUID)
+		framework.Logf("PVC UUID in GC " + pvcUID)
 
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
@@ -784,7 +785,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 		15. Verify CnsVolumeMetadata CRD is deleted
 		16. Verify volume is deleted on CNS by using CNSQuery API
 	*/
-	ginkgo.It("[rwm-csi-tkg] Verify RWX label update on SV csi-controller down", func() {
+	ginkgo.It("[rwm-csi-tkg] Verify RWX label update on SV csi-controller down", ginkgo.Label(p1, file, tkg, negative, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclasspvc *storagev1.StorageClass

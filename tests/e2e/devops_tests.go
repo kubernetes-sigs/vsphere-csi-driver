@@ -25,9 +25,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
-	vmopv2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	vmopv3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
-	vmopv4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -116,9 +114,7 @@ var _ = ginkgo.Describe("dev-ops-user-tests", func() {
 		}
 		vmopScheme := runtime.NewScheme()
 		gomega.Expect(vmopv1.AddToScheme(vmopScheme)).Should(gomega.Succeed())
-		gomega.Expect(vmopv2.AddToScheme(vmopScheme)).Should(gomega.Succeed())
 		gomega.Expect(vmopv3.AddToScheme(vmopScheme)).Should(gomega.Succeed())
-		gomega.Expect(vmopv4.AddToScheme(vmopScheme)).Should(gomega.Succeed())
 		vmopClient, err = ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: vmopScheme})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
@@ -160,7 +156,7 @@ var _ = ginkgo.Describe("dev-ops-user-tests", func() {
 		2. Create first EncryptionClass with encryption key [1]
 		3. As devops user Creating PVC with first EncryptionClass [2]
 	*/
-	ginkgo.It("[svc-devops-user-test-encryption] As devops user create PVC with EncryptionClass", func() {
+	ginkgo.It("[svc-devops-user-test-encryption] As devops user create PVC with EncryptionClass", ginkgo.Label(p1, block, wcp, core, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

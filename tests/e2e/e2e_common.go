@@ -17,14 +17,12 @@ limitations under the License.
 package e2e
 
 import (
-	"context"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
 	"github.com/onsi/gomega"
 )
@@ -273,19 +271,18 @@ const (
 	storageQuotaWebhookPrefix                = "storage-quota-webhook"
 	envStoragePolicyNameForVsanNfsDatastores = "STORAGE_POLICY_FOR_VSAN_NFS_DATASTORES"
 	devopsKubeConf                           = "DEV_OPS_USER_KUBECONFIG"
-	quotaSupportedVCVersion                  = "9.0.0"
 )
 
 /*
 // test suite labels
 
 flaky -> label include the testcases which fails intermittently
-disruptive -> label include the testcases which are disruptive in nature
+disruptive -> label include the testcases which are disruptive in nature ex: hosts down, cluster down, datastore down
 vanilla -> label include the testcases for block, file, configSecret, topology etc.
 stable -> label include the testcases which do not fail
 longRunning -> label include the testcases which takes longer time for completion
 p0 -> label include the testcases which are P0
-p1 -> label include the testcases which are P1
+p1 -> label include the testcases which are P1, vcreboot, negative
 p2 -> label include the testcases which are P2
 semiAutomated -> label include the testcases which are semi-automated
 newTests -> label include the testcases which are newly automated
@@ -294,6 +291,10 @@ level2 -> label include the level-2 topology testcases or pipeline specific
 level5 -> label include the level-5 topology testcases
 customPort -> label include the testcases running on vCenter custom port <VC:444>
 deprecated ->label include the testcases which are no longer in execution
+negative -> Negative tests, ex: service/pod down(sps, vsan-health, vpxd, hostd, csi pods)
+vc70 -> Tests for vc70 features
+vc80 -> Tests for vc80 features
+vc80 -> Tests for vc90 features
 */
 const (
 	flaky                 = "flaky"
@@ -332,6 +333,9 @@ const (
 	controlPlaneOnPrimary = "controlPlaneOnPrimary"
 	distributed           = "distributed"
 	vmsvc                 = "vmsvc"
+	vc70                  = "vc70"
+	vc80                  = "vc80"
+	vc90                  = "vc90"
 )
 
 // The following variables are required to know cluster type to run common e2e
@@ -471,43 +475,10 @@ var (
 
 // For management workload domain isolation
 var (
-	envZonal2StoragePolicyName            = "ZONAL2_STORAGE_POLICY_IMM"
-	envZonal2StoragePolicyNameLateBidning = "ZONAL2_STORAGE_POLICY_WFFC"
-	envZonal1StoragePolicyName            = "ZONAL1_STORAGE_POLICY_IMM"
-	envZonal3StoragePolicyName            = "ZONAL3_STORAGE_POLICY_IMM"
-	topologyDomainIsolation               = "Workload_Management_Isolation"
-	envIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
-	envSharedZone2Zone4StoragePolicyName  = "SHARED_ZONE2_ZONE4_STORAGE_POLICY_IMM"
-	envSharedZone2Zone4DatastoreUrl       = "SHARED_ZONE2_ZONE4_DATASTORE_URL"
+	envZonal2StoragePolicyName = "ZONAL2_STORAGECLASS"
+	envWrkldDomain1ZoneName    = "WORKLOAD_1_ZONE_NAME"
+	topologyDomainIsolation    = "Workload_Management_Isolation"
 )
-
-// storage policy usages for storage quota validation
-var usageSuffixes = []string{
-	"-pvc-usage",
-	"-latebinding-pvc-usage",
-	"-snapshot-usage",
-	"-latebinding-snapshot-usage",
-	"-vm-usage",
-	"-latebinding-vm-usage",
-}
-
-const (
-	storagePolicyUsagePollInterval = 10 * time.Second
-	storagePolicyUsagePollTimeout  = 1 * time.Minute
-)
-
-// GetAndExpectEnvVar returns the value of an environment variable or fails the regression if it's not set.
-func GetAndExpectEnvVar(varName string) string {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	log := logger.GetLogger(ctx)
-
-	varValue, exists := os.LookupEnv(varName)
-	if !exists {
-		log.Fatalf("Required environment variable not found: %s", varName)
-	}
-	return varValue
-}
 
 // GetAndExpectStringEnvVar parses a string from env variable.
 func GetAndExpectStringEnvVar(varName string) string {
@@ -524,43 +495,12 @@ func GetAndExpectIntEnvVar(varName string) int {
 	return varIntValue
 }
 
-// GetBoolEnvVarOrDefault returns the boolean value of an environment variable or return default if it's not set
-func GetBoolEnvVarOrDefault(varName string, defaultVal bool) bool {
-	varValue, exists := os.LookupEnv(varName)
-	if !exists {
-		return defaultVal
-	}
-
+// GetAndExpectBoolEnvVar parses a boolean from env variable.
+func GetAndExpectBoolEnvVar(varName string) bool {
+	varValue := GetAndExpectStringEnvVar(varName)
 	varBoolValue, err := strconv.ParseBool(varValue)
-	if err != nil {
-		ctx := context.Background()
-		log := logger.GetLogger(ctx)
-		log.Warnf("Invalid boolean value for %s: '%s'. Using default: %v", varName, varValue, defaultVal)
-		return defaultVal
-	}
-
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error Parsing "+varName)
 	return varBoolValue
-}
-
-// GetStringEnvVarOrDefault returns the string value of an environment variable or return default if it's not set
-func GetStringEnvVarOrDefault(varName string, defaultVal string) string {
-	varValue, exists := os.LookupEnv(varName)
-	if !exists || strings.TrimSpace(varValue) == "" {
-		return defaultVal
-	}
-	return varValue
-}
-
-/*
-GetorIgnoreStringEnvVar, retrieves the value of an environment variable while logging
-a warning if the variable is not set.
-*/
-func GetorIgnoreStringEnvVar(varName string) string {
-	varValue, exists := os.LookupEnv(varName)
-	if !exists {
-		missingEnvVars = append(missingEnvVars, varName)
-	}
-	return varValue
 }
 
 // setClusterFlavor sets the boolean variables w.r.t the Cluster type.
@@ -607,168 +547,5 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	testbedType := os.Getenv("STRETCHED_SVC")
 	if strings.TrimSpace(string(testbedType)) == "1" {
 		stretchedSVC = true
-	}
-}
-
-var (
-	// reading port numbers for VC, Master VM and ESXi from export variables
-	envVc1SshdPortNum       = "VC1_SSHD_PORT_NUM"
-	envVc2SshdPortNum       = "VC2_SSHD_PORT_NUM"
-	envVc3SshdPortNum       = "VC3_SSHD_PORT_NUM"
-	envMasterIP1SshdPortNum = "MASTER_IP1_SSHD_PORT_NUM"
-	envMasterIP2SshdPortNum = "MASTER_IP2_SSHD_PORT_NUM"
-	envMasterIP3SshdPortNum = "MASTER_IP3_SSHD_PORT_NUM"
-	envEsx1PortNum          = "ESX1_SSHD_PORT_NUM"
-	envEsx2PortNum          = "ESX2_SSHD_PORT_NUM"
-	envEsx3PortNum          = "ESX3_SSHD_PORT_NUM"
-	envEsx4PortNum          = "ESX4_SSHD_PORT_NUM"
-	envEsx5PortNum          = "ESX5_SSHD_PORT_NUM"
-	envEsx6PortNum          = "ESX6_SSHD_PORT_NUM"
-	envEsx7PortNum          = "ESX7_SSHD_PORT_NUM"
-	envEsx8PortNum          = "ESX8_SSHD_PORT_NUM"
-	envEsx9PortNum          = "ESX9_SSHD_PORT_NUM"
-	envEsx10PortNum         = "ESX10_SSHD_PORT_NUM"
-
-	// reading IPs for VC, Master VM and ESXi from export variables
-	envVcIP1     = "VC_IP1"
-	envVcIP2     = "VC_IP2"
-	envVcIP3     = "VC_IP3"
-	envMasterIP1 = "MASTER_IP1"
-	envMasterIP2 = "MASTER_IP2"
-	envMasterIP3 = "MASTER_IP3"
-	envEsxIp1    = "ESX1_IP"
-	envEsxIp2    = "ESX2_IP"
-	envEsxIp3    = "ESX3_IP"
-	envEsxIp4    = "ESX4_IP"
-	envEsxIp5    = "ESX5_IP"
-	envEsxIp6    = "ESX6_IP"
-	envEsxIp7    = "ESX7_IP"
-	envEsxIp8    = "ESX8_IP"
-	envEsxIp9    = "ESX9_IP"
-	envEsxIp10   = "ESX10_IP"
-
-	// default port declaration for each IP
-	vcIp1SshPortNum       = sshdPort
-	vcIp2SshPortNum       = sshdPort
-	vcIp3SshPortNum       = sshdPort
-	esxIp1PortNum         = sshdPort
-	esxIp2PortNum         = sshdPort
-	esxIp3PortNum         = sshdPort
-	esxIp4PortNum         = sshdPort
-	esxIp5PortNum         = sshdPort
-	esxIp6PortNum         = sshdPort
-	esxIp7PortNum         = sshdPort
-	esxIp8PortNum         = sshdPort
-	esxIp9PortNum         = sshdPort
-	esxIp10PortNum        = sshdPort
-	k8sMasterIp1PortNum   = sshdPort
-	k8sMasterIp2PortNum   = sshdPort
-	k8sMasterIp3PortNum   = sshdPort
-	defaultVcAdminPortNum = "443"
-
-	// global variables declared
-	esxIp1             = ""
-	esxIp2             = ""
-	esxIp3             = ""
-	esxIp4             = ""
-	esxIp5             = ""
-	esxIp6             = ""
-	esxIp7             = ""
-	esxIp8             = ""
-	esxIp9             = ""
-	esxIp10            = ""
-	vcAddress          = ""
-	vcAddress2         = ""
-	vcAddress3         = ""
-	masterIP1          = ""
-	masterIP2          = ""
-	masterIP3          = ""
-	ipPortMap          = make(map[string]string)
-	missingEnvVars     []string
-	defaultlocalhostIP = "127.0.0.1"
-)
-
-/*
-The setSShdPort function dynamically configures SSH port mappings for a vSphere test environment by reading
-environment variables and adapting to the network type and topology.
-It sets up SSH access to vCenter servers, ESXi hosts, and Kubernetes masters based on the environment configuration.
-*/
-func safeInsertToMap(key, value string) {
-	if key != "" && value != "" {
-		ipPortMap[key] = value
-	}
-}
-
-func setSShdPort() {
-	vcAddress = GetAndExpectEnvVar(envVcIP1)
-	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-
-	if multivc {
-		vcAddress2 = GetAndExpectEnvVar(envVcIP2)
-		vcAddress3 = GetAndExpectEnvVar(envVcIP3)
-	}
-
-	if isPrivateNetwork {
-		if multivc {
-			vcIp2SshPortNum = GetorIgnoreStringEnvVar(envVc2SshdPortNum)
-			vcIp3SshPortNum = GetorIgnoreStringEnvVar(envVc3SshdPortNum)
-
-			safeInsertToMap(vcAddress2, vcIp2SshPortNum)
-			safeInsertToMap(vcAddress3, vcIp3SshPortNum)
-		}
-
-		// reading masterIP and its port number
-		masterIP1 = GetorIgnoreStringEnvVar(envMasterIP1)
-		masterIP2 = GetorIgnoreStringEnvVar(envMasterIP2)
-		masterIP3 = GetorIgnoreStringEnvVar(envMasterIP3)
-		k8sMasterIp1PortNum = GetorIgnoreStringEnvVar(envMasterIP1SshdPortNum)
-		k8sMasterIp2PortNum = GetorIgnoreStringEnvVar(envMasterIP2SshdPortNum)
-		k8sMasterIp3PortNum = GetorIgnoreStringEnvVar(envMasterIP3SshdPortNum)
-
-		vcIp1SshPortNum = GetorIgnoreStringEnvVar(envVc1SshdPortNum)
-
-		// reading esxi ip and its port
-		esxIp1 = GetorIgnoreStringEnvVar(envEsxIp1)
-		esxIp1PortNum = GetorIgnoreStringEnvVar(envEsx1PortNum)
-		esxIp2PortNum = GetorIgnoreStringEnvVar(envEsx2PortNum)
-		esxIp3PortNum = GetorIgnoreStringEnvVar(envEsx3PortNum)
-		esxIp4PortNum = GetorIgnoreStringEnvVar(envEsx4PortNum)
-		esxIp5PortNum = GetorIgnoreStringEnvVar(envEsx5PortNum)
-		esxIp6PortNum = GetorIgnoreStringEnvVar(envEsx6PortNum)
-		esxIp7PortNum = GetorIgnoreStringEnvVar(envEsx7PortNum)
-		esxIp8PortNum = GetorIgnoreStringEnvVar(envEsx8PortNum)
-		esxIp9PortNum = GetorIgnoreStringEnvVar(envEsx9PortNum)
-		esxIp10PortNum = GetorIgnoreStringEnvVar(envEsx10PortNum)
-
-		esxIp2 = GetorIgnoreStringEnvVar(envEsxIp2)
-		esxIp3 = GetorIgnoreStringEnvVar(envEsxIp3)
-		esxIp4 = GetorIgnoreStringEnvVar(envEsxIp4)
-		esxIp5 = GetorIgnoreStringEnvVar(envEsxIp5)
-		esxIp6 = GetorIgnoreStringEnvVar(envEsxIp6)
-		esxIp7 = GetorIgnoreStringEnvVar(envEsxIp7)
-		esxIp8 = GetorIgnoreStringEnvVar(envEsxIp8)
-		esxIp9 = GetorIgnoreStringEnvVar(envEsxIp9)
-		esxIp10 = GetorIgnoreStringEnvVar(envEsxIp10)
-
-		safeInsertToMap(vcAddress, vcIp1SshPortNum)
-		safeInsertToMap(masterIP1, k8sMasterIp1PortNum)
-		safeInsertToMap(masterIP2, k8sMasterIp2PortNum)
-		safeInsertToMap(masterIP3, k8sMasterIp3PortNum)
-		safeInsertToMap(esxIp1, esxIp1PortNum)
-		safeInsertToMap(esxIp2, esxIp2PortNum)
-		safeInsertToMap(esxIp3, esxIp3PortNum)
-		safeInsertToMap(esxIp4, esxIp4PortNum)
-		safeInsertToMap(esxIp5, esxIp5PortNum)
-		safeInsertToMap(esxIp6, esxIp6PortNum)
-		safeInsertToMap(esxIp7, esxIp7PortNum)
-		safeInsertToMap(esxIp8, esxIp8PortNum)
-		safeInsertToMap(esxIp9, esxIp9PortNum)
-		safeInsertToMap(esxIp10, esxIp10PortNum)
-	}
-
-	if len(missingEnvVars) > 0 {
-		ctx := context.Background()
-		log := logger.GetLogger(ctx)
-		log.Warnf("Missing environment variables: %v", strings.Join(missingEnvVars, ", "))
 	}
 }

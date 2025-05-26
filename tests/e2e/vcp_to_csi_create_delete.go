@@ -108,6 +108,8 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		vcpPvcsPreMig = []*v1.PersistentVolumeClaim{}
 		vcpPvcsPostMig = []*v1.PersistentVolumeClaim{}
 
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 			err = invokeVCenterServiceControl(ctx, "start", vsanhealthServiceName, vcAddress)
@@ -258,7 +260,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		for _, pvc := range append(vcpPvcsPreMig, vcpPvcsPostMig...) {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			pv := getPvFromClaim(client, namespace, pvc.Name)
-			framework.Logf("Processing PVC: %q", pvc.Name)
+			framework.Logf("Processing PVC: " + pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc, pv, nil)
@@ -346,7 +348,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		for _, pvc := range vcpPvcsPreMig {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			pv := getPvFromClaim(client, namespace, pvc.Name)
-			framework.Logf("Processing PVC: %q", pvc.Name)
+			framework.Logf("Processing PVC: " + pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc, pv, nil)
@@ -438,12 +440,14 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		var crd *migrationv1alpha1.CnsVSphereVolumeMigration
 
 		vpath = getvSphereVolumePathFromClaim(ctx, client, namespace, pvc2.Name)
-		framework.Logf("Processing PVC: %q", pvc2.Name)
+		framework.Logf("Processing PVC: " + pvc2.Name)
 		var found bool
 		found, crd = getCnsVSphereVolumeMigrationCrd(ctx, vpath)
 		gomega.Expect(found).To(gomega.BeTrue())
 		err = waitAndVerifyCnsVolumeMetadata(ctx, crd.Spec.VolumeID, pvc2, pv2, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		ginkgo.By(fmt.Sprintln("Stopping sps on the vCenter host"))
 		isSPSserviceStopped = true
@@ -527,7 +531,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		ginkgo.By("Wait and verify CNS entries for all CNS volumes and CnsVSphereVolumeMigration CRDs to get ")
 		for _, pvc := range vcpPvcsPostMig {
 			vpath = getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
-			framework.Logf("Processing PVC: %q", pvc.Name)
+			framework.Logf("Processing PVC: " + pvc.Name)
 			pv := getPvFromClaim(client, namespace, pvc.Name)
 			var found bool
 			found, crd = getCnsVSphereVolumeMigrationCrd(ctx, vpath)
@@ -924,7 +928,7 @@ func verifyCnsVolumeMetadata(volumeID string, pvc *v1.PersistentVolumeClaim,
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	if len(cnsQueryResult.Volumes) == 0 {
-		framework.Logf("CNS volume query yielded no results for volume id: %q", volumeID)
+		framework.Logf("CNS volume query yielded no results for volume id: " + volumeID)
 		return false
 	}
 	cnsVolume := cnsQueryResult.Volumes[0]

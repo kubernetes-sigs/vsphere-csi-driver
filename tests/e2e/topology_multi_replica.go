@@ -64,6 +64,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			isSPSServiceStopped        bool
 			isVsanHealthServiceStopped bool
 			sshClientConfig            *ssh.ClientConfig
+			vcAddress                  string
 			container_name             string
 			sts_count                  int
 			statefulSetReplicaCount    int32
@@ -125,7 +126,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				},
 				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 			}
-
+			vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			if os.Getenv(envPandoraSyncWaitTime) != "" {
 				pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -166,6 +167,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				c = remoteC
 			}
+
 		})
 
 		ginkgo.AfterEach(func() {
@@ -1752,6 +1754,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By(fmt.Sprintln("Changing password on the vCenter host"))
+			vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 			username := vsphereCfg.Global.User
 			newPassword := e2eTestPassword
 			err = invokeVCenterChangePassword(ctx, username, nimbusGeneratedVcPwd, newPassword, vcAddress,

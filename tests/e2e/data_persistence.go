@@ -119,7 +119,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 	})
 
 	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-parallelized] Should create and "+
-		"delete pod with the same volume source and data", ginkgo.Label(p0, block, vanilla, wcp, tkg, core), func() {
+		"delete pod with the same volume source and data", ginkgo.Label(p0, block, vanilla, wcp, tkg, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var sc *storagev1.StorageClass
@@ -304,7 +304,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 	// 11. Wait for volume to be detached.
 	// 12. Delete PVC and SC.
 	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Dynamic volume provisioning data persistence "+
-		"test with XFS filesystem", ginkgo.Label(p0, block, vanilla, wcp, core), func() {
+		"test with XFS filesystem", ginkgo.Label(p0, block, vanilla, wcp, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var sc *storagev1.StorageClass
@@ -437,7 +437,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 	// 15. Verify CRD deleted automatically.
 	// 16. Delete resource quota.
 	ginkgo.It("[csi-supervisor] Data Persistence in case of Static Volume Provisioning on "+
-		"SVC", ginkgo.Label(p0, block, wcp), func() {
+		"SVC", ginkgo.Label(p0, block, wcp, vc70), func() {
 		var pvc *v1.PersistentVolumeClaim
 		var err error
 		var vmUUID string

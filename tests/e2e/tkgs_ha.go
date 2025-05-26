@@ -70,7 +70,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		pandoraSyncWaitTime        int
 		labels_ns                  map[string]string
 		isVcRebooted               bool
-		isQuotaValidationSupported bool
+		vcAddress                  string
+		isStorageQuotaFSSEnabled   bool
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -86,6 +87,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		labels_ns = map[string]string{}
 		labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
 		labels_ns["e2e-framework"] = f.BaseName
+		vcAddress = e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 
 		if zonalPolicy == "" {
 			ginkgo.Fail(envZonalStoragePolicyName + " env variable not set")
@@ -140,12 +142,9 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		} else {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
-
-		if supervisorCluster || stretchedSVC {
-			//if isQuotaValidationSupported is true then quotaValidation is considered in tests
-			vcVersion = getVCversion(ctx, vcAddress)
-			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
-		}
+		//Remove this code once the FSS is enabled
+		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
+		isStorageQuotaFSSEnabled = isFssEnabled(ctx, vcAddress, "STORAGE_QUOTA_M2")
 
 	})
 
@@ -194,7 +193,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		17.Cleanup: Delete Pod, PVC, SC (validate they are removed)
 		18. Delete PVC,POD,SC
 	*/
-	ginkgo.It("Dynamic PVC -  Zonal storage and Immediate binding", func() {
+	ginkgo.It("Dynamic PVC -  Zonal storage and Immediate binding", ginkgo.Label(p0, block, tkgsHA, vc80), func() {
 
 		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
 		var tqAfterSanpshot, storagePolicyQuotaAfter, storagePolicyUsageAfter *resource.Quantity
@@ -217,7 +216,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		if isQuotaValidationSupported {
+		if isStorageQuotaFSSEnabled {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName)
@@ -238,7 +237,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		svcPVCName := pv.Spec.CSI.VolumeHandle
 		svcPVC := getPVCFromSupervisorCluster(svcPVCName)
 
-		if isQuotaValidationSupported {
+		if isStorageQuotaFSSEnabled {
 			_, storagePolicyQuotaAfter, storagePolicyUsageAfter =
 				validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName,
@@ -299,7 +298,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			pvclaim, volHandle, diskSize, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		if isQuotaValidationSupported {
+		if isStorageQuotaFSSEnabled {
 			tqAfterSanpshot, _, _, _, _, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName)
@@ -357,7 +356,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			volumeSnapshot, pandoraSyncWaitTime, volHandle, dynamicSnapshotId, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		if isQuotaValidationSupported {
+		if isStorageQuotaFSSEnabled {
 			validateQuotaUsageAfterCleanUp(ctx, restConfig, storageclass.Name, namespace, pvcUsage,
 				volExtensionName, diskSizeInMb, tqAfterSanpshot, storagePolicyQuotaAfter,
 				storagePolicyUsageAfter)
@@ -386,7 +385,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		10.Delete PVC,POD,SC
 	*/
 	ginkgo.It("Stateful set - storage class with Zonal storage and wffc and"+
-		" with parallel pod management policy", func() {
+		" with parallel pod management policy", ginkgo.Label(p0, block, tkgsHA, vc80), func() {
 
 		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
 		var totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter *resource.Quantity
@@ -415,7 +414,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			deleteService(namespace, client, service)
 		}()
 
-		if isQuotaValidationSupported {
+		if isStorageQuotaFSSEnabled {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					zonalPolicy, namespace, pvcUsage, volExtensionName)
@@ -431,7 +430,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 
-		if isQuotaValidationSupported {
+		if isStorageQuotaFSSEnabled {
 			totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter =
 				validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName,
@@ -458,7 +457,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 						"kubernetes", volumeHandle))
 			}
 
-			if isQuotaValidationSupported {
+			if isStorageQuotaFSSEnabled {
 				validateQuotaUsageAfterCleanUp(ctx, restConfig, storageclass.Name, namespace, pvcUsage,
 					volExtensionName, diskSizeInMb*3, totalQuotaUsedAfter, storagePolicyQuotaAfter,
 					storagePolicyUsageAfter)
@@ -485,7 +484,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		6. Edit the SC parameter to some cross-zonal sc name - This operation should not be allowed
 		7. Delete PVC,SC
 	*/
-	ginkgo.It("Edit the svc-pvc and try to change annotation or SC values", func() {
+	ginkgo.It("Edit the svc-pvc and try to change annotation or SC values", ginkgo.Label(p1, block, tkgsHA, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -576,7 +575,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		13. Scale down the sts to 0
 		14. Delete PVC,POD,SC
 	*/
-	ginkgo.It("Bring down VSAN during volume provisioning using zonal storage", func() {
+	ginkgo.It("Bring down VSAN during volume provisioning using zonal storage", ginkgo.Label(p1, block, tkgsHA, negative, vc80), func() {
 		serviceName := vsanhealthServiceName
 		isServiceStopped := false
 		verifyVolumeProvisioningWithServiceDown(serviceName, namespace, client, zonalPolicy,
@@ -601,7 +600,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		13. Scale down the sts to 0
 		14. Delete PVC,POD,SC
 	*/
-	ginkgo.It("Bring down sps during volume provisioning using zonal storage", func() {
+	ginkgo.It("Bring down sps during volume provisioning using zonal storage", ginkgo.Label(p1, block, tkgsHA, negative, vc80), func() {
 		serviceName := spsServiceName
 		isServiceStopped := false
 		verifyVolumeProvisioningWithServiceDown(serviceName, namespace, client, zonalPolicy,
@@ -628,7 +627,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		10.Verify the FS size on the POD
 		11.Clear all PVC,POD and sc
 	*/
-	ginkgo.It("Verify Online Volume expansion using zonal storage", func() {
+	ginkgo.It("Verify Online Volume expansion using zonal storage", ginkgo.Label(p0, block, tkgsHA, vc80), func() {
 		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -661,7 +660,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		svcPVCName := pv.Spec.CSI.VolumeHandle
 		svcPVC := getPVCFromSupervisorCluster(svcPVCName)
 
-		if isQuotaValidationSupported {
+		if isStorageQuotaFSSEnabled {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName)
@@ -711,7 +710,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		verifyOnlineVolumeExpansionOnGc(client, namespace, svcPVCName, volHandle, pvclaim, pod, f)
 
-		if isQuotaValidationSupported {
+		if isStorageQuotaFSSEnabled {
 			totalquotaUsedAfterExpansion, _ := getTotalQuotaConsumedByStoragePolicy(ctx, restConfig,
 				storageclass.Name, svNamespace)
 			framework.Logf("totalquotaUsedAfterExpansion :%v", totalquotaUsedAfterExpansion)
@@ -757,7 +756,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		11.Verify the FS size on the POD
 		12.Clear all PVC,POD and sc
 	*/
-	ginkgo.It("Verify offline Volume expansion using zonal storage", func() {
+	ginkgo.It("Verify offline Volume expansion using zonal storage", ginkgo.Label(p0, block, tkgsHA, vc80), func() {
 		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -790,7 +789,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		svcPVCName := pv.Spec.CSI.VolumeHandle
 		svcPVC := getPVCFromSupervisorCluster(svcPVCName)
 
-		if isQuotaValidationSupported {
+		if isStorageQuotaFSSEnabled {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName)
@@ -840,7 +839,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		verifyOfflineVolumeExpansionOnGc(ctx, client, pvclaim, svcPVCName, namespace, volHandle, pod, pv, f)
 
-		if isQuotaValidationSupported {
+		if isStorageQuotaFSSEnabled {
 			totalquotaUsedAfterExpansion, _ := getTotalQuotaConsumedByStoragePolicy(ctx, restConfig,
 				storageclass.Name, svNamespace)
 			framework.Logf("totalquotaUsedAfterExpansion :%v", totalquotaUsedAfterExpansion)
@@ -884,7 +883,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		14. Write data to the restored volumes and it should succeed.
 		15. Delete pod, gc1-pv and gc1-pvc and svc pvc.
 	*/
-	ginkgo.It("Static volume provisioning using zonal storage", func() {
+	ginkgo.It("Static volume provisioning using zonal storage", ginkgo.Label(p0, block, tkgsHA, vc80), func() {
 		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -920,7 +919,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		if isQuotaValidationSupported {
+		if isStorageQuotaFSSEnabled {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName)
@@ -1018,7 +1017,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 					staticPv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}()
 
-		if isQuotaValidationSupported {
+		if isStorageQuotaFSSEnabled {
 			validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 				storageclass.Name, namespace, pvcUsage, volExtensionName,
 				diskSizeInMb, totalQuotaUsedBefore, storagePolicyQuotaBefore,
@@ -1124,7 +1123,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		16. Delete PVC,POD,SC
 	*/
 	ginkgo.It("Stateful set - storage class with Zonal storage and Immediate and"+
-		" with parallel pod management policy with nodeAffinity", func() {
+		" with parallel pod management policy with nodeAffinity", ginkgo.Label(p0, block, tkgsHA, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -1320,7 +1319,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		13. Scale down the sts to 0.
 		14.Delete PVC,POD,SC.
 	*/
-	ginkgo.It("Provision volume with zonal storage when no resource quota available",
+	ginkgo.It("Provision volume with zonal storage when no resource quota available", ginkgo.Label(p0, block, tkgsHA, vc80),
 		func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -1401,8 +1400,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 					fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
 			}
 
-			pods, err := fss.GetPodList(ctx, client, statefulset)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pods := fss.GetPodList(ctx, client, statefulset)
 			for _, pod := range pods.Items {
 				if pod.Status.Phase != v1.PodPending {
 					framework.Failf("Expected pod to be in: %s state but is in: %s state", v1.PodPending,
@@ -1449,7 +1447,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		15. Create new snapshots on restore volume and verify it succeeds
 		16. Run cleanup: Delete snapshots, restored-volumes, pods
 	*/
-	ginkgo.It("Create PVC using zonal storage and deploy deployment POD",
+	ginkgo.It("Create PVC using zonal storage and deploy deployment POD", ginkgo.Label(p0, block, tkgsHA, vc80),
 		func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -1631,7 +1629,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		10. Scale down the sts to 0
 		11.Delete PVC,POD,SC
 	*/
-	ginkgo.It("Re-start GC-CSI during sts creation", func() {
+	ginkgo.It("Re-start GC-CSI during sts creation", ginkgo.Label(p1, block, tkgsHA, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -1729,7 +1727,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		14.All the PVC's and PV's should get deleted. No orphan volumes should be left on the system.
 		15.Delete Statefulsets.
 	*/
-	ginkgo.It("Verify the behaviour when CSI Provisioner is deleted during statefulset creation", func() {
+	ginkgo.It("Verify the behaviour when CSI Provisioner is deleted during statefulset creation", ginkgo.Label(p1, block, tkgsHA, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -1840,7 +1838,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		   csi-Attacher in other replica should take the leadership to detach Volume
 		15.Delete Statefulsets and Delete PVCs.
 	*/
-	ginkgo.It("Verify the behaviour when CSI Attacher is deleted during statefulset creation", func() {
+	ginkgo.It("Verify the behaviour when CSI Attacher is deleted during statefulset creation", ginkgo.Label(p1, block, tkgsHA, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -1928,8 +1926,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			if !windowsEnv {
 				gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 			}
-			ssPods, err = fss.GetPodList(ctx, client, statefulset)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ssPods = fss.GetPodList(ctx, client, statefulset)
 			gomega.Expect(ssPods.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPods.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -1972,8 +1969,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		statefulSetReplicaCount = 5
 		for i := 0; i < len(stsList); i++ {
-			framework.Logf("Scaling down statefulset: %v to number of Replica: %v",
-				stsList[i].Name, statefulSetReplicaCount)
+			framework.Logf(fmt.Sprintf("Scaling down statefulset: %v to number of Replica: %v",
+				stsList[i].Name, statefulSetReplicaCount))
 
 			_, scaleDownErr := fss.Scale(ctx, client, stsList[i], statefulSetReplicaCount)
 			gomega.Expect(scaleDownErr).NotTo(gomega.HaveOccurred())
@@ -1987,8 +1984,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		for _, statefulset := range stsList {
 			fss.WaitForStatusReplicas(ctx, client, statefulset, statefulSetReplicaCount)
 			fss.WaitForStatusReadyReplicas(ctx, client, statefulset, statefulSetReplicaCount)
-			ssPodsAfterScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ssPodsAfterScaleDown := fss.GetPodList(ctx, client, statefulset)
 			gomega.Expect(ssPodsAfterScaleDown.Items).NotTo(gomega.BeEmpty(),
 				fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 			gomega.Expect(len(ssPodsAfterScaleDown.Items) == int(statefulSetReplicaCount)).To(gomega.BeTrue(),
@@ -2068,7 +2064,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		15.Delete Pod, PVC and SC
 	*/
 	ginkgo.It("Verify the behaviour when CSI-resizer deleted and VSAN-Health is down"+
-		" during online Volume expansion", func() {
+		" during online Volume expansion", ginkgo.Label(p1, block, tkgsHA, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -2269,7 +2265,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		11.POD should be running in the appropriate nodes
 		12.Delete Pod, PVC and SC
 	*/
-	ginkgo.It("Verify the behaviour when CSI-resizer deleted during offline volume expansion",
+	ginkgo.It("Verify the behaviour when CSI-resizer deleted during offline volume expansion", ginkgo.Label(p1, block, tkgsHA, negative, vc80),
 		func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -2389,7 +2385,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		19.Expect all volume metadata, PVC metadata, Pod metadata should be present on the CNS.
 		20.Delete the POD's , PVC's and PV's
 	*/
-	ginkgo.It("Verify the behaviour when CSI syncer is deleted and check fullsync",
+	ginkgo.It("Verify the behaviour when CSI syncer is deleted and check fullsync", ginkgo.Label(p1, block, tkgsHA, negative, vc80),
 		func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -2690,7 +2686,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		12.Expect all Pods for Statefulsets to be in the running state
 		13.Delete Statefulsets and Delete PVCs.
 	*/
-	ginkgo.It("Verify the behaviour when SPS service is down along with CSI Provisioner", func() {
+	ginkgo.It("Verify the behaviour when SPS service is down along with CSI Provisioner", ginkgo.Label(p1, block, tkgsHA, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -2816,7 +2812,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		12.Delete the CSI process identified in the step 8, where CSI syncer is the leader.
 		13.Verify CNS metadata for PVC's and PV's , Make sure label entries should got removed.
 	*/
-	ginkgo.It("verify Label update when syncer container goes down", func() {
+	ginkgo.It("verify Label update when syncer container goes down", ginkgo.Label(p1, block, tkgsHA, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -3005,7 +3001,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		9. Scale down the sts to 0
 		10.Delete Statefulset,PVC,POD,SC
 	*/
-	ginkgo.It("Validate statefulset creation with  POD affinity and POD Anti affinity", func() {
+	ginkgo.It("Validate statefulset creation with  POD affinity and POD Anti affinity", ginkgo.Label(p0, block, tkgsHA, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -3105,15 +3101,14 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			allowedTopologyHAMap, categories, zonalPolicy, nodeList, f)
 
 		replicas = 5
-		framework.Logf("Scaling up statefulset: %v to number of Replica: %v",
-			statefulset.Name, replicas)
+		framework.Logf(fmt.Sprintf("Scaling up statefulset: %v to number of Replica: %v",
+			statefulset.Name, replicas))
 		_, scaleupErr := fss.Scale(ctx, client, statefulset, replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 
 		fss.WaitForStatusReplicas(ctx, client, statefulset, replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, statefulset)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -3140,7 +3135,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		10. trigger online and offline volume  expansion and validate
 		11. delete all sts's , PVC's, SC and POD's
 	*/
-	ginkgo.It("Verify volume provisioning after VC reboot using zonal storage", func() {
+	ginkgo.It("Verify volume provisioning after VC reboot using zonal storage", ginkgo.Label(p1, block, tkgsHA, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -3227,7 +3222,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		err = invokeVCenterReboot(ctx, vcAddress)
 		isVcRebooted = true
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = waitForHostToBeUp(vcAddress)
+		err = waitForHostToBeUp(e2eVSphere.Config.Global.VCenterHostname)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName, wcpServiceName}
@@ -3279,15 +3274,14 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}
 
 		replicas = 5
-		framework.Logf("Increase statefulset %v to number of Replica: %v",
-			stsList[0].Name, replicas)
+		framework.Logf(fmt.Sprintf("Increase statefulset %v to number of Replica: %v",
+			stsList[0].Name, replicas))
 		time.Sleep(60 * time.Second)
 		_, scaleupErr := fss.Scale(ctx, client, stsList[0], replicas)
 		gomega.Expect(scaleupErr).NotTo(gomega.HaveOccurred())
 		fss.WaitForStatusReplicas(ctx, client, stsList[0], replicas)
 		fss.WaitForStatusReadyReplicas(ctx, client, stsList[0], replicas)
-		ssPodsAfterScaleUp, err := fss.GetPodList(ctx, client, stsList[0])
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ssPodsAfterScaleUp := fss.GetPodList(ctx, client, stsList[0])
 		gomega.Expect(ssPodsAfterScaleUp.Items).NotTo(gomega.BeEmpty(),
 			fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", stsList[0].Name))
 		gomega.Expect(len(ssPodsAfterScaleUp.Items) == int(replicas)).To(gomega.BeTrue(),
@@ -3371,7 +3365,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		   appropriate nodes preset in the availability zone
 		10. Delete pod, gc1-pv and gc1-pvc and svc pvc.
 	*/
-	ginkgo.It("tkgs-ha Verify static provisioning across Guest Clusters", func() {
+	ginkgo.It("tkgs-ha Verify static provisioning across Guest Clusters", ginkgo.Label(p1, block, tkgsHA, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -3420,15 +3414,15 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		staticPVLabels := make(map[string]string)
 		staticPVLabels["fcd-id"] = volumeID
 
-		framework.Logf("PVC name in SV %q", svcPVCName)
+		framework.Logf("PVC name in SV " + svcPVCName)
 		pvcUID := string(svPvclaim.GetUID())
-		framework.Logf("PVC UUID in GC %q", pvcUID)
+		framework.Logf("PVC UUID in GC " + pvcUID)
 		gcClusterID := strings.Replace(svcPVCName, pvcUID, "", -1)
 
-		framework.Logf("gcClusterId %q", gcClusterID)
+		framework.Logf("gcClusterId " + gcClusterID)
 		pv := getPvFromClaim(svClient, svPvclaim.Namespace, svPvclaim.Name)
 		pvUID := string(pv.UID)
-		framework.Logf("PV uuid %q", pvUID)
+		framework.Logf("PV uuid " + pvUID)
 
 		defer func() {
 			if isSVCPvcCreated {
@@ -3565,11 +3559,11 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		volumeIDNewGC = getVolumeIDFromSupervisorCluster(svcNewPVCName)
 		gomega.Expect(volumeIDNewGC).NotTo(gomega.BeEmpty())
 
-		framework.Logf("PVC name in SV %q", svcNewPVCName)
+		framework.Logf("PVC name in SV " + svcNewPVCName)
 		pvcNewUID := string(pvcNew.GetUID())
-		framework.Logf("pvcNewUID in GC %q", pvcNewUID)
+		framework.Logf("pvcNewUID in GC " + pvcNewUID)
 		gcNewClusterID := strings.Replace(svcNewPVCName, pvcNewUID, "", -1)
-		framework.Logf("pvNew uuid %q", gcNewClusterID)
+		framework.Logf("pvNew uuid " + gcNewClusterID)
 
 		ginkgo.By("Creating PV in new guest cluster with volume handle from SVC")
 		pvNew := getPersistentVolumeSpec(svPvclaim.Name, v1.PersistentVolumeReclaimDelete, nil, ext4FSType)
@@ -3581,7 +3575,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvNewUID := string(pvNew.UID)
-		framework.Logf("pvNew uuid %q", pvNewUID)
+		framework.Logf("pvNew uuid " + pvNewUID)
 
 		defer func() {
 			ginkgo.By("Delete PVC in GC2")

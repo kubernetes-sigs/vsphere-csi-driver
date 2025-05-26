@@ -69,7 +69,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Non-VSAN datas
 		3. Check for the PVC provision fail
 		4. Delete PVC
 	*/
-	ginkgo.It("Verify RWX ReadWriteMany volume provision on non-vsan datastore fails", func() {
+	ginkgo.It("Verify RWX ReadWriteMany volume provision on non-vsan datastore fails", ginkgo.Label(p1, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Non-VSAN datas
 		3. Check for the PVC provision fail
 		4. Delete PVC
 	*/
-	ginkgo.It("Verify RWX ReadOnlyMany volume provision on non-vsan datastore", func() {
+	ginkgo.It("Verify RWX ReadOnlyMany volume provision on non-vsan datastore", ginkgo.Label(p1, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
