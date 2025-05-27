@@ -172,7 +172,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 	*/
 
 	ginkgo.It("Verifying volume creation and PV affinities with svc namespace tagged to zonal-2 policy, "+
-		"zone-2 tag, and immediate binding mode.", func() {
+		"zone-2 tag, and immediate binding mode.", ginkgo.Label(p0, wldi, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -251,7 +251,8 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 	*/
 
 	ginkgo.It("Verify workload creation when wcp namespace is tagged to zone-1 mgmt domain and "+
-		"zonal policy tagged to wcp ns is compatible only with zone-1 with immediate binding mode", func() {
+		"zonal policy tagged to wcp ns is compatible only with zone-1 with immediate binding mode", ginkgo.Label(p0,
+		wldi, snapshot, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -329,7 +330,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 
 	ginkgo.It("Verify workload creation when the WCP namespace is tagged to zone-2 workload domain "+
 		"and the zonal policy is compatible only with zone-2, "+
-		"using WFFC binding mode", func() {
+		"using WFFC binding mode", ginkgo.Label(p0, wldi, snapshot, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -418,8 +419,8 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 	   25. Perform cleanup by deleting the Pods, Snapshots, Volumes, and Namespace.
 	*/
 
-	ginkgo.It("Create, restore, and delete dynamic snapshot, along with workload/volume creation, "+
-		"while adding and removing zones from the namespace in between", func() {
+	ginkgo.It("Create, restore, and delete dynamic snapshot, along with workload/volume creation, while adding and "+
+		"removing zones from the namespace in between", ginkgo.Label(p0, wldi, snapshot, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -517,7 +518,8 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			topologyAffinityDetails[topologyCategories[0]][3]) // this will fetch zone-4
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Perform scaling operation on statefulset. Increase the replica count to 9 when zone is marked for removal")
+		ginkgo.By("Perform scaling operation on statefulset. Increase the replica count to 9" +
+			" when zone is marked for removal")
 		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client,
 			9, 0, statefulset, true, namespace, allowedTopologies, true, false, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -533,8 +535,8 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 
 		ginkgo.By("Create a dynamic volume snapshot")
 		volumeSnapshot, snapshotContent, snapshotCreated,
-			snapshotContentCreated, snapshotId, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
-			pvclaim, volHandle, diskSize, true)
+			snapshotContentCreated, snapshotId, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc,
+			volumeSnapshotClass, pvclaim, volHandle, diskSize, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			if snapshotContentCreated {
@@ -573,7 +575,8 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Perform scaling operation on statefulset. Increase the replica count to 9 when zone is marked for removal")
+		ginkgo.By("Perform scaling operation on statefulset. Increase the replica count to 9 when zone is marked" +
+			" for removal")
 		err = performScalingOnStatefulSetAndVerifyPvNodeAffinity(ctx, client,
 			6, 0, statefulset, true, namespace, allowedTopologies, true, false, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -608,7 +611,8 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 	   10. Perform cleanup: Delete PVC
 	*/
 
-	ginkgo.It("Verifying volume creation with shared policy on namespace tagged to zone-3", func() {
+	ginkgo.It("Verifying volume creation with shared policy on namespace tagged to zone-3", ginkgo.Label(p0, wldi,
+		snapshot, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -677,7 +681,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		19. Perform cleanup: Delete PVC
 	*/
 
-	ginkgo.It("CSI and WCP restart while adding and removing zones", func() {
+	ginkgo.It("CSI and WCP restart while adding and removing zones", ginkgo.Label(p0, wldi, snapshot, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -793,7 +797,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 	*/
 
 	ginkgo.It("Create pvc with requested topology annotation tagged to one zone but "+
-		"namespace is tagged to different zone", func() {
+		"namespace is tagged to different zone", ginkgo.Label(p1, wldi, snapshot, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

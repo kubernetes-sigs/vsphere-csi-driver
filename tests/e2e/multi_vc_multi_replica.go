@@ -136,7 +136,7 @@ var _ = ginkgo.Describe("[multivc-multireplica] MultiVc-MultiReplica", func() {
 
 	ginkgo.It("Verify behaviour when CSI-Provisioner, CSI-Attacher, Vsphere-Syncer is "+
 		"deleted repeatedly during workload creation in multivc", ginkgo.Label(p1,
-		block, vanilla, multiVc, newTest), func() {
+		block, vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

@@ -198,7 +198,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 
 	ginkgo.It("Workload creation on a multivc environment with sts specified with node affinity "+
 		"and SC with no allowed topology", ginkgo.Label(p0, block, vanilla, multiVc,
-		newTest), func() {
+		vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -275,7 +275,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Workload creation when all allowed topology specified in SC on a "+
-		"multivc environment", ginkgo.Label(p0, block, vanilla, multiVc, newTest), func() {
+		"multivc environment", ginkgo.Label(p0, block, vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -337,7 +337,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Workload creation when specific storage policy of any single VC is "+
-		"given in SC", ginkgo.Label(p0, block, vanilla, multiVc, newTest), func() {
+		"given in SC", ginkgo.Label(p0, block, vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -404,7 +404,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Workload creation when storage policy available in multivc setup"+
-		"is given in SC", ginkgo.Label(p0, block, vanilla, multiVc, newTest), func() {
+		"is given in SC", ginkgo.Label(p0, block, vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -497,8 +497,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Workload creation on a multivc environment with sts specified with pod affinity "+
-		"and SC with no allowed topology", ginkgo.Label(p0, block, vanilla, multiVc,
-		newTest), func() {
+		"and SC with no allowed topology", ginkgo.Label(p0, block, vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -553,7 +552,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Deploy workload with allowed topology and datastore url on a multivc environment", ginkgo.Label(p0,
-		block, vanilla, multiVc, newTest), func() {
+		block, vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -618,8 +617,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Deploy workload with allowed topology details in SC specific "+
-		"to VC1 with Immediate Binding", ginkgo.Label(p0, block, vanilla, multiVc,
-		newTest), func() {
+		"to VC1 with Immediate Binding", ginkgo.Label(p0, block, vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -686,7 +684,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 
 	ginkgo.It("Deploy workload with allowed topology details in SC specific to VC2 with WFC "+
 		"binding mode and with default pod management policy", ginkgo.Label(p1, block, vanilla, multiVc,
-		newTest), func() {
+		vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -753,8 +751,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Deploy workload with allowed topology details in SC specific to VC3 with "+
-		"parallel pod management policy", ginkgo.Label(p0, block, vanilla, multiVc,
-		newTest), func() {
+		"parallel pod management policy", ginkgo.Label(p0, block, vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -827,7 +824,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Deploy workload with default SC parameters with WaitForFirstConsumer", ginkgo.Label(p0,
-		block, vanilla, multiVc, newTest), func() {
+		block, vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -962,7 +959,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Create SC with single allowed topology label on a multivc environment", ginkgo.Label(p1,
-		block, vanilla, multiVc, newTest), func() {
+		block, vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1020,7 +1017,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("PVC creation failure when wrong storage policy name is specified in SC", ginkgo.Label(p2,
-		block, vanilla, multiVc, newTest, negative), func() {
+		block, vanilla, multiVc, vc70, negative), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1056,7 +1053,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Deploy workload with allowed topology of VC1 and datastore url of VC2", ginkgo.Label(p2,
-		block, vanilla, multiVc, newTest, negative), func() {
+		block, vanilla, multiVc, vc70, negative), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1103,7 +1100,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Create storage policy in multivc and later delete storage policy from "+
-		"one of the VC", ginkgo.Label(p2, block, vanilla, multiVc, newTest, negative), func() {
+		"one of the VC", ginkgo.Label(p2, block, vanilla, multiVc, vc70, negative), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1174,7 +1171,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Create Deployment pod using SC with allowed topology set to specific VC", ginkgo.Label(p1,
-		block, vanilla, multiVc, newTest), func() {
+		block, vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1245,7 +1242,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Create SC with invalid allowed topology details", ginkgo.Label(p2, block,
-		vanilla, multiVc, newTest, negative), func() {
+		vanilla, multiVc, vc70, negative), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1301,7 +1298,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Offline and online volume expansion on a multivc setup", ginkgo.Label(p1, block,
-		vanilla, multiVc, newTest), func() {
+		vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1390,7 +1387,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Create workload and reboot one of the VC", ginkgo.Label(p2, block,
-		vanilla, multiVc, newTest, negative), func() {
+		vanilla, multiVc, vc70, negative), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1476,7 +1473,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Storage policy is present in VC1 and VC1 is under reboot", ginkgo.Label(p1, block,
-		vanilla, multiVc, newTest, negative), func() {
+		vanilla, multiVc, vc70, negative), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1582,7 +1579,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Create workloads when VSAN-health is down on VC1", ginkgo.Label(p1, block,
-		vanilla, multiVc, newTest, negative), func() {
+		vanilla, multiVc, vc70, negative), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1756,7 +1753,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Create workloads with storage policy given in SC and when sps service is down", ginkgo.Label(p1,
-		block, vanilla, multiVc, newTest, negative), func() {
+		block, vanilla, multiVc, vc70, negative), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1874,7 +1871,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Verify static provisioning and node affinity details on PV in a multivc setup", ginkgo.Label(p2,
-		block, vanilla, multiVc, newTest), func() {
+		block, vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1990,7 +1987,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Validate Listvolume response when volume is deleted from CNS "+
-		"in a multivc", ginkgo.Label(p1, block, vanilla, multiVc, newTest), func() {
+		"in a multivc", ginkgo.Label(p1, block, vanilla, multiVc, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
