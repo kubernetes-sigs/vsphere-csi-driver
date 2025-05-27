@@ -267,7 +267,7 @@ spec:
       priorityClassName: system-node-critical
       containers:
         - name: csi-provisioner
-          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v5.0.2_vmware.5
+          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v5.0.2_vmware.6
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -299,6 +299,10 @@ spec:
             - name: VSPHERE_CLOUD_OPERATOR_SERVICE_NAMESPACE # namespace for service name to be used by csi-provisioner to connect to placement engine
               value: vmware-system-appplatform-operator-system
           imagePullPolicy: "IfNotPresent"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65533
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
@@ -323,6 +327,10 @@ spec:
             - name: KUBERNETES_SERVICE_PORT
               value: "6443"
           imagePullPolicy: "IfNotPresent"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65533
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
@@ -346,6 +354,10 @@ spec:
           resources: {}
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65533
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
@@ -392,8 +404,8 @@ spec:
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsNonRoot: true
-            runAsUser: 65532
-            runAsGroup: 65532
+            runAsUser: 65534
+            runAsGroup: 65533
           volumeMounts:
             - mountPath: /etc/vmware/wcp
               name: vsphere-config-volume
@@ -406,6 +418,10 @@ spec:
           image: localhost:5000/vmware.io/csi-livenessprobe:v2.14.0_vmware.1
           args:
             - "--csi-address=/csi/csi.sock"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65533
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
@@ -447,8 +463,8 @@ spec:
               protocol: TCP
           securityContext:
             runAsNonRoot: true
-            runAsUser: 65532
-            runAsGroup: 65532
+            runAsUser: 65534
+            runAsGroup: 65533
           volumeMounts:
             - mountPath: /etc/vmware/wcp
               name: vsphere-config-volume
@@ -469,6 +485,10 @@ spec:
             - name: ADDRESS
               value: /csi/csi.sock
           imagePullPolicy: "IfNotPresent"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65533
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
@@ -764,8 +784,8 @@ spec:
                   fieldPath: metadata.namespace
           securityContext:
             runAsNonRoot: true
-            runAsUser: 65532
-            runAsGroup: 65532
+            runAsUser: 65534
+            runAsGroup: 65533
           volumeMounts:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: webhook-certs

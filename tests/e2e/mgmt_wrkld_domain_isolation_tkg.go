@@ -153,7 +153,8 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 		12. Perfrom cleanup: Delete Pods, volumes.
 	*/
 
-	ginkgo.It("Dynamic and Pre-Provisioned snapshot creation with removal of zones from the namespace", func() {
+	ginkgo.It("Dynamic and Pre-Provisioned snapshot creation with removal of zones from the namespace", ginkgo.Label(
+		p0, wldi, snapshot, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

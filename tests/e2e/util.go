@@ -7734,7 +7734,8 @@ func createStaticVolumeOnSvc(ctx context.Context, client clientset.Interface, na
 This util will fetch and compare the storage policy usage CR created for each storage class for a namespace
 */
 func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restClientConfig *rest.Config,
-	namespace string, storageclass []string) error {
+	namespace string, storageclass []string) {
+
 	// Build expected usage names directly from passed storageclass names
 	expectedUsages := make(map[string]bool)
 	for _, sc := range storageclass {
@@ -7744,13 +7745,15 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 	}
 
 	if len(expectedUsages) == 0 {
-		return fmt.Errorf("no storage class names provided")
+		fmt.Println("Error: No storage class names provided.")
+		return
 	}
 
 	// CNS Operator client
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	if err != nil {
-		return fmt.Errorf("failed to create CNS operator client: %w", err)
+		fmt.Printf("Error: Failed to create CNS operator client: %v\n", err)
+		return
 	}
 
 	// Poll until all expected usages are found
@@ -7759,7 +7762,7 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 			spuList := &storagepolicyv1alpha2.StoragePolicyUsageList{}
 			err := cnsOperatorClient.List(ctx, spuList, &client.ListOptions{Namespace: namespace})
 			if err != nil {
-				return false, nil // retry
+				return false, nil
 			}
 
 			// Reset all expected usages to false
@@ -7775,9 +7778,8 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 			}
 
 			// Check if all usages have been found
-			for name, found := range expectedUsages {
+			for _, found := range expectedUsages {
 				if !found {
-					fmt.Printf("Waiting for usage: %s\n", name)
 					return false, nil
 				}
 			}
@@ -7785,10 +7787,23 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 			return true, nil
 		})
 
-	if waitErr != nil {
-		return fmt.Errorf("timed out waiting for all storage policy usages: %w", waitErr)
+	// Collect both found and missing usages
+	var found, missing []string
+	for name, isFound := range expectedUsages {
+		if isFound {
+			found = append(found, name)
+		} else {
+			missing = append(missing, name)
+		}
+	}
+
+	fmt.Println("Storage Policy Usage Summary:")
+	fmt.Printf("Found:   %v\n", found)
+	if len(missing) > 0 {
+		fmt.Printf("Missing: %v\n", missing)
+		fmt.Printf("Error: Timed out waiting for all storage policy usages: %v\n", waitErr)
+		return
 	}
 
 	fmt.Println("All required storage policy usages are available.")
-	return nil
 }
