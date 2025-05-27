@@ -7807,3 +7807,10 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 
 	fmt.Println("All required storage policy usages are available.")
 }
+
+func reconfigPolicyParallel(ctx context.Context, volID string, policyId string, wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wg.Done()
+	err := e2eVSphere.reconfigPolicy(ctx, volID, policyId)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}

@@ -33,7 +33,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	admissionapi "k8s.io/pod-security-admission/api"
 
 	clientset "k8s.io/client-go/kubernetes"
@@ -783,22 +782,3 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 	})
 
 })
-
-func waitForPodNameLabelRemoval(ctx context.Context, volumeID string, podname string, namespace string) error {
-	err := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
-		func(ctx context.Context) (bool, error) {
-			_, err := e2eVSphere.getLabelsForCNSVolume(volumeID,
-				string(cnstypes.CnsKubernetesEntityTypePOD), podname, namespace)
-			if err != nil {
-				framework.Logf("pod name label is successfully removed")
-				return true, err
-			}
-			framework.Logf("waiting for pod name label to be removed by metadata-syncer for volume: %q", volumeID)
-			return false, nil
-		})
-	// unable to retrieve pod name label from vCenter
-	if err != nil {
-		return nil
-	}
-	return fmt.Errorf("pod name label is not removed from cns")
-}
