@@ -382,7 +382,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		8. Run QuerySnapshot from CNS side, the backend snapshot should be deleted
 		9. Also ensure that the VolumeSnapshotContent is deleted along with the
 			volume snapshot as the policy is delete
-		10. Cleanup the pvc
+		10. Cleanup the
+
 	*/
 	ginkgo.It("[block-vanilla-snapshot] Verify snapshot static provisioning through K8s "+
 		"API workflow", ginkgo.Label(p0, block, vanilla, snapshot, stable, vc80), func() {
