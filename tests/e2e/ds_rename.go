@@ -103,7 +103,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 	   8	verify that volumes are accessible for all the pods
 	   9	cleanup all the pods, pvcs and SCs created for the test
 	*/
-	ginkgo.It("Create PVC and then rename datastore", ginkgo.Label(p0, block, vanilla), func() {
+	ginkgo.It("Create PVC and then rename datastore", ginkgo.Label(p0, block, vanilla, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		s1 := rand.NewSource(time.Now().UnixNano())
@@ -253,7 +253,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 	   9	cleanup all the pods, pvcs and SCs created for the test
 	*/
 	ginkgo.It("Create workloads and rename datastore"+
-		" after SPS is down", ginkgo.Label(p0, block, vanilla), func() {
+		" after SPS is down", ginkgo.Label(p1, negative, block, vanilla, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		s1 := rand.NewSource(time.Now().UnixNano())
@@ -419,7 +419,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 	   9	cleanup all the pods, pvcs and SCs created for the test
 	*/
 	ginkgo.It("Create workloads and rename datastore"+
-		" after vsan health is down", ginkgo.Label(p0, block, vanilla), func() {
+		" after vsan health is down", ginkgo.Label(p0, block, vanilla, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		s1 := rand.NewSource(time.Now().UnixNano())
@@ -581,7 +581,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		8  Restore volume from snapshot created in step 5 and verify this operation is a success.
 		9  Delete all the workloads created in the test.
 	*/
-	ginkgo.It("Create CSI snapshot while renaming datastore", ginkgo.Label(p0, block, vanilla), func() {
+	ginkgo.It("Create CSI snapshot while renaming datastore", ginkgo.Label(p0, block, vanilla, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		s1 := rand.NewSource(time.Now().UnixNano())
@@ -737,7 +737,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		7  Scale up statefulset replicas to 5.
 		8  Delete all the workloads created in the test.
 	*/
-	ginkgo.It("Create workloads while renaming datastore", ginkgo.Label(p0, block, vanilla), func() {
+	ginkgo.It("Create workloads while renaming datastore", ginkgo.Label(p0, block, vanilla, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		s1 := rand.NewSource(time.Now().UnixNano())
@@ -868,7 +868,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		7  Scale up statefulset replicas to 5.
 		8  Delete all the workloads created in the test.
 	*/
-	ginkgo.It("Expand volumes while renaming datastore", ginkgo.Label(p0, block, vanilla), func() {
+	ginkgo.It("Expand volumes while renaming datastore", ginkgo.Label(p0, block, vanilla, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		s1 := rand.NewSource(time.Now().UnixNano())
@@ -990,7 +990,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 	   8	verify that volumes are accessible for all the pods
 	   9	cleanup all the pods, pvcs and SCs created for the test
 	*/
-	ginkgo.It("Relocate volumes after renaming of datastore", ginkgo.Label(p0, block, vanilla), func() {
+	ginkgo.It("Relocate volumes after renaming of datastore", ginkgo.Label(p0, block, vanilla, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1203,7 +1203,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		7  Scale up statefulset replicas to 5.
 		8  Delete all the workloads created in the test.
 	*/
-	ginkgo.It("Change volume allocation while renaming datastore", ginkgo.Label(p0, block, vanilla), func() {
+	ginkgo.It("Change volume allocation while renaming datastore", ginkgo.Label(p0, block, vanilla, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

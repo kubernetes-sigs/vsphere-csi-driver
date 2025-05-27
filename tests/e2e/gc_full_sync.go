@@ -99,7 +99,8 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 	// Verify CnsVolumeMetadata CRD is updated.
 	// Verify entry is updated in CNS.
 	// Delete PVC.
-	ginkgo.It("Verify CNS volume is synced with updated GC PV & PVC labels when GC csi-controller pod is down", func() {
+	ginkgo.It("Verify CNS volume is synced with updated GC PV & PVC labels "+
+		"when GC csi-controller pod is down", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
@@ -193,7 +194,8 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 	// Verify CnsVolumeMetadata CRD is updated.
 	// Verify entry is updated in CNS.
 	// Delete PVC.
-	ginkgo.It("Verify CNS volume is synced with updated GC PV & PVC labels after SVC connection is restored", func() {
+	ginkgo.It("Verify CNS volume is synced with updated GC PV & PVC labels after "+
+		"SVC connection is restored", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var err error
 		var sc *storagev1.StorageClass
 		ctx, cancel := context.WithCancel(context.Background())
