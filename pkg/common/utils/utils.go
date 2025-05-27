@@ -372,7 +372,7 @@ func GetVirtualMachineListAllApiVersions(ctx context.Context, namespace string,
 					}
 				}
 			} else if err == nil {
-				log.Info("converting v1alpha2 VirtualMachineList to v1alpha4 VirtualMachineList")
+				log.Info("converting v1alpha3 VirtualMachineList to v1alpha4 VirtualMachineList")
 				err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachineList_To_v1alpha4_VirtualMachineList(
 					vmListV1alpha3, vmListV1alpha4, nil)
 				if err != nil {
@@ -409,7 +409,7 @@ func GetVirtualMachineListAllApiVersions(ctx context.Context, namespace string,
 					}
 				}
 			} else if err == nil {
-				log.Info("converting v1alpha2 VirtualMachineList to v1alpha4 VirtualMachineList")
+				log.Info("converting v1alpha3 VirtualMachineList to v1alpha4 VirtualMachineList")
 				err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachineList_To_v1alpha4_VirtualMachineList(
 					vmListV1alpha3, vmListV1alpha4, nil)
 				if err != nil {
@@ -432,9 +432,9 @@ func PatchVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 	vmV1alpha2, old_vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}, &vmoperatorv1alpha2.VirtualMachine{}
 	vmV1alpha3, old_vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}, &vmoperatorv1alpha3.VirtualMachine{}
 	vmPatch4 := client.MergeFromWithOptions(
-		old_vmV1alpha3.DeepCopy(),
+		old_vmV1alpha4.DeepCopy(),
 		client.MergeFromWithOptimisticLock{})
-	log.Infof("PatchVirtualMachine: patch virtualmachine name: %s", vmV1alpha3.Name)
+	log.Infof("PatchVirtualMachine: patch virtualmachine name: %s", vmV1alpha4.Name)
 	// try patch virtualmachine with api version v1alpha4
 	err := vmOperatorClient.Patch(ctx, vmV1alpha4, vmPatch4)
 	if err != nil && isKindNotFound(err.Error()) {
@@ -451,7 +451,7 @@ func PatchVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 			return err
 		}
 		vmPatch3 := client.MergeFromWithOptions(
-			old_vmV1alpha2.DeepCopy(),
+			old_vmV1alpha3.DeepCopy(),
 			client.MergeFromWithOptimisticLock{})
 		err = vmOperatorClient.Patch(ctx, vmV1alpha3, vmPatch3)
 		if err != nil && isKindNotFound(err.Error()) {
@@ -498,7 +498,7 @@ func PatchVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 	}
 	if err != nil {
 		log.Errorf("PatchVirtualMachine: error while patching virtualmachine name: %s, err %v",
-			vmV1alpha3.Name, err)
+			vmV1alpha4.Name, err)
 		return err
 	}
 	log.Infof("PatchVirtualMachine: successfully patched the virtualmachine, name: %s", vmV1alpha4.Name)
