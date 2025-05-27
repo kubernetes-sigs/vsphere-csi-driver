@@ -33,7 +33,6 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -1138,19 +1137,3 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 	})
 
 })
-
-func waitForPvToBeReleased(ctx context.Context, client clientset.Interface,
-	pvName string) (*v1.PersistentVolume, error) {
-	var pv *v1.PersistentVolume
-	var err error
-	waitErr := wait.PollUntilContextTimeout(ctx, resizePollInterval, pollTimeoutShort, true,
-		func(ctx context.Context) (bool, error) {
-			pv, err = client.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			if pv.Status.Phase == v1.VolumeReleased {
-				return true, nil
-			}
-			return false, nil
-		})
-	return pv, waitErr
-}

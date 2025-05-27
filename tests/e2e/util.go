@@ -7814,3 +7814,65 @@ func reconfigPolicyParallel(ctx context.Context, volID string, policyId string, 
 	err := e2eVSphere.reconfigPolicy(ctx, volID, policyId)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
+
+// when PVC is deleted, used following method to check for PV status
+func waitForPvToBeReleased(ctx context.Context, client clientset.Interface,
+	pvName string) (*v1.PersistentVolume, error) {
+	var pv *v1.PersistentVolume
+	var err error
+	waitErr := wait.PollUntilContextTimeout(ctx, resizePollInterval, pollTimeoutShort, true,
+		func(ctx context.Context) (bool, error) {
+			pv, err = client.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if pv.Status.Phase == v1.VolumeReleased {
+				return true, nil
+			}
+			return false, nil
+		})
+	return pv, waitErr
+}
+
+// convertGiStrToMibInt64 returns integer numbers of Mb equivalent to string
+// of the form \d+Gi.
+func convertGiStrToMibInt64(size resource.Quantity) int64 {
+	r, err := regexp.Compile("[0-9]+")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	sizeInt, err := strconv.Atoi(r.FindString(size.String()))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return int64(sizeInt * 1024)
+}
+
+// This method gets storageclass and creates resource quota
+// Returns restConfig,  storageclass and profileId
+// This is used in staticProvisioning for presetup.
+func staticProvisioningPreSetUpUtil(ctx context.Context, f *framework.Framework,
+	c clientset.Interface, storagePolicyName string) (*rest.Config, *storagev1.StorageClass, string) {
+	namespace := getNamespaceToRunTests(f)
+	// Get a config to talk to the apiserver
+	k8senv := GetAndExpectStringEnvVar("KUBECONFIG")
+	restConfig, err := clientcmd.BuildConfigFromFlags("", k8senv)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+	framework.Logf("Profile ID :%s", profileID)
+	scParameters := make(map[string]string)
+	scParameters["storagePolicyID"] = profileID
+
+	if !supervisorCluster {
+		err = c.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	}
+
+	storageclass, err := createStorageClass(c, scParameters, nil, "", "", true, storagePolicyName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("storageclass Name: %s", storageclass.GetName()))
+	storageclass, err = c.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("create resource quota")
+	createResourceQuota(c, namespace, rqLimit, storagePolicyName)
+
+	return restConfig, storageclass, profileID
+}
