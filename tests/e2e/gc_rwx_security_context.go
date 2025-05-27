@@ -35,7 +35,7 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("File Volume Test with security context", func() {
+var _ = ginkgo.Describe("File Volume Test with security context", ginkgo.Label(p1, tkg, file, vc70), func() {
 	f := framework.NewDefaultFramework("rwx-tkg-security")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (

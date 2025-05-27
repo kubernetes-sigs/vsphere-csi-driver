@@ -31,7 +31,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-var _ = ginkgo.Describe("File Volume Test volume health plumbing", func() {
+var _ = ginkgo.Describe("File Volume Test volume health plumbing", ginkgo.Label(p1, tkg, file, vc70), func() {
 	f := framework.NewDefaultFramework("rwx-tkg-health")
 	var (
 		client                     clientset.Interface
