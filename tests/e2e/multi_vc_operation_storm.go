@@ -186,7 +186,7 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 	*/
 
 	ginkgo.It("Create statefulset pods in scale and in between bring down datatsore, esxi hosts "+
-		"and kill containers", ginkgo.Label(p1, block, vanilla, multiVc, newTest, flaky,
+		"and kill containers", ginkgo.Label(p1, block, vanilla, multiVc, vc70, flaky,
 		disruptive), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
