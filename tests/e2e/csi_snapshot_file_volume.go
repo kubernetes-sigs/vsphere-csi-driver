@@ -19,9 +19,10 @@ import (
 	"os"
 	"strconv"
 
+	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,9 +31,6 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-
-	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
-	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 )
 
 var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Test", func() {
@@ -81,8 +79,8 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 		2. Try creating a snapshot on this pvc
 		3. Should fail with an appropriate error
 	*/
-	ginkgo.It("Snapshot creation on a file-share volume - expect to fail", ginkgo.Label(p1, block, vanilla,
-		snapshot, negative), func() {
+	ginkgo.It("Snapshot creation on a file-share volume - expect to fail", ginkgo.Label(p2, block, vanilla,
+		snapshot, negative, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
