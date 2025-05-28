@@ -101,7 +101,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 	// 7. Expect the old PVC to reflect the latest cluster-distribution value.
 
 	// Test for cluster-distribution value presence.
-	ginkgo.It("Verify dynamic provisioning of pvc has cluster-distribution value updated", func() {
+	ginkgo.It("Verify dynamic provisioning of pvc has cluster-distribution value updated", ginkgo.Label(p0,
+		block, file, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

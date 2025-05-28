@@ -39,6 +39,7 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
 	cr_log "sigs.k8s.io/controller-runtime/pkg/log"
+
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
@@ -173,7 +174,7 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		3. Create PVC with EncryptionClass [2]
 		4. Validate PVC volume [3] is encrypted with encryption key [1]
 	*/
-	ginkgo.It("Verify PVC is encrypted with EncryptionClass", func() {
+	ginkgo.It("Verify PVC is encrypted with EncryptionClass", ginkgo.Label(p1, block, wcp, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -203,7 +204,7 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		3. Create a PVC with encrypted StorageClass but without specifying an EncryptionClass
 		4. Validate PVC volume [3] is encrypted with encryption key [1]
 	*/
-	ginkgo.It("Verify PVC is encrypted with default EncryptionClass", func() {
+	ginkgo.It("Verify PVC is encrypted with default EncryptionClass", ginkgo.Label(p1, block, wcp, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -236,41 +237,42 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		7. Update PVC with second EncryptionClass [4]
 		8. Validate PVC volume [5] is encrypted with second encryption key [2]
 	*/
-	ginkgo.It("Verify PVC is recrypted when a new EncryptionClass is applied", func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+	ginkgo.It("Verify PVC is recrypted when a new EncryptionClass is applied", ginkgo.Label(p1, block, wcp, vc90),
+		func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-		ginkgo.By("1. Generate first encryption key")
-		keyID1 := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
+			ginkgo.By("1. Generate first encryption key")
+			keyID1 := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("2. Generate second encryption key")
-		keyID2 := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
+			ginkgo.By("2. Generate second encryption key")
+			keyID2 := e2eVSphere.generateEncryptionKey(ctx, keyProviderID)
 
-		ginkgo.By("3. Create first EncryptionClass with encryption key [1]")
-		encClass1 := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID1, false)
-		defer deleteEncryptionClass(ctx, cryptoClient, encClass1)
+			ginkgo.By("3. Create first EncryptionClass with encryption key [1]")
+			encClass1 := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID1, false)
+			defer deleteEncryptionClass(ctx, cryptoClient, encClass1)
 
-		ginkgo.By("4. Create second EncryptionClass with encryption key [2]")
-		encClass2 := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID2, false)
-		defer deleteEncryptionClass(ctx, cryptoClient, encClass2)
+			ginkgo.By("4. Create second EncryptionClass with encryption key [2]")
+			encClass2 := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID2, false)
+			defer deleteEncryptionClass(ctx, cryptoClient, encClass2)
 
-		ginkgo.By("5. Creating PVC with first EncryptionClass [3]")
-		pvc := createPersistentVolumeClaim(ctx, client, PersistentVolumeClaimOptions{
-			Namespace:           namespace,
-			StorageClassName:    encryptedStorageClass.Name,
-			EncryptionClassName: encClass1.Name,
+			ginkgo.By("5. Creating PVC with first EncryptionClass [3]")
+			pvc := createPersistentVolumeClaim(ctx, client, PersistentVolumeClaimOptions{
+				Namespace:           namespace,
+				StorageClassName:    encryptedStorageClass.Name,
+				EncryptionClassName: encClass1.Name,
+			})
+			defer deletePersistentVolumeClaim(ctx, client, pvc)
+
+			ginkgo.By("6. Validate PVC volume [5] is encrypted with first encryption key [1]")
+			validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID1)
+
+			ginkgo.By("7. Update PVC with second EncryptionClass [4]")
+			pvc = updatePersistentVolumeClaimWithCrypto(ctx, client, pvc, encryptedStorageClass.Name, encClass2.Name)
+
+			ginkgo.By("8. Validate PVC volume [5] is encrypted with second encryption key [2]")
+			validateVolumeToBeUpdatedWithEncryptedKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID2)
 		})
-		defer deletePersistentVolumeClaim(ctx, client, pvc)
-
-		ginkgo.By("6. Validate PVC volume [5] is encrypted with first encryption key [1]")
-		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID1)
-
-		ginkgo.By("7. Update PVC with second EncryptionClass [4]")
-		pvc = updatePersistentVolumeClaimWithCrypto(ctx, client, pvc, encryptedStorageClass.Name, encClass2.Name)
-
-		ginkgo.By("8. Validate PVC volume [5] is encrypted with second encryption key [2]")
-		validateVolumeToBeUpdatedWithEncryptedKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID2)
-	})
 
 	/*
 		Steps:
@@ -283,7 +285,7 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		7. Validate PVC volume [4] is encrypted with second encryption key [2]
 	*/
 	ginkgo.It("Verify PVC is recrypted when a new encryption key is applied to its "+
-		"associated EncryptionClass", func() {
+		"associated EncryptionClass", ginkgo.Label(p1, block, wcp, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -321,8 +323,8 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		2. Create EncryptionClass with encryption key [1]
 		3. Create PVC with EncryptionClass [2]
 	*/
-	ginkgo.It("Verify PVC creation fails when associated with an EncryptionClass "+
-		"but the StorageClass does not support encryption", func() {
+	ginkgo.It("Verify PVC creation fails when associated with an EncryptionClass but the StorageClass "+
+		"does not support encryption", ginkgo.Label(p1, block, wcp, vc90), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -357,7 +359,8 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		5. Validate VM [4] is encrypted with encryption key [1]
 		6. Validate PVC [3] is not encrypted
 	*/
-	ginkgo.It("Verify VM is encrypted with EncryptionClass while PVC is not encrypted", func() {
+	ginkgo.It("Verify VM is encrypted with EncryptionClass while PVC is not encrypted", ginkgo.Label(p1, block,
+		wcp, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -405,7 +408,8 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		5. Validate VM [4] is encrypted with encryption key [1]
 		6. Validate PVC [3] is encrypted with encryption key [1]
 	*/
-	ginkgo.It("Verify VM and associated PVC are encrypted with EncryptionClass", func() {
+	ginkgo.It("Verify VM and associated PVC are encrypted with EncryptionClass", ginkgo.Label(p1, block,
+		wcp, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -454,7 +458,8 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		5. Validate VM [4] is encrypted with encryption key [1]
 		6. Validate PVC [3] is encrypted with encryption key [1]
 	*/
-	ginkgo.It("Verify VM and associated PVC are encrypted with default EncryptionClass", func() {
+	ginkgo.It("Verify VM and associated PVC are encrypted with default EncryptionClass", ginkgo.Label(p1, block,
+		wcp, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -505,7 +510,8 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		11. Validate PVC [5] is encrypted with second encryption key [2]
 		12. Validate VM [6] is encrypted with first encryption key [1]
 	*/
-	ginkgo.It("Verify VM and attached PVC are encrypted/recrypted with different keys", func() {
+	ginkgo.It("Verify VM and attached PVC are encrypted/recrypted with different keys", ginkgo.Label(p1, block,
+		wcp, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -577,7 +583,8 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		    9. Bring vsan-service up
 			10. Validate PVC volume [5] is encrypted with second encryption key [2]
 	*/
-	ginkgo.It("Verify PVC encryption when vsan-health is down", func() {
+	ginkgo.It("Verify PVC encryption when vsan-health is down", ginkgo.Label(p1, block,
+		wcp, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
