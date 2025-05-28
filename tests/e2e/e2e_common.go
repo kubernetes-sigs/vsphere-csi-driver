@@ -23,9 +23,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+
+	"github.com/onsi/gomega"
 )
 
 const (
@@ -347,7 +348,6 @@ const (
 // The following variables are required to know cluster type to run common e2e
 // tests. These variables will be set once during test suites initialization.
 var (
-	clusterFlavor        cnstypes.CnsClusterFlavor
 	vanillaCluster       bool
 	supervisorCluster    bool
 	guestCluster         bool
@@ -584,7 +584,7 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	default:
 		vanillaCluster = true
 	}
-	clusterFlavorTest = 
+
 	// Check if the access mode is set for File volume setups
 	kind := os.Getenv("ACCESS_MODE")
 	if strings.TrimSpace(string(kind)) == "RWX" {

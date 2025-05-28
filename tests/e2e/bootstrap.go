@@ -26,7 +26,6 @@ import (
 
 var e2eVSphere vSphere
 var testConfig *e2eTestConfig
-var E2eVSphere vSphere
 
 // bootstrap function takes care of initializing necessary tests context for e2e tests
 func bootstrap(optionArgs ...bool) {
@@ -51,13 +50,6 @@ func bootstrap(optionArgs ...bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	connect(ctx, &e2eVSphere, refresh)
-	if framework.TestContext.RepoRoot != "" {
-		testfiles.AddFileSource(testfiles.RootFileSource{Root: framework.TestContext.RepoRoot})
-	}
-	E2eVSphere = vSphere{
-		Config: testConfig,
-	}
-	connect(ctx, &E2eVSphere, refresh)
 	if framework.TestContext.RepoRoot != "" {
 		testfiles.AddFileSource(testfiles.RootFileSource{Root: framework.TestContext.RepoRoot})
 	}
