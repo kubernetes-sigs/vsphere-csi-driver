@@ -175,7 +175,6 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 	ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
 	err = fpod.DeletePodWithWait(ctx, client, pod2)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from the node: %s", volHandle, nodeName))
 	isDiskDetached, err = e2eVSphere.waitForVolumeDetachedFromNode(client, volHandle, nodeName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
