@@ -180,5 +180,4 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
 		fmt.Sprintf("Volume %q is not detached from the node %q", volHandle, nodeName))
-
 }
