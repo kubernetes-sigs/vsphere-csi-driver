@@ -176,7 +176,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	// 8. Delete PVC.
 	// 9. Delete SC.
 	ginkgo.It("Verify provisioning succeeds with VolumeBindingMode set to "+
-		"WaitForFirstConsumer and without AllowedTopologies in the storage class ", func() {
+		"WaitForFirstConsumer and without AllowedTopologies in the storage "+
+		"class", ginkgo.Label(p0, block, level2, vc70), func() {
 		verifyTopologyAwareProvisioning(f, client, namespace, nil, nil)
 	})
 
@@ -193,7 +194,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	// 7. Delete Pod and wait for disk to be detached.
 	// 8. Delete PVC.
 	// 9. Delete SC.
-	ginkgo.It("Verify topology aware provisioning succeeds with VolumeBindingMode set to WaitForFirstConsumer", func() {
+	ginkgo.It("Verify topology aware provisioning succeeds with VolumeBindingMode set to "+
+		"WaitForFirstConsumer", ginkgo.Label(p0, block, level2, vc70), func() {
 		// Preparing allowedTopologies using topologies with shared datastores.
 		regionZoneValue := GetAndExpectStringEnvVar(envRegionZoneWithSharedDS)
 		regionValues, zoneValues, allowedTopologies = topologyParameterForStorageClass(regionZoneValue)
