@@ -220,7 +220,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 				if volumespec.PersistentVolumeClaim != nil {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					ginkgo.By("Verify scale up operation should not introduced new volume")
-					gomega.Expect(contains(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)).To(gomega.BeTrue())
+					gomega.Expect(isValuePresentInTheList(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)).To(gomega.BeTrue())
 					_, cancel := context.WithCancel(context.Background())
 					defer cancel()
 
@@ -700,7 +700,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 				if volumespec.PersistentVolumeClaim != nil {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					ginkgo.By("Verify scale up operation should not introduced new volume")
-					gomega.Expect(contains(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)).To(gomega.BeTrue())
+					gomega.Expect(isValuePresentInTheList(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)).To(gomega.BeTrue())
 					_, cancel := context.WithCancel(context.Background())
 					defer cancel()
 

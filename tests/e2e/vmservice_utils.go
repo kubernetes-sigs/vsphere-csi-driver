@@ -1388,7 +1388,7 @@ func verifyVmServiceVMNodeLocation(vm *vmopv1.VirtualMachine, nodeList *v1.NodeL
 		if strings.Contains(nodeName, ip) {
 			for labelKey, labelValue := range node.Labels {
 				if topologyValue, ok := allowedTopologiesMap[labelKey]; ok {
-					if !contains(topologyValue, labelValue) {
+					if !isValuePresentInTheList(topologyValue, labelValue) {
 						return false, fmt.Errorf("VM: %s is not running on node located in %s", vm.Name, labelValue)
 					}
 				}

@@ -347,7 +347,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 				if volumespec.PersistentVolumeClaim != nil {
 					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					ginkgo.By("Verify scale up operation should not introduced new volume")
-					gomega.Expect(contains(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)).To(gomega.BeTrue())
+					gomega.Expect(isValuePresentInTheList(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)).To(gomega.BeTrue())
 					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
 					var vmUUID string
@@ -1288,24 +1288,3 @@ var _ = ginkgo.Describe("statefulset", func() {
 	})
 
 })
-
-// check whether the slice contains an element
-func contains(volumes []string, volumeID string) bool {
-	for _, volumeUUID := range volumes {
-		if volumeUUID == volumeID {
-			return true
-		}
-	}
-	return false
-}
-
-// CreateStatefulSet creates a StatefulSet from the manifest at manifestPath in the given namespace.
-func CreateStatefulSet(ns string, ss *apps.StatefulSet, c clientset.Interface) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	framework.Logf("Creating statefulset %v/%v with %d replicas and selector %+v",
-		ss.Namespace, ss.Name, *(ss.Spec.Replicas), ss.Spec.Selector)
-	_, err := c.AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
-	framework.ExpectNoError(err)
-	fss.WaitForRunningAndReady(ctx, c, *ss.Spec.Replicas, ss)
-}
