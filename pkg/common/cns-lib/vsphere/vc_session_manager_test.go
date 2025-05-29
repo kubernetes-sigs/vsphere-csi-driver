@@ -35,7 +35,7 @@ var (
 		}
 		if r.URL.Path == "/invalid-token" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("not a json"))
+			_, _ = w.Write([]byte("not a json"))
 			return
 		}
 		if r.URL.Path == "/session" {
@@ -48,7 +48,7 @@ var (
 				return
 			}
 			w.WriteHeader(http.StatusOK)
-			w.Write(response)
+			_, _ = w.Write(response)
 			return
 		}
 		if r.URL.Path == "/empty" {
@@ -61,7 +61,7 @@ var (
 				return
 			}
 			w.WriteHeader(http.StatusOK)
-			w.Write(response)
+			_, _ = w.Write(response)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -80,7 +80,8 @@ func TestGetSharedToken(t *testing.T) {
 			_, err := vclib.GetSharedToken(ctx, vclib.SharedTokenOptions{
 				URL: "http://something.tld/lala",
 			})
-			assert.ErrorContains(t, err, "failed reading token from service account: open /var/run/secrets/kubernetes.io/serviceaccount/token: no such file or directory")
+			assert.ErrorContains(t, err, "failed reading token from service account: "+
+				"open /var/run/secrets/kubernetes.io/serviceaccount/token: no such file or directory")
 		})
 
 		t.Run("should fail when passed URL is invalid", func(t *testing.T) {
