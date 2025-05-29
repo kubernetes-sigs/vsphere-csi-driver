@@ -32,7 +32,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scale up and down", func() {
+var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scale up and down", ginkgo.Label(p1,
+	tkg, file, vc70), func() {
 	f := framework.NewDefaultFramework("rwx-tkg-sts")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (

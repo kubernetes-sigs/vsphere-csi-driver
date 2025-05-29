@@ -34,7 +34,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volumes and Delete Guest Cluster", func() {
+var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volumes and Delete Guest "+
+	"Cluster", ginkgo.Label(p1, tkg, file, disruptive, negative, vc70), func() {
 	f := framework.NewDefaultFramework("rwx-delete-tkg")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (

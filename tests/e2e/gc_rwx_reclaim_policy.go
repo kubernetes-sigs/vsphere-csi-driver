@@ -38,7 +38,7 @@ import (
 )
 
 // Test to verify RWX volume provision with reclaim policy set and modified
-var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", func() {
+var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", ginkgo.Label(p1, tkg, file, vc70), func() {
 	f := framework.NewDefaultFramework("rwx-tkg-reclaim")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (

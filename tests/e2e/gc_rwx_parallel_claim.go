@@ -31,7 +31,8 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in parallel", func() {
+var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in parallel", ginkgo.Label(p1,
+	tkg, file, negative, vc70), func() {
 	f := framework.NewDefaultFramework("rwx-tkg-parallel")
 	var (
 		client            clientset.Interface

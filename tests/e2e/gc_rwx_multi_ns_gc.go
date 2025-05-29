@@ -37,7 +37,7 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", func() {
+var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", ginkgo.Label(p1, tkg, file, vc70), func() {
 	f := framework.NewDefaultFramework("rwx-tkg-reclaim")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (

@@ -36,7 +36,7 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume static Provision Test", func() {
+var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume static Provision Test", ginkgo.Label(p0, tkg, file, vc70), func() {
 	f := framework.NewDefaultFramework("rwx-tkg-static")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (

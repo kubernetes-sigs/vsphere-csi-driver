@@ -36,7 +36,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-var _ = ginkgo.Describe("File Volume Test on Service down", func() {
+var _ = ginkgo.Describe("File Volume Test on Service down", ginkgo.Label(p1, tkg, file, negative, vc70), func() {
 	f := framework.NewDefaultFramework("rwx-tkg-service-down")
 	var (
 		client                     clientset.Interface

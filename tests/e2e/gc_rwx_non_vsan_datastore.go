@@ -31,7 +31,8 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Non-VSAN datastore", func() {
+var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Non-VSAN datastore", ginkgo.Label(p1, tkg, file,
+	negative, vc70), func() {
 	f := framework.NewDefaultFramework("rwx-tkg-non-vsan")
 	var (
 		client                   clientset.Interface
