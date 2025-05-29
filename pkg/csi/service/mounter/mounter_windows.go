@@ -37,6 +37,7 @@ import (
 	"github.com/kubernetes-csi/csi-proxy/v2/pkg/utils"
 	volume "github.com/kubernetes-csi/csi-proxy/v2/pkg/volume"
 	volumeclient "github.com/kubernetes-csi/csi-proxy/v2/pkg/volume/hostapi"
+	"golang.org/x/sys/windows"
 	"k8s.io/mount-utils"
 	utilexec "k8s.io/utils/exec"
 )
@@ -209,16 +210,57 @@ func (mounter *csiProxyMounter) IsLikelyNotMountPoint(path string) (bool, error)
 	if err != nil {
 		return true, err
 	}
+	if stat.IsDir() {
+		return true, nil
+	}
 	// Check if directory path is a symlink by checking file mode.
 	// Note: Not using CSI proxy IsSymlink() function to check for symlink for Windows,
 	//		 as it tries to read the link. In case of corrupted mount point, reading link
 	//		 might fail, thereby failing the volume attach operation indefinitely.
 	//       Refer https://bugzilla.eng.vmware.com/show_bug.cgi?id=3364853 for details
-	if stat.Mode()&os.ModeSymlink != 0 {
+	// for windows NTFS, check if the path is symlink instead of directory.
+	isSymlink := stat.Mode()&os.ModeSymlink != 0 || stat.Mode()&os.ModeIrregular != 0
+	mountedFolder, err := mounter.IsMountedFolder(path)
+	if err != nil {
 		return false, err
+	}
+	if isSymlink && mountedFolder {
+		return false, nil
 	}
 	return true, nil
 	//TODO check if formatted else error out
+}
+
+func (mounter *csiProxyMounter) IsMountedFolder(path string) (bool, error) {
+	// https://learn.microsoft.com/en-us/windows/win32/fileio/determining-whether-a-directory-is-a-volume-mount-point
+	utf16Path, _ := windows.UTF16PtrFromString(path)
+	attrs, err := windows.GetFileAttributes(utf16Path)
+	if err != nil {
+		return false, err
+	}
+
+	if (attrs & windows.FILE_ATTRIBUTE_REPARSE_POINT) == 0 {
+		return false, nil
+	}
+
+	var findData windows.Win32finddata
+	findHandle, err := windows.FindFirstFile(utf16Path, &findData)
+	if err != nil && !errors.Is(err, windows.ERROR_NO_MORE_FILES) {
+		return false, err
+	}
+
+	for err == nil {
+		if findData.Reserved0&windows.IO_REPARSE_TAG_MOUNT_POINT != 0 {
+			return true, nil
+		}
+
+		err = windows.FindNextFile(findHandle, &findData)
+		if err != nil && !errors.Is(err, windows.ERROR_NO_MORE_FILES) {
+			return false, err
+		}
+	}
+
+	return false, nil
 }
 
 // CanSafelySkipMountPointCheck always returns false on Windows
