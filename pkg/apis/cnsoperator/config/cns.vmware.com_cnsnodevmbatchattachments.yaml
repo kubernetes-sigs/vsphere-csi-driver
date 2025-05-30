@@ -1,0 +1,101 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: cnsnodevmbatchattachments.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: CnsNodeVmBatchAttachment
+    listKind: CnsNodeVmBatchAttachmentList
+    plural: cnsnodevmbatchattachments
+    singular: cnsnodevmbatchattachment
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: CnsNodeVmBatchAttachment is the Schema for the cnsnodevmbatchattachments
+          API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: CnsNodeVmBatchAttachmentSpec defines the desired state of
+              CnsNodeVmBatchAttachment
+            properties:
+              nodeuuid:
+                description: |-
+                  NodeUUID indicates the UUID of the node where the volume needs to be attached to.
+                  Here NodeUUID is the bios UUID of the node.
+                type: string
+              volumes:
+                description: |-
+                  VolumeName indicates the name of the volume on the supervisor Cluster.
+                  This is guaranteed to be unique in Supervisor cluster.
+                items:
+                  properties:
+                    controllerNumber:
+                      format: int32
+                      type: integer
+                    diskMode:
+                      type: string
+                    sharingMode:
+                      type: string
+                    slotNumber:
+                      format: int32
+                      type: integer
+                    volumeName:
+                      type: string
+                  type: object
+                type: array
+            required:
+            - nodeuuid
+            - volumes
+            type: object
+          status:
+            description: CnsNodeVmBatchAttachmentStatus defines the observed state
+              of CnsNodeVmBatchAttachment
+            properties:
+              volumeStatus:
+                additionalProperties:
+                  properties:
+                    cnsVolumeId:
+                      type: string
+                    diskuuid:
+                      type: string
+                    error:
+                      type: string
+                    state:
+                      type: string
+                  required:
+                  - cnsVolumeId
+                  - diskuuid
+                  - state
+                  type: object
+                type: object
+            required:
+            - volumeStatus
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
