@@ -18,22 +18,17 @@ package e2e
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net"
-	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	admissionapi "k8s.io/pod-security-admission/api"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/kubernetes/test/e2e/framework"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -75,7 +70,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 
 		nodeNameIPMap = make(map[string]string)
 		ginkgo.By("Retrieving testbed configuration data")
-		err := getTestbedConfig(client, nodeNameIPMap)
+		err := mapK8sMasterNodeWithIPs(client, nodeNameIPMap)
 		framework.ExpectNoError(err)
 
 		labelKey = "app"
@@ -325,71 +320,3 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 
 	})
 })
-
-// getControllerRuntimeDetails return the NodeName and PodName for vSphereCSIControllerPod running
-func getControllerRuntimeDetails(client clientset.Interface, nameSpace string) ([]string, []string) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	pods, _ := client.CoreV1().Pods(nameSpace).List(
-		ctx,
-		metav1.ListOptions{
-			FieldSelector: fields.SelectorFromSet(fields.Set{"status.phase": string(v1.PodRunning)}).String(),
-		})
-	var nodeNameList []string
-	var podNameList []string
-	for _, pod := range pods.Items {
-		if strings.HasPrefix(pod.Name, vSphereCSIControllerPodNamePrefix) {
-			framework.Logf("Found vSphereCSIController pod %s PodStatus %s", pod.Name, pod.Status.Phase)
-			nodeNameList = append(nodeNameList, pod.Spec.NodeName)
-			podNameList = append(podNameList, pod.Name)
-		}
-	}
-	return nodeNameList, podNameList
-}
-
-// waitForControllerDeletion wait for the controller pod to be deleted
-func waitForControllerDeletion(ctx context.Context, client clientset.Interface, namespace string) error {
-	err := wait.PollUntilContextTimeout(ctx, poll, k8sPodTerminationTimeOutLong, true,
-		func(ctx context.Context) (bool, error) {
-			_, podNameList := getControllerRuntimeDetails(client, namespace)
-			if len(podNameList) == 1 {
-				framework.Logf("old vsphere-csi-controller pod  has been successfully deleted")
-				return true, nil
-			}
-			framework.Logf("waiting for old vsphere-csi-controller pod to be deleted.")
-			return false, nil
-		})
-
-	return err
-
-}
-
-// getTestbedConfig returns master node name and IP from K8S testbed
-func getTestbedConfig(client clientset.Interface, nodeNameIPMap map[string]string) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{LabelSelector: "node-role.kubernetes.io/master"})
-	if err != nil {
-		return err
-	}
-	if len(nodes.Items) <= 1 {
-		return errors.New("K8S testbed does not have more than one master nodes")
-	}
-	for _, node := range nodes.Items {
-		for _, addr := range node.Status.Addresses {
-			if addr.Type == v1.NodeExternalIP && addr.Address != "" && net.ParseIP(addr.Address) != nil {
-				framework.Logf("Found master node name %s with external IP %s", node.Name, addr.Address)
-				nodeNameIPMap[node.Name] = addr.Address
-			} else if addr.Type == v1.NodeInternalIP && addr.Address != "" && net.ParseIP(addr.Address) != nil {
-				framework.Logf("Found master node name %s with internal IP %s", node.Name, addr.Address)
-				nodeNameIPMap[node.Name] = addr.Address
-			}
-			if _, ok := nodeNameIPMap[node.Name]; !ok {
-				framework.Logf("No IP address is found for master node %s", node.Name)
-				return fmt.Errorf("IP address is not found for node %s", node.Name)
-			}
-		}
-	}
-
-	return nil
-}
