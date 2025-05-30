@@ -23,10 +23,10 @@ import (
 	"strings"
 	"time"
 
-	cnstypes "github.com/vmware/govmomi/cns/types"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-
 	"github.com/onsi/gomega"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 const (
@@ -265,7 +265,7 @@ const (
 	envZonalStoragePolicyName2               = "ZONAL2_STORAGECLASS"
 	volExtensionName                         = "volume.cns.vsphere.vmware.com"
 	snapshotExtensionName                    = "snapshot.cns.vsphere.vmware.com"
-	vmServiceExtensionName                   = "vmservice.cns.vsphere.vmware.com"
+	vmServiceExtensionName                   = "vmware-system-vmop-webhook-service"
 	pvcUsage                                 = "-pvc-usage"
 	snapshotUsage                            = "-snapshot-usage"
 	vmUsage                                  = "-vm-usage"

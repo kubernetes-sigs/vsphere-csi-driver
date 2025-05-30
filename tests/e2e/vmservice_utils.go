@@ -35,11 +35,10 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
-
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	vmopv3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	vmopv3common "github.com/vmware-tanzu/vm-operator/api/v1alpha3/common"
+	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -50,6 +49,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
+
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 )
 
@@ -87,6 +87,8 @@ func createTestWcpNs(
         },
         "supervisor": "%s"
     }`, namespace, storagePolicyId, vmClass, contentLibId, supervisorId)
+
+	fmt.Println(reqBody)
 
 	_, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, nsCreationUrl, reqBody)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
@@ -1397,4 +1399,41 @@ func verifyVmServiceVMNodeLocation(vm *vmopv1.VirtualMachine, nodeList *v1.NodeL
 		}
 	}
 	return false, fmt.Errorf("VM: %s is not running on any node with matching IP", vm.Name)
+}
+
+// Add content Library and Vmclass to existing namespace
+func addCLToExistingNs(ctx context.Context, namespace string, vmClass string, contentLibId string) (int, error) {
+
+	//vcIp := e2eVSphere.Config.Global.VCenterHostname
+	vcRestSessionId := createVcSession4RestApis(ctx)
+	supervisorId := getSvcId(vcRestSessionId)
+	fmt.Println(supervisorId)
+
+	initailUrl := createInitialNsApiCallUrl()
+	addCLtoNs := initailUrl + namespace
+
+	// Create request body struct
+	requestBody := map[string]interface{}{}
+
+	// Add vm_service_spec only if vmClass and contentLibId are provided
+	if vmClass != "" && contentLibId != "" {
+		requestBody["vm_service_spec"] = map[string]interface{}{
+			"vm_classes":        []string{vmClass},
+			"content_libraries": []string{contentLibId},
+		}
+	}
+
+	reqBodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return 500, fmt.Errorf("error marshalling request body: %w", err)
+	}
+
+	reqBody := string(reqBodyBytes)
+	fmt.Println("************ Print req body for debugging ************")
+	fmt.Println(reqBody)
+
+	// Make the API request
+	_, statusCode := invokeVCRestAPIPatchRequest(vcRestSessionId, addCLtoNs, reqBody)
+	framework.Logf("StatusCode of addContentLibToNamespace : %v", statusCode)
+	return statusCode, nil
 }
