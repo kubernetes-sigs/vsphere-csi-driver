@@ -49,6 +49,8 @@ const (
 	PrometheusListSnapshotsOpType = "list-snapshot"
 	// PrometheusListVolumeOpType represents the ListVolumes operation.
 	PrometheusListVolumeOpType = "list-volume"
+	// PrometheusBatchAttachVolumeOpType reprsents batch AttachVolume operation
+	PrometheusBatchAttachVolumeOpType = "batch-attach-volume"
 
 	// CNS operation types
 
