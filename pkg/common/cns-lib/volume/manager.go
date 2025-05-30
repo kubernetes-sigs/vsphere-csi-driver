@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -152,6 +153,9 @@ type Manager interface {
 	// SetListViewNotReady explicitly states the listview state as not ready
 	// use case: unit tests
 	SetListViewNotReady(ctx context.Context)
+	// BatchAttachVolumes attaches multiple volumes to a virtual machine.
+	BatchAttachVolumes(ctx context.Context,
+		vm *cnsvsphere.VirtualMachine, batchAttachRequest []BatchAttachRequest) ([]BatchAttachResult, string, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -3401,6 +3405,202 @@ func (m *defaultManager) getAggregatedSnapshotSize(ctx context.Context, volumeID
 		}
 	}
 	return aggregatedSnapshotCapacity, nil
+}
+
+// compileBatchAttachTaskResult consolidates Batch AttachVolume API's task result.
+func compileBatchAttachTaskResult(ctx context.Context, result cnstypes.BaseCnsVolumeOperationResult,
+	vm *cnsvsphere.VirtualMachine, activationId string) (BatchAttachResult, error) {
+	log := logger.GetLogger(ctx)
+	volumeOperationResult := result.GetCnsVolumeOperationResult()
+	volumeId := volumeOperationResult.VolumeId.Id
+	if volumeId == "" {
+		return BatchAttachResult{},
+			logger.LogNewErrorf(log,
+				"volumeID is empty for BatchAttachVolume operation result. OpId: %q", activationId)
+	}
+
+	// Add volumeID to the result.
+	batchAttachResult := BatchAttachResult{VolumeID: volumeId}
+
+	fault := volumeOperationResult.Fault
+	if fault != nil {
+		// In case of failure, set faultType and error.
+		faultType := ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationResult)
+		batchAttachResult.FaultType = faultType
+		msg := fmt.Sprintf("failed to batch attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
+			volumeId, vm.String(), faultType, activationId)
+		batchAttachResult.Error = errors.New(msg)
+		log.Infof("Constructed batch attach result for volume %s with failure", volumeId)
+		return batchAttachResult, nil
+	}
+
+	attachResult, ok := result.(*cnstypes.CnsVolumeAttachResult)
+	if !ok {
+		return batchAttachResult, logger.LogNewErrorf(log, "type assertion failed: "+
+			"expected *cnstypes.CnsVolumeAttachResult, got %T", result)
+	}
+	// In case of success, set DiskUUID, and set error as nil.
+	diskUUID := attachResult.DiskUUID
+	batchAttachResult.DiskUUID = diskUUID
+	batchAttachResult.Error = nil
+
+	log.Infof("Constructed batch attach result for volume %s with success", volumeId)
+	return batchAttachResult, nil
+}
+
+// constructBatchAttachSpecList constructs the CnsVolumeAttachDetachSpec list by
+// going through all volumes batchAttachRequest.
+func constructBatchAttachSpecList(ctx context.Context, vm *cnsvsphere.VirtualMachine,
+	batchAttachRequest []BatchAttachRequest) ([]cnstypes.CnsVolumeAttachDetachSpec, error) {
+	log := logger.GetLogger(ctx)
+	var cnsAttachSpecList []cnstypes.CnsVolumeAttachDetachSpec
+	for _, volume := range batchAttachRequest {
+		// Initialise cnsAttachDetachSpec
+		cnsAttachDetachSpec := cnstypes.CnsVolumeAttachDetachSpec{
+			VolumeId: cnstypes.CnsVolumeId{
+				Id: volume.VolumeID,
+			},
+			Vm:       vm.Reference(),
+			Sharing:  volume.SharingMode,
+			DiskMode: volume.DiskMode,
+		}
+
+		// Set controllerKey and unitNumber only if they are provided by the user.
+		if volume.ControllerKey != "" {
+			// Convert to int64
+			controllerKey, err := strconv.ParseInt(volume.ControllerKey, 10, 64)
+			if err != nil {
+				log.Errorf("failed to convert controllerKey %s to integer", controllerKey)
+				return cnsAttachSpecList, err
+			}
+			cnsAttachDetachSpec.ControllerKey = controllerKey
+		}
+		if volume.UnitNumber != "" {
+			// Convert to int64
+			unitNumber, err := strconv.ParseInt(volume.UnitNumber, 10, 64)
+			if err != nil {
+				log.Errorf("failed to convert unitNumber %s to integer", unitNumber)
+				return cnsAttachSpecList, err
+			}
+			cnsAttachDetachSpec.UnitNumber = unitNumber
+		}
+		cnsAttachSpecList = append(cnsAttachSpecList, cnsAttachDetachSpec)
+	}
+
+	log.Infof("Constucted CnsVolumeAttachDetachSpec for VM %s", vm.UUID)
+	return cnsAttachSpecList, nil
+
+}
+
+// BatchAttachVolumes calls CNS Attach Volume API with a list of volumes for a single VM.
+func (m *defaultManager) BatchAttachVolumes(ctx context.Context,
+	vm *cnsvsphere.VirtualMachine,
+	batchAttachRequest []BatchAttachRequest) ([]BatchAttachResult, string, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
+	internalBatchAttachVolumes := func() ([]BatchAttachResult, string, error) {
+		log := logger.GetLogger(ctx)
+		var faultType string
+		batchAttachResult := make([]BatchAttachResult, 0)
+
+		log.Infof("Starting batch attach for VM %s", vm.UUID)
+
+		err := validateManager(ctx, m)
+		if err != nil {
+			log.Errorf("failed to validate manger. Err: %s", err)
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+			return batchAttachResult, faultType, err
+		}
+		// Set up the VC connection.
+		err = m.virtualCenter.ConnectCns(ctx)
+		if err != nil {
+			log.Errorf("ConnectCns failed with err: %s", err)
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+			return batchAttachResult, faultType, err
+		}
+
+		// Construct the CNS AttachSpec list.
+		cnsAttachSpecList, err := constructBatchAttachSpecList(ctx, vm, batchAttachRequest)
+		if err != nil {
+			log.Errorf("constructBatchAttachSpecList failed with err: %v", err)
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+			return batchAttachResult, faultType, err
+		}
+
+		// Call the CNS AttachVolume.
+		task, err := m.virtualCenter.CnsClient.AttachVolume(ctx, cnsAttachSpecList)
+		if err != nil {
+			log.Errorf("CNS AttachVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+			return batchAttachResult, faultType, err
+		}
+
+		// Get the taskInfo.
+		taskInfo, err := m.waitOnTask(ctx, task.Reference())
+		if err != nil || taskInfo == nil {
+			log.Errorf("failed to wait for task completion. Err: %s", err)
+			if err != nil {
+				faultType = ExtractFaultTypeFromErr(ctx, err)
+			} else {
+				faultType = csifault.CSITaskInfoEmptyFault
+			}
+			return batchAttachResult, faultType, err
+		}
+
+		taskResults, err := cns.GetTaskResultArray(ctx, taskInfo)
+		if err != nil {
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+			log.Errorf("unable to find BatchAttachVolumes result from vCenter %q with taskID %s and attachResults %+v",
+				m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResults)
+			return batchAttachResult, faultType, err
+		}
+
+		if taskResults == nil {
+			return batchAttachResult, csifault.CSITaskResultEmptyFault,
+				logger.LogNewErrorf(log, "taskResult is empty for BatchAttachVolumes task: %q, opId: %q",
+					taskInfo.Task.Value, taskInfo.ActivationId)
+		}
+
+		volumesThatFailedToAttach := make([]string, 0)
+		for _, result := range taskResults {
+			currentBatchAttachResult, err := compileBatchAttachTaskResult(ctx, result, vm, taskInfo.ActivationId)
+			if err != nil {
+				log.Errorf("failed to compile task results. Err: %s", err)
+				return []BatchAttachResult{}, csifault.CSIInternalFault, err
+			}
+			if currentBatchAttachResult.Error != nil {
+				// If this volume could not get attached, add it to volumesThatFailedToAttach list.
+				volumesThatFailedToAttach = append(volumesThatFailedToAttach, currentBatchAttachResult.VolumeID)
+			}
+			// Add result for each volume to batchAttachResult
+			batchAttachResult = append(batchAttachResult, currentBatchAttachResult)
+		}
+
+		var overallError error
+		var errMsg string
+		if len(volumesThatFailedToAttach) != 0 {
+			errMsg = strings.Join(volumesThatFailedToAttach, ",")
+			overallError = errors.New(errMsg)
+			return batchAttachResult, csifault.CSIBatchAttachFault, overallError
+		}
+		log.Infof("BatchAttach: all volumes attached successfully with opID %s", taskInfo.ActivationId)
+		return batchAttachResult, "", nil
+	}
+
+	log := logger.GetLogger(ctx)
+	start := time.Now()
+	batchAttachResult, faultType, err := internalBatchAttachVolumes()
+	if err != nil {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsBatchAttachVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+		log.Errorf("CNS BatchAttachVolumes failed with err: %s", err)
+		return batchAttachResult, faultType, err
+	}
+
+	prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsBatchAttachVolumeOpType,
+		prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+
+	return batchAttachResult, faultType, err
 }
 
 func (m *defaultManager) IsListViewReady() bool {

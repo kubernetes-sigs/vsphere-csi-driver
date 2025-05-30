@@ -37,6 +37,32 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
+// BatchAttachRequest has details for each volume in order to call CNS Attach volume in batch.
+type BatchAttachRequest struct {
+	// The volume ID for the given PVC.
+	VolumeID string
+	// SharingMode indicates the shraring mode if the virtual disk while attaching.
+	SharingMode string
+	// DiskMode is the desired mode to use when attaching the volume
+	DiskMode string
+	// ControllerKey is the object key for the controller object for this device.
+	ControllerKey string
+	//  UnitNumber of this device on its controller.
+	UnitNumber string
+}
+
+// BatchAttachResult is the result of calling batch CNS Attach for multiple volumes.
+type BatchAttachResult struct {
+	// Error that may have occurred during attach call.
+	Error error
+	// Diskuuid is the ID obtained when volume is attached to a VM.
+	DiskUUID string
+	// The volume ID for the given PVC.
+	VolumeID string
+	// Type of fault that may have occurred.
+	FaultType string
+}
+
 func validateManager(ctx context.Context, m *defaultManager) error {
 	log := logger.GetLogger(ctx)
 	if m.virtualCenter == nil {

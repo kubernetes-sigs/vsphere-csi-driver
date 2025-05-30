@@ -36,7 +36,8 @@ const (
 	CSIVCenterNotFoundFault = "csi.fault.VCenterNotFound"
 	// CSIFindVmByUUIDFault is the fault type when FindByUUID method fails to find the VM
 	CSIFindVmByUUIDFault = "csi.fault.FindVmByUUIDFault"
-
+	// CSIFindVmByUUIDFault is the fault type when FindByUUID method fails to find the VM
+	CSIBatchAttachFault = "csi.fault.BatchAttach"
 	// CSIApiServerOperationFault is the fault type when Get(), List() and others fail on the API Server
 	CSIApiServerOperationFault = "csi.fault.ApiServerOperation"
 

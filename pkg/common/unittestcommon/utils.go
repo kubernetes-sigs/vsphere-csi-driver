@@ -38,7 +38,9 @@ import (
 	cnssim "github.com/vmware/govmomi/cns/simulator"
 	pbmsim "github.com/vmware/govmomi/pbm/simulator"
 	_ "github.com/vmware/govmomi/vapi/simulator"
+	"k8s.io/apimachinery/pkg/api/resource"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -134,6 +136,48 @@ func (c *FakeK8SOrchestrator) IsFakeAttachAllowed(
 	log := logger.GetLogger(ctx)
 	return false, logger.LogNewErrorCode(log, codes.Unimplemented,
 		"IsFakeAttachAllowed for FakeK8SOrchestrator is not yet implemented.")
+}
+
+func (c *FakeK8SOrchestrator) GetPvcObjectByName(ctx context.Context,
+	pvcName string, namespace string) (*v1.PersistentVolumeClaim, error) {
+	if pvcName == "pvc-rwx" {
+
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pvcName,   // Name of the PVC
+				Namespace: namespace, // Namespace to create the PVC in
+			},
+			Spec: v1.PersistentVolumeClaimSpec{
+				AccessModes: []v1.PersistentVolumeAccessMode{
+					v1.ReadWriteMany, // Set the access mode to RWO (ReadWriteOnce)
+				},
+				Resources: v1.VolumeResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceStorage: *resource.NewQuantity(5*1024*1024*1024, resource.BinarySI), // 5Gi of storage
+					},
+				},
+			},
+		}
+		return pvc, nil
+	}
+
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,   // Name of the PVC
+			Namespace: namespace, // Namespace to create the PVC in
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				v1.ReadWriteOnce, // Set the access mode to RWO (ReadWriteOnce)
+			},
+			Resources: v1.VolumeResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceStorage: *resource.NewQuantity(5*1024*1024*1024, resource.BinarySI), // 5Gi of storage
+				},
+			},
+		},
+	}
+	return pvc, nil
 }
 
 // MarkFakeAttached marks the volume as fake attached.
@@ -369,6 +413,22 @@ func (c *FakeK8SOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (string
 
 	// Simulate a case where the volumeID corresponds to a PVC.
 	return "mock-pvc", "mock-namespace", true
+}
+
+// GetVolumeIDFromPVCName simlates an invalid case when pvcName contains "invalid".
+func (c *FakeK8SOrchestrator) GetVolumeIDFromPVCName(pvcName string) (string, bool) {
+	if strings.Contains(pvcName, "invalid") {
+		// Simulate a case where the volumeID is invalid and does not correspond to any PVC.
+		return "", false
+	}
+
+	if strings.Contains(pvcName, "fail-attach") {
+		// Simulate a case so that attach fails for the given volumeID.
+		return "fail-attach", true
+	}
+
+	// Simulate a case where the volumeID corresponds to a PVC.
+	return "12345-6789", true
 }
 
 // InitializeCSINodes creates CSINode instances for each K8s node with the appropriate topology keys.
