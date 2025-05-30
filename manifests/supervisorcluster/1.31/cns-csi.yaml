@@ -163,6 +163,9 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumes"]
     verbs: ["get", "list", "update", "delete"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["cnsfileaccessconfigs"]
+    verbs: ["get", "list", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
