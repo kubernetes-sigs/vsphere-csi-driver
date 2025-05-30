@@ -192,7 +192,11 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		statefulset.Spec.Template.Spec.Containers[0].Ports[0].Name = "web" + val + strconv.Itoa(min)
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 			Spec.StorageClassName = &storagePolicyName
-
+		if policy4kn {
+			framework.Logf("******* Inside 4kn block in statefulset creation******")
+			statefulset.Annotations = make(map[string]string)
+			statefulset.Spec.Template.ObjectMeta.Annotations[policy4knKey] = policy4knValue
+		}
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 

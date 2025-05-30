@@ -358,6 +358,12 @@ var (
 	multipleSvc          bool
 	multivc              bool
 	stretchedSVC         bool
+	policy4kn            bool
+)
+
+var (
+	policy4knKey   = "vmware/4kn-volume-for-pod"
+	policy4knValue = "enabled"
 )
 
 // For busybox pod image
@@ -485,11 +491,13 @@ var (
 	envZonal2StoragePolicyName            = "ZONAL2_STORAGE_POLICY_IMM"
 	envZonal2StoragePolicyNameLateBidning = "ZONAL2_STORAGE_POLICY_WFFC"
 	envZonal1StoragePolicyName            = "ZONAL1_STORAGE_POLICY_IMM"
+	envZonal1StoragePolicyNameLateBinding = "ZONAL1_STORAGE_POLICY_WFFC"
 	envZonal3StoragePolicyName            = "ZONAL3_STORAGE_POLICY_IMM"
 	topologyDomainIsolation               = "Workload_Management_Isolation"
 	envIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
 	envSharedZone2Zone4StoragePolicyName  = "SHARED_ZONE2_ZONE4_STORAGE_POLICY_IMM"
 	envSharedZone2Zone4DatastoreUrl       = "SHARED_ZONE2_ZONE4_DATASTORE_URL"
+	envZone2DatastoreUrl                  = "ZONAL_ZONE2__DATASTORE_URL"
 )
 
 // storage policy usages for storage quota validation
@@ -612,6 +620,12 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	topologyType := os.Getenv("TOPOLOGY_TYPE")
 	if strings.TrimSpace(string(topologyType)) == "MULTI_VC" {
 		multivc = true
+	}
+
+	//Check what type of policy is passed
+	policyType := os.Getenv("POLICY_TYPE")
+	if strings.TrimSpace(string(policyType)) == "POLICY_4KN" {
+		policy4kn = true
 	}
 
 	//Check if its stretched SVC testbed

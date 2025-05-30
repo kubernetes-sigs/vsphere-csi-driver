@@ -139,7 +139,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		defer cancel()
 		nodeList, podList := getControllerRuntimeDetails(client, controllerNamespace)
 		ginkgo.By(fmt.Sprintf("vsphere-csi-controller pod(s) %+v is running on node(s) %+v", podList, nodeList))
-		gomega.Expect(len(podList) == 1).To(gomega.BeTrue(), "Number of vsphere-csi-controller pod running is not 1")
+		gomega.Expect(len(podList) == 3).To(gomega.BeTrue(), "Number of vsphere-csi-controller pod running is not 3")
 
 		ginkgo.By("Create a pvc and wait for PVC to bound")
 		if vanillaCluster {
@@ -241,7 +241,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		defer cancel()
 		nodeList, podList := getControllerRuntimeDetails(client, controllerNamespace)
 		ginkgo.By(fmt.Sprintf("vsphere-csi-controller pod(s) %+v is running on node(s) %+v", podList, nodeList))
-		gomega.Expect(len(podList) == 1).To(gomega.BeTrue(), "Number of vsphere-csi-controller pod running is not 1")
+		gomega.Expect(len(podList) == 3).To(gomega.BeTrue(), "Number of vsphere-csi-controller pod running is not 3")
 
 		ginkgo.By("Create a pvc and wait for PVC to bound")
 		if vanillaCluster {
