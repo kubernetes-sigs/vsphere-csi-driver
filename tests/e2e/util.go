@@ -7814,3 +7814,30 @@ func reconfigPolicyParallel(ctx context.Context, volID string, policyId string, 
 	err := e2eVSphere.reconfigPolicy(ctx, volID, policyId)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
+
+// when PVC is deleted, used following method to check for PV status
+func waitForPvToBeReleased(ctx context.Context, client clientset.Interface,
+	pvName string) (*v1.PersistentVolume, error) {
+	var pv *v1.PersistentVolume
+	var err error
+	waitErr := wait.PollUntilContextTimeout(ctx, resizePollInterval, pollTimeoutShort, true,
+		func(ctx context.Context) (bool, error) {
+			pv, err = client.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if pv.Status.Phase == v1.VolumeReleased {
+				return true, nil
+			}
+			return false, nil
+		})
+	return pv, waitErr
+}
+
+// convertGiStrToMibInt64 returns integer numbers of Mb equivalent to string
+// of the form \d+Gi.
+func convertGiStrToMibInt64(size resource.Quantity) int64 {
+	r, err := regexp.Compile("[0-9]+")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	sizeInt, err := strconv.Atoi(r.FindString(size.String()))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return int64(sizeInt * 1024)
+}

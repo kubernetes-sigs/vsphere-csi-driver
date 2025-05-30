@@ -316,3 +316,11 @@ func fillVolumeInPods(f *framework.Framework, client clientset.Interface, pods [
 		writeRandomDataOnPod(pod, size-100) // leaving 100m for FS metadata
 	}
 }
+
+// Create files on volumes when pod attached to it
+func createAndVerifyFilesOnVolume(namespace string, podname string,
+	newEmptyfilesToCreate []string, filesToCheck []string) {
+	createEmptyFilesOnVSphereVolume(namespace, podname, newEmptyfilesToCreate)
+	ginkgo.By(fmt.Sprintf("Verify files exist on volume mounted on: %v", podname))
+	verifyFilesExistOnVSphereVolume(namespace, podname, poll, pollTimeoutShort, filesToCheck...)
+}

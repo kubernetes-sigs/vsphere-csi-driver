@@ -41,8 +41,6 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
-	"github.com/vmware/govmomi/vim25/types"
-	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 )
 
 var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisioning", func() {
@@ -314,40 +312,3 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })
-
-func getFileShareCreateSpec(datastore types.ManagedObjectReference) *cnstypes.CnsVolumeCreateSpec {
-	netPermissions := vsanfstypes.VsanFileShareNetPermission{
-		Ips:         "*",
-		Permissions: vsanfstypes.VsanFileShareAccessTypeREAD_WRITE,
-		AllowRoot:   true,
-	}
-	containerCluster := &cnstypes.CnsContainerCluster{
-		ClusterType:   string(cnstypes.CnsClusterTypeKubernetes),
-		ClusterId:     e2eVSphere.Config.Global.ClusterID,
-		VSphereUser:   e2eVSphere.Config.Global.User,
-		ClusterFlavor: string(cnstypes.CnsClusterFlavorVanilla),
-	}
-	var containerClusterArray []cnstypes.CnsContainerCluster
-	containerClusterArray = append(containerClusterArray, *containerCluster)
-	createSpec := &cnstypes.CnsVolumeCreateSpec{
-		Name:       "testFileSharex",
-		VolumeType: "FILE",
-		Datastores: []types.ManagedObjectReference{datastore},
-		BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{
-			CnsFileBackingDetails: cnstypes.CnsFileBackingDetails{
-				CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
-					CapacityInMb: fileSizeInMb,
-				},
-			},
-		},
-		Metadata: cnstypes.CnsVolumeMetadata{
-			ContainerCluster:      *containerCluster,
-			ContainerClusterArray: containerClusterArray,
-		},
-		CreateSpec: &cnstypes.CnsVSANFileCreateSpec{
-			SoftQuotaInMb: fileSizeInMb,
-			Permission:    []vsanfstypes.VsanFileShareNetPermission{netPermissions},
-		},
-	}
-	return createSpec
-}
