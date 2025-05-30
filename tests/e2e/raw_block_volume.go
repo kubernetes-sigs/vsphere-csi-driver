@@ -349,7 +349,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 						volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 					}
 					ginkgo.By("Verify scale up operation should not introduced new volume")
-					gomega.Expect(contains(volumesBeforeScaleDown, volumeID)).To(gomega.BeTrue())
+					gomega.Expect(isValuePresentInTheList(volumesBeforeScaleDown, volumeID)).To(gomega.BeTrue())
 					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 						volumeID, sspod.Spec.NodeName))
 					ctx, cancel := context.WithCancel(context.Background())

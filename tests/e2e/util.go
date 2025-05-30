@@ -5113,7 +5113,7 @@ func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList,
 		if pod.Spec.NodeName == node.Name {
 			for labelKey, labelValue := range node.Labels {
 				if topologyValue, ok := allowedTopologiesMap[labelKey]; ok {
-					if !contains(topologyValue, labelValue) {
+					if !isValuePresentInTheList(topologyValue, labelValue) {
 						return false, fmt.Errorf("pod: %s is not running on node located in %s", pod.Name, labelValue)
 					}
 				}
