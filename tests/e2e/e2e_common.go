@@ -343,6 +343,8 @@ const (
 	vc70                  = "vc70"
 	wldi                  = "wldi"
 	vmServiceVm           = "vmServiceVm"
+	vcptocsiTest          = "vcptocsiTest"
+	stretchedSvc          = "stretchedSvc"
 )
 
 // The following variables are required to know cluster type to run common e2e

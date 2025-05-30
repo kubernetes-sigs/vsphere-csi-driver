@@ -154,7 +154,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 	ginkgo.It("Provisioning volume when no topology details specified in storage class "+
 		"and using default pod management policy for statefulset", ginkgo.Label(p0, block,
-		vanilla, level5, stable), func() {
+		vanilla, level5, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -231,7 +231,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 	ginkgo.It("Provisioning volume when no topology details specified in storage class "+
 		"and using parallel pod management policy for statefulset", ginkgo.Label(p0, block,
-		vanilla, level5, stable), func() {
+		vanilla, level5, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -323,7 +323,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 	ginkgo.It("Provisioning volume when storage class specified with WFC Binding mode "+
 		"with allowed topologies and using parallel pod management policy for statefulset", ginkgo.Label(p1,
-		block, vanilla, level5, stable), func() {
+		block, vanilla, level5, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -422,7 +422,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 	ginkgo.It("Provisioning volume when storage class specified with Immediate BindingMode "+
 		"with higher level allowed topologies and using default pod management policy "+
-		"for statefulset", ginkgo.Label(p0, block, vanilla, level5, stable), func() {
+		"for statefulset", ginkgo.Label(p0, block, vanilla, level5, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -523,7 +523,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 	ginkgo.It("Provisioning volume when storage class specified with Immediate Bindingmode "+
 		"shared datastore url between multiple topology labels and using parallel pod management "+
-		"policy for statefulset", ginkgo.Label(p1, block, vanilla, level5, stable), func() {
+		"policy for statefulset", ginkgo.Label(p1, block, vanilla, level5, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -627,7 +627,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 	*/
 	ginkgo.It("Provisioning volume when storage class specified with "+
 		"Immediate BindingMode with multiple allowed topologies and using DeploymentSet "+
-		"pod", ginkgo.Label(p1, block, vanilla, level5, stable), func() {
+		"pod", ginkgo.Label(p1, block, vanilla, level5, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -713,7 +713,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 	ginkgo.It("Provisioning volume when storage class specified with multiple labels "+
 		"without specifying datastore url and using default pod management policy "+
-		"for statefulset", ginkgo.Label(p2, block, vanilla, level5, stable), func() {
+		"for statefulset", ginkgo.Label(p2, block, vanilla, level5, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -782,7 +782,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Verify volume provisioning when storage class specified with invalid "+
-		"topology label", ginkgo.Label(p2, block, vanilla, level5, stable, negative), func() {
+		"topology label", ginkgo.Label(p2, block, vanilla, level5, stable, negative, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -838,7 +838,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 	*/
 
 	ginkgo.It("Verify volume provisioning when storage class specified with one level "+
-		"topology along with datstore url", ginkgo.Label(p2, block, vanilla, level5, stable), func() {
+		"topology along with datstore url", ginkgo.Label(p2, block, vanilla, level5, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -930,7 +930,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 	*/
 	ginkgo.It("Verify volume provisioning when storage class specified with single "+
 		"level topology without datstore url", ginkgo.Label(p1, block, vanilla, level5,
-		stable, negative), func() {
+		stable, negative, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1019,7 +1019,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 		9. Delete POD, PVC, PV and SC.
 	*/
 	ginkgo.It("Verify static volume provisioning with FCD and storage class with allowed "+
-		"topologies", ginkgo.Label(p1, block, vanilla, level5, stable), func() {
+		"topologies", ginkgo.Label(p1, block, vanilla, level5, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1161,7 +1161,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 	*/
 	ginkgo.It("Verify static volume provisioning with FCD and storage class specified "+
 		"with datastore url and set of allowed "+
-		"topologies", ginkgo.Label(p1, block, vanilla, level5, stable), func() {
+		"topologies", ginkgo.Label(p1, block, vanilla, level5, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

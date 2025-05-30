@@ -39,7 +39,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
 )
 
-var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", func() {
+var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", ginkgo.Label(p1,
+	block, vanilla, vcptocsiTest, vc70), func() {
 	f := framework.NewDefaultFramework("vcp-2-csi-full-sync")
 	var (
 		client                     clientset.Interface

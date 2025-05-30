@@ -48,7 +48,8 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
-var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests", func() {
+var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests", ginkgo.Label(p1, block, vanilla,
+	disruptive, vcptocsiTest, vc70), func() {
 	f := framework.NewDefaultFramework("csi-vcp-mig-create-del")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
