@@ -146,7 +146,7 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 
 	ginkgo.It("Volume provisioning when multiple statefulsets creation is in "+
 		"progress and in between zones hosts are down", ginkgo.Label(p1, block,
-		vanilla, level5, flaky, disruptive), func() {
+		vanilla, level5, flaky, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -422,7 +422,7 @@ var _ = ginkgo.Describe("[topology-operationstorm] Topology-OperationStorm", fun
 
 	ginkgo.It("Volume provisioning when multiple statefulsets creation in progress and in "+
 		"between zones hosts and container nodes are down", ginkgo.Label(p1, block,
-		vanilla, level5, flaky, disruptive), func() {
+		vanilla, level5, flaky, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

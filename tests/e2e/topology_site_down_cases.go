@@ -134,7 +134,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 	*/
 
 	ginkgo.It("Volume provisioning when partial sites zone1 and zone2 hosts are down", ginkgo.Label(p1,
-		block, vanilla, level5, flaky, disruptive), func() {
+		block, vanilla, level5, flaky, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -347,7 +347,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 	*/
 
 	ginkgo.It("Volume provisioning when partial sites zone2 and zone3 hosts are "+
-		"down", ginkgo.Label(p1, block, vanilla, level5, flaky, disruptive), func() {
+		"down", ginkgo.Label(p1, block, vanilla, level5, flaky, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -551,7 +551,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 	*/
 
 	ginkgo.It("Volume provisioning when partial sites zone1 zone2 and zone3 hosts "+
-		"are down", ginkgo.Label(p1, block, vanilla, level5, flaky, disruptive), func() {
+		"are down", ginkgo.Label(p1, block, vanilla, level5, flaky, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -749,7 +749,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 	*/
 
 	ginkgo.It("Volume provisioning when zone2 hosts are down", ginkgo.Label(p1, block, vanilla, level5,
-		flaky, disruptive), func() {
+		flaky, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -948,7 +948,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 	*/
 
 	ginkgo.It("Volume provisioning when zone3 hosts are down", ginkgo.Label(p1, block, vanilla,
-		level5, flaky, disruptive), func() {
+		level5, flaky, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1145,7 +1145,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 	*/
 
 	ginkgo.It("Volume provisioning when zone2 is completely down", ginkgo.Label(p1, block,
-		vanilla, level5, flaky, disruptive), func() {
+		vanilla, level5, flaky, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

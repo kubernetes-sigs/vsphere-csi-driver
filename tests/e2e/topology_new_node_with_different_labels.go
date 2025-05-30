@@ -73,7 +73,7 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 	*/
 
 	ginkgo.It("Verify volume provisioning when storage class created with "+
-		"different tag and category", ginkgo.Label(p1, block, vanilla, level2, stable), func() {
+		"different tag and category", ginkgo.Label(p1, block, vanilla, level2, stable, vc70), func() {
 
 		var cancel context.CancelFunc
 		ctx, cancel := context.WithCancel(context.Background())
@@ -132,7 +132,7 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 	*/
 
 	ginkgo.It("Verify volume provisioning when storage class created with "+
-		"different tag under a known category", ginkgo.Label(p1, block, vanilla, level2, stable), func() {
+		"different tag under a known category", ginkgo.Label(p1, block, vanilla, level2, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

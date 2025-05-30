@@ -134,7 +134,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology-Snapshot", func() {
 	   10. Perform Cleanup. Delete Snapshot, Pod, PVC, SC, volume-snapshot and VolumeSnapshot class.
 	*/
 	ginkgo.It("On a topology enabled testbed , create snapshot on dynamic PVC", ginkgo.Label(p0,
-		block, vanilla, level5, snapshot, stable), func() {
+		block, vanilla, level5, snapshot, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -322,7 +322,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology-Snapshot", func() {
 		9. Cleanup the sts and the snapshot  PVC's
 	*/
 	ginkgo.It("Topology Snapshot workflow for statefulset", ginkgo.Label(p0,
-		block, vanilla, level5, snapshot, stable), func() {
+		block, vanilla, level5, snapshot, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
