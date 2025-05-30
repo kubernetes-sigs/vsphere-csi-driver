@@ -160,7 +160,8 @@ var _ = ginkgo.Describe("dev-ops-user-tests", func() {
 		2. Create first EncryptionClass with encryption key [1]
 		3. As devops user Creating PVC with first EncryptionClass [2]
 	*/
-	ginkgo.It("[svc-devops-user-test-encryption] As devops user create PVC with EncryptionClass", func() {
+	ginkgo.It("[svc-devops-user-test-encryption] As devops user create PVC with EncryptionClass", ginkgo.Label(p1,
+		block, wcp, core, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
