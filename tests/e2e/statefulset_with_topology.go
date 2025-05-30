@@ -77,7 +77,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		9. Delete SC
 	*/
 	ginkgo.It("Verify if stateful set is scheduled on a node within the topology "+
-		"after deleting the pod", ginkgo.Label(p0, block, vanilla, level2, stable), func() {
+		"after deleting the pod", ginkgo.Label(p1, block, vanilla, level2, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -153,7 +153,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		8. Delete PVC and SC
 	*/
 	ginkgo.It("Storage policy with single zone and region details in "+
-		"the allowed topology", ginkgo.Label(p0, block, vanilla, level2, stable), func() {
+		"the allowed topology", ginkgo.Label(p0, block, vanilla, level2, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

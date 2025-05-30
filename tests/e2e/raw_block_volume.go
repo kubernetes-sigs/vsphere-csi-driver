@@ -182,8 +182,8 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		8. Delete all PVCs from the tests namespace.
 		9. Delete the storage class.
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-guest]"+
-		"Statefulset testing with raw block volume and default podManagementPolicy", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-guest] Statefulset testing with raw "+
+		"block volume and default podManagementPolicy", ginkgo.Label(p0, block, vanilla, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -399,8 +399,8 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		10. Delete pod.
 		11. Wait for volume to be detached.
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized] "+
-		"Should create and delete pod with the same raw block volume", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized] Should create and delete pod "+
+		"with the same raw block volume", ginkgo.Label(p0, block, vanilla, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating Storage Class and PVC")
@@ -569,7 +569,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 	   11. Verify PV is deleted automatically.
 	*/
 	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify basic static provisioning workflow"+
-		" with raw block volume", func() {
+		" with raw block volume", ginkgo.Label(p0, block, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -693,8 +693,8 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		10.  Make sure file system has increased
 
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-guest] "+
-		"Verify online volume expansion on dynamic raw block volume", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-guest] Verify online volume expansion on "+
+		"dynamic raw block volume", ginkgo.Label(p0, block, vanilla, tkg, vc70), func() {
 		ginkgo.By("Invoking Test for online Volume Expansion on raw block volume")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -862,8 +862,8 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 	   13. Delete pod and Wait for Volume Disk to be detached from the Node.
 	   14. Delete PVC, PV and Storage Class.
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-guest] "+
-		"Verify offline volume expansion with raw block volume", func() {
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-guest] Verify offline volume expansion "+
+		"with raw block volume", ginkgo.Label(p0, block, vanilla, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Invoking Test for Offline Volume Expansion")
@@ -1099,8 +1099,8 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		15. Query the snapshot from CNS side - should return 0 entries
 		16. Cleanup: Delete PVC, SC (validate they are removed)
 	*/
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Verify snapshot dynamic provisioning workflow with "+
-		"raw block volume", func() {
+	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Verify snapshot dynamic provisioning workflow with raw block "+
+		"volume", ginkgo.Label(p0, block, vanilla, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
