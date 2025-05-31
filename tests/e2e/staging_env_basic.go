@@ -29,12 +29,12 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
@@ -43,11 +43,10 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
-
-	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 )
 
-var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal permission user", func() {
+var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal permission "+
+	"user", ginkgo.Label(devops, vc80), func() {
 
 	var (
 		client            clientset.Interface

@@ -21,12 +21,12 @@ import (
 	"strings"
 	"time"
 
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
-
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -39,8 +39,6 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
-
-	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 )
 
 var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
@@ -199,7 +197,8 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 	   17. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Snapshot worklow verification with immediate binding mode", ginkgo.Label(p0, wcp, block, newTest), func() {
+	ginkgo.It("Snapshot worklow verification with immediate binding mode", ginkgo.Label(p0, stretchedSvc,
+		block, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -341,7 +340,8 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 	   17. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Snapshot worklow verification with late binding mode", ginkgo.Label(p0, wcp, core), func() {
+	ginkgo.It("Snapshot worklow verification with late binding mode", ginkgo.Label(p0, stretchedSvc, block,
+		vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -461,8 +461,8 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 	   13. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Taking snapshot of statefulset pvcs and attaching "+
-		"it to a deployment pod", ginkgo.Label(p0, vanilla, block, wcp, core), func() {
+	ginkgo.It("Taking snapshot of statefulset pvcs and attaching it to a deployment "+
+		"pod", ginkgo.Label(p1, stretchedSvc, block, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -597,8 +597,8 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 	   15. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Volume expansion having snapshot attached with "+
-		"immediate binding mode", ginkgo.Label(p0, wcp, core), func() {
+	ginkgo.It("Volume expansion having snapshot attached with immediate binding "+
+		"mode", ginkgo.Label(p0, stretchedSvc, block, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -847,7 +847,8 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 	   16. Snapshot Verification: Execute and verify the steps mentioned in the Create snapshot mandatory checks
 	   17. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
-	ginkgo.It("Snapshot creation of a static volume having pod attached", ginkgo.Label(p0, block, wcp), func() {
+	ginkgo.It("Snapshot creation of a static volume having pod attached", ginkgo.Label(p0, stretchedSvc,
+		block, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

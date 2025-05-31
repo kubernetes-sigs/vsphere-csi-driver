@@ -171,7 +171,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 	*/
 
 	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] [stretched-svc] Statefulset "+
-		"testing with default podManagementPolicy", ginkgo.Label(p0, vanilla, block, wcp, core), func() {
+		"testing with default podManagementPolicy", ginkgo.Label(p0, vanilla, block, wcp, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
@@ -401,7 +401,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		9. Delete the storage class.
 	*/
 	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] Statefulset "+
-		"testing with parallel podManagementPolicy", ginkgo.Label(p0, vanilla, block, wcp, core), func() {
+		"testing with parallel podManagementPolicy", ginkgo.Label(p0, vanilla, block, wcp, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
@@ -599,8 +599,8 @@ var _ = ginkgo.Describe("statefulset", func() {
 			10. scale down statefulset to 0
 			11. delete statefulset and all PVC's and SC's
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify online volume "+
-		"expansion on statefulset", ginkgo.Label(p0, vanilla, block, wcp, core), func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify online "+
+		"volume expansion on statefulset", ginkgo.Label(p1, vanilla, block, wcp, vcptocsiTest, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pvcSizeBeforeExpansion int64
@@ -810,7 +810,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 
 	*/
 	ginkgo.It("[csi-block-vanilla] [csi-supervisor] ListVolumeResponse "+
-		"Validation", ginkgo.Label(p1, listVolume, block, vanilla, wcp, core), func() {
+		"Validation", ginkgo.Label(p1, listVolume, block, vanilla, wcp, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var svcMasterPswd string
@@ -991,8 +991,8 @@ var _ = ginkgo.Describe("statefulset", func() {
 		5. Scale up replica to 5.
 		6. Exit MM and clean up all pods and PVs.
 	*/
-	ginkgo.It("[csi-supervisor] Test MM workflow on statefulset", ginkgo.Label(
-		p1, block, wcp, core), func() {
+	ginkgo.It("[csi-supervisor] Test MM workflow on statefulset", ginkgo.Label(p1, block, wcp,
+		disruptive, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var mmTimeout int32 = 300
@@ -1100,7 +1100,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 	*/
 
 	ginkgo.It("[stretched-svc] Statefulset-parallel-podManagementPolicy-wffc",
-		ginkgo.Label(p0, vanilla, block, wcp, core), func() {
+		ginkgo.Label(p0, block, stretchedSvc, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass for Statefulset")
@@ -1173,7 +1173,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 	7. clean up the data
 	*/
 
-	ginkgo.It("[stretched-svc] statefulset-nodeAffinity", ginkgo.Label(p0, wcp, core), func() {
+	ginkgo.It("[stretched-svc] statefulset-nodeAffinity", ginkgo.Label(p0, block, stretchedSvc, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")
@@ -1245,7 +1245,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 	4. Verify allowed topology details on PV
 	6. clean up the data
 	*/
-	ginkgo.It("[stretched-svc] statefulset-pod-Affinity", ginkgo.Label(p0, wcp, core), func() {
+	ginkgo.It("[stretched-svc] statefulset-pod-Affinity", ginkgo.Label(p0, block, stretchedSvc, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Creating StorageClass for Statefulset")

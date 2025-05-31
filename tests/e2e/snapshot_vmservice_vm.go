@@ -28,10 +28,9 @@ import (
 	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/vim25/types"
-
-	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -203,8 +202,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   11. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Taking snapshot of a vm service vm attached "+
-		"to a dynamic volume", ginkgo.Label(p0, block, wcp, snapshot), func() {
+	ginkgo.It("Taking snapshot of a vm service vm attached to a dynamic "+
+		"volume", ginkgo.Label(p0, block, wcp, snapshot, vmServiceVm, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -324,8 +323,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   12. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Taking snapshot of a vm service vm attached "+
-		"to a static volume", ginkgo.Label(p0, block, wcp, snapshot), func() {
+	ginkgo.It("Taking snapshot of a vm service vm attached to a static "+
+		"volume", ginkgo.Label(p0, block, wcp, snapshot, vmServiceVm, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -463,8 +462,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Restoring snapshot and attaching it to a "+
-		"vm service vm", ginkgo.Label(p0, block, wcp, snapshot), func() {
+	ginkgo.It("Restoring snapshot and attaching it to a vm service "+
+		"vm", ginkgo.Label(p0, block, wcp, snapshot, vmServiceVm, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -640,8 +639,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		17. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Restoring multiple snapshots and attaching "+
-		"it to a single vm service vm", ginkgo.Label(p0, block, wcp, snapshot), func() {
+	ginkgo.It("Restoring multiple snapshots and attaching it to a single vm service "+
+		"vm", ginkgo.Label(p1, block, wcp, snapshot, vmServiceVm, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -848,8 +847,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   19. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Offline volume expansion and later attaching "+
-		"it to a vm service vm", ginkgo.Label(p0, block, wcp, snapshot), func() {
+	ginkgo.It("Offline volume expansion and later attaching it to a vm service "+
+		"vm", ginkgo.Label(p1, block, wcp, snapshot, vmServiceVm, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1091,8 +1090,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   17. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Attaching new restore snapshots to vm service "+
-		"vms", ginkgo.Label(p0, block, wcp, snapshot), func() {
+	ginkgo.It("Attaching new restore snapshots to vm service vms", ginkgo.Label(p1, block,
+		wcp, snapshot, vmServiceVm, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1400,8 +1399,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	  Confirm that the Pod reaches the running state and that read and write operations can be performed on the volume.
 	  Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
-	ginkgo.It("Attaching same volume to a pod and vm service "+
-		"vm", ginkgo.Label(p0, block, wcp, snapshot), func() {
+	ginkgo.It("Attaching same volume to a pod and vm service vm", ginkgo.Label(p1, block, wcp, snapshot,
+		vmServiceVm, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1602,8 +1601,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   18. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Power on and off operation on a vm service "+
-		"vm with snapshot", ginkgo.Label(p0, block, wcp, snapshot), func() {
+	ginkgo.It("Power on and off operation on a vm service vm with snapshot", ginkgo.Label(p0, block,
+		wcp, snapshot, vmServiceVm, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1821,9 +1820,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   25. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("vCenter services down operation during snapshot creation "+
-		"and restoration taken for a vm service vm", ginkgo.Label(p1, block, wcp, snapshot), func() {
-
+	ginkgo.It("vCenter services down operation during snapshot creation and restoration taken for a vm service"+
+		"vm", ginkgo.Label(p1, block, wcp, snapshot, vmServiceVm, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -2069,8 +2067,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Storage vmotion of a vm from one datastore to another "+
-		"with snapshot", ginkgo.Label(p1, block, wcp, snapshot), func() {
+	ginkgo.It("Storage vmotion of a vm from one datastore to another with "+
+		"snapshot", ginkgo.Label(p1, block, wcp, snapshot, vmServiceVm, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2317,8 +2315,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   14. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Creation of multiple vm service vms and attaching "+
-		"it to restore snapshots", ginkgo.Label(p0, block, wcp, snapshot), func() {
+	ginkgo.It("Creation of multiple vm service vms and attaching it to restore snapshots", ginkgo.Label(p1, block, wcp,
+		snapshot, vmServiceVm, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2601,8 +2599,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   21. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Recurring taking snapshots of a vm service "+
-		"vm", ginkgo.Label(p0, block, wcp, snapshot), func() {
+	ginkgo.It("Recurring taking snapshots of a vm service vm", ginkgo.Label(p1, block, wcp,
+		vmServiceVm, snapshot, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2849,8 +2847,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("[stretched-svc] Taking snapshot of a vm service vm "+
-		"in a stretched supervisor cluster", ginkgo.Label(p0, block, wcp, snapshot), func() {
+	ginkgo.It("[stretched-svc] Taking snapshot of a vm service vm in a stretched supervisor "+
+		"cluster", ginkgo.Label(p0, block, stretchedSvc, vmServiceVm, snapshot, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -3071,8 +3069,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   25. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("[stretched-svc] Restoring snapshots and attaching it to a new vm service"+
-		"vms in a stretched supervisor env", ginkgo.Label(p0, block, wcp, snapshot), func() {
+	ginkgo.It("[stretched-svc] Restoring snapshots and attaching it to a new vm service vms in a stretched supervisor "+
+		"env", ginkgo.Label(p0, block, stretchedSvc, snapshot, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
