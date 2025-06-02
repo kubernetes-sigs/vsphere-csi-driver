@@ -2123,18 +2123,6 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			volumeSnapshotClass, err = snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
 				vscSpec, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			restConfig = getRestConfigClient()
-			snapc, err = snapclient.NewForConfig(restConfig)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			vscSpec := getVolumeSnapshotClassSpec(snapV1.DeletionPolicy("Delete"), nil)
-			vscSpec.ObjectMeta.Annotations = map[string]string{
-				"snapshot.storage.kubernetes.io/is-default-class": "true",
-			}
-			volumeSnapshotClass, err = snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
-				vscSpec, metav1.CreateOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		}
 		defer func() {
 			if guestCluster {
