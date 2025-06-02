@@ -174,7 +174,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		10. Perform cleanup: Delete PVC
 	*/
 
-	ginkgo.It("HCI1Verifying volume creation and PV affinities with svc namespace tagged to zonal-2 policy, "+
+	ginkgo.It("Verifying volume creation and PV affinities with svc namespace tagged to zonal-2 policy, "+
 		"zone-2 tag, and immediate binding mode.", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -253,7 +253,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 	   6. Perform cleanup by deleting the Pods, Volumes, and Namespace.
 	*/
 
-	ginkgo.It("Verify workload creation when wcp namespace is tagged to zone-1 mgmt domain and "+
+	ginkgo.It("TC2Verify workload creation when wcp namespace is tagged to zone-1 mgmt domain and "+
 		"zonal policy tagged to wcp ns is compatible only with zone-1 with immediate binding mode", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -330,7 +330,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		6. Perform cleanup by deleting the Pods, Volumes, and Namespace.
 	*/
 
-	ginkgo.It("Verify workload creation when the WCP namespace is tagged to zone-2 workload domain "+
+	ginkgo.It("TC3Verify workload creation when the WCP namespace is tagged to zone-2 workload domain "+
 		"and the zonal policy is compatible only with zone-2, "+
 		"using WFFC binding mode", func() {
 		ctx, cancel := context.WithCancel(context.Background())
