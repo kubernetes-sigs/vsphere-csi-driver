@@ -36,32 +36,32 @@ import (
 // getVirtualMachine gets the virtual machine instance with a name on a SV
 // namespace.
 func getVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
-	vmName string, namespace string) (*vmoperatorv1alpha4.VirtualMachine, error) {
+	vmName string, namespace string) (*vmoperatorv1alpha4.VirtualMachine, string, error) {
 	log := logger.GetLogger(ctx)
 	vmKey := apitypes.NamespacedName{
 		Namespace: namespace,
 		Name:      vmName,
 	}
-	virtualMachine, err := utils.GetVirtualMachineAllApiVersions(ctx,
+	virtualMachine, apiVersion, err := utils.GetVirtualMachineAllApiVersions(ctx,
 		vmKey, vmOperatorClient)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v", vmName, err)
 		log.Error(msg)
-		return nil, err
+		return nil, apiVersion, err
 	}
-	return virtualMachine, nil
+	return virtualMachine, apiVersion, nil
 }
 
 // setInstanceOwnerRef sets ownerRef on CnsFileAccessConfig instance to VM
 // instance.
 func setInstanceOwnerRef(instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, vmName string,
-	vmUID apitypes.UID) {
+	vmUID apitypes.UID, apiVersion string) {
 	bController := true
 	bOwnerDeletion := true
 	kind := reflect.TypeOf(vmoperatorv1alpha4.VirtualMachine{}).Name()
 	instance.OwnerReferences = []metav1.OwnerReference{
 		{
-			APIVersion:         "v1",
+			APIVersion:         apiVersion,
 			Controller:         &bController,
 			BlockOwnerDeletion: &bOwnerDeletion,
 			Kind:               kind,
