@@ -2125,14 +2125,11 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		defer func() {
-			if guestCluster {
-				restConfig = getRestConfigClient()
-				snapc, err = snapclient.NewForConfig(restConfig)
+			if vanillaCluster {
+				err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name,
+					metav1.DeleteOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
-			err := snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name,
-				metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Create a dynamic volume snapshot")
