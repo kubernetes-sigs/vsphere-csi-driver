@@ -39,7 +39,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", func() {
+var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", ginkgo.Label(p1, block, tkgsHA,
+	negative, disruptive, vc80), func() {
 	f := framework.NewDefaultFramework("e2e-tkgs-ha")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (

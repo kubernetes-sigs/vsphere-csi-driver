@@ -23,10 +23,10 @@ import (
 	"strings"
 	"time"
 
-	cnstypes "github.com/vmware/govmomi/cns/types"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-
 	"github.com/onsi/gomega"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 const (
@@ -345,6 +345,7 @@ const (
 	vmServiceVm           = "vmServiceVm"
 	vcptocsiTest          = "vcptocsiTest"
 	stretchedSvc          = "stretchedSvc"
+	devops                = "devops"
 )
 
 // The following variables are required to know cluster type to run common e2e

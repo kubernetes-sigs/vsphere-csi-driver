@@ -35,7 +35,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With-Power-Cycles", func() {
+var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With-Power-Cycles", ginkgo.Label(p1,
+	block, vanilla, level2, stable, negative, vc70), func() {
 	f := framework.NewDefaultFramework("e2e-vsphere-topology-aware-provisioning")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
@@ -97,7 +98,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	// 11. Delete PVC.
 	// 12. Delete SC.
 	ginkgo.It("Verify if stateful set is scheduled on a node within the topology "+
-		"after node power off", ginkgo.Label(p1, block, vanilla, level2, stable, negative), func() {
+		"after node power off", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -234,8 +235,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 	// 10. Delete PVC.
 	// 11. Delete SC.
 	ginkgo.It("Verify if stateful set do not get scheduled on other zone "+
-		"after powering off the only node in current zone", ginkgo.Label(p1, block, vanilla, level2,
-		stable, negative), func() {
+		"after powering off the only node in current zone", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

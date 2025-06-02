@@ -49,7 +49,8 @@ import (
 	10. Delete the storage class.
 */
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] statefulset with XFS filesystem", func() {
+var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] statefulset with XFS "+
+	"filesystem", ginkgo.Label(p0, block, vanilla, vc70), func() {
 
 	f := framework.NewDefaultFramework("e2e-vsphere-statefulset")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
