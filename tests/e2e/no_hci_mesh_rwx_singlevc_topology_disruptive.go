@@ -230,7 +230,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 	*/
 
 	ginkgo.It("When full site Az2 is down", ginkgo.Label(p1, file, vanilla, level5, level2,
-		newTest, disruptive), func() {
+		newTest, disruptive, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -454,7 +454,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 	*/
 
 	ginkgo.It("When Az2 and Az3 sites are partially down", ginkgo.Label(p1, file, vanilla,
-		level5, level2, newTest, disruptive), func() {
+		level5, level2, newTest, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -675,7 +675,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 	*/
 
 	ginkgo.It("Perform psod on all esxi hosts of Az2 and Az3", ginkgo.Label(p1, file, vanilla,
-		level5, level2, newTest, disruptive), func() {
+		level5, level2, newTest, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

@@ -100,7 +100,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		9. Delete Storage Class
 	*/
 	ginkgo.It("Verify provisioning with multiple zones and with only one zone associated with "+
-		"shared datastore", ginkgo.Label(p0, block, vanilla, level2, stable), func() {
+		"shared datastore", ginkgo.Label(p0, block, vanilla, level2, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -184,7 +184,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		7. Delete POD,PVC,PV
 	*/
 	ginkgo.It("Provisioning volume using storage policy with multiple zone and region "+
-		"details in the allowed topology", ginkgo.Label(p0, block, vanilla, level2, stable), func() {
+		"details in the allowed topology", ginkgo.Label(p0, block, vanilla, level2, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

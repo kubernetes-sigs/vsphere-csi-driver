@@ -343,6 +343,8 @@ const (
 	vc70                  = "vc70"
 	wldi                  = "wldi"
 	vmServiceVm           = "vmServiceVm"
+	vsanDirect            = "vsanDirect"
+	preUpgrade            = "preUpgrade"
 	vcptocsiTest          = "vcptocsiTest"
 	stretchedSvc          = "stretchedSvc"
 )

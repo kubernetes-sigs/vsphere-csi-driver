@@ -132,7 +132,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 
 	*/
 	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Generate unique cluster id through configmap"+
-		" and create workloads", func() {
+		" and create workloads", ginkgo.Label(p0, vanilla, block, file, disruptive, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -230,7 +230,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 
 	*/
 	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Modify unique cluster id value in"+
-		" Configmap", func() {
+		" Configmap", ginkgo.Label(p0, vanilla, block, file, disruptive, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -291,7 +291,8 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 
 	*/
 	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Generate cluster id and then set cluster id "+
-		"in vsphere config secret and remove cluster id field in vsphere config secret", func() {
+		"in vsphere config secret and remove cluster id field in vsphere config secret", ginkgo.Label(p0, vanilla,
+		block, file, disruptive, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -449,7 +450,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 
 	*/
 	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Recreate vsphere config secret multiple"+
-		" times", func() {
+		" times", ginkgo.Label(p1, vanilla, block, file, disruptive, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -558,7 +559,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		2. The CNS metadata for the PVC should have a cluster id value set.
 	*/
 	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Create vsphere config secret with cluster "+
-		"id value set with special characters", func() {
+		"id value set with special characters", ginkgo.Label(p1, vanilla, block, file, disruptive, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -705,7 +706,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		9. Clean up the sts, deployment, pods and PVCs.
 	*/
 	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Restart CSI pods multiple"+
-		" times", func() {
+		" times", ginkgo.Label(p1, vanilla, block, file, disruptive, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -811,7 +812,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		9. Clean up the sts, deployment, pods and PVCs.
 	*/
 	ginkgo.It("[csi-config-secret-block][csi-config-secret-file] Delete CSI"+
-		" driver", func() {
+		" driver", ginkgo.Label(p1, vanilla, block, file, disruptive, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
