@@ -33,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	admissionapi "k8s.io/pod-security-admission/api"
 
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -4237,38 +4236,6 @@ func sizeInMb(size resource.Quantity) int64 {
 	actualSize, _ := size.AsInt64()
 	actualSize = actualSize / (1024 * 1024)
 	return actualSize
-}
-
-func staticProvisioningPreSetUpUtil(ctx context.Context, f *framework.Framework,
-	c clientset.Interface, storagePolicyName string) (*restclient.Config, *storagev1.StorageClass, string) {
-	namespace := getNamespaceToRunTests(f)
-	// Get a config to talk to the apiserver
-	k8senv := GetAndExpectStringEnvVar("KUBECONFIG")
-	restConfig, err := clientcmd.BuildConfigFromFlags("", k8senv)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-	framework.Logf("Profile ID :%s", profileID)
-	scParameters := make(map[string]string)
-	scParameters["storagePolicyID"] = profileID
-
-	if !supervisorCluster {
-		err = c.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
-		if !apierrors.IsNotFound(err) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-	}
-
-	storageclass, err := createStorageClass(c, scParameters, nil, "", "", true, storagePolicyName)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ginkgo.By(fmt.Sprintf("storageclass Name: %s", storageclass.GetName()))
-	storageclass, err = c.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	ginkgo.By("create resource quota")
-	createResourceQuota(c, namespace, rqLimit, storagePolicyName)
-
-	return restConfig, storageclass, profileID
 }
 
 func testCleanUpUtil(ctx context.Context, restClientConfig *restclient.Config, c clientset.Interface,

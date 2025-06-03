@@ -197,36 +197,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		}
 	})
 
-	staticProvisioningPreSetUpUtil := func(ctx context.Context) (*restclient.Config, *storagev1.StorageClass, string) {
-		namespace = getNamespaceToRunTests(f)
-
-		// Get a config to talk to the apiserver
-		restConfig := getRestConfigClient()
-
-		ginkgo.By("Get storage Policy")
-		ginkgo.By(fmt.Sprintf("storagePolicyName: %s", storagePolicyName))
-		profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-		framework.Logf("Profile ID :%s", profileID)
-		scParameters := make(map[string]string)
-		scParameters["storagePolicyID"] = profileID
-
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
-		if !apierrors.IsNotFound(err) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, storagePolicyName)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-		framework.Logf("storageclass name :%s", storageclass.GetName())
-
-		if isQuotaValidationSupported {
-			ginkgo.By("create resource quota")
-			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
-		}
-
-		return restConfig, storageclass, profileID
-	}
-
 	staticProvisioningPreSetUpUtilForVMDKTests := func(ctx context.Context) (*restclient.Config,
 		*storagev1.StorageClass, string) {
 		namespace = getNamespaceToRunTests(f)
@@ -802,7 +772,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvcName := "cns-pvc-" + curtimestring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
+		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
 		framework.Logf("Storage class : %s", storageclass.Name)
 
 		ginkgo.By("Creating FCD (CNS Volume)")
@@ -890,7 +860,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("pvc name :%s", pvcName)
 		namespace = getNamespaceToRunTests(f)
 
-		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
+		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
 
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
@@ -999,7 +969,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		curtimeinstring := strconv.FormatInt(curtime, 10)
 		pvcName := "cns-pvc-" + curtimeinstring
 
-		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx)
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
 
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
@@ -1107,7 +1077,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvcName := "cns-pvc-" + curtimeinstring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, _, _ := staticProvisioningPreSetUpUtil(ctx)
+		restConfig, _, _ := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
 
 		ginkgo.By("Create CNS register volume with above created FCD , AccessMode is set to ReadWriteMany ")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteMany)
@@ -1167,7 +1137,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvcName := "cns-pvc-" + curtimeinstring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx)
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
 
 		ginkgo.By("Creating Resource quota")
 		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
@@ -1271,7 +1241,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvcName := "cns-pvc-" + curtimeinstring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx)
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
 
 		ginkgo.By("Create FCD")
 		fcdID1, err := e2eVSphere.createFCDwithValidProfileID(ctx,
@@ -1371,7 +1341,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvcName := "cns-pvc-" + curtimeinstring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx)
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
 
 		ginkgo.By("Creating Resource quota")
 		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
@@ -1452,7 +1422,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvcName := "cns-pvc-" + curtimeinstring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx)
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
 
 		ginkgo.By("Creating Resource quota")
 		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
@@ -1584,7 +1554,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("pvc name :%s", pvcName)
 		namespace = getNamespaceToRunTests(f)
 
-		restConfig, _, _ := staticProvisioningPreSetUpUtil(ctx)
+		restConfig, _, _ := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
 
 		ginkgo.By("Create FCD")
 		fcdID, err := e2eVSphere.createFCD(ctx, "staticfcd"+curtimeinstring, diskSizeInMinMb, defaultDatastore.Reference())
@@ -1735,7 +1705,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("pvc name :%s", svpvcName)
 		namespace = getNamespaceToRunTests(f)
 
-		_, _, profileID := staticProvisioningPreSetUpUtil(ctx)
+		_, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
 
 		// Get supvervisor cluster client.
 		_, svNamespace := getSvcClientAndNamespace()
@@ -1800,7 +1770,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("pvc name :%s", svpvcName)
 		namespace = getNamespaceToRunTests(f)
 
-		_, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
+		_, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
 
 		// Get supvervisor cluster client.
 		svcClient, svNamespace := getSvcClientAndNamespace()
@@ -1936,7 +1906,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("pvc name :%s", pvcName)
 
 		// Get a config to talk to the apiserver.
-		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx)
+		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
 
 		ginkgo.By("create resource quota")
 		setStoragePolicyQuota(ctx, restConfig, storageclass.Name, namespace, rqLimit)
