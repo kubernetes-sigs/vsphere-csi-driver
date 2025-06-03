@@ -814,7 +814,8 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 		ginkgo.By("Wait for block device size to be updated inside pod after expansion")
 		isPvcExpandedInsidePod := false
-		for !isPvcExpandedInsidePod {
+		timeOut := 0
+		for !isPvcExpandedInsidePod && timeOut < 600 {
 			blockDevSize, err := getBlockDevSizeInBytes(f, namespace, pod, devicePath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if blockDevSize > originalBlockDevSize {
@@ -823,6 +824,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			} else {
 				ginkgo.By(fmt.Sprintf("updating volume size for %q. Resulting volume size is %d", pvc.Name, blockDevSize))
 				time.Sleep(30 * time.Second)
+				timeOut += 30
 			}
 		}
 
