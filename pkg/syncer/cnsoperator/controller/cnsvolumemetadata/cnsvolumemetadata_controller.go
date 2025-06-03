@@ -327,12 +327,7 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
 		log.Errorf("ReconcileCnsVolumeMetadata: vcenter config is empty")
 		return false
 	}
-
-	username, err := vCenter.GetActiveUser(ctx)
-	if err != nil {
-		log.Errorf("ReconcileCnsVolumeMetadata: error getting current user. Err: %v", err)
-		return false
-	}
+	host := vCenter.Config.Host
 
 	var entityReferences []cnstypes.CnsKubernetesEntityReference
 	for _, reference := range instance.Spec.EntityReferences {
@@ -391,7 +386,7 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
 		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(metadata))
 
 		cluster := cnsvsphere.GetContainerCluster(instance.Spec.GuestClusterID,
-			username, cnstypes.CnsClusterFlavorGuest,
+			r.configInfo.Cfg.VirtualCenter[host].User, cnstypes.CnsClusterFlavorGuest,
 			instance.Spec.ClusterDistribution)
 		updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 			VolumeId: cnstypes.CnsVolumeId{
