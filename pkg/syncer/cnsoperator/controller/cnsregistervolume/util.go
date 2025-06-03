@@ -105,7 +105,7 @@ func isDatastoreAccessibleToAZClusters(ctx context.Context, vc *vsphere.VirtualC
 // constructCreateSpecForInstance creates CNS CreateVolume spec.
 func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
-	username string, useSupervisorId bool) *cnstypes.CnsVolumeCreateSpec {
+	host string, useSupervisorId bool) *cnstypes.CnsVolumeCreateSpec {
 	var volumeName string
 	if instance.Spec.VolumeID != "" {
 		volumeName = staticPvNamePrefix + instance.Spec.VolumeID
@@ -120,7 +120,7 @@ func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume,
 		clusterIDForVolumeMetadata = r.configInfo.Cfg.Global.ClusterID
 	}
 	containerCluster := vsphere.GetContainerCluster(clusterIDForVolumeMetadata,
-		username,
+		r.configInfo.Cfg.VirtualCenter[host].User,
 		cnstypes.CnsClusterFlavorWorkload, r.configInfo.Cfg.Global.ClusterDistribution)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       volumeName,

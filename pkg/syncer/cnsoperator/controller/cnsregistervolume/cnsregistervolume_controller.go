@@ -265,16 +265,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		pvName         string
 		pvNodeAffinity *v1.VolumeNodeAffinity
 	)
-
-	username, err := vc.GetActiveUser(ctx)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to get current user with error: %+v", err)
-		log.Error(msg)
-		setInstanceError(ctx, r, instance, "Unable to connect to VC for volume registration")
-	}
-
 	// Create Volume for the input CnsRegisterVolume instance.
-	createSpec := constructCreateSpecForInstance(r, instance, username, isTKGSHAEnabled)
+	createSpec := constructCreateSpecForInstance(r, instance, vc.Config.Host, isTKGSHAEnabled)
 	log.Infof("Creating CNS volume: %+v for CnsRegisterVolume request with name: %q on namespace: %q",
 		instance, instance.Name, instance.Namespace)
 	log.Debugf("CNS Volume create spec is: %+v", createSpec)
