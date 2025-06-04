@@ -25,10 +25,10 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/vmware-tanzu/vm-operator/api v1.8.7-0.20250509154507-b93e51fc90fa
 	github.com/vmware-tanzu/vm-operator/external/byok v0.0.0-20250509154507-b93e51fc90fa
-	github.com/vmware/govmomi v0.48.0
+	github.com/vmware/govmomi v0.51.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.36.0
-	golang.org/x/sync v0.12.0
+	golang.org/x/sync v0.14.0
 	golang.org/x/sys v0.31.0
 	google.golang.org/grpc v1.68.1
 	google.golang.org/protobuf v1.36.5
@@ -163,7 +163,7 @@ require (
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
 	golang.org/x/term v0.30.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/text v0.25.0 // indirect
 	golang.org/x/time v0.9.0 // indirect
 	golang.org/x/tools v0.26.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
