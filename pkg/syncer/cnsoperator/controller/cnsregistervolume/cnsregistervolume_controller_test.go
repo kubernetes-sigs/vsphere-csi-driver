@@ -56,8 +56,7 @@ type mockVolumeManager struct {
 		ctxParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error)
 }
 
-func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID string,
-	unregisterDisk bool) *cnsvolume.Error {
+func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) error {
 	//TODO implement me
 	return nil
 }
