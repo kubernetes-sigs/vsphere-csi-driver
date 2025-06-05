@@ -25,6 +25,9 @@ import (
 type CnsUnregisterVolumeSpec struct {
 	// VolumeID indicates the volume handle of CNS volume to be unregistered
 	VolumeID string `json:"volumeID"`
+	// RetainFCD indicates if the volume should be retained as an FCD.
+	// If set to false or not specified, the volume will be retained as a VMDK.
+	RetainFCD bool `json:"retainAsFCD,omitempty"`
 }
 
 // CnsUnregisterVolumeStatus defines the observed state of CnsUnregisterVolume
