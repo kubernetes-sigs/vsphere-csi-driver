@@ -91,7 +91,7 @@ func (in *CnsNodeVmBatchAttachmentStatus) DeepCopyInto(out *CnsNodeVmBatchAttach
 	*out = *in
 	if in.VolumeStatus != nil {
 		in, out := &in.VolumeStatus, &out.VolumeStatus
-		*out = make([]VolumeStatus, len(*in))
+		*out = make(map[string]VolumeStatus, len(*in))
 		copy(*out, *in)
 	}
 	return

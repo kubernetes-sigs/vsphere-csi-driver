@@ -21,7 +21,6 @@ import (
 )
 
 type VolumeStatus struct {
-	Name        string `json:"name"`
 	Attached    bool   `json:"attached"`
 	Error       string `json:"error,omitempty"`
 	CnsVolumeID string `json:"cnsVolumeId,omitEmpty"`
@@ -68,7 +67,8 @@ type VolumeSpec struct {
 // CnsNodeVmBatchAttachmentStatus defines the observed state of CnsNodeVmBatchAttachment
 // +k8s:openapi-gen=true
 type CnsNodeVmBatchAttachmentStatus struct {
-	VolumeStatus []VolumeStatus `json:"volumeStatus"`
+	Processed    bool                    `json:"processed"`
+	VolumeStatus map[string]VolumeStatus `json:"volumeStatus"`
 }
 
 // +genclient
