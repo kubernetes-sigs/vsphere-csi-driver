@@ -3766,6 +3766,11 @@ func (m *defaultManager) UnregisterVolume(ctx context.Context, volumeID string, 
 func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) error {
 	log := logger.GetLogger(ctx)
 
+	if volumeID == "" {
+		log.Debugf("UnregisterVolume: volumeID is empty, nothing to unregister")
+		return nil
+	}
+
 	if m.virtualCenter == nil {
 		return errors.New("invalid manager instance")
 	}

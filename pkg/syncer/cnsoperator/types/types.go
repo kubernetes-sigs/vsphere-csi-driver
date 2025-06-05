@@ -36,6 +36,14 @@ const (
 	// This finalizer is added to avoid deletion of such VolumeSnapshots directly from Supervisor.
 	CNSSnapshotFinalizer = "cns.vmware.com/volumesnapshot-protection"
 
+	// CNSUnregisterVolumeFinalizer is the finalizer added to CNSUnregisterVolume CRs
+	// to handle deletion gracefully.
+	CNSUnregisterVolumeFinalizer = "cns.vmware.com/unregister-volume"
+
+	// CNSUnregisterProtectionFinalizer is the finalizer on Supervisor PVC
+	// to avoid deletion of PVCs which are in the process of being unregistered.
+	CNSUnregisterProtectionFinalizer = "cns.vmware.com/unregister-protection"
+
 	// VSphereCSIDriverName is the vsphere CSI driver name
 	VSphereCSIDriverName = "csi.vsphere.vmware.com"
 
