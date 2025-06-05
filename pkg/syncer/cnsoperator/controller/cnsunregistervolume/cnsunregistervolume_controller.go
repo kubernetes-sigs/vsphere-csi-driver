@@ -307,8 +307,15 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 		}
 	}
 
-	// Invoke CNS DeleteVolume API with deleteDisk flag set to false.
-	_, err = r.volumeManager.DeleteVolume(ctx, instance.Spec.VolumeID, false)
+	if instance.Spec.RetainFCD {
+		// Invoke CNS DeleteVolume API with deleteDisk flag set to false.
+		_, err = r.volumeManager.DeleteVolume(ctx, instance.Spec.VolumeID, false)
+	} else {
+		// TODO: invoke CNS UnregisterVolume API when its' implemented
+		log.Infof("CNS UnregisterVolume API not implemented yet")
+		// for now, we will reconcile the CR perpetually
+		return reconcile.Result{}, fmt.Errorf("CNS UnregisterVolume API not implemented yet")
+	}
 	if err != nil {
 		if cnsvsphere.IsNotFoundError(err) {
 			log.Infof("VolumeID %q not found in CNS. It may have already been deleted."+
