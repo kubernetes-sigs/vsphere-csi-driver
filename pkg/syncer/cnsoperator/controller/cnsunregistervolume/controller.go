@@ -18,6 +18,7 @@ package cnsunregistervolume
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -30,14 +31,13 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
-	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
-
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	v1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
+	cnsoptypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 const (
@@ -106,8 +107,13 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 // newReconciler returns a new reconcile.Reconciler.
 func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo,
 	volumeManager volumes.Manager, recorder record.EventRecorder) reconcile.Reconciler {
-	return &Reconciler{client: mgr.GetClient(), scheme: mgr.GetScheme(),
-		configInfo: configInfo, volumeManager: volumeManager, recorder: recorder}
+	return &Reconciler{
+		client:        mgr.GetClient(),
+		scheme:        mgr.GetScheme(),
+		configInfo:    configInfo,
+		volumeManager: volumeManager,
+		recorder:      recorder,
+	}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler.
@@ -115,28 +121,17 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
 
 	// Create a new controller.
-	c, err := controller.New("cnsunregistervolume-controller", mgr,
-		controller.Options{
-			Reconciler:              r,
-			MaxConcurrentReconciles: getMaxWorkerThreads(ctx),
-		})
+	err := ctrl.NewControllerManagedBy(mgr).Named("cnsunregistervolume-controller").
+		For(&v1a1.CnsUnregisterVolume{}).
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: getMaxWorkerThreads(ctx)}).
+		Complete(r)
 	if err != nil {
 		log.Errorf("Failed to create new CnsUnregisterVolume controller with error: %+v", err)
 		return err
 	}
 
 	backOffDuration = make(map[types.NamespacedName]time.Duration)
-
-	// Watch for changes to primary resource CnsUnregisterVolume.
-	err = c.Watch(source.Kind(
-		mgr.GetCache(),
-		&v1a1.CnsUnregisterVolume{},
-		&handler.TypedEnqueueRequestForObject[*v1a1.CnsUnregisterVolume]{},
-	))
-	if err != nil {
-		log.Errorf("Failed to watch for changes to CnsUnregisterVolume resource with error: %+v", err)
-		return err
-	}
 	return nil
 }
 
@@ -144,7 +139,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 // reconcile.Reconciler.
 var _ reconcile.Reconciler = &Reconciler{}
 
-// Reconciler reconciles a CnsŪnregisterVolume object.
+// Reconciler reconciles a CnsUnregisterVolume object.
 type Reconciler struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver.
@@ -156,10 +151,11 @@ type Reconciler struct {
 }
 
 var (
-	newK8sClient = k8s.NewClient
-	retainPV     = k8s.RetainPersistentVolume
-	deletePVC    = k8s.DeletePersistentVolumeClaim
-	deletePV     = k8s.DeletePersistentVolume
+	newK8sClient           = k8s.NewClient
+	addFinalizerOnPVC      = k8s.AddFinalizerOnPVC
+	deletePVC              = k8s.DeletePersistentVolumeClaim
+	deletePV               = k8s.DeletePersistentVolume
+	removeFinalizerFromPVC = k8s.RemoveFinalizerFromPVC
 )
 
 // Reconcile reads that state of the cluster for a Reconciler object
@@ -172,117 +168,118 @@ var (
 func (r *Reconciler) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
 	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
+	log := logger.GetLogger(ctx).With("name", request.NamespacedName)
 
 	// Fetch the CnsUnregisterVolume instance.
 	instance := &v1a1.CnsUnregisterVolume{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Infof("CnsUnregisterVolume resource not found. Ignoring since object must be deleted.")
+			log.Info("instance not found. Ignoring since it must be deleted.")
 			return reconcile.Result{}, nil
 		}
 
-		log.Errorf("Error reading the CnsUnregisterVolume with name: %q on namespace: %q. Err: %+v",
-			request.Name, request.Namespace, err)
-		// Error reading the object - return with err.
+		log.Error("Error reading the instance. ", err)
 		return reconcile.Result{}, err
 	}
 
-	// Initialize backOffDuration for the instance, if required.
-	backOffDurationMapMutex.Lock()
-	var timeout time.Duration
-	if _, exists := backOffDuration[request.NamespacedName]; !exists {
-		backOffDuration[request.NamespacedName] = time.Second
-	}
-	timeout = backOffDuration[request.NamespacedName]
-	backOffDurationMapMutex.Unlock()
+	if instance.DeletionTimestamp != nil {
+		// TODO: Need to handle deletion if the instance is not fully processed.
+		log.Info("instance is being deleted")
+		err = removeFinalizer(ctx, r.client, instance)
+		if err != nil {
+			log.Error("failed to remove finalizer from the instance with error ", err)
+			return reconcile.Result{}, err
+		}
 
-	// If the volume is already unregistered, remove the instance from the queue.
-	if instance.Status.Unregistered {
-		backOffDurationMapMutex.Lock()
-		delete(backOffDuration, request.NamespacedName)
-		backOffDurationMapMutex.Unlock()
+		deleteBackoffEntry(ctx, request.NamespacedName)
 		return reconcile.Result{}, nil
 	}
 
-	log.Infof("Reconciling CnsUnregisterVolume instance %q from namespace %q. timeout %q seconds",
-		instance.Name, request.Namespace, timeout)
-	pvName, err := getPVName(ctx, instance.Spec.VolumeID)
-	if err != nil {
-		setInstanceError(ctx, r, instance, err.Error())
-		return reconcile.Result{RequeueAfter: timeout}, nil
+	// If the volume is already unregistered, remove the instance from the queue.
+	if instance.Status.Unregistered {
+		log.Debug("instance is already unregistered")
+		deleteBackoffEntry(ctx, request.NamespacedName)
+		return reconcile.Result{}, nil
 	}
 
-	pvcName, pvcNamespace, err := getPVCName(ctx, instance.Spec.VolumeID)
+	err = addFinalizer(ctx, r.client, instance)
 	if err != nil {
+		log.Error("failed to add finalizer to the instance with error ", err)
+		return reconcile.Result{}, err
+	}
+
+	log.Info("reconciling instance")
+	// Initialize backOffDuration for the instance, if required.
+	duration := getBackoffDuration(ctx, request.NamespacedName)
+	params, err := getValidatedParams(ctx, *instance)
+	if err != nil {
+		log.Error("failed to get input parameters with error ", err)
 		setInstanceError(ctx, r, instance, err.Error())
-		return reconcile.Result{RequeueAfter: timeout}, nil
+		return reconcile.Result{RequeueAfter: duration}, nil
 	}
 
 	k8sClient, err := newK8sClient(ctx)
 	if err != nil {
-		log.Warn("Failed to init K8S client for volume unregistration")
-		setInstanceError(ctx, r, instance, "Failed to init K8S client for volume unregistration")
-		return reconcile.Result{RequeueAfter: timeout}, nil
+		log.Error("failed to init K8s client for volume unregistration with error ", err)
+		setInstanceError(ctx, r, instance, "failed to init K8s client for volume unregistration")
+		return reconcile.Result{RequeueAfter: duration}, nil
 	}
 
-	usageInfo, err := getVolumeUsageInfo(ctx, k8sClient, pvcName, pvcNamespace,
+	usageInfo, err := getVolumeUsageInfo(ctx, k8sClient, params.pvcName, params.namespace,
 		instance.Spec.ForceUnregister)
 	if err != nil {
-		log.Warn(err)
 		setInstanceError(ctx, r, instance, err.Error())
-		return reconcile.Result{RequeueAfter: timeout}, nil
+		return reconcile.Result{RequeueAfter: duration}, nil
 	}
 
 	if usageInfo.isInUse {
-		msg := fmt.Sprintf("Volume %q cannot be unregistered because %s", instance.Spec.VolumeID, usageInfo)
-		log.Warn(msg)
+		msg := fmt.Sprintf("volume %s cannot be unregistered because %s", params.volumeID, usageInfo)
+		log.Error(msg)
 		setInstanceError(ctx, r, instance, msg)
-		return reconcile.Result{RequeueAfter: timeout}, nil
+		return reconcile.Result{RequeueAfter: duration}, nil
 	}
 
-	err = retainPV(ctx, k8sClient, pvName)
+	err = addFinalizerOnPVC(ctx, k8sClient, params.pvcName, params.namespace,
+		cnsoptypes.CNSUnregisterProtectionFinalizer)
 	if err != nil {
-		log.Warn(err)
-		setInstanceError(ctx, r, instance, err.Error())
-		return reconcile.Result{RequeueAfter: timeout}, nil
+		setInstanceError(ctx, r, instance, "failed to add finalizer on PVC")
+		return reconcile.Result{RequeueAfter: duration}, nil
 	}
 
-	err = deletePVC(ctx, k8sClient, pvcName, pvcNamespace)
+	err = deletePVC(ctx, k8sClient, params.pvcName, params.namespace)
 	if err != nil {
-		log.Warn(err)
-		setInstanceError(ctx, r, instance, err.Error())
-		return reconcile.Result{RequeueAfter: timeout}, nil
+		setInstanceError(ctx, r, instance, "failed to delete PVC")
+		return reconcile.Result{RequeueAfter: duration}, nil
 	}
 
-	err = deletePV(ctx, k8sClient, pvName)
+	err = deletePV(ctx, k8sClient, params.pvName)
 	if err != nil {
-		log.Warn(err)
-		setInstanceError(ctx, r, instance, err.Error())
-		return reconcile.Result{RequeueAfter: timeout}, nil
+		setInstanceError(ctx, r, instance, "failed to delete PV")
+		return reconcile.Result{RequeueAfter: duration}, nil
 	}
 
-	unregDisk := false
-	if !instance.Spec.RetainFCD {
-		unregDisk = true
-	}
-	err = r.volumeManager.UnregisterVolume(ctx, instance.Spec.VolumeID, unregDisk)
+	unregDisk := !instance.Spec.RetainFCD
+	err = r.volumeManager.UnregisterVolume(ctx, params.volumeID, unregDisk)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to unregister volume %q", instance.Spec.VolumeID)
-		log.Warnf(msg+".Error: %s", err.Error())
-		setInstanceError(ctx, r, instance, msg)
-		return reconcile.Result{RequeueAfter: timeout}, nil
+		setInstanceError(ctx, r, instance, "failed to unregister volume")
+		return reconcile.Result{RequeueAfter: duration}, nil
 	}
 
-	log.Infof("Unregistered CNS volume %q", instance.Spec.VolumeID)
-	msg := "Successfully unregistered the volume"
+	err = removeFinalizerFromPVC(ctx, k8sClient, params.pvcName, params.namespace,
+		cnsoptypes.CNSUnregisterProtectionFinalizer)
+	if err != nil {
+		setInstanceError(ctx, r, instance, "failed to remove finalizer from PVC")
+		return reconcile.Result{RequeueAfter: duration}, nil
+	}
+
+	log.Infof("successfully unregistered CNS volume %s", params.volumeID)
+	msg := "successfully unregistered the volume"
 	err = setInstanceSuccess(ctx, r, instance, msg)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to update CnsUnregisterVolume instance with error: %s", err)
-		log.Warn(msg)
-		setInstanceError(ctx, r, instance, msg)
-		return reconcile.Result{RequeueAfter: timeout}, nil
+		log.Warn("failed to set instance to success with error ", err)
+		setInstanceError(ctx, r, instance, "failed to set instance to success")
+		return reconcile.Result{RequeueAfter: duration}, nil
 	}
 
 	backOffDurationMapMutex.Lock()
@@ -333,7 +330,7 @@ func recordEvent(ctx context.Context, r *Reconciler,
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
 		backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
-			cnsoperatortypes.MaxBackOffDurationForReconciler)
+			cnsoptypes.MaxBackOffDurationForReconciler)
 		r.recorder.Event(instance, v1.EventTypeWarning, "CnsUnregisterVolumeFailed", msg)
 		backOffDurationMapMutex.Unlock()
 	case v1.EventTypeNormal:
@@ -343,4 +340,98 @@ func recordEvent(ctx context.Context, r *Reconciler,
 		r.recorder.Event(instance, v1.EventTypeNormal, "CnsUnregisterVolumeSucceeded", msg)
 		backOffDurationMapMutex.Unlock()
 	}
+}
+
+type params struct {
+	retainFCD bool
+	force     bool
+	namespace string
+	volumeID  string
+	pvcName   string
+	pvName    string
+}
+
+var getValidatedParams = _getValidatedParams
+
+func _getValidatedParams(ctx context.Context, instance v1a1.CnsUnregisterVolume) (*params, error) {
+	log := logger.GetLogger(ctx).With("name", instance.Namespace+"/"+instance.Name)
+	var err error
+	p := params{
+		retainFCD: instance.Spec.RetainFCD,
+		force:     instance.Spec.ForceUnregister,
+		namespace: instance.Namespace,
+	}
+
+	if instance.Spec.VolumeID == "" && instance.Spec.PVCName == "" {
+		return nil, errors.New("either VolumeID or PVCName must be specified")
+	}
+
+	if instance.Spec.VolumeID != "" && instance.Spec.PVCName != "" {
+		return nil, errors.New("both VolumeID and PVCName cannot be specified")
+	}
+
+	if instance.Spec.VolumeID != "" {
+		p.volumeID = instance.Spec.VolumeID
+
+		p.pvcName, _, err = getPVCName(ctx, instance.Spec.VolumeID)
+		if err != nil {
+			log.Info("no PVC found for the Volume ID ", instance.Spec.VolumeID)
+		}
+	} else {
+		p.pvcName = instance.Spec.PVCName
+		p.volumeID, err = getVolumeID(ctx, p.namespace, p.pvcName)
+		if err != nil {
+			log.Info("no Volume found for the PVC ", p.pvcName)
+		}
+	}
+
+	p.pvName, err = getPVName(ctx, p.volumeID)
+	if err != nil {
+		log.Info("no PV found for the Volume ID ", p.volumeID)
+	}
+
+	return &p, nil
+}
+
+func getBackoffDuration(ctx context.Context, name types.NamespacedName) time.Duration {
+	log := logger.GetLogger(ctx).With("name", name)
+	backOffDurationMapMutex.Lock()
+	defer backOffDurationMapMutex.Unlock()
+	if _, exists := backOffDuration[name]; !exists {
+		log.Debug("initializing backoff duration to 1 second")
+		backOffDuration[name] = time.Second
+	}
+
+	log.Infof("backoff duration is %s", backOffDuration[name])
+	return backOffDuration[name]
+}
+
+func deleteBackoffEntry(ctx context.Context, name types.NamespacedName) {
+	backOffDurationMapMutex.Lock()
+	defer backOffDurationMapMutex.Unlock()
+	delete(backOffDuration, name)
+}
+
+func addFinalizer(ctx context.Context, c client.Client, obj *v1a1.CnsUnregisterVolume) error {
+	log := logger.GetLogger(ctx).With("name", obj.Namespace+"/"+obj.Name)
+
+	if !controllerutil.AddFinalizer(obj, cnsoptypes.CNSUnregisterVolumeFinalizer) {
+		log.Debugf("finalizer %s already exists on instance", cnsoptypes.CNSUnregisterVolumeFinalizer)
+		return nil
+	}
+
+	log.Infof("adding finalizer %s to instance", cnsoptypes.CNSUnregisterVolumeFinalizer)
+	return c.Update(ctx, obj)
+}
+
+func removeFinalizer(ctx context.Context, c client.Client, obj *v1a1.CnsUnregisterVolume) error {
+	log := logger.GetLogger(ctx).With("name", obj.Namespace+"/"+obj.Name)
+
+	if controllerutil.RemoveFinalizer(obj, cnsoptypes.CNSUnregisterVolumeFinalizer) {
+		log.Infof("removing finalizer %s from instance", cnsoptypes.CNSUnregisterVolumeFinalizer)
+		return c.Update(ctx, obj)
+	}
+
+	log.Debugf("finalizer %s does not exist on instance", cnsoptypes.CNSUnregisterVolumeFinalizer)
+	return nil
 }
