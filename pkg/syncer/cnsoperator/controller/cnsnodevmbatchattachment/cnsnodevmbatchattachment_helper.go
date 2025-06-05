@@ -24,7 +24,7 @@ import (
 
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	v1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -59,11 +59,6 @@ func removeFinalizerFromCRDInstance(ctx context.Context,
 		}
 	}
 	return k8s.PatchFinalizers(ctx, c, instance, finalizersOnInstance)
-}
-
-// getNamespacedPvcName take namespace and pvcName sends back namespace + "/" + pvcName.
-func getNamespacedPvcName(namespace string, pvcName string) string {
-	return namespace + "/" + pvcName
 }
 
 // getVolumesToDetachFromInstance finds out which are the volumes to detach by finding out which are
@@ -281,8 +276,8 @@ func getVolumeNameVolumeIdMapsInSpec(ctx context.Context,
 	volumeIdsInSpec = make(map[string]string)
 	volumeNamesInSpec = make(map[string]string)
 	for _, volume := range instance.Spec.Volumes {
-		namespacedPvcName := getNamespacedPvcName(instance.Namespace, volume.PersistentVolumeClaim.ClaimName)
-		volumeId, ok := commonco.ContainerOrchestratorUtility.GetVolumeIDFromPVCName(namespacedPvcName)
+		volumeId, ok := commonco.ContainerOrchestratorUtility.GetVolumeIDFromPVCName(
+			instance.Namespace, volume.PersistentVolumeClaim.ClaimName)
 		if !ok {
 			msg := fmt.Sprintf("failed to find volumeID for PVC %s", volume.PersistentVolumeClaim.ClaimName)
 			log.Errorf(msg)
@@ -299,8 +294,8 @@ func getVolumeNameVolumeIdMapsInSpec(ctx context.Context,
 func getPvcsInSpec(instance *v1alpha1.CnsNodeVmBatchAttachment) (map[string]string, error) {
 	pvcsInSpec := make(map[string]string)
 	for _, volume := range instance.Spec.Volumes {
-		namespacedPvcName := getNamespacedPvcName(instance.Namespace, volume.PersistentVolumeClaim.ClaimName)
-		volumeId, ok := commonco.ContainerOrchestratorUtility.GetVolumeIDFromPVCName(namespacedPvcName)
+		volumeId, ok := commonco.ContainerOrchestratorUtility.GetVolumeIDFromPVCName(
+			instance.Namespace, volume.PersistentVolumeClaim.ClaimName)
 		if !ok {
 			return pvcsInSpec, fmt.Errorf("failed to find volumeID for PVC %s", volume.PersistentVolumeClaim.ClaimName)
 		}
@@ -369,8 +364,7 @@ func constructBatchAttachRequest(ctx context.Context,
 		volumeName := volume.Name
 
 		// Find volumeID for PVC.
-		namespacedPvcName := getNamespacedPvcName(instance.Namespace, pvcName)
-		attachVolumeId, ok := commonco.ContainerOrchestratorUtility.GetVolumeIDFromPVCName(namespacedPvcName)
+		attachVolumeId, ok := commonco.ContainerOrchestratorUtility.GetVolumeIDFromPVCName(instance.Namespace, pvcName)
 		if !ok {
 			err := fmt.Errorf("failed to find volumeID for PVC %s", pvcName)
 			log.Error(err)
