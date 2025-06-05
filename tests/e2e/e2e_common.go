@@ -346,6 +346,7 @@ const (
 	vcptocsiTest          = "vcptocsiTest"
 	stretchedSvc          = "stretchedSvc"
 	devops                = "devops"
+	linkedClone           = "lc"
 )
 
 // The following variables are required to know cluster type to run common e2e
@@ -493,6 +494,11 @@ var (
 	envIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
 	envSharedZone2Zone4StoragePolicyName  = "SHARED_ZONE2_ZONE4_STORAGE_POLICY_IMM"
 	envSharedZone2Zone4DatastoreUrl       = "SHARED_ZONE2_ZONE4_DATASTORE_URL"
+)
+
+// For linked clone
+var (
+	envStoragePolicy = "STORAGE_POLICY_NAME"
 )
 
 // storage policy usages for storage quota validation
