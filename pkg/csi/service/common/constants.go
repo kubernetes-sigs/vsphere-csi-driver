@@ -429,8 +429,6 @@ const (
 	StorageQuotaM2 = "storage-quota-m2"
 	// CSIDetachOnSupervisor enables CSI to detach the disk from the podvm in a supervisor environment
 	CSIDetachOnSupervisor = "CSI_Detach_Supported"
-	// CnsUnregisterVolume enables the creation of CRD and controller for CnsUnregisterVolume API.
-	CnsUnregisterVolume = "cns-unregister-volume"
 	// WorkloadDomainIsolation is the name of the WCP capability which determines if
 	// workload domain isolation feature is available on a supervisor cluster.
 	WorkloadDomainIsolation = "Workload_Domain_Isolation_Supported"
@@ -491,13 +489,14 @@ var WCPFeatureStates = map[string]struct{}{
 // During FSS check if driver detects that the capabilities is disabled in the cached configmap,
 // it will re-fetch the configmap and update the cached configmap.
 var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
-	WorkloadDomainIsolation:        {},
-	LinkedCloneSupport:             {},
-	MultipleClustersPerVsphereZone: {},
-	WCPVMServiceVMSnapshots:        {},
-	BYOKEncryption:                 {},
-	SharedDiskFss:                  {},
-	FileVolumesWithVmService:       {},
+	WorkloadDomainIsolation:         {},
+	LinkedCloneSupport:              {},
+	MultipleClustersPerVsphereZone:  {},
+	WCPVMServiceVMSnapshots:         {},
+	BYOKEncryption:                  {},
+	SharedDiskFss:                   {},
+	FileVolumesWithVmService:        {},
+	StoragePolicyReservationSupport: {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a

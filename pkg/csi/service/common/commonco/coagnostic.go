@@ -99,9 +99,8 @@ type COCommonInterface interface {
 	GetPVNameFromCSIVolumeID(volumeID string) (string, bool)
 	// GetPVCNameFromCSIVolumeID returns `pvc name` and `pvc namespace` for the given volumeID using volumeIDToPvcMap.
 	GetPVCNameFromCSIVolumeID(volumeID string) (string, string, bool)
-	// GetVolumeIDFromPVCName returns volumeID the given pvcName using pvcToVolumeIDMap.
-	// PVC name is its namespaced name.
-	GetVolumeIDFromPVCName(pvcName string) (string, bool)
+	// GetVolumeIDFromPVCName returns volumeID for the given pvc name and namespace.
+	GetVolumeIDFromPVCName(namespace string, pvcName string) (string, bool)
 	// InitializeCSINodes creates CSINode instances for each K8s node with the appropriate topology keys.
 	InitializeCSINodes(ctx context.Context) error
 	// StartZonesInformer starts a dynamic informer which listens on Zones CR in

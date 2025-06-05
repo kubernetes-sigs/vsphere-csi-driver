@@ -59,7 +59,8 @@ type mockVolumeManager struct {
 		ctxParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error)
 }
 
-func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) error {
+func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID string,
+	unregisterDisk bool) *cnsvolume.Error {
 	//TODO implement me
 	return nil
 }
@@ -404,7 +405,7 @@ func (m *mockCOCommon) GetPvcObjectByName(ctx context.Context, pvcName string,
 	return nil, nil
 }
 
-func (m *mockCOCommon) GetVolumeIDFromPVCName(pvcName string) (string, bool) {
+func (m *mockCOCommon) GetVolumeIDFromPVCName(namespace string, pvcName string) (string, bool) {
 	return "vol-1", true
 }
 

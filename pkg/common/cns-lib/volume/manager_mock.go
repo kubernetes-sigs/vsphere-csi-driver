@@ -31,16 +31,19 @@ type MockManager struct {
 	failRequest bool
 	// err is used to store the error that should be returned by the mock manager.
 	err error
+	// withTransientError is used to simulate transient error in the mock manager.
+	withTransientError bool
 }
 
-func NewMockManager(failReq bool, err error) *MockManager {
+func NewMockManager(failReq bool, err error, withTransientError bool) *MockManager {
 	if !failReq {
 		return &MockManager{}
 	}
 
 	return &MockManager{
-		failRequest: failReq,
-		err:         err,
+		failRequest:        failReq,
+		err:                err,
+		withTransientError: withTransientError,
 	}
 }
 
@@ -184,9 +187,9 @@ func (m MockManager) BatchAttachVolumes(ctx context.Context, vm *cnsvsphere.Virt
 	panic("implement me")
 }
 
-func (m MockManager) UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) error {
+func (m MockManager) UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) *Error {
 	if m.failRequest {
-		return m.err
+		return newError(m.err, m.withTransientError)
 	}
 
 	return nil
