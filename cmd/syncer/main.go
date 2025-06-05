@@ -73,6 +73,8 @@ var (
 	printVersion  = flag.Bool("version", false, "Print syncer version and exit")
 	operationMode = flag.String("operation-mode", operationModeMetaDataSync,
 		"specify operation mode METADATA_SYNC or WEBHOOK_SERVER")
+	enableWebhookClientCertVerification = flag.Bool("webhook-client-cert-verification", false,
+		"Enable client cert authenticate of apiserver to CSI webhook")
 
 	supervisorFSSName = flag.String("supervisor-fss-name", "",
 		"Name of the feature state switch configmap in supervisor cluster")
@@ -128,7 +130,8 @@ func main() {
 
 	if *operationMode == operationModeWebHookServer {
 		log.Infof("Starting container with operation mode: %v", operationModeWebHookServer)
-		if webHookStartError := admissionhandler.StartWebhookServer(ctx); webHookStartError != nil {
+		if webHookStartError := admissionhandler.StartWebhookServer(ctx,
+			*enableWebhookClientCertVerification); webHookStartError != nil {
 			log.Fatalf("failed to start webhook server. err: %v", webHookStartError)
 		}
 	} else if *operationMode == operationModeMetaDataSync {
