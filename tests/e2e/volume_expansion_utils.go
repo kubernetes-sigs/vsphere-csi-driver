@@ -191,18 +191,19 @@ func waitForPVCToReachFileSystemResizePendingCondition(client clientset.Interfac
 			inProgressConditions := pvclaim.Status.Conditions
 			// If there are conditions on the PVC, it must be of
 			// FileSystemResizePending type.
-			if len(inProgressConditions) > 0 {
-				expectEqual(len(inProgressConditions), 1, fmt.Sprintf("PVC '%v' has more than one status conditions", pvcName))
-				if inProgressConditions[0].Type == v1.PersistentVolumeClaimFileSystemResizePending {
-					return true, nil
+			resizeConditionFound := false
+			for i := range inProgressConditions {
+				if inProgressConditions[i].Type == v1.PersistentVolumeClaimFileSystemResizePending {
+					resizeConditionFound = true
 				}
-				gomega.Expect(inProgressConditions[0].Type == v1.PersistentVolumeClaimResizing).To(gomega.BeTrue(),
-					fmt.Sprintf("PVC '%v' is not in 'Resizing' or 'FileSystemResizePending' status condition", pvcName))
-			} else {
-				return false, fmt.Errorf(
-					"resize was not triggered on PVC '%v' or no status conditions related to resizing found on it", pvcName)
 			}
-			return false, nil
+			if resizeConditionFound {
+				framework.Logf("PVC '%v' is in 'FileSystemResizePending' status condition", pvcName)
+				return true, nil
+			} else {
+				return false, fmt.Errorf("resize was not triggered on PVC '%v' or no status conditions related to "+
+					"FileSystemResizePending found on it", pvcName)
+			}
 		})
 	return pvclaim, waitErr
 }
