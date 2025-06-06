@@ -191,6 +191,9 @@ func PvcSpecWithLinkedCloneAnnotation(namespace string, storageclass *storagev1.
 	return claim
 }
 
+/*
+Verify linked volume lists in list volume
+*/
 func validateLcInListVolume(ctx context.Context, client clientset.Interface, pvc *corev1.PersistentVolumeClaim, namespace string) {
 	ginkgo.By("Validate ListVolume Response for all the volumes")
 	var logMessage string
