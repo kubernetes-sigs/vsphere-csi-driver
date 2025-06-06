@@ -433,6 +433,7 @@ spec:
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
             - "--storagequota-sync-interval=10m"
+            - "--webhook-client-cert-verification"
           env:
             - name: CLUSTER_FLAVOR
               value: "WORKLOAD"
@@ -471,6 +472,9 @@ spec:
               readOnly: true
             - mountPath: /etc/vmware/wcp/tls/
               name: host-vmca
+            - mountPath: /tmp/k8s-webhook-server/serving-certs/client-ca
+              name: client-ca
+              readOnly: true
         - name: csi-snapshotter
           image: localhost:5000/vmware.io/csi-snapshotter:v8.2.0_vmware.1
           args:
@@ -502,6 +506,13 @@ spec:
           hostPath:
             path: /etc/vmware/wcp/tls/
             type: Directory
+        - name: client-ca
+          configMap:
+            name: kube-root-ca.crt
+            defaultMode: 420
+            items:
+            - key: "ca.crt"
+              path: "ca.crt"
 ---
 apiVersion: storage.k8s.io/v1
 kind: CSIDriver
