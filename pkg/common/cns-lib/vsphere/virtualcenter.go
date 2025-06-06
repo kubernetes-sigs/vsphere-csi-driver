@@ -155,6 +155,12 @@ type VirtualCenterConfig struct {
 	ReloadVCConfigForNewClient bool
 	// FileVolumeActivated indicates whether file service has been enabled on any vSAN cluster or not
 	FileVolumeActivated bool
+	// VCSessionManagerURL is the path of a rest api capable of generating vCenter Cloned tokens
+	// to be reused by clients. When this is used, Username and Password configuration are ignored
+	VCSessionManagerURL string
+	// VCSessionManagerToken is the token that should be passed to authenticate against the session manager
+	// If empty, the Pod service account will be used
+	VCSessionManagerToken string
 }
 
 // NewClient creates a new govmomi Client instance.
@@ -234,6 +240,24 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client, restClient *rest.Client) error {
 	log := logger.GetLogger(ctx)
 	var err error
+
+	// If session manager is used, username and password can be discarded/ignored
+	if vc.Config.VCSessionManagerURL != "" {
+		token, err := GetSharedToken(ctx, SharedTokenOptions{
+			URL:   vc.Config.VCSessionManagerURL,
+			Token: vc.Config.VCSessionManagerToken,
+		})
+		if err != nil {
+			log.Errorf("error getting shared session token: %s", err)
+			return err
+		}
+		if err := client.SessionManager.CloneSession(ctx, token); err != nil {
+			log.Errorf("error getting cloned session token: %s", err)
+			return err
+		}
+		restClient.SessionID(client.SessionCookie().Value)
+		return nil
+	}
 
 	b, _ := pem.Decode([]byte(vc.Config.Username))
 	if b == nil {
@@ -495,6 +519,20 @@ func (vc *VirtualCenter) getDatacenters(ctx context.Context, dcPaths []string) (
 		dcs = append(dcs, dc)
 	}
 	return dcs, nil
+}
+
+// GetActiveUser returns the current logged in user. It is fetched from govmomi.Session
+// to reflect the real current user being used
+func (vc *VirtualCenter) GetActiveUser(ctx context.Context) (string, error) {
+	if vc.Client == nil || vc.Client.SessionManager == nil {
+		return "", fmt.Errorf("client or sessionmanager are null")
+	}
+
+	userSession, err := vc.Client.SessionManager.UserSession(ctx)
+	if err != nil {
+		return "", fmt.Errorf("error getting current user: %w", err)
+	}
+	return userSession.UserName, nil
 }
 
 // GetDatacenters returns Datacenters found on the VirtualCenter. If no
