@@ -339,6 +339,7 @@ const (
 	distributed           = "distributed"
 	vmsvc                 = "vmsvc"
 	vc90                  = "vc90"
+	vc90u1                = "vc90u1"
 	vc80                  = "vc80"
 	vc70                  = "vc70"
 	wldi                  = "wldi"

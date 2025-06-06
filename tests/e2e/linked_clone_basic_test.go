@@ -22,10 +22,12 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
+	v1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
@@ -35,8 +37,9 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	f.SkipNamespaceCreation = true // TODO tests will create their own namespaces
 	var (
-		client    clientset.Interface
-		namespace string
+		client       clientset.Interface
+		namespace    string
+		storageclass *v1.StorageClass
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -71,6 +74,68 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 
 		// Cleanup the resources created in the test
 		cleanup(ctx, client, namespace)
+
+	})
+
+	/*
+		Create a linked clone (PVC) from a snapshot
+		Pre setup:
+		1. Create a namespace
+		2. Create a storage class and assign it to a namespace
+		3. Create a PVC
+		4. Validate PVC is Bound
+		5. Create and attach a Pod to it.
+		6. Create a snapshot
+
+		Test steps:
+		1. Validate the quota using PersistentVolumeClaim StoragePolicyUsage
+		2. Create a linked clone using csi.vsphere.volume/linked-clone: true annotation
+		3. Validate that LC-PVC is bound.
+		4. Create and attach a Pod to LC-PVC.
+		5. List volume
+		6. The linked clone volume must be listed
+		7. Validate the quota using PersistentVolumeClaim, StoragePolicyUsage has increased
+		8. Delete LC
+		9. Validate quota is returned to the quotapool
+		10. Run volume usability verification. (i.e create Pod/VM → verify
+		11. PVC & pod status → extend PVC → detach → attach)
+		12. Run cleanup
+	*/
+
+	ginkgo.It("Create a linked clone (PVC) from a snapshot", ginkgo.Label(
+		p0, linkedClone, vc90u1), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// Get the storage quota used before LC creation
+		totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ :=
+			getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+				storageclass.Name, namespace, pvcUsage, volExtensionName)
+
+		// create linked clone PVC and verify its bound
+		linkdeClonePvc := createAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass)
+
+		// Create and attach pod to linked clone PVC
+		createPodForPvc(ctx, f.ClientSet, namespace, linkdeClonePvc)
+
+		// List volume
+		validateLcInListVolume(ctx, f.ClientSet, linkdeClonePvc, namespace)
+
+		totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter := validateQuotaUsageAfterResourceCreation(ctx, restConfig,
+			storageclass.Name, namespace, pvcUsage, volExtensionName,
+			diskSizeInMb, totalQuotaUsedBefore, storagePolicyQuotaBefore,
+			storagePolicyUsageBefore)
+
+		// Delete linked clone
+		err := fpv.DeletePersistentVolumeClaim(ctx, client, linkdeClonePvc.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// TODO update the delete list
+
+		validateQuotaUsageAfterCleanUp(ctx, restConfig, storageclass.Name, namespace, pvcUsage,
+			volExtensionName, diskSizeInMb, totalQuotaUsedAfter, storagePolicyQuotaAfter,
+			storagePolicyUsageAfter)
+
+		// TODO volume usability
 
 	})
 
