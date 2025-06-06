@@ -165,7 +165,7 @@ rules:
     verbs: ["get", "list", "update", "delete"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsfileaccessconfigs"]
-    verbs: ["get", "list", "create"]
+    verbs: ["get", "list", "create", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -536,6 +536,7 @@ data:
   "workload-domain-isolation": "false"
   "WCP_VMService_BYOK": "false"
   "sv-pvc-snapshot-protection-finalizer": "false"
+  "file-volume-with-vm-service" : "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
@@ -628,6 +629,15 @@ webhooks:
         operations:  ["CREATE"]
         resources:   ["volumesnapshots"]
         scope:       "Namespaced"
+        scope:  "Namespaced"
+      - apiVersions: ["v1"]
+        operations:  ["CREATE"]
+        resources:   ["volumesnapshots"]
+        scope:       "Namespaced"
+      - apiGroups:   ["cns.vmware.com"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE"]
+        resources:   ["cnsfileaccessconfigs"]
     sideEffects: None
     admissionReviewVersions: ["v1"]
     failurePolicy: Fail
@@ -674,6 +684,9 @@ rules:
   - apiGroups: ["encryption.vmware.com"]
     resources: ["encryptionclasses"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["cnsfileaccessconfigs"]
+    verbs: ["get", "list"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

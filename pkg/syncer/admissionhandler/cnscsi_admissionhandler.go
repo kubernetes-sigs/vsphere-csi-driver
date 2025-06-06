@@ -163,6 +163,12 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 			admissionResp := validatePVC(ctx, &req.AdmissionRequest)
 			resp.AdmissionResponse = *admissionResp.DeepCopy()
 		}
+	} else if req.Kind.Kind == "CnsFileAccessConfig" {
+		if featureFileVolumesWithVmServiceEnabled {
+			admissionResp := validateCnsFileAccessConfig(ctx, h.clientConfig, &req.AdmissionRequest)
+			resp.AdmissionResponse = *admissionResp.DeepCopy()
+
+		}
 	}
 	return
 }

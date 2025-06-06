@@ -61,6 +61,7 @@ var (
 	featureGateVolumeHealthEnabled            bool
 	featureGateTopologyAwareFileVolumeEnabled bool
 	featureGateByokEnabled                    bool
+	featureFileVolumesWithVmServiceEnabled    bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
@@ -165,6 +166,8 @@ func StartWebhookServer(ctx context.Context) error {
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		featureGateTopologyAwareFileVolumeEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.TopologyAwareFileVolume)
+		featureFileVolumesWithVmServiceEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.FileVolumesWithVmService)
 
 		if featureGateCsiMigrationEnabled || featureGateBlockVolumeSnapshotEnabled {
 			certs, err := tls.LoadX509KeyPair(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile)
