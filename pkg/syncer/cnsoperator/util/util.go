@@ -18,8 +18,11 @@ package util
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
+	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -31,7 +34,11 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 var virtualNetworkGVR = schema.GroupVersionResource{
@@ -208,4 +215,118 @@ func GetNetworkProvider(ctx context.Context) (string, error) {
 
 	return "", fmt.Errorf("could not find network provider field in configmap %q in namespace %q",
 		wcpNetworkConfigMap, kubeSystemNamespace)
+}
+
+// GetVCDatacenterFromConfig returns datacenter registered for each vCenter
+func GetVCDatacentersFromConfig(cfg *config.Config) (map[string][]string, error) {
+	var err error
+	vcdcMap := make(map[string][]string)
+	for key, value := range cfg.VirtualCenter {
+		dcList := strings.Split(value.Datacenters, ",")
+		for _, dc := range dcList {
+			dcMoID := strings.TrimSpace(dc)
+			if dcMoID != "" {
+				vcdcMap[key] = append(vcdcMap[key], dcMoID)
+			}
+		}
+	}
+	if len(vcdcMap) == 0 {
+		err = errors.New("unable get vCenter datacenters from vsphere config")
+	}
+	return vcdcMap, err
+}
+
+// isVmCrPresent checks whether VM CR is present in SV namespace
+// with given vmuuid and returns the VirtualMachine CR object if it is found
+func IsVmCrPresent(ctx context.Context, vmOperatorClient client.Client,
+	vmuuid string, namespace string) (*vmoperatorv1alpha4.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
+	vmList, err := utils.GetVirtualMachineListAllApiVersions(ctx, namespace, vmOperatorClient)
+	if err != nil {
+		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
+		log.Error(msg)
+		return nil, err
+	}
+	for _, vmInstance := range vmList.Items {
+		if vmInstance.Status.BiosUUID == vmuuid {
+			msg := fmt.Sprintf("VM CR with BiosUUID: %s found in namespace: %s",
+				vmuuid, namespace)
+			log.Infof(msg)
+			return &vmInstance, nil
+		}
+	}
+	msg := fmt.Sprintf("VM CR with BiosUUID: %s not found in namespace: %s",
+		vmuuid, namespace)
+	log.Info(msg)
+	return nil, nil
+}
+
+// AddFinalizerToPVC will add the CNS Finalizer, cns.vmware.com/pvc-protection,
+// from a given PersistentVolumeClaim.
+func AddFinalizerToPVC(ctx context.Context, client client.Client,
+	pvc *v1.PersistentVolumeClaim) (string, error) {
+	log := logger.GetLogger(ctx)
+	pvc.Finalizers = append(pvc.Finalizers, cnsoperatortypes.CNSPvcFinalizer)
+	log.Infof("Adding %q finalizer on PersistentVolumeClaim: %q on namespace: %q",
+		cnsoperatortypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
+	faulttype, err := updateSVPVC(ctx, client, pvc, false)
+	if err != nil {
+		log.Errorf("failed to update PersistentVolumeClaim: %q on namespace: %q. Error: %+v",
+			pvc.Name, pvc.Namespace, err)
+	}
+	return faulttype, err
+}
+
+func updateSVPVC(ctx context.Context, client client.Client,
+	pvc *v1.PersistentVolumeClaim, removeCnsPvcFinalizer bool) (string, error) {
+	log := logger.GetLogger(ctx)
+	err := client.Update(ctx, pvc)
+	if err != nil {
+		if apierrors.IsConflict(err) {
+			log.Infof("Observed conflict while updating the SV PVC %q in namespace %q."+
+				"Reapplying changes to the latest SV PVC object.", pvc.Name, pvc.Namespace)
+
+			// Fetch the latest pvc object from the API server and apply changes on top of it.
+			latestPVCObject := &v1.PersistentVolumeClaim{}
+			err = client.Get(ctx, apitypes.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, latestPVCObject)
+			if err != nil {
+				log.Errorf("Error fetching the SV PVC with name: %q on namespace: %q. Err: %+v",
+					pvc.Name, pvc.Namespace, err)
+				return csifault.CSIApiServerOperationFault, err
+			}
+
+			// The callers of updateSVPVC are only updating the instance finalizers
+			// Hence we add/remove the finalizers on the latest PVC object from API server.
+			if removeCnsPvcFinalizer {
+				for i, finalizer := range latestPVCObject.Finalizers {
+					if finalizer == cnsoperatortypes.CNSPvcFinalizer {
+						log.Debugf("Removing %q finalizer from PersistentVolumeClaim: %q on namespace: %q",
+							cnsoperatortypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
+						latestPVCObject.Finalizers = append(latestPVCObject.Finalizers[:i], latestPVCObject.Finalizers[i+1:]...)
+						break
+					}
+				}
+			} else {
+				latestPVCObject.Finalizers = append(latestPVCObject.Finalizers, cnsoperatortypes.CNSPvcFinalizer)
+			}
+			err := client.Update(ctx, latestPVCObject)
+			if err != nil {
+				if apierrors.IsConflict(err) {
+					log.Infof("Observed conflict again, while updating the SV PVC %q in namespace %q."+
+						"Returning error and setting the faulttype as nonStorage fault as the next reconciliation "+
+						"will be invoked.", pvc.Name, pvc.Namespace)
+					return csifault.CSIResourceUpdateConflictFault, err
+				} else {
+					log.Errorf("failed to update SV PVC : %q on namespace: %q. Error: %+v",
+						pvc.Name, pvc.Namespace, err)
+					return csifault.CSIApiServerOperationFault, err
+				}
+			}
+		} else {
+			log.Errorf("failed to update SV PVC : %q on namespace: %q. Error: %+v",
+				pvc.Name, pvc.Namespace, err)
+			return csifault.CSIApiServerOperationFault, err
+		}
+	}
+	return "", nil
 }
