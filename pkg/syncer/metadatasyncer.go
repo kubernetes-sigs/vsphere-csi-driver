@@ -3006,7 +3006,7 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 		!isdynamicCSIPV && newPv.Spec.CSI != nil {
 		// Static PV is Created.
 		var volumeType string
-		if IsMultiAttachAllowed(oldPv) {
+		if IsFileVolume(oldPv) {
 
 			if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
 				// If it is a multi VC setup, then skip this volume as we do not support file share volumes
@@ -3241,7 +3241,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 		return
 	}
 
-	if IsMultiAttachAllowed(pv) {
+	if IsFileVolume(pv) {
 		// If PV is file share volume.
 
 		// If TopologyAwareFileVolume FSS is false and it is a multi VC setup, then skip this volume

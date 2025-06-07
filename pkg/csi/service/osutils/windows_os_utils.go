@@ -369,9 +369,14 @@ func (osUtils *OsUtils) GetVolumeCapabilityFsType(ctx context.Context,
 	log.Infof("FsType received from Volume Capability: %q", fsType)
 	isFileVolume := common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{capability})
 	if isFileVolume {
-		// Volumes with RWM or ROM access modes are not supported on Windows
+		// File volumes are not supported on Windows
 		return "", logger.LogNewErrorCode(log, codes.FailedPrecondition,
 			"vSAN file service volume can not be mounted on windows node")
+	}
+
+	if _, ok := capability.GetAccessType().(*csi.VolumeCapability_Block); ok {
+		return "", logger.LogNewErrorCode(log, codes.FailedPrecondition,
+			"Raw block volumes cannot be mounted on windows node")
 	}
 
 	// On Windows we only support ntfs filesystem. External-provisioner sets default fstype as ext4
