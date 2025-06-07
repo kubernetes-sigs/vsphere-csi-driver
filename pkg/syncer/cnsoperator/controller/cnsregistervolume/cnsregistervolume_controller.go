@@ -247,7 +247,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// Currently file volume registration is not supported.
 	ok := isBlockVolumeRegisterRequest(ctx, instance)
 	if !ok {
-		msg := fmt.Sprintf("AccessMode: %s is not supported", instance.Spec.AccessMode)
+		msg := fmt.Sprintf("AccessMode: %s is not supported with volumemode %s is not supported",
+			instance.Spec.AccessMode, instance.Spec.VolumeMode)
 		log.Error(msg)
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
@@ -467,7 +468,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	capacityInMb := volume.BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
 	accessMode := instance.Spec.AccessMode
 	// Set accessMode to ReadWriteOnce if DiskURLPath is used for import.
-	if accessMode == "" && instance.Spec.DiskURLPath != "" {
+	if accessMode == "" || instance.Spec.DiskURLPath != "" {
 		accessMode = v1.ReadWriteOnce
 	}
 	pv, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
@@ -482,7 +483,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				Name:       instance.Spec.PvcName,
 			}
 			pvSpec := getPersistentVolumeSpec(pvName, volumeID, capacityInMb,
-				accessMode, storageClassName, claimRef)
+				accessMode, instance.Spec.VolumeMode, storageClassName, claimRef, instance.Spec.FsType)
 			pvSpec.Spec.NodeAffinity = pvNodeAffinity
 			log.Debugf("PV spec is: %+v", pvSpec)
 			pv, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})
@@ -510,7 +511,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// Create PVC mapping to above created PV.
 	log.Infof("Creating PVC: %s", instance.Spec.PvcName)
 	pvcSpec, err := getPersistentVolumeClaimSpec(ctx, instance.Spec.PvcName, instance.Namespace, capacityInMb,
-		storageClassName, accessMode, pvName, datastoreAccessibleTopology)
+		storageClassName, accessMode, instance.Spec.VolumeMode, pvName, datastoreAccessibleTopology)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to create spec for PVC: %q. Error: %v", instance.Spec.PvcName, err)
 		log.Errorf(msg)
@@ -700,8 +701,14 @@ func validateCnsRegisterVolumeSpec(ctx context.Context, instance *cnsregistervol
 		msg = "VolumeID and DiskURLPath cannot be specified together"
 	} else if instance.Spec.DiskURLPath != "" && instance.Spec.AccessMode != "" &&
 		instance.Spec.AccessMode != v1.ReadWriteOnce {
+		// TODO: this check is no longer valid with RWX blovk voluem support.
 		msg = fmt.Sprintf("DiskURLPath cannot be used with accessMode: %q", instance.Spec.AccessMode)
+	} else if instance.Spec.AccessMode == v1.ReadWriteMany {
+		if instance.Spec.VolumeMode != "" || instance.Spec.VolumeMode == v1.PersistentVolumeFilesystem {
+			return errors.New(fmt.Sprintf("AccessMode %q is not allowed with VolumeMode %q", instance.Spec.AccessMode, instance.Spec.VolumeMode))
+		}
 	}
+
 	if instance.Spec.VolumeID != "" {
 		pvName, found := commonco.ContainerOrchestratorUtility.GetPVNameFromCSIVolumeID(instance.Spec.VolumeID)
 		if found {
@@ -721,7 +728,7 @@ func validateCnsRegisterVolumeSpec(ctx context.Context, instance *cnsregistervol
 // via CnsRegisterVolume instance.
 func isBlockVolumeRegisterRequest(ctx context.Context, instance *cnsregistervolumev1alpha1.CnsRegisterVolume) bool {
 	if instance.Spec.AccessMode != "" {
-		if instance.Spec.AccessMode == v1.ReadWriteOnce {
+		if instance.Spec.AccessMode == v1.ReadWriteOnce || (instance.Spec.AccessMode == v1.ReadWriteMany && instance.Spec.VolumeMode == v1.PersistentVolumeBlock) {
 			return true
 		}
 	} else {
