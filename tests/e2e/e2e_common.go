@@ -493,6 +493,11 @@ var (
 	envIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
 	envSharedZone2Zone4StoragePolicyName  = "SHARED_ZONE2_ZONE4_STORAGE_POLICY_IMM"
 	envSharedZone2Zone4DatastoreUrl       = "SHARED_ZONE2_ZONE4_DATASTORE_URL"
+	envZonal2DatastoreUrl                 = "ZONAL2_DATASTORE_URL"
+	envZone3DatastoreName                 = "ZONE3_DATASTORE_NAME"
+	envZone2DatastoreName                 = "ZONE2_DATASTORE_NAME"
+	vmMigrationUserName                   = "VM_MIGRATION_USER_NAME"
+	vmMigrationUserPwd                    = "VM_MIGRATION_USER_PWD"
 )
 
 // storage policy usages for storage quota validation
