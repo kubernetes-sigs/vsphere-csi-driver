@@ -160,6 +160,9 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumes"]
     verbs: ["get", "list", "update", "delete"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["cnsfileaccessconfigs"]
+    verbs: ["get", "list", "create", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -536,6 +539,7 @@ data:
   "cns-unregister-volume": "false"
   "workload-domain-isolation": "false"
   "WCP_VMService_BYOK": "false"
+  "file-volume-with-vm-service" : "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
@@ -623,6 +627,10 @@ webhooks:
         operations:  ["CREATE", "UPDATE", "DELETE"]
         resources:   ["persistentvolumeclaims"]
         scope: "Namespaced"
+      - apiGroups:   ["cns.vmware.com"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE"]
+        resources:   ["cnsfileaccessconfigs"]
     sideEffects: None
     admissionReviewVersions: ["v1"]
     failurePolicy: Fail
@@ -637,6 +645,9 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: ["snapshot.storage.k8s.io"]
     resources: ["volumesnapshots"]
+    verbs: ["get", "list"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["cnsfileaccessconfigs"]
     verbs: ["get", "list"]
 ---
 kind: ClusterRoleBinding

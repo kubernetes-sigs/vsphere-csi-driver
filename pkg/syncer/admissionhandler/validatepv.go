@@ -40,7 +40,7 @@ func validatePv(ctx context.Context, req *admissionv1.AdmissionRequest) *admissi
 			log.Errorf("error deserializing PV: %v. skipping validation.", err)
 			allowed = false
 			result = &metav1.Status{
-				Message: fmt.Sprintf("Failed to serialize PV: %+V", err),
+				Message: fmt.Sprintf("Failed to serialize PV: %+v", err),
 			}
 			break
 		}

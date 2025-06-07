@@ -436,6 +436,8 @@ const (
 	// SVPVCSnapshotProtectionFinalizer is FSS that controls add/remove
 	// CNS finalizer on supervisor PVC/Snapshots from PVCSI
 	SVPVCSnapshotProtectionFinalizer = "sv-pvc-snapshot-protection-finalizer"
+	// FileVolumesWithVmService is an FSS to support file volumes with VM service VMs.
+	FileVolumesWithVmService = "file-volume-with-vm-service"
 )
 
 var WCPFeatureStates = map[string]struct{}{
