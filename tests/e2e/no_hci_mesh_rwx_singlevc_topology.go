@@ -237,7 +237,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("Deployment pods with multiple replicas attached to a "+
-		"single rwx pvc", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+		"single rwx pvc", ginkgo.Label(p0, file, vanilla, level5, level2, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -299,7 +299,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("Scaling operations involving statefulSet pods with multiple replicas, "+
-		"each connected to rwx pvcs", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+		"each connected to rwx pvcs", ginkgo.Label(p0, file, vanilla, level5, level2, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -357,7 +357,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("Multiple standalone pods attached to a single rwx "+
-		"pvc", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+		"pvc", ginkgo.Label(p0, file, vanilla, level5, level2, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -461,7 +461,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 
 	ginkgo.It("Pods attached to Rwx pvc with vSAN storage policy of rack-1 "+
 		"defined in SC along with top level allowed topology "+
-		"specified", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+		"specified", ginkgo.Label(p0, file, vanilla, level5, level2, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -595,7 +595,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("RWX PVC created with non VSAN FS compatible "+
-		"datastore", ginkgo.Label(p1, file, vanilla, level5, level2, newTest, negative), func() {
+		"datastore", ginkgo.Label(p1, file, vanilla, level5, level2, newTest, negative, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -676,7 +676,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("RWX volume creation on one zone and pods scheduled on another zone with "+
-		"immediate mode set in SC", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+		"immediate mode set in SC", ginkgo.Label(p0, file, vanilla, level5, level2, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -815,7 +815,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("Statefulset creation with RWX PVCs with top level allowed "+
-		"topology specified", ginkgo.Label(p1, file, vanilla, level5, level2, newTest), func() {
+		"topology specified", ginkgo.Label(p1, file, vanilla, level5, level2, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -891,7 +891,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("Storage class created with invalid allowed "+
-		"topology", ginkgo.Label(p2, file, vanilla, level5, level2, stable, negative, newTest), func() {
+		"topology", ginkgo.Label(p2, file, vanilla, level5, level2, stable, negative, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -965,7 +965,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("Deployment pod creation with RWX pvc having only single level in "+
-		"allowed topology", ginkgo.Label(p1, file, vanilla, level5, level2, newTest), func() {
+		"allowed topology", ginkgo.Label(p1, file, vanilla, level5, level2, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1084,7 +1084,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("RWX Pvc creation with single level allowed topology "+
-		"passed with datastore url", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+		"passed with datastore url", ginkgo.Label(p0, file, vanilla, level5, level2, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1206,7 +1206,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("Volume expansion on file "+
-		"volumes", ginkgo.Label(p2, file, vanilla, level5, level2, negative, newTest), func() {
+		"volumes", ginkgo.Label(p2, file, vanilla, level5, level2, negative, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1297,7 +1297,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("RWX Pvc creation using shared datastore lacking "+
-		"capability of vSAN FS", ginkgo.Label(p2, file, vanilla, level5, level2, negative, newTest), func() {
+		"capability of vSAN FS", ginkgo.Label(p2, file, vanilla, level5, level2, negative, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1344,8 +1344,8 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 		4. Perform cleanup by deleting PVC and SC
 	*/
 
-	ginkgo.It("Allowed topology specific to one zone and storage polocy "+
-		"provided is from another zone", ginkgo.Label(p2, file, vanilla, level5, level2, negative, newTest), func() {
+	ginkgo.It("Allowed topology specific to one zone and storage polocy provided is from "+
+		"another zone", ginkgo.Label(p2, file, vanilla, level5, level2, negative, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1423,7 +1423,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("Multiple deployment pods with scaling operation "+
-		"attached to rwx pvcs", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+		"attached to rwx pvcs", ginkgo.Label(p0, file, vanilla, level5, level2, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1548,8 +1548,8 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 		11. Perform cleanup by deleting Pods, PVC, and SC.
 	*/
 
-	ginkgo.It("Multiple standalone pods attached to a single rwx "+
-		"pvc with netpermissions set to read/write", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+	ginkgo.It("Multiple standalone pods attached to a single rwx pvc with netpermissions "+
+		"set to read/write", ginkgo.Label(p0, file, vanilla, level5, level2, newTest, vc70), func() {
 
 		var pv *v1.PersistentVolume
 		var allowedTopologyForSC []v1.TopologySelectorLabelRequirement
@@ -1664,7 +1664,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("Create static pv using file share with "+
-		"policy set to retain", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+		"policy set to retain", ginkgo.Label(p0, file, vanilla, level5, level2, newTest, vc70), func() {
 
 		var nodeSelectorTerms map[string]string
 		var allowedTopologyForPod []v1.TopologySelectorLabelRequirement
@@ -1866,8 +1866,8 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 		7. Delete the POD, PVC, PV, and the Storage Class (SC).
 	*/
 
-	ginkgo.It("Create static pvs using file share with policy set to delete "+
-		"with different read/write permissions", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+	ginkgo.It("Create static pvs using file share with policy set to delete with different read/write "+
+		"permissions", ginkgo.Label(p0, file, vanilla, level5, level2, newTest, vc70), func() {
 
 		var nodeSelectorTerms map[string]string
 		var allowedTopologyForPod []v1.TopologySelectorLabelRequirement
@@ -2027,7 +2027,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 	*/
 
 	ginkgo.It("Setting netpermissions with specific ip and with "+
-		"readonly permissions", ginkgo.Label(p1, file, vanilla, level5, level2, newTest, negative), func() {
+		"readonly permissions", ginkgo.Label(p1, file, vanilla, level5, level2, newTest, negative, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2112,8 +2112,8 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 		11. Perform cleanup by deleting Pod, PVC and SC.
 	*/
 
-	ginkgo.It("Create pvc with ROX access mode and config secret "+
-		"netpermissions is set with readwrite permissions", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+	ginkgo.It("Create pvc with ROX access mode and config secret netpermissions is set with readwrite "+
+		"permissions", ginkgo.Label(p0, file, vanilla, level5, level2, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2227,8 +2227,8 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 		11. Perform cleanup by deleting Pod, PVC and SC.
 	*/
 
-	ginkgo.It("Create pvc with rox access mode and config secret "+
-		"netpermissions is set with readonly permissions", ginkgo.Label(p0, file, vanilla, level5, level2, newTest), func() {
+	ginkgo.It("Create pvc with rox access mode and config secret netpermissions is set with readonly "+
+		"permissions", ginkgo.Label(p0, file, vanilla, tkg, level5, level2, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

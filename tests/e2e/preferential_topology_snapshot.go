@@ -234,7 +234,7 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 	*/
 
 	ginkgo.It("Create restore snapshot of pvc using single datastore preference", ginkgo.Label(p0,
-		block, vanilla, level5, preferential, stable, snapshot), func() {
+		block, vanilla, level5, preferential, stable, snapshot, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -364,7 +364,7 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 	*/
 
 	ginkgo.It("Create restore snapshot of pvc when datastore preference gets changed", ginkgo.Label(p1,
-		block, vanilla, level5, preferential, stable, snapshot, negative), func() {
+		block, vanilla, level5, preferential, stable, snapshot, negative, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -518,7 +518,7 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 
 	ginkgo.It("Create restore snapshot of pvc when multiple preferred datastores are tagged "+
 		"and datastore preference is changed", ginkgo.Label(p0,
-		block, vanilla, level5, preferential, stable, snapshot), func() {
+		block, vanilla, level5, preferential, stable, snapshot, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -926,7 +926,7 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		20. Remove datastore preference tags as part of cleanup.
 	*/
 	ginkgo.It("Tag preferred datatsore and verify snapshot workflow for statefulset", ginkgo.Label(p0,
-		block, vanilla, level5, preferential, stable, snapshot), func() {
+		block, vanilla, level5, preferential, stable, snapshot, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

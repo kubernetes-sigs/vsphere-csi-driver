@@ -233,7 +233,7 @@ var _ = ginkgo.Describe("[preferential-disruptive] Preferential-Topology-Disrupt
 			26. Perform cleanup. Delete StatefulSet, PVC and PV, SC.
 	*/
 	ginkgo.It("Bring down partial site when multiple preferred datatsores are tagged", ginkgo.Label(p1,
-		block, vanilla, level5, preferential, stable, disruptive), func() {
+		block, vanilla, level5, preferential, stable, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -499,7 +499,7 @@ var _ = ginkgo.Describe("[preferential-disruptive] Preferential-Topology-Disrupt
 
 	ginkgo.It("Multiple preferred datatstores are tagged in rack-2 where one preferred datatsore "+
 		"moved to inaccessible or in power off state", ginkgo.Label(p1,
-		block, vanilla, level5, preferential, stable, disruptive), func() {
+		block, vanilla, level5, preferential, stable, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -725,7 +725,7 @@ var _ = ginkgo.Describe("[preferential-disruptive] Preferential-Topology-Disrupt
 
 	ginkgo.It("Multiple preferred datastores are tagged in rack-1 where one of the preferred datastore "+
 		"is moved to maintenance mode", ginkgo.Label(p1,
-		block, vanilla, level5, preferential, stable, disruptive), func() {
+		block, vanilla, level5, preferential, stable, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -961,7 +961,7 @@ var _ = ginkgo.Describe("[preferential-disruptive] Preferential-Topology-Disrupt
 
 	ginkgo.It("Multiple preferred datatstores are tagged in rack-2 where one preferred datatsore "+
 		"moved to suspended state", ginkgo.Label(p1, block, vanilla, level5, preferential,
-		stable, disruptive), func() {
+		stable, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

@@ -232,8 +232,8 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 	   16. Perform cleanup by deleting deployment Pods, PVCs and the StorageClass (SC)
 	*/
 
-	ginkgo.It("Deployment pods and standalone pods creation with rwx pvcs "+
-		"with different allowed topology given in SCs", ginkgo.Label(p0, file, vanilla, multiVc, newTest), func() {
+	ginkgo.It("Deployment pods and standalone pods creation with rwx pvcs with different allowed "+
+		"topology given in SCs", ginkgo.Label(p0, file, vanilla, multiVc, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -386,7 +386,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 	*/
 
 	ginkgo.It("Statefulset creation with rwx pvcs having storage "+
-		"policy defined only in AZ1", ginkgo.Label(p0, file, vanilla, multiVc, newTest), func() {
+		"policy defined only in AZ1", ginkgo.Label(p0, file, vanilla, multiVc, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -468,7 +468,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 	*/
 
 	ginkgo.It("Multiple pods creation with single rwx pvcs created "+
-		"with storage policy available ", ginkgo.Label(p0, file, vanilla, multiVc, newTest), func() {
+		"with storage policy available ", ginkgo.Label(p0, file, vanilla, multiVc, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -571,7 +571,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 	*/
 
 	ginkgo.It("Multiple standalone pods attached to single rwx pvc with datastore url "+
-		"tagged to Az2 in SC", ginkgo.Label(p0, file, vanilla, multiVc, newTest), func() {
+		"tagged to Az2 in SC", ginkgo.Label(p0, file, vanilla, multiVc, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -666,7 +666,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 
 	ginkgo.It("Scaling operations involving statefulSet pods with multiple replicas, "+
 		"each connected to rwx pvcs with allowed topology specified is "+
-		"of AZ-1 and AZ-3", ginkgo.Label(p0, file, vanilla, multiVc, newTest), func() {
+		"of AZ-1 and AZ-3", ginkgo.Label(p0, file, vanilla, multiVc, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -742,7 +742,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 
 	ginkgo.It("Deploy workload with allowed topology of vc1 and "+
 		"vc2, tag storage policy of vc1 and datastore url of vc2", ginkgo.Label(p2, file, vanilla, multiVc,
-		newTest, negative), func() {
+		newTest, negative, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -799,7 +799,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 	*/
 
 	ginkgo.It("Same storage policy is available in vc1 and vc2 and later delete storage policy from "+
-		"one of the VC", ginkgo.Label(p1, file, vanilla, multiVc, newTest), func() {
+		"one of the VC", ginkgo.Label(p1, file, vanilla, multiVc, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -936,7 +936,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 
 	ginkgo.It("Creating statefulset with rwx pvcs with storage policy "+
 		"tagged to vc1 datastore and vc1 is under reboot", ginkgo.Label(p1, file, vanilla,
-		multiVc, disruptive), func() {
+		multiVc, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1059,7 +1059,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 	*/
 
 	ginkgo.It("Pod creation and lables update when "+
-		"vsan health is down", ginkgo.Label(p1, file, vanilla, multiVc, newTest, disruptive), func() {
+		"vsan health is down", ginkgo.Label(p1, file, vanilla, multiVc, newTest, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1237,7 +1237,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 	*/
 
 	ginkgo.It("RWX pvcs creation and in between sps "+
-		"service is down on any AZ", ginkgo.Label(p1, file, vanilla, multiVc, newTest, disruptive), func() {
+		"service is down on any AZ", ginkgo.Label(p1, file, vanilla, multiVc, newTest, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1369,7 +1369,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 	*/
 
 	ginkgo.It("Different types of pods creation attached to rwx pvcs "+
-		"involving scaling operation", ginkgo.Label(p0, file, vanilla, multiVc, newTest), func() {
+		"involving scaling operation", ginkgo.Label(p0, file, vanilla, multiVc, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1539,7 +1539,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 	*/
 
 	ginkgo.It("Static volume creation in rwx multivc setup", ginkgo.Label(p0, file, vanilla,
-		level5, level2, newTest), func() {
+		level5, level2, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

@@ -81,7 +81,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		9.Delete PVC
 		10.Delete Storage Class
 	*/
-	ginkgo.It("Verify provisioning succeeds with only region specified in Storage Class", func() {
+	ginkgo.It("Verify provisioning succeeds with only region specified in Storage "+
+		"Class", ginkgo.Label(p0, vanilla, block, level2, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Extract the region section of the topology values
@@ -158,7 +159,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		9.Delete PVC
 		10.Delete Storage Class
 	*/
-	ginkgo.It("Verify provisioning succeeds with only zone specified in Storage Class", func() {
+	ginkgo.It("Verify provisioning succeeds with only zone specified in Storage "+
+		"Class", ginkgo.Label(p0, vanilla, block, level2, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Extract the zone section of the topology values
