@@ -4229,6 +4229,10 @@ func createPod(ctx context.Context, client clientset.Interface, namespace string
 		securityLevel = api.LevelPrivileged
 	}
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, securityLevel, command)
+	if policy4kn {
+		pod.Annotations = make(map[string]string)
+		pod.Annotations[policy4knKey] = policy4knValue
+	}
 	if windowsEnv {
 		var commands []string
 		if (len(command) == 0) || (command == execCommand) {
@@ -4344,6 +4348,10 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 		deploymentSpec.Spec.Template.Spec.Containers[0].Image = windowsImageOnMcr
 		deploymentSpec.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
 		deploymentSpec.Spec.Template.Spec.Containers[0].Args = commands
+	}
+	if policy4kn {
+		deploymentSpec.Annotations = make(map[string]string)
+		deploymentSpec.Annotations[policy4knKey] = policy4knValue
 	}
 	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
 	if err != nil {
@@ -5780,9 +5788,11 @@ func getK8sMasterNodeIPWhereContainerLeaderIsRunning(ctx context.Context,
 	if guestCluster {
 		k8sMasterIP = GetAndExpectStringEnvVar(svcMasterIP)
 		kubeConfigPath = GetAndExpectStringEnvVar(gcKubeConfigPath)
-	} else {
+	} else if vanillaCluster {
 		k8sMasterIPs := getK8sMasterIPs(ctx, client)
 		k8sMasterIP = k8sMasterIPs[0]
+	} else {
+		k8sMasterIP = GetAndExpectStringEnvVar(svcMasterIP)
 	}
 
 	for _, csiPod := range csiPods {
