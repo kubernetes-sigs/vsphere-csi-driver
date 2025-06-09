@@ -71,7 +71,8 @@ var _ = ginkgo.Describe("Alpha feature check", func() {
 	// Verify PV entry is deleted from CNS.
 	// Delete the SC.
 
-	ginkgo.It("[csi-block-vanilla-alpha-feature][pv-to-backingdiskobjectid-mapping] Verify pvc is annotated", func() {
+	ginkgo.It("[csi-block-vanilla-alpha-feature][pv-to-backingdiskobjectid-mapping] Verify "+
+		"pvc is annotated", ginkgo.Label(p0, vanilla, block, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		featureEnabled := isCsiFssEnabled(ctx, client, GetAndExpectStringEnvVar(envCSINamespace),
@@ -145,7 +146,7 @@ var _ = ginkgo.Describe("Alpha feature check", func() {
 	// Delete the SC.
 
 	ginkgo.It("[csi-file-vanilla-alpha-feature][pv-to-backingdiskobjectid-mapping] "+
-		"File Vanilla Verify pvc is not annotated", func() {
+		"File Vanilla Verify pvc is not annotated", ginkgo.Label(p0, vanilla, file, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		featureEnabled := isCsiFssEnabled(ctx, client, GetAndExpectStringEnvVar(envCSINamespace),

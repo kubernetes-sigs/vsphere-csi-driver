@@ -260,7 +260,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		6.	Bring primary site up and wait for testbed to be back to normal
 		7.	Delete all objects created in step 2 and 5
 	*/
-	ginkgo.It("Primary site down", ginkgo.Label(p0, vsanStretch, block, vanilla, wcp, tkg, primaryCentric), func() {
+	ginkgo.It("Primary site down", ginkgo.Label(p0, vsanStretch, block, file, vanilla, wcp, tkg,
+		primaryCentric, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var stsReplicas, depReplicaCount int32
@@ -444,7 +445,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	   9.  Bring primary site up and wait for testbed to be back to normal
 	*/
 	ginkgo.It("Statefulset scale up/down while primary site goes down",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, wcp, tkg, primaryCentric, controlPlaneOnPrimary), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg, primaryCentric, controlPlaneOnPrimary,
+			vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass for Statefulset")
@@ -681,7 +683,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 	*/
 	ginkgo.It("Pod deletion while primary site goes down",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, primaryCentric, controlPlaneOnPrimary), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, primaryCentric, controlPlaneOnPrimary, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass")
@@ -828,7 +830,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	   7.  Delete PVCs created in step 2
 	*/
 	ginkgo.It("PVC creation while primary site goes down",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, wcp, tkg, primaryCentric), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg, primaryCentric, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -980,7 +982,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		7.	Delete all objects created in step 2
 	*/
 	ginkgo.It("Primary site network isolation",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, wcp, tkg, primaryCentric, controlPlaneOnPrimary, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg, primaryCentric, controlPlaneOnPrimary, distributed,
+			vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -1148,7 +1151,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		7.	Bring primary site up and wait for testbed to be back to normal
 	*/
 	ginkgo.It("PVC deletion while primary site goes down",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, wcp, tkg, primaryCentric), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg, primaryCentric, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			var svcCsipods *v1.PodList
@@ -1284,7 +1287,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 	*/
 	ginkgo.It("Pod creation while primary site goes down",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, primaryCentric, controlPlaneOnPrimary), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, primaryCentric, controlPlaneOnPrimary, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass")
@@ -1416,7 +1419,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	   9.  Bring primary site up and wait for testbed to be back to normal
 	*/
 	ginkgo.It("Label updates to PV, PVC, pod while primary site goes down",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, wcp, tkg, primaryCentric), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg, primaryCentric, vc70), func() {
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -1588,7 +1591,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	*/
 	ginkgo.It("PVC creation while secondary site goes down"+
 		" and csi provisioner leader is in secondary site",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass")
@@ -1694,7 +1697,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	*/
 	ginkgo.It("PVC deletion while secondary site goes down"+
 		" and csi provisioner leader is in secondary site",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass")
@@ -1809,7 +1812,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	*/
 	ginkgo.It("Pod creation while secondary site goes down"+
 		" and csi attacher leader is in secondary site",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass")
@@ -1959,7 +1962,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	*/
 	ginkgo.It("Pod deletion while secondary site goes down"+
 		" and csi attacher leader is in secondary site",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass")
@@ -2100,7 +2103,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		7.	Delete all objects created in step 2 and 5
 	*/
 	ginkgo.It("Secondary site down",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, wcp, tkg, controlPlaneOnPrimary), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg, controlPlaneOnPrimary, vc70), func() {
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -2282,8 +2285,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		11.	Cleanup all objects created so far in the test
 	*/
 	ginkgo.It("Network failure between sites",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, wcp, tkg,
-			controlPlaneOnPrimary, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg,
+			controlPlaneOnPrimary, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass for Statefulset")
@@ -2520,7 +2523,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		6.	Cleanup all objects created in step 3 and 5
 	*/
 	ginkgo.It("Witness failure",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, wcp, tkg, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -2684,7 +2687,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	*/
 	ginkgo.It("Statefulset scale up/down while secondary site goes down when csi provisioner"+
 		" and attacher leaders are in secondary site",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass for Statefulset")
@@ -2845,7 +2848,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	*/
 	ginkgo.It("Label updates to PV, PVC while primary site goes down"+
 		" when syncer pod leader is in secondary site",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass")
@@ -3001,7 +3004,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	*/
 	ginkgo.It("Statefulset scale up/down while secondary site goes down"+
 		" when csi driver leader is in secondary site",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass for Statefulset")
@@ -3207,7 +3210,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	   11. Bring secondary site up and wait for testbed to be back to normal
 	*/
 	ginkgo.It("Statefulset scale up/down while secondary site goes down",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, controlPlaneOnPrimary), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, controlPlaneOnPrimary, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass for Statefulset")
@@ -3367,7 +3370,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		15. Bring secondary site up and wait for testbed to be normal
 	*/
 	ginkgo.It("Operation Storm",
-		ginkgo.Label(p2, vsanStretch, block, vanilla, distributed), func() {
+		ginkgo.Label(p2, vsanStretch, file, block, vanilla, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass for Statefulset")
@@ -3583,7 +3586,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		7. Delete all objects created in step 2 and 5
 	*/
 	ginkgo.It("Partial failure of secondary site",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, controlPlaneOnPrimary), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, controlPlaneOnPrimary, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass for Statefulset")
@@ -3708,7 +3711,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	*/
 	ginkgo.It("PV/PVC with Retain reclaim policy deletion while secondary site goes down "+
 		"and csi provisioner and csi-syncer leaders are in secondary site",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass")
@@ -3852,7 +3855,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	*/
 	ginkgo.It("Static PV/PVC creation while secondary site goes down"+
 		" and csi-syncer leader is in secondary site",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass")
@@ -4113,7 +4116,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 	*/
 	ginkgo.It("Primary site failover during full sync",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, wcp, tkg, primaryCentric, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg, primaryCentric, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass")
@@ -4495,7 +4498,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	*/
 	ginkgo.It("Secondary site failover during full sync when syncer"+
 		" pod leader is in secondary site",
-		ginkgo.Label(p0, vsanStretch, block, vanilla, distributed), func() {
+		ginkgo.Label(p0, vsanStretch, file, block, vanilla, distributed, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ginkgo.By("Creating StorageClass")
@@ -4824,7 +4827,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	   9.  Bring primary site up and wait for testbed to be back to normal
 	*/
 	ginkgo.It("PSOD hosts on secondary site",
-		ginkgo.Label(p0, vsanStretch, block, wcp, tkg), func() {
+		ginkgo.Label(p0, vsanStretch, block, wcp, tkg, vc80), func() {
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
