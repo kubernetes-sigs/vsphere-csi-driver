@@ -192,7 +192,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 	*/
 
 	ginkgo.It("Bring down full site Vc2", ginkgo.Label(p1, block, vanilla, multiVc, newTest,
-		disruptive), func() {
+		disruptive, negative, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -416,7 +416,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 	*/
 
 	ginkgo.It("Partial vc-2 and vc-3 sites are down", ginkgo.Label(p1, block, vanilla, multiVc, newTest,
-		disruptive), func() {
+		disruptive, negative, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -650,8 +650,8 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 		26. Perform cleanup by deleting StatefulSets, Pods, PVCs and SC.
 	*/
 
-	ginkgo.It("Operation storm with multiple workload creation "+
-		"in multivc env", ginkgo.Label(p1, block, vanilla, multiVc, newTest, disruptive), func() {
+	ginkgo.It("Operation storm with multiple workload creation in multivc "+
+		"env", ginkgo.Label(p1, block, vanilla, multiVc, newTest, disruptive, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
