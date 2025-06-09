@@ -39,7 +39,8 @@ const (
 	// DefaultQuerySnapshotLimit constant is already present in pkg/csi/service/common/constants.go
 	// However, using that constant creates an import cycle.
 	// TODO: Refactor to move all the constants into a top level directory.
-	DefaultQuerySnapshotLimit = int64(128)
+	DefaultQuerySnapshotLimit  = int64(128)
+	vmOperatorApiVersionPrefix = "vmoperator.vmware.com"
 )
 
 // QueryVolumeUtil helps to invoke query volume API based on the feature
@@ -274,8 +275,9 @@ func QueryAllVolumesForCluster(ctx context.Context, m cnsvolume.Manager, cluster
 }
 
 func GetVirtualMachineAllApiVersions(ctx context.Context, vmKey types.NamespacedName,
-	vmOperatorClient client.Client) (*vmoperatorv1alpha4.VirtualMachine, error) {
+	vmOperatorClient client.Client) (*vmoperatorv1alpha4.VirtualMachine, string, error) {
 	log := logger.GetLogger(ctx)
+	apiVersion := vmOperatorApiVersionPrefix + "/v1alpha4"
 	vmV1alpha1 := &vmoperatorv1alpha1.VirtualMachine{}
 	vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}
 	vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}
@@ -298,39 +300,42 @@ func GetVirtualMachineAllApiVersions(ctx context.Context, vmKey types.Namespaced
 				} else if err == nil {
 					log.Debugf("GetVirtualMachineAllApiVersions: converting v1alpha1 VirtualMachine "+
 						"to v1alpha4 VirtualMachine, name %s", vmV1alpha1.Name)
+					apiVersion = vmOperatorApiVersionPrefix + "/v1alpha1"
 					err = vmoperatorv1alpha1.Convert_v1alpha1_VirtualMachine_To_v1alpha4_VirtualMachine(
 						vmV1alpha1, vmV1alpha4, nil)
 					if err != nil {
-						return nil, err
+						return nil, apiVersion, err
 					}
 				}
 			} else if err == nil {
 				log.Debugf("GetVirtualMachineAllApiVersions: converting v1alpha2 VirtualMachine "+
 					"to v1alpha4 VirtualMachine, name %s", vmV1alpha2.Name)
+				apiVersion = vmOperatorApiVersionPrefix + "/v1alpha2"
 				err = vmoperatorv1alpha2.Convert_v1alpha2_VirtualMachine_To_v1alpha4_VirtualMachine(
 					vmV1alpha2, vmV1alpha4, nil)
 				if err != nil {
-					return nil, err
+					return nil, apiVersion, err
 				}
 			}
 		} else if err == nil {
 			log.Debugf("GetVirtualMachineAllApiVersions: converting v1alpha3 VirtualMachine "+
 				"to v1alpha4 VirtualMachine, name %s", vmV1alpha3.Name)
+			apiVersion = vmOperatorApiVersionPrefix + "/v1alpha3"
 			err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachine_To_v1alpha4_VirtualMachine(
 				vmV1alpha3, vmV1alpha4, nil)
 			if err != nil {
-				return nil, err
+				return nil, apiVersion, err
 			}
 		}
 	}
 	if err != nil {
 		log.Errorf("GetVirtualMachineAllApiVersions: failed to get VirtualMachine "+
 			"with name %s and namespace %s, error %v", vmKey.Name, vmKey.Namespace, err)
-		return nil, err
+		return nil, apiVersion, err
 	}
 	log.Infof("successfully fetched the virtual machines with name %s and namespace %s",
 		vmKey.Name, vmKey.Namespace)
-	return vmV1alpha4, nil
+	return vmV1alpha4, apiVersion, nil
 }
 func isKindNotFound(errMsg string) bool {
 	return strings.Contains(errMsg, "no matches for kind") || strings.Contains(errMsg, "no kind is registered")

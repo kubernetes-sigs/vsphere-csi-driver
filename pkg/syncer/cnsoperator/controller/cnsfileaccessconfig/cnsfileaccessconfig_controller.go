@@ -240,7 +240,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	backOffDurationMapMutex.Unlock()
 
 	// Get the virtualmachine instance
-	vm, err := getVirtualMachine(ctx, r.vmOperatorClient, instance.Spec.VMName, instance.Namespace)
+	vm, apiVersion, err := getVirtualMachine(ctx, r.vmOperatorClient, instance.Spec.VMName, instance.Namespace)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v",
 			instance.Spec.VMName, err)
@@ -370,7 +370,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	}
 	if !vmOwnerRefExists {
 		// Set ownerRef on CnsFileAccessConfig instance (in-memory) to VM instance.
-		setInstanceOwnerRef(instance, instance.Spec.VMName, vm.UID)
+		setInstanceOwnerRef(instance, instance.Spec.VMName, vm.UID, apiVersion)
 		err = updateCnsFileAccessConfig(ctx, r.client, instance)
 		if err != nil {
 			msg := fmt.Sprintf("failed to update CnsFileAccessConfig instance: %q on namespace: %q. Error: %+v",

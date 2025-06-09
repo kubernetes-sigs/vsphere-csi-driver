@@ -428,7 +428,7 @@ func getNodeTopologyInfoForGuest(ctx context.Context, instance *csinodetopologyv
 		Name:      instance.Name, // use the nodeName as the VM key
 	}
 	log.Info("fetching virtual machines with all versions")
-	virtualMachine, err := utils.GetVirtualMachineAllApiVersions(
+	virtualMachine, _, err := utils.GetVirtualMachineAllApiVersions(
 		ctx, vmKey, vmOperatorClient)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log,
