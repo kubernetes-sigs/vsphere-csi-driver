@@ -198,8 +198,8 @@ rules:
 - apiGroups: ["cns.vmware.com"]
   resources: ["cnsfileaccessconfigs"]
   verbs: ["get", "list", "watch", "create", "delete"]
-apiVersion: rbac.authorization.k8s.io/v1
 ---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   namespace: vmware-system-csi
