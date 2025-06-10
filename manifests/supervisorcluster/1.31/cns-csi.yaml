@@ -163,9 +163,6 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumes"]
     verbs: ["get", "list", "update", "delete"]
-  - apiGroups: ["cns.vmware.com"]
-    resources: ["cnsfileaccessconfigs"]
-    verbs: ["get", "list", "create", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -180,7 +177,29 @@ roleRef:
   name: vsphere-admin-csi-role
   apiGroup: rbac.authorization.k8s.io
 ---
+kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cnsfileaccessconfigs-view-role
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+rules:
+- apiGroups: ["cns.vmware.com"]
+  resources: ["cnsfileaccessconfigs"]
+  verbs: ["get", "list", "watch"]
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cnsfileaccessconfigs-admin
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+rules:
+- apiGroups: ["cns.vmware.com"]
+  resources: ["cnsfileaccessconfigs"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+apiVersion: rbac.authorization.k8s.io/v1
+---
 kind: Role
 metadata:
   namespace: vmware-system-csi
