@@ -4351,7 +4351,7 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 	}
 	if policy4kn {
 		deploymentSpec.Annotations = make(map[string]string)
-		deploymentSpec.Annotations[policy4knKey] = policy4knValue
+		deploymentSpec.Spec.Template.ObjectMeta.Annotations[policy4knKey] = policy4knValue
 	}
 	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
 	if err != nil {

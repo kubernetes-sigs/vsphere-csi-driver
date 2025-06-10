@@ -303,7 +303,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		ginkgo.By("vsphere-csi-controller pod should be rescheduled to other node")
 		newNodeList, newPodList := getControllerRuntimeDetails(client, controllerNamespace)
 		ginkgo.By(fmt.Sprintf("vsphere-csi-controller pod(s) %+v is running on node(s) %+v", newPodList, newNodeList))
-		gomega.Expect(len(newPodList) == 2).To(gomega.BeTrue(), "Number of vsphere-csi-controller pod running is not 2")
+		gomega.Expect(len(newPodList) == 3).To(gomega.BeTrue(), "Number of vsphere-csi-controller pod running is not 3")
 
 		// start the kubelet
 		sshCmd = "systemctl start kubelet"

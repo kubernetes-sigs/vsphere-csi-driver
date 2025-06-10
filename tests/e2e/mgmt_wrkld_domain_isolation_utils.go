@@ -94,9 +94,10 @@ func verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx context.Context, client
 		framework.Logf("Verifying PVC annotation and PV affinity rules for pod %s", pod.Name)
 
 		for _, volumespec := range pod.Spec.Volumes {
+			var pv *v1.PersistentVolume
 			if volumespec.PersistentVolumeClaim != nil {
 				svPvcName := volumespec.PersistentVolumeClaim.ClaimName
-				pv := getPvFromClaim(client, statefulset.Namespace, svPvcName)
+				pv = getPvFromClaim(client, pod.Namespace, svPvcName)
 
 				// Get SVC PVC
 				svcPVC, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, svPvcName, metav1.GetOptions{})

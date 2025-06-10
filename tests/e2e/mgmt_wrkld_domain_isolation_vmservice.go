@@ -176,7 +176,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		11. Perform cleanup: Delete VM, PVC and Namespace.
 	*/
 
-	ginkgo.It("Volume attachment to vm using zonal policy", ginkgo.Label(p0, wldi, vmServiceVm, vc90), func() {
+	ginkgo.It("VMVolume attachment to vm using zonal policy", ginkgo.Label(p0, wldi, vmServiceVm, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

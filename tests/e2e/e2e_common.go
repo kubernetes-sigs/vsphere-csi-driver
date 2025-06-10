@@ -368,7 +368,7 @@ var (
 
 // For busybox pod image
 var (
-	busyBoxImageOnGcr = "busybox"
+	busyBoxImageOnGcr = "registry.k8s.io/e2e-test-images/busybox:1.29-2"
 )
 
 // For VCP to CSI migration tests.

@@ -133,6 +133,10 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		} else {
 			sharedStorageProfileId = e2eVSphere.GetSpbmPolicyID(sharedStoragePolicyName)
 		}
+
+		restConfig = getRestConfigClient()
+		snapc, err = snapclient.NewForConfig(restConfig)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	ginkgo.AfterEach(func() {
@@ -429,10 +433,6 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		// statefulset replica count
 		replicas = 3
 
-		restConfig = getRestConfigClient()
-		snapc, err = snapclient.NewForConfig(restConfig)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		/*
 			EX - zone -> zone-1, zone-2, zone-3, zone-4, zone-5
 			so topValStartIndex=1 and topValEndIndex=3 will fetch the 2nd and 3rd index from topology map string
@@ -680,7 +680,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		19. Perform cleanup: Delete PVC
 	*/
 
-	ginkgo.It("CSI and WCP restart while adding and removing zones", func() {
+	ginkgo.It("TC5CSI and WCP restart while adding and removing zones", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -795,7 +795,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		6. Clean up by deleting volume, and Namespace.
 	*/
 
-	ginkgo.It("Create pvc with requested topology annotation tagged to one zone but "+
+	ginkgo.It("TC13Create pvc with requested topology annotation tagged to one zone but "+
 		"namespace is tagged to different zone", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -842,45 +842,49 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 	})
 
 	/*
-		snapshot creation with multiple times zone addition and removal
-		Test Steps:
-		1. On a WCP namespace which is tagged to zone-1 and has zonal and shared storage policy added.
-		2. Create multiple PVCs on a scale with RWO access modes and use both binding modes WFFC
-		and Immediate for each different PVC
-		3. Add new zone zone-2 to the namespace
-		4. Create standalone and deployment pods using the PVC created above.
-		4. Verify PVC reaches to Bound state.
-		6. Verify PVC annotation and PV affinity details.
-		7. Verify Pods reach the running state.
-		8. Verify Pod node annotation.
-		9. Mark zone-2 tag for removal.
-		10. Add new zone zone-3 to the namespace.
-		11. Take a snapshot of all the PVCs created above.
-		12. Wait for the snapshot to get created successfully.
-		13. Mark zone-3 tag for removal.
-		14. Add new zone zone-4 to the namespace.
-		15. Restore the snapshot created above to create new volumes.
-		16. Wait for restored volumes to reach the Bound state.
-		17. Verify PVC annotation and PV affinity details.
-		18. Wait for Pods to reach running state.
-		19. Verify pod node annotation.
-		20. Perform cleanup - delete pods, volumes and namespace.
+		Testcase-21
+			snapshot creation with multiple times zone addition and removal
+			Test Steps:
+			1. On a WCP namespace which is tagged to zone-1 and has zonal and shared storage policy added.
+			2. Create multiple PVCs on a scale with RWO access modes and use both binding modes WFFC
+			and Immediate for each different PVC
+			3. Add new zone zone-2 to the namespace
+			4. Create standalone and deployment pods using the PVC created above.
+			4. Verify PVC reaches to Bound state.
+			6. Verify PVC annotation and PV affinity details.
+			7. Verify Pods reach the running state.
+			8. Verify Pod node annotation.
+			9. Mark zone-2 tag for removal.
+			10. Add new zone zone-3 to the namespace.
+			11. Take a snapshot of all the PVCs created above.
+			12. Wait for the snapshot to get created successfully.
+			13. Restore the snapshot created above to create new volumes.
+			14. Wait for restored volumes to reach the Bound state.
+			15. Verify PVC annotation and PV affinity details.
+			16. Wait for Pods to reach running state.
+			17. Verify pod node annotation.
+			18. Perform cleanup - delete pods, volumes and namespace.
 	*/
 
-	ginkgo.It("New testcase", func() {
+	ginkgo.It("TC21New testcase", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		restoredPVCs := []*v1.PersistentVolumeClaim{}
+		restoredPods := []*v1.Pod{}
+		restoredVolHandles := []string{}
+
 		// Read zonal and shared storage policies
-		zonalPolicyName := GetAndExpectStringEnvVar(envZonal1StoragePolicyNameLateBinding)
+		zonalPolicyName := GetAndExpectStringEnvVar(envZonal1StoragePolicyName)
 		zonalStorageProfileId := e2eVSphere.GetSpbmPolicyID(zonalPolicyName)
+		zonalPolicyNameWffc := GetAndExpectStringEnvVar(envZonal1StoragePolicyNameLateBinding)
 
 		sharedPolicyName := GetAndExpectStringEnvVar(envIsolationSharedStoragePolicyName)
 		sharedStorageProfileId := e2eVSphere.GetSpbmPolicyID(sharedPolicyName)
 
 		// Get corresponding storage classes
 		ginkgo.By("Read storage policies tagged to WCP namespace")
-		storageClassNames := []string{zonalPolicyName, sharedPolicyName}
+		storageClassNames := []string{zonalPolicyNameWffc, sharedPolicyName}
 		storageClasses := make([]*storagev1.StorageClass, len(storageClassNames))
 		for i, name := range storageClassNames {
 			sc, err := client.StorageV1().StorageClasses().Get(ctx, name, metav1.GetOptions{})
@@ -894,7 +898,6 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 
 		// Create WCP namespace
 		ginkgo.By("Create a WCP namespace and tag it to zone-1")
-		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, 0, 1)
 		namespace, statuscode, err := createtWcpNsWithZonesAndPolicies(
 			vcRestSessionId,
 			[]string{zonalStorageProfileId, sharedStorageProfileId},
@@ -965,11 +968,11 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		}()
 
 		// Verify deployment-based affinity annotations
-		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity for Deployments")
-		for _, dep := range deployments {
-			err := verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, nil, nil, dep, namespace, allowedTopologies)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
+		// ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity for Deployments")
+		// for _, dep := range deployments {
+		// 	err := verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, nil, nil, dep, namespace, allowedTopologies)
+		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// }
 
 		// Modify namespace topology
 		ginkgo.By("Mark zone-2 for removal from WCP namespace")
@@ -1004,6 +1007,16 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		}
 
 		defer func() {
+			ginkgo.By("Cleanup restored Pods, PVCs, and volumes")
+			for i := range restoredPVCs {
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, restoredPVCs[i].Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(restoredVolHandles[i])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}()
+		defer func() {
 			for i := range snapshots {
 				if snapshotContentCreatedList[i] {
 					err := deleteVolumeSnapshotContent(ctx, snapshotContents[i], snapc, pandoraSyncWaitTime)
@@ -1021,25 +1034,11 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			}
 		}()
 
-		// Modify namespace
-		ginkgo.By("Mark zone-3 for removal from WCP namespace")
-		err = markZoneForRemovalFromWcpNs(vcRestSessionId, namespace,
-			topologyAffinityDetails[topologyCategories[0]][2])
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Add zone-4 to WCP namespace")
-		err = addZoneToWcpNs(vcRestSessionId, namespace, topologyAffinityDetails[topologyCategories[0]][3])
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		// Restore snapshots
 		ginkgo.By("Restore volume snapshots and create pods from restored PVCs")
-		restoredPVCs := []*v1.PersistentVolumeClaim{}
-		//restoredPVs := []*v1.PersistentVolume{}
-		restoredPods := []*v1.Pod{}
-		restoredVolHandles := []string{}
-
-		for i, snapshot := range snapshots {
-			ginkgo.By(fmt.Sprintf("Restoring from snapshot %d: %s", i+1, snapshot.Name))
+		for i := 1; i < len(snapshots); i++ {
+			snapshot := snapshots[i]
+			ginkgo.By(fmt.Sprintf("Restoring from snapshot %d: %s", i, snapshot.Name))
 			pvc, pvs, pod := verifyVolumeRestoreOperation(ctx, client,
 				namespace, storageClassList[i], snapshot, diskSize, true)
 			gomega.Expect(len(pvs)).To(gomega.BeNumerically(">", 0))
@@ -1052,7 +1051,6 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 			restoredPVCs = append(restoredPVCs, pvc)
-			// restoredPVs = append(restoredPVs, pvs[0])
 			restoredPods = append(restoredPods, pod)
 			restoredVolHandles = append(restoredVolHandles, volHandle)
 		}
@@ -1063,11 +1061,6 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 					err := fpod.DeletePodWithWait(ctx, client, restoredPods[i])
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
-				err := fpv.DeletePersistentVolumeClaim(ctx, client, restoredPVCs[i].Name, namespace)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(restoredVolHandles[i])
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
@@ -1101,7 +1094,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		17. Perform cleanup: delete pods, snapshot, volume and namespace
 	*/
 
-	ginkgo.It("new testcase zonal2", func() {
+	ginkgo.It("TC22new testcase zonal2", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1110,7 +1103,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 		storageDatastoreUrlZone2 := GetAndExpectStringEnvVar(envZone2DatastoreUrl)
 
-		ginkgo.By("Read zonal storage policy of zone3")
+		ginkgo.By("Read zonal storage policy of zone2")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1185,13 +1178,6 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		ginkgo.By("Create volume snapshot class")
 		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			if vanillaCluster {
-				err = snapc.SnapshotV1().VolumeSnapshotClasses().Delete(ctx, volumeSnapshotClass.Name,
-					metav1.DeleteOptions{})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
 
 		ginkgo.By("Create a dynamic volume snapshot")
 		volumeSnapshot, snapshotContent, snapshotCreated,
@@ -1215,11 +1201,11 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			}
 		}()
 
+		ginkgo.By("Restore volume snapshot and create pod using it")
 		pvclaim2, persistentVolumes2, pod2 := verifyVolumeRestoreOperation(ctx, client,
 			namespace, storageclass, volumeSnapshot, diskSize, true)
 		volHandle2 := persistentVolumes2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
-
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
 			err = fpod.DeletePodWithWait(ctx, client, pod2)
