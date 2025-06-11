@@ -274,25 +274,6 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 		}
 
-		IsWorkloadDomainIsolationSupported = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-			common.WorkloadDomainIsolation)
-		// If the capability for WorkloadDomainIsolation feature is enabled mid-flight,
-		// this code will update the CNS-CSI FSS in vmware-system-csi namespace to true.
-		if IsWorkloadDomainIsolationSupported {
-			log.Infof("Supervisor Capability: %q is enabled", common.WorkloadDomainIsolation)
-			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
-				log.Infof("Supervisor CNS-CSI FSS: %q is disabled", common.WorkloadDomainIsolationFSS)
-				err = commonco.ContainerOrchestratorUtility.EnableFSS(ctx, common.WorkloadDomainIsolationFSS)
-				if err != nil {
-					return logger.LogNewErrorf(log, "failed to enable CNS-CSI FSS %q, err: %+v",
-						common.WorkloadDomainIsolationFSS, err)
-				}
-				log.Infof("Successfully updated CNS-CSI FSS: %q to true", common.WorkloadDomainIsolationFSS)
-			} else {
-				log.Infof("Supervisor CNS-CSI FSS: %q is enabled", common.WorkloadDomainIsolationFSS)
-			}
-		}
-
 		// Check if finalizer is added on CnsFileVolumeClient CRs, if not then add a finalizer.
 		// We want to protect CnsFileVolumeClient from getting abruptly deleted, as it is being used
 		// in CnsFileAccessConfig CR. So, in case of upgrade we will add finalizer if it is missing.
@@ -302,90 +283,18 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			return err
 		}
 
-		parseBool := func(CfgMap *v1.ConfigMap, featureName string, namespace string) bool {
-			var fssVal bool
-			if state, ok := CfgMap.Data[featureName]; ok {
-				fssVal, err = strconv.ParseBool(state)
-				if err != nil {
-					log.Errorf("failed while converting %s FSS with value: %+v "+
-						"to boolean in %q configmap in %q namespace. Killing the container...",
-						featureName, fssVal, CfgMap.Name, namespace)
-					os.Exit(1)
-				}
-			}
-			return fssVal
-		}
+		// Currently we are checking if capability workload-domain-isolation is enabled or not.
+		// If it is not enabled, then we are checking its value in capabilities CR after every 2 mins
+		// and once it gets enabled, we restart the CSI syncer container on supervisor.
+		// NOTE: We can add other capabilities here when similar functionality is required. For
+		// workload-domain-isolation feature we are restarting the container when capability changes
+		// dynamically from false to true, but for other features instead of restarting CSI container,
+		// if possible we can implement some init() function which can initialize required things when
+		// capability value changes from false to true.
+		IsWorkloadDomainIsolationSupported = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.WorkloadDomainIsolation)
 		if !IsWorkloadDomainIsolationSupported {
-			// If the WCP capability for WorkloadDomainIsolation feature is disabled,
-			// start an informer to know when the capability is enabled and restart the container.
-			err = k8s.NewConfigMapListener(
-				ctx,
-				k8sClient,
-				common.KubeSystemNamespace,
-				// Add.
-				nil,
-				// Update.
-				func(oldObj interface{}, newObj interface{}) {
-					_, log := logger.GetNewContextWithLogger()
-					oldFssConfigMap, ok := oldObj.(*v1.ConfigMap)
-					if oldFssConfigMap == nil || !ok {
-						log.Warnf("configMapUpdated: unrecognized old object %+v", oldObj)
-						return
-					}
-					newFssConfigMap, ok := newObj.(*v1.ConfigMap)
-					if newFssConfigMap == nil || !ok {
-						log.Warnf("configMapUpdated: unrecognized new object %+v", newObj)
-						return
-					}
-					if oldFssConfigMap.Name == common.WCPCapabilityConfigMapName {
-						log.Infof("Observed a change in WCP capabilities...")
-						oldFSSValue := parseBool(oldFssConfigMap, common.WorkloadDomainIsolation,
-							common.KubeSystemNamespace)
-						newFSSValue := parseBool(newFssConfigMap, common.WorkloadDomainIsolation,
-							common.KubeSystemNamespace)
-						if !oldFSSValue && newFSSValue {
-							log.Infof("%s capability is enabled in %s configmap in %s namespace. "+
-								"Restarting the container as capabilities have changed.",
-								common.WorkloadDomainIsolation, common.WCPCapabilityConfigMapName,
-								common.KubeSystemNamespace)
-							os.Exit(1)
-						}
-					}
-				},
-				// Delete.
-				nil)
-			if err != nil {
-				return logger.LogNewErrorf(log, "failed to listen on configmaps in namespace %q. Error: %v",
-					common.KubeSystemNamespace, err)
-			}
-
-			// In case the informer above missed the update event where WCP capability for
-			// WorkloadDomainIsolation feature is turned on, we will check the WCP capability configmap
-			// every 2mins to check if there is a change and restart the container if it is enabled.
-			go func() {
-				ticker := time.NewTicker(time.Duration(2) * time.Minute)
-				defer ticker.Stop()
-
-				for range ticker.C {
-					wcpCapMap, err := k8sClient.CoreV1().ConfigMaps(common.KubeSystemNamespace).Get(ctx,
-						common.WCPCapabilityConfigMapName, metav1.GetOptions{})
-					if err != nil {
-						log.Errorf("failed to fetch configmap %s in namespace %s. Error: %+v",
-							common.WCPCapabilityConfigMapName, common.KubeSystemNamespace)
-						os.Exit(1)
-					}
-					fssVal := parseBool(wcpCapMap, common.WorkloadDomainIsolation,
-						common.KubeSystemNamespace)
-					if fssVal {
-						log.Infof("%s capability is enabled in %s configmap in %s namespace. "+
-							"Restarting the container as capabilities have changed.",
-							common.WorkloadDomainIsolation, common.WCPCapabilityConfigMapName,
-							common.KubeSystemNamespace)
-						os.Exit(1)
-					}
-
-				}
-			}()
+			go k8sorchestrator.HandleEnablementOfWLDICapability(ctx, clusterFlavor, "", "")
 		}
 		if IsWorkloadDomainIsolationSupported {
 			volumeTopologyService, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
@@ -398,38 +307,19 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		// Check the replicated FSS Configmap every 2 minutes
-		// When workload-domain-isolation FSS is enabled in csi-feature-states config-map, restart the container
-		if commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) &&
-			!commonco.ContainerOrchestratorUtility.IsCNSCSIFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
-			go func() {
-				ticker := time.NewTicker(time.Duration(2) * time.Minute)
-				defer ticker.Stop()
-				for range ticker.C {
-					csifeaturestatesconfigmap, err := k8sClient.CoreV1().ConfigMaps(cnsconfig.DefaultCSINamespace).
-						Get(ctx, cnsconfig.DefaultSupervisorFSSConfigMapName, metav1.GetOptions{})
-					if err != nil {
-						log.Errorf("failed to get configmap %q from namespace %q. Error: %v",
-							cnsconfig.DefaultSupervisorFSSConfigMapName, cnsconfig.DefaultCSINamespace, err)
-						os.Exit(1)
-					}
-					fssVal, found := csifeaturestatesconfigmap.Data[common.WorkloadDomainIsolationFSS]
-					if found {
-						fssValBool, err := strconv.ParseBool(fssVal)
-						if err != nil {
-							log.Errorf("failed to parse fss value: %q for fss: %q",
-								fssVal, common.WorkloadDomainIsolationFSS)
-							os.Exit(1)
-						}
-						if fssValBool {
-							log.Infof("Detected Enablement of FSS: %q. Restarting Container.", common.WorkloadDomainIsolationFSS)
-							os.Exit(1)
-						}
-					}
-				}
-			}()
+		// If workload-domain-isolation FSS is not enabled on guest cluster, then check the capabilities CR in
+		// supervisor cluster every 2 mins to check if there is a change in Workload_Domain_Isolation_Supported
+		// capability value from false to true. If so, restart the CSI controller container on guest.
+		// NOTE: We can add other capabilities here when similar functionality is required. For
+		// workload-isolation-domain feature we are restarting the container when capability changes dynamically from
+		// false to true, but for other features instead of restarting CSI container, if possible we can implement
+		// some init() function which can initialize required things when capability value changes from false to true.
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
+			go k8sorchestrator.HandleEnablementOfWLDICapability(ctx, clusterFlavor,
+				metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
 		}
 	}
+
 	// Initialize cnsDeletionMap used by Full Sync.
 	cnsDeletionMap = make(map[string]map[string]bool)
 	// Initialize cnsCreationMap used by Full Sync.

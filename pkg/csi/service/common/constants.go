@@ -345,8 +345,8 @@ const (
 	// KubeSystemNamespace is the namespace for system resources.
 	KubeSystemNamespace = "kube-system"
 
-	// WCPCapabilityConfigMapName is the name of the configmap where WCP component's FSS values are stored.
-	WCPCapabilityConfigMapName = "wcp-cluster-capabilities"
+	// WCPCapabilitiesCRName is the name of the CR where WCP component's capabilities are stored
+	WCPCapabilitiesCRName = "supervisor-capabilities"
 )
 
 // Supported container orchestrators.
@@ -453,4 +453,12 @@ var WCPFeatureStates = map[string]struct{}{
 // it will re-fetch the configmap and update the cached configmap.
 var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	WorkloadDomainIsolation: {},
+}
+
+// WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
+// supervisor cluster. Add entry in this map only for PVCSI feature for which there is any associated Capability
+// on supervisor cluster. If PVCSI feature is enabled, then we need to check if associated Capability is enabled
+// or not on the supervisor cluster to decide if effective value of this FSS is enabled or disabled.
+var WCPFeatureStateAssociatedWithPVCSI = map[string]string{
+	WorkloadDomainIsolationFSS: WorkloadDomainIsolation,
 }
