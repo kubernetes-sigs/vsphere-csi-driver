@@ -968,11 +968,11 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		}()
 
 		// Verify deployment-based affinity annotations
-		// ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity for Deployments")
-		// for _, dep := range deployments {
-		// 	err := verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, nil, nil, dep, namespace, allowedTopologies)
-		// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// }
+		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity for Deployments")
+		for _, dep := range deployments {
+			err := verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, nil, nil, dep, namespace, allowedTopologies)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		// Modify namespace topology
 		ginkgo.By("Mark zone-2 for removal from WCP namespace")
@@ -1132,17 +1132,13 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		}()
 
 		ginkgo.By("Create static volume")
-		fcdID, defaultDatastore, staticPvc, staticPv, err := createStaticVolumeOnSvc(ctx, client,
+		_, _, staticPvc, staticPv, err := createStaticVolumeOnSvc(ctx, client,
 			namespace, storageDatastoreUrlZone2, storagePolicyName)
 		defer func() {
 			ginkgo.By("Delete PVC")
 			err = fpv.DeletePersistentVolumeClaim(ctx, client, staticPvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(staticPv.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			ginkgo.By("Delete FCD")
-			err = e2eVSphere.deleteFCD(ctx, fcdID, defaultDatastore.Reference())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -1165,10 +1161,6 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		writeDataOnFileFromPod(namespace, podList.Items[0].Name, filePathPod1, "Hello message from test into Pod1")
 		output = readFileFromPod(namespace, podList.Items[0].Name, filePathPod1)
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
-
-		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		output2 := readFileFromPod(namespace, podList.Items[0].Name, filePathPod1)
-		gomega.Expect(strings.Contains(output2, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
 		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, nil, nil, dep, namespace,
