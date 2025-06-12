@@ -256,6 +256,8 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
+	log.Debugf("Proceeding with unregistration of volume %q", instance.Spec.VolumeID)
+
 	if pvName != "" {
 		//Change PV ReclaimPolicy to retain so that underlying FCD doesn't get deleted when deleting PV,PVC
 		pv, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
