@@ -91,11 +91,6 @@ func CreateBlockVolumeUtil(
 		}
 	}
 
-	username, err := vc.GetActiveUser(ctx)
-	if err != nil {
-		return nil, csifault.CSIInternalFault, err
-	}
-
 	if opts.FilterSuspendedDatastores {
 		sharedDatastores, err = vsphere.FilterSuspendedDatastores(ctx, sharedDatastores)
 		if err != nil {
@@ -223,7 +218,7 @@ func CreateBlockVolumeUtil(
 		clusterID = manager.CnsConfig.Global.SupervisorID
 	}
 	containerCluster := vsphere.GetContainerCluster(clusterID,
-		username, clusterFlavor,
+		manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
 		manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
@@ -406,15 +401,10 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 		datastores = append(datastores, ds.Reference())
 	}
 
-	username, err := params.Vcenter.GetActiveUser(ctx)
-	if err != nil {
-		return nil, csifault.CSIInternalFault, err
-	}
-
 	var containerClusterArray []cnstypes.CnsContainerCluster
 	clusterID := params.CNSConfig.Global.ClusterID
 	containerCluster := vsphere.GetContainerCluster(clusterID,
-		username, params.ClusterFlavor,
+		params.CNSConfig.VirtualCenter[params.Vcenter.Config.Host].User, params.ClusterFlavor,
 		params.CNSConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
@@ -517,11 +507,6 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		}
 	}
 
-	username, err := vc.GetActiveUser(ctx)
-	if err != nil {
-		return nil, csifault.CSIInternalFault, err
-	}
-
 	if filterSuspendedDatastores {
 		datastores, err = vsphere.FilterSuspendedDatastores(ctx, datastores)
 		if err != nil {
@@ -580,7 +565,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
 	containerCluster := vsphere.GetContainerCluster(clusterID,
-		username, clusterFlavor,
+		cnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
 		cnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
