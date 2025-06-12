@@ -873,6 +873,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		restoredPVCs := []*v1.PersistentVolumeClaim{}
 		restoredPods := []*v1.Pod{}
 		restoredVolHandles := []string{}
+		pvs := []*v1.PersistentVolume{}
 
 		// Read zonal and shared storage policies
 		zonalPolicyName := GetAndExpectStringEnvVar(envZonal1StoragePolicyName)
@@ -946,15 +947,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 				err := client.AppsV1().Deployments(namespace).Delete(ctx, dep.Name, metav1.DeleteOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
-		}()
 
-		// Wait for PVCs to bind
-		ginkgo.By("Wait for PVCs to be in bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcList, pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
-
-		defer func() {
 			ginkgo.By("Delete PVCs")
 			for _, pvc := range pvcList {
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
@@ -966,6 +959,12 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
+
+		// Wait for PVCs to bind
+		ginkgo.By("Wait for PVCs to be in bound state")
+		pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvcList, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
 
 		// Verify deployment-based affinity annotations
 		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity for Deployments")
@@ -1007,21 +1006,8 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		}
 
 		defer func() {
-			ginkgo.By("Cleanup restored Pods, PVCs, and volumes")
-			for i := range restoredPVCs {
-				err := fpv.DeletePersistentVolumeClaim(ctx, client, restoredPVCs[i].Name, namespace)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(restoredVolHandles[i])
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
-		defer func() {
+			ginkgo.By("Cleanup snapshots and restored pvcs")
 			for i := range snapshots {
-				if snapshotContentCreatedList[i] {
-					err := deleteVolumeSnapshotContent(ctx, snapshotContents[i], snapc, pandoraSyncWaitTime)
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				}
 				if snapshotCreatedList[i] {
 					framework.Logf("Deleting volume snapshot %s", snapshots[i].Name)
 					deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, snapshots[i].Name, pandoraSyncWaitTime)
@@ -1031,6 +1017,18 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 						ctx, snapc, *snapshots[i].Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
+				if snapshotContentCreatedList[i] {
+					err := deleteVolumeSnapshotContent(ctx, snapshotContents[i], snapc, pandoraSyncWaitTime)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}
+
+			for i := range restoredPVCs {
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, restoredPVCs[i].Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(restoredVolHandles[i])
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
@@ -1055,7 +1053,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			restoredVolHandles = append(restoredVolHandles, volHandle)
 		}
 		defer func() {
-			ginkgo.By("Cleanup restored Pods, PVCs, and volumes")
+			ginkgo.By("Cleanup restored Pods")
 			for i := range restoredPVCs {
 				if restoredPods[i] != nil {
 					err := fpod.DeletePodWithWait(ctx, client, restoredPods[i])
