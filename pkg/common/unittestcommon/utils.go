@@ -34,8 +34,6 @@ import (
 
 	cnssim "github.com/vmware/govmomi/cns/simulator"
 	pbmsim "github.com/vmware/govmomi/pbm/simulator"
-	_ "github.com/vmware/govmomi/vapi/simulator"
-
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -419,7 +417,6 @@ func configFromVCSimWithTLS(tlsConfig *tls.Config, vcsimParams VcsimParams, inse
 	if err != nil {
 		log.Fatal(err)
 	}
-	model.Service.RegisterEndpoints = true
 
 	model.Service.TLS = tlsConfig
 	s := model.Service.NewServer()
