@@ -183,6 +183,26 @@ func checkPvcTopologyAnnotationOnSvc(svcPVC *v1.PersistentVolumeClaim,
 				}
 			}
 		}
+	} else if requestedTopoString, y := annotationsMap[tkgHARequestedAnnotationKey]; y {
+		// When PVC created with requested topology annotation,
+		// check for required topology values.
+		availabilityTopo := strings.Split(requestedTopoString, ",")
+		for _, avlTopo := range availabilityTopo {
+			requestedTopology := strings.Split(avlTopo, ":")
+			topoKey := strings.Split(requestedTopology[0], "{")[1]
+			topoVal := strings.Split(requestedTopology[1], "}")[0]
+			category := strings.SplitAfter(topoKey, "/")[1]
+			categoryKey := strings.Split(category, `"`)[0]
+			if isValuePresentInTheList(categories, categoryKey) {
+				if isValuePresentInTheList(allowedTopologies[topoKey], topoVal) {
+					return fmt.Errorf("couldn't find allowed accessible topology: %v on svc pvc: %s"+
+						"instead found: %v", allowedTopologies[topoKey], svcPVC.Name, topoVal)
+				}
+			} else {
+				return fmt.Errorf("couldn't find key: %s on allowed categories %v",
+					category, categories)
+			}
+		}
 	} else {
 		return fmt.Errorf("couldn't find annotation key: %s on svc pvc: %s",
 			tkgHAccessibleAnnotationKey, svcPVC.Name)
