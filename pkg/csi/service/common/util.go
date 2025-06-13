@@ -214,7 +214,7 @@ func validateVolumeCapabilities(volCaps []*csi.VolumeCapability,
 // based on volume type.
 func IsValidVolumeCapabilities(ctx context.Context, volCaps []*csi.VolumeCapability) error {
 	if IsFileVolumeRequest(ctx, volCaps) {
-		return validateVolumeCapabilities(volCaps, FileVolumeCaps, FileVolumeType)
+		return validateVolumeCapabilities(volCaps, MultiNodeVolumeCaps, FileVolumeType)
 	}
 	return validateVolumeCapabilities(volCaps, BlockVolumeCaps, BlockVolumeType)
 }

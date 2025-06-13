@@ -56,8 +56,8 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 		}
 		oldReq := oldPVC.Spec.Resources.Requests[corev1.ResourceStorage]
 
-		if !isRWOVolumeRequest(oldPVC.Spec.AccessModes) {
-			log.Info("the access mode of PVC is not ReadWriteOnce. skipping validation.")
+		if isFileVolume(oldPVC.Spec.AccessModes, *oldPVC.Spec.VolumeMode) {
+			log.Info("PVC is a file volume. skipping validation.")
 			return &admissionv1.AdmissionResponse{
 				// skip validation if the pvc is not RWO
 				Allowed: true,
@@ -155,15 +155,6 @@ func getPVReclaimPolicyForPVC(ctx context.Context, pvc corev1.PersistentVolumeCl
 	}
 
 	return pv.Spec.PersistentVolumeReclaimPolicy, nil
-}
-
-func isRWOVolumeRequest(accessModes []corev1.PersistentVolumeAccessMode) bool {
-	for _, accessMode := range accessModes {
-		if accessMode != corev1.ReadWriteOnce {
-			return false
-		}
-	}
-	return true
 }
 
 func getSnapshotsForPVC(ctx context.Context, ns string, name string) ([]snapshotv1.VolumeSnapshot, error) {

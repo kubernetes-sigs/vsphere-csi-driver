@@ -311,9 +311,9 @@ func isValidvSphereVolume(ctx context.Context, pv *v1.PersistentVolume) bool {
 	return false
 }
 
-// IsMultiAttachAllowed helps check accessModes on the PV and return true if
-// volume can be attached to multiple nodes.
-func IsMultiAttachAllowed(pv *v1.PersistentVolume) bool {
+// IsFileVolume returns true for PVs that have accessMode as RWX or ROM
+// and volumeMode as FileSystem.
+func IsFileVolume(pv *v1.PersistentVolume) bool {
 	if pv == nil {
 		return false
 	}
@@ -322,7 +322,13 @@ func IsMultiAttachAllowed(pv *v1.PersistentVolume) bool {
 	}
 	for _, accessMode := range pv.Spec.AccessModes {
 		if accessMode == v1.ReadWriteMany || accessMode == v1.ReadOnlyMany {
-			return true
+			if isSharedDiskEabled {
+				if *pv.Spec.VolumeMode != v1.PersistentVolumeBlock {
+					return true
+				}
+			} else {
+				return true
+			}
 		}
 	}
 	return false
@@ -610,7 +616,7 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 		}
 
 		// Check if the PV is a file share volume.
-		if IsMultiAttachAllowed(pv) {
+		if IsFileVolume(pv) {
 			isTopologyAwareFileVolumeEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
 				common.TopologyAwareFileVolume)
 			if !isTopologyAwareFileVolumeEnabled {
@@ -640,7 +646,7 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 
 	if len(leftOutPvs) != 0 {
 		for _, volume := range leftOutPvs {
-			if !IsMultiAttachAllowed(volume) {
+			if !IsFileVolume(volume) {
 				// Try to locate the VC for all the left out PVs from their nodeAffinity rules.
 				topologySegments := getTopologySegmentsFromNodeAffinityRules(ctx, volume)
 				vCenter, err := getVcHostFromTopologySegments(ctx, topologySegments, volume.Name)
@@ -795,7 +801,7 @@ func createMissingFileVolumeInfoCrs(ctx context.Context, metadataSyncer *metadat
 			return
 		}
 		// Check if the PV is a file volume.
-		if IsMultiAttachAllowed(pv) {
+		if IsFileVolume(pv) {
 			fileVolumes = append(fileVolumes, pv)
 		}
 	}
