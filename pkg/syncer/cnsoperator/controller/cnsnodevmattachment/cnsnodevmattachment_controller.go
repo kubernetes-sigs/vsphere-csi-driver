@@ -184,15 +184,25 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
 	start := time.Now()
 	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
+	reconcileLog := logger.GetLogger(ctx)
+	reconcileLog.Infof("Received Reconcile for request: %q", request.NamespacedName)
+	// Start a goroutine to listen for context cancellation
+	go func() {
+		<-ctx.Done()
+		reconcileLog.Infof("context canceled for reconcile for CnsNodeVMAttachment request: %q, error: %v",
+			request.NamespacedName, ctx.Err())
+	}()
 	volumeType := prometheus.PrometheusBlockVolumeType
 	var volumeOpType string
-	reconcileCnsNodeVMAttachmentInternal := func() (
+	reconcileCnsNodeVMAttachmentInternal := func(internalCtx context.Context) (
 		reconcile.Result, string, error) {
+		internalCtx = logger.NewContextWithLogger(internalCtx)
+		log := logger.GetLogger(internalCtx)
+		log.Infof("Started Reconcile for CnsNodeVMAttachment request: %q", request.NamespacedName)
 		// Fetch the CnsNodeVmAttachment instance
 		instance := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}
 		volumeOpType = prometheus.PrometheusAttachVolumeOpType
-		err := r.client.Get(ctx, request.NamespacedName, instance)
+		err := r.client.Get(internalCtx, request.NamespacedName, instance)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				log.Info("CnsNodeVmAttachment resource not found. Ignoring since object must be deleted.")
@@ -207,13 +217,13 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		// Initialize backOffDuration for the instance, if required.
 		backOffDurationMapMutex.Lock()
 		var timeout time.Duration
-		if _, exists := backOffDuration[instance.Name]; !exists {
-			backOffDuration[instance.Name] = time.Second
+		if _, exists := backOffDuration[instance.Namespace+"/"+instance.Name]; !exists {
+			backOffDuration[instance.Namespace+"/"+instance.Name] = time.Second
 		}
-		timeout = backOffDuration[instance.Name]
+		timeout = backOffDuration[instance.Namespace+"/"+instance.Name]
 		backOffDurationMapMutex.Unlock()
-		log.Infof("Reconciling CnsNodeVmAttachment with Request.Name: %q instance %q timeout %q seconds",
-			request.Name, instance.Name, timeout)
+		log.Infof("Reconciling CnsNodeVmAttachment with Request.Name: %q Namespace %q timeout %q seconds",
+			request.Name, request.Namespace, timeout)
 
 		// If the CnsNodeVMAttachment instance is already attached and
 		// not deleted by the user, remove the instance from the queue.
@@ -223,11 +233,12 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			// the attachment object was created with an older CSI. Hence we add the
 			// CNS PVC protection finalizer on the SV PVC in the current reconciliation loop.
 			pvc := &v1.PersistentVolumeClaim{}
-			err = r.client.Get(ctx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName, Namespace: instance.Namespace}, pvc)
+			err = r.client.Get(internalCtx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName,
+				Namespace: instance.Namespace}, pvc)
 			if err != nil {
 				msg := fmt.Sprintf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
 					instance.Spec.VolumeName, instance.Namespace, err)
-				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
 			}
 			cnsPvcFinalizerExists := false
@@ -241,23 +252,23 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				}
 			}
 			if !cnsPvcFinalizerExists {
-				faulttype, err := addFinalizerToPVC(ctx, r.client, pvc)
+				faulttype, err := addFinalizerToPVC(internalCtx, r.client, pvc)
 				if err != nil {
 					msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 						cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
 					instance.Status.Error = err.Error()
-					err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+					err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
 					if err != nil {
 						log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 					}
-					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+					recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 					return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 				}
 			}
 			log.Infof("CnsNodeVmAttachment instance %q status is already attached. Removing from the queue.", instance.Name)
 			// Cleanup instance entry from backOffDuration map.
 			backOffDurationMapMutex.Lock()
-			delete(backOffDuration, instance.Name)
+			delete(backOffDuration, instance.Namespace+"/"+instance.Name)
 			backOffDurationMapMutex.Unlock()
 			return reconcile.Result{}, "", nil
 		}
@@ -267,11 +278,11 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			msg := fmt.Sprintf("failed to find datacenter moref from config for CnsNodeVmAttachment "+
 				"request with name: %q on namespace: %q. Err: %+v", request.Name, request.Namespace, err)
 			instance.Status.Error = err.Error()
-			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
 			if err != nil {
 				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 			}
-			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+			recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, csifault.CSIDatacenterNotFoundFault, nil
 		}
 		var host, dcMoref string
@@ -281,26 +292,26 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		}
 		// Get node VM by nodeUUID.
 		var dc *cnsvsphere.Datacenter
-		vcenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, r.configInfo, false)
+		vcenter, err := cnsvsphere.GetVirtualCenterInstance(internalCtx, r.configInfo, false)
 		if err != nil {
 			msg := fmt.Sprintf("failed to get virtual center instance with error: %v", err)
 			instance.Status.Error = err.Error()
-			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
 			if err != nil {
 				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 			}
-			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+			recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, csifault.CSIVCenterNotFoundFault, nil
 		}
-		err = vcenter.Connect(ctx)
+		err = vcenter.Connect(internalCtx)
 		if err != nil {
 			msg := fmt.Sprintf("failed to connect to VC with error: %v", err)
 			instance.Status.Error = err.Error()
-			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
 			if err != nil {
 				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 			}
-			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+			recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
 		}
 		dc = &cnsvsphere.Datacenter{
@@ -313,30 +324,30 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		}
 		nodeUUID := instance.Spec.NodeUUID
 		if !instance.Status.Attached && instance.DeletionTimestamp == nil {
-			nodeVM, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
+			nodeVM, err := dc.GetVirtualMachineByUUID(internalCtx, nodeUUID, false)
 			if err != nil {
 				msg := fmt.Sprintf("failed to find the VM with UUID: %q for CnsNodeVmAttachment "+
 					"request with name: %q on namespace: %q. Err: %+v",
 					nodeUUID, request.Name, request.Namespace, err)
 				instance.Status.Error = fmt.Sprintf("Failed to find the VM with UUID: %q", nodeUUID)
-				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+				err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
 				if err != nil {
 					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 				}
-				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIVmNotFoundFault, nil
 			}
-			volumeID, faulttype, err := getVolumeID(ctx, r.client, instance.Spec.VolumeName, instance.Namespace)
+			volumeID, faulttype, err := getVolumeID(internalCtx, r.client, instance.Spec.VolumeName, instance.Namespace)
 			if err != nil {
 				msg := fmt.Sprintf("failed to get volumeID from volumeName: %q for CnsNodeVmAttachment "+
 					"request with name: %q on namespace: %q. Error: %+v",
 					instance.Spec.VolumeName, request.Name, request.Namespace, err)
 				instance.Status.Error = err.Error()
-				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+				err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
 				if err != nil {
 					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 				}
-				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 			}
 			cnsFinalizerExists := false
@@ -366,11 +377,11 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				attachmentMetadata := make(map[string]string)
 				attachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeID] = volumeID
 				instance.Status.AttachmentMetadata = attachmentMetadata
-				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+				err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
 				if err != nil {
 					msg := fmt.Sprintf("failed to update CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
 						request.Name, request.Namespace, err)
-					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+					recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
 				}
 			}
@@ -378,7 +389,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			log.Infof("vSphere CSI driver is attaching volume: %q to nodevm: %+v for "+
 				"CnsNodeVmAttachment request with name: %q on namespace: %q",
 				volumeID, nodeVM, request.Name, request.Namespace)
-			diskUUID, faulttype, attachErr := r.volumeManager.AttachVolume(ctx, nodeVM, volumeID, false)
+			diskUUID, faulttype, attachErr := r.volumeManager.AttachVolume(internalCtx, nodeVM, volumeID, false)
 
 			if attachErr != nil {
 				log.Errorf("failed to attach disk: %q to nodevm: %+v for CnsNodeVmAttachment "+
@@ -389,22 +400,23 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			if !cnsFinalizerExists {
 				// Read the CnsNodeVMAttachment instance again because the instance
 				// is already modified.
-				err = r.client.Get(ctx, request.NamespacedName, instance)
+				err = r.client.Get(internalCtx, request.NamespacedName, instance)
 				if err != nil {
 					msg := fmt.Sprintf("Error reading the CnsNodeVmAttachment with name: %q on namespace: %q. Err: %+v",
 						request.Name, request.Namespace, err)
 					// Error reading the object - requeue the request.
-					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+					recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
 				}
 			}
 
 			pvc := &v1.PersistentVolumeClaim{}
-			err = r.client.Get(ctx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName, Namespace: instance.Namespace}, pvc)
+			err = r.client.Get(internalCtx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName,
+				Namespace: instance.Namespace}, pvc)
 			if err != nil {
 				msg := fmt.Sprintf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
 					instance.Spec.VolumeName, instance.Namespace, err)
-				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
 			}
 			cnsPvcFinalizerExists := false
@@ -416,16 +428,16 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				}
 			}
 			if !cnsPvcFinalizerExists {
-				faulttype, err = addFinalizerToPVC(ctx, r.client, pvc)
+				faulttype, err = addFinalizerToPVC(internalCtx, r.client, pvc)
 				if err != nil {
 					msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 						cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
 					instance.Status.Error = err.Error()
-					err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+					err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
 					if err != nil {
 						log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 					}
-					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+					recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
 				}
 			}
@@ -441,23 +453,23 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				instance.Status.Error = ""
 			}
 
-			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
 			if err != nil {
 				msg := fmt.Sprintf("failed to update attach status on CnsNodeVmAttachment "+
 					"instance: %q on namespace: %q. Error: %+v",
 					request.Name, request.Namespace, err)
-				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
 			}
 
 			if attachErr != nil {
-				recordEvent(ctx, r, instance, v1.EventTypeWarning, "")
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, "")
 				return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 			}
 
 			msg := fmt.Sprintf("ReconcileCnsNodeVMAttachment: Successfully updated entry in CNS for instance "+
 				"with name %q and namespace %q.", request.Name, request.Namespace)
-			recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
+			recordEvent(internalCtx, r, instance, v1.EventTypeNormal, msg)
 			// Cleanup instance entry from backOffDuration map.
 			backOffDurationMapMutex.Lock()
 			delete(backOffDuration, instance.Name)
@@ -468,19 +480,20 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		if instance.DeletionTimestamp != nil {
 			pvc := &v1.PersistentVolumeClaim{}
 			var pvcDeleted bool
-			err = r.client.Get(ctx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName, Namespace: instance.Namespace}, pvc)
+			err = r.client.Get(internalCtx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName,
+				Namespace: instance.Namespace}, pvc)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					pvcDeleted = true
 				} else {
 					msg := fmt.Sprintf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
 						instance.Spec.VolumeName, instance.Namespace, err)
-					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+					recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
 				}
 			}
 			volumeOpType = prometheus.PrometheusDetachVolumeOpType
-			nodeVM, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
+			nodeVM, err := dc.GetVirtualMachineByUUID(internalCtx, nodeUUID, false)
 			if err != nil {
 				msg := fmt.Sprintf("failed to find the VM on VC with UUID: %s for "+
 					"CnsNodeVmAttachment request with name: %q on namespace: %s. Err: %+v",
@@ -490,18 +503,18 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					msg := fmt.Sprintf("VM on VC with UUID: %s not found when processing "+
 						"CnsNodeVmAttachment request with name: %q on namespace: %q",
 						nodeUUID, request.Name, request.Namespace)
-					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+					recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIFindVmByUUIDFault, nil
 				}
 				// Now that VM on VC is not found, check VirtualMachine CRD instance exists.
 				// This check is needed in scenarios where VC inventory is stale due
 				// to upgrade or back-up and restore.
-				vmInstance, err := isVmCrPresent(ctx, r.vmOperatorClient, nodeUUID,
+				vmInstance, err := isVmCrPresent(internalCtx, r.vmOperatorClient, nodeUUID,
 					request.Namespace)
 				if err != nil {
 					msg = fmt.Sprintf("failed to verify is VM CR is present with UUID: %s "+
 						"in namespace: %s", nodeUUID, request.Namespace)
-					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+					recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
 				}
 				if vmInstance == nil {
@@ -526,26 +539,26 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 						msg = fmt.Sprintf("VM on VC not found but VM CR with UUID: %s "+
 							"is still present in namespace: %s. Retrying the operation since "+
 							"VM CR is not being deleted.", nodeUUID, request.Namespace)
-						recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+						recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 						return reconcile.Result{RequeueAfter: timeout}, csifault.CSIVmNotFoundFault, nil
 					}
 				}
 				var faulttype string
 				if !pvcDeleted {
-					faulttype, err = removeFinalizerFromPVC(ctx, r.client, pvc)
+					faulttype, err = removeFinalizerFromPVC(internalCtx, r.client, pvc)
 					if err != nil {
 						msg := fmt.Sprintf("failed to remove %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 							cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
-						recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+						recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 						return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 					}
 				}
-				removeFinalizerFromCRDInstance(ctx, instance, request)
-				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+				removeFinalizerFromCRDInstance(internalCtx, instance, request)
+				err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
 				if err != nil {
 					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 				}
-				recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
+				recordEvent(internalCtx, r, instance, v1.EventTypeNormal, msg)
 				return reconcile.Result{}, faulttype, nil
 			}
 			var cnsVolumeID string
@@ -554,31 +567,31 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				log.Debugf("CnsNodeVmAttachment does not have CNS volume ID. AttachmentMetadata: %+v",
 					instance.Status.AttachmentMetadata)
 				msg := "CnsNodeVmAttachment does not have CNS volume ID."
-				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
 			}
 			log.Infof("vSphere CSI driver is detaching volume: %q to nodevm: %+v for "+
 				"CnsNodeVmAttachment request with name: %q on namespace: %q",
 				cnsVolumeID, nodeVM, request.Name, request.Namespace)
-			faulttype, detachErr := r.volumeManager.DetachVolume(ctx, nodeVM, cnsVolumeID)
+			faulttype, detachErr := r.volumeManager.DetachVolume(internalCtx, nodeVM, cnsVolumeID)
 			if detachErr != nil {
 				if cnsvsphere.IsManagedObjectNotFound(detachErr, nodeVM.VirtualMachine.Reference()) {
 					msg := fmt.Sprintf("Found a managed object not found fault for vm: %+v", nodeVM)
 					if !pvcDeleted {
-						faulttype, err = removeFinalizerFromPVC(ctx, r.client, pvc)
+						faulttype, err = removeFinalizerFromPVC(internalCtx, r.client, pvc)
 						if err != nil {
 							msg := fmt.Sprintf("failed to remove %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 								cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
-							recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+							recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 							return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 						}
 					}
-					removeFinalizerFromCRDInstance(ctx, instance, request)
-					err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+					removeFinalizerFromCRDInstance(internalCtx, instance, request)
+					err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
 					if err != nil {
 						log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 					}
-					recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
+					recordEvent(internalCtx, r, instance, v1.EventTypeNormal, msg)
 					// Cleanup instance entry from backOffDuration map.
 					backOffDurationMapMutex.Lock()
 					delete(backOffDuration, instance.Name)
@@ -592,39 +605,45 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				instance.Status.Error = detachErr.Error()
 			} else {
 				if !pvcDeleted {
-					faulttype, err = removeFinalizerFromPVC(ctx, r.client, pvc)
+					faulttype, err = removeFinalizerFromPVC(internalCtx, r.client, pvc)
 					if err != nil {
 						msg := fmt.Sprintf("failed to remove %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 							cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
-						recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+						recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 						return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 					}
 				}
-				removeFinalizerFromCRDInstance(ctx, instance, request)
+				removeFinalizerFromCRDInstance(internalCtx, instance, request)
 			}
-			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
 			if err != nil {
 				msg := fmt.Sprintf("failed to update detach status on CnsNodeVmAttachment "+
 					"instance: %q on namespace: %q. Error: %+v",
 					request.Name, request.Namespace, err)
-				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
 			}
 			if detachErr != nil {
-				recordEvent(ctx, r, instance, v1.EventTypeWarning, "")
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, "")
 				return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 			}
 			msg := fmt.Sprintf("ReconcileCnsNodeVMAttachment: Successfully updated entry in CNS for instance "+
 				"with name %q and namespace %q.", request.Name, request.Namespace)
-			recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
+			recordEvent(internalCtx, r, instance, v1.EventTypeNormal, msg)
 		}
 		// Cleanup instance entry from backOffDuration map.
 		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, instance.Name)
 		backOffDurationMapMutex.Unlock()
+		log.Infof("Finished Reconcile for CnsNodeVMAttachment request: %q", request.NamespacedName)
 		return reconcile.Result{}, "", nil
 	}
-	resp, faulttype, err := reconcileCnsNodeVMAttachmentInternal()
+	// creating new context for reconcileCnsNodeVMAttachmentInternal, as kubernetes supplied context can get canceled
+	// This is required to ensure CNS operations won't get prematurely canceled by the controller runtime’s
+	// internal reconcile logic.
+	newctx, cancel := context.WithTimeout(context.Background(), volumes.VolumeOperationTimeoutInSeconds*time.Second)
+	defer cancel()
+	resp, faulttype, err := reconcileCnsNodeVMAttachmentInternal(newctx)
 
 	if err != nil || faulttype != "" {
 		// When faultype is set, it indicates the attach/detach failure
@@ -638,7 +657,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		if csifault.IsNonStorageFault(faulttype) {
 			faulttype = csifault.AddCsiNonStoragePrefix(ctx, faulttype)
 		}
-		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+		reconcileLog.Errorf("Operation failed, reporting failure status to Prometheus."+
 			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
 			volumeOpType, volumeType, faulttype)
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, volumeOpType,
@@ -647,6 +666,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, volumeOpType,
 			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
+	reconcileLog.Infof("Reconcile for request: %q End.", request.NamespacedName)
 	return resp, err
 }
 
@@ -921,14 +941,14 @@ func recordEvent(ctx context.Context, r *ReconcileCnsNodeVMAttachment,
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		backOffDuration[instance.Namespace+"/"+instance.Name] = backOffDuration[instance.Namespace+"/"+instance.Name] * 2
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "NodeVMAttachFailed", msg)
 		log.Error(msg)
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = time.Second
+		backOffDuration[instance.Namespace+"/"+instance.Name] = time.Second
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeNormal, "NodeVMAttachSucceeded", msg)
 		log.Info(msg)
