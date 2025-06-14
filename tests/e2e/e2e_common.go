@@ -339,6 +339,7 @@ const (
 	distributed           = "distributed"
 	vmsvc                 = "vmsvc"
 	vc90                  = "vc90"
+	vc90u1                = "vc90u1"
 	vc80                  = "vc80"
 	vc70                  = "vc70"
 	wldi                  = "wldi"
@@ -348,6 +349,7 @@ const (
 	vcptocsiTest          = "vcptocsiTest"
 	stretchedSvc          = "stretchedSvc"
 	devops                = "devops"
+	linkedClone           = "lc"
 )
 
 // The following variables are required to know cluster type to run common e2e
@@ -500,6 +502,11 @@ var (
 	envZone2DatastoreName                 = "ZONE2_DATASTORE_NAME"
 	vmMigrationUserName                   = "VM_MIGRATION_USER_NAME"
 	vmMigrationUserPwd                    = "VM_MIGRATION_USER_PWD"
+)
+
+// For linked clone
+var (
+	envStoragePolicy = "STORAGE_POLICY_NAME"
 )
 
 // storage policy usages for storage quota validation
