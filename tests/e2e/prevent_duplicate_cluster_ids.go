@@ -421,7 +421,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 		csipods, err = client.CoreV1().Pods(csiNamespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = fpod.WaitForPodsRunningReady(ctx, client, csiNamespace, int(csipods.Size()),
+		err = fpod.WaitForPodsRunningReady(ctx, client, csiNamespace, int(len(csipods.Items)),
 			time.Duration(pollTimeout))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

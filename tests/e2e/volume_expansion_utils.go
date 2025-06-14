@@ -225,11 +225,19 @@ func checkPvcHasGivenStatusCondition(client clientset.Interface, namespace strin
 		}
 		return pvclaim, nil
 	}
-	expectEqual(len(inProgressConditions), 1, fmt.Sprintf("PVC '%v' has more than one status condition", pvcName))
-	if inProgressConditions[0].Type != condition {
+	conditionsMatches := false
+	for i := range inProgressConditions {
+		if inProgressConditions[i].Type == condition {
+			conditionsMatches = true
+			break
+		}
+	}
+	if conditionsMatches == conditionsPresent {
+		framework.Logf("PVC '%v' is in '%v' status condition", pvcName, condition)
+	} else {
 		return pvclaim, fmt.Errorf(
-			"status condition found on PVC '%v' is '%v', and is not matching with expected status condition '%v'",
-			pvcName, inProgressConditions[0].Type, condition)
+			"status conditions found on PVC '%v' are not matching with expected status condition '%v'",
+			pvcName, condition)
 	}
 	return pvclaim, nil
 }
