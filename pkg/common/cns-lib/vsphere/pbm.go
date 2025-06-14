@@ -152,6 +152,23 @@ func (vc *VirtualCenter) PbmRetrieveContent(ctx context.Context, policyIds []str
 	return simplifyProfileStructs(ctx, profiles), err
 }
 
+func (vc *VirtualCenter) PbmIsEcryptionEnabled(ctx context.Context, profileID string) (bool, error) {
+	PbmProfileToIofilterMapList, err := vc.PbmClient.QueryIOFiltersFromProfileId(ctx, profileID)
+	if err != nil {
+		return false, err
+	}
+
+	for _, PbmProfileToIofilter := range PbmProfileToIofilterMapList {
+		for _, iof := range PbmProfileToIofilter.Iofilters {
+			if iof.FilterType == "ENCRYPTION" {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
 func simplifyProfileStructs(ctx context.Context, profiles []pbmtypes.BasePbmProfile) []SpbmPolicyContent {
 	log := logger.GetLogger(ctx)
 	out := make([]SpbmPolicyContent, 0)
