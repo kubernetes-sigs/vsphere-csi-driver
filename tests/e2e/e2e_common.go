@@ -500,6 +500,7 @@ var (
 	envZone2DatastoreName                 = "ZONE2_DATASTORE_NAME"
 	vmMigrationUserName                   = "VM_MIGRATION_USER_NAME"
 	vmMigrationUserPwd                    = "VM_MIGRATION_USER_PWD"
+	envZone2DatastoreUrl                  = "ZONE2_DATASTORE_URL"
 )
 
 // storage policy usages for storage quota validation
