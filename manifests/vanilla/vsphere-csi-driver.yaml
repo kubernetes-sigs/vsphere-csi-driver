@@ -535,6 +535,7 @@ spec:
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"
+            - "--probe-timeout=4s"
           volumeMounts:
             - name: plugin-dir
               mountPath: /csi
@@ -677,6 +678,7 @@ spec:
           args:
             - "--v=4"
             - --csi-address=unix://C:\\var\\lib\\kubelet\\plugins\\csi.vsphere.vmware.com\\csi.sock
+            - "--probe-timeout=4s"
           volumeMounts:
             - name: plugin-dir
               mountPath: /csi
