@@ -990,7 +990,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 
 		ginkgo.By("Create vm service vm on pvc-3")
 		_, vm, _, err := createVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
-			[]*v1.PersistentVolumeClaim{pvclaim3}, vmClass, storagePolicyNameZ2, true)
+			[]*v1.PersistentVolumeClaim{pvclaim3}, vmClass, storagePolicyNameZ2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// fetching nodes list
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)

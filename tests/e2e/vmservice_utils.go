@@ -1256,7 +1256,7 @@ and verifying the attached volumes.
 func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
 	cnsopC ctlrclient.Client, namespace string,
 	pvclaims []*v1.PersistentVolumeClaim, vmClass string,
-	storageClassName string, createBootstrapSecret bool) (string, *vmopv1.VirtualMachine, *vmopv1.VirtualMachineService, error) {
+	storageClassName string) (string, *vmopv1.VirtualMachine, *vmopv1.VirtualMachineService, error) {
 	var err error
 	var secretName string
 	/*Fetch the VM image name from the environment variable. This image is used for
@@ -1268,9 +1268,8 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 
 	/* Create a bootstrap secret for the VirtualMachineService VM. This secret contains
 	credentials or configuration data needed by the VM. */
-	if createBootstrapSecret {
-		secretName = createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-	}
+
+	secretName = createBootstrapSecretForVmsvcVms(ctx, client, namespace)
 
 	var vm *vmopv1.VirtualMachine
 	//Create the Virtual Machine with PVC
