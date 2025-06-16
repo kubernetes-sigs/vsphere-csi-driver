@@ -48,10 +48,8 @@ const (
 
 var ErrAvailabilityZoneCRNotRegistered = errors.New("AvailabilityZone custom resource not registered")
 
-// GetVCenter returns VirtualCenter object from specified Manager object.
-// Before returning VirtualCenter object, vcenter connection is established if
-// session doesn't exist.
-func GetVCenter(ctx context.Context, manager *Manager) (*cnsvsphere.VirtualCenter, error) {
+// getVCenterInternal is the internal implementation that can be overridden for testing
+var getVCenterInternal = func(ctx context.Context, manager *Manager) (*cnsvsphere.VirtualCenter, error) {
 	var err error
 	log := logger.GetLogger(ctx)
 	vcenter, err := manager.VcenterManager.GetVirtualCenter(ctx, manager.VcenterConfig.Host)
@@ -65,6 +63,13 @@ func GetVCenter(ctx context.Context, manager *Manager) (*cnsvsphere.VirtualCente
 		return nil, err
 	}
 	return vcenter, nil
+}
+
+// GetVCenter returns VirtualCenter object from specified Manager object.
+// Before returning VirtualCenter object, vcenter connection is established if
+// session doesn't exist.
+func GetVCenter(ctx context.Context, manager *Manager) (*cnsvsphere.VirtualCenter, error) {
+	return getVCenterInternal(ctx, manager)
 }
 
 // GetVCenters returns VirtualCenter object from specified Managers object.
