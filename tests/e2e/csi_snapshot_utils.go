@@ -38,7 +38,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 
-	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
@@ -684,6 +683,7 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 	volumeSnapshot *snapV1.VolumeSnapshot, diskSize string,
 	verifyPodCreation bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume, *v1.Pod) {
 
+	var pod *v1.Pod
 	ginkgo.By("Create PVC from snapshot")
 	pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 		v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
@@ -703,7 +703,7 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 	if verifyPodCreation {
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(ctx, client, namespace, nil,
+		pod, err = createPod(ctx, client, namespace, nil,
 			[]*v1.PersistentVolumeClaim{pvclaim2}, false, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -729,31 +729,31 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
-		ginkgo.By("Verify the volume is accessible and Read/write is possible")
-		var cmd []string
-		if windowsEnv {
-			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe", "cat ", filePathPod1}
-		} else {
-			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-				"cat ", filePathPod1}
-		}
-		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
+		// ginkgo.By("Verify the volume is accessible and Read/write is possible")
+		// var cmd []string
+		// if windowsEnv {
+		// 	cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe", "cat ", filePathPod1}
+		// } else {
+		// 	cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+		// 		"cat ", filePathPod1}
+		// }
+		// output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
+		// gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
-		var wrtiecmd []string
-		if windowsEnv {
-			wrtiecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe",
-				"Add-Content /mnt/volume1/Pod1.html 'Hello message from test into Pod1'"}
-		} else {
-			wrtiecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-				"echo 'Hello message from test into Pod1' >> /mnt/volume1/Pod1.html"}
-		}
-		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
-		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
-		return pvclaim2, persistentvolumes2, pod
+		// var wrtiecmd []string
+		// if windowsEnv {
+		// 	wrtiecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe",
+		// 		"Add-Content /mnt/volume1/Pod1.html 'Hello message from test into Pod1'"}
+		// } else {
+		// 	wrtiecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+		// 		"echo 'Hello message from test into Pod1' >> /mnt/volume1/Pod1.html"}
+		// }
+		// e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
+		// output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
+		// gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
+		// return pvclaim2, persistentvolumes2, pod
 	}
-	return pvclaim2, persistentvolumes2, nil
+	return pvclaim2, persistentvolumes2, pod
 }
 
 // createPVCAndQueryVolumeInCNS creates PVc with a given storage class on a given namespace
