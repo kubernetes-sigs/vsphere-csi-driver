@@ -252,7 +252,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 
 		ginkgo.By("Create vm service vm")
 		secretName, vm, vmlbsvc, err = createVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
-			[]*v1.PersistentVolumeClaim{pvc}, vmClass, storageclass.Name)
+			[]*v1.PersistentVolumeClaim{pvc}, vmClass, storageclass.Name, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify vm affinity annotation state")
@@ -347,7 +347,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 
 		ginkgo.By("Create vm service vm")
 		secretName, vm, vmlbsvc, err = createVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
-			[]*v1.PersistentVolumeClaim{staticPvc}, vmClass, storageclass.Name)
+			[]*v1.PersistentVolumeClaim{staticPvc}, vmClass, storageclass.Name, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify vm affinity annotation state")
