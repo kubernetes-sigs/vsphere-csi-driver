@@ -1256,8 +1256,9 @@ and verifying the attached volumes.
 func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
 	cnsopC ctlrclient.Client, namespace string,
 	pvclaims []*v1.PersistentVolumeClaim, vmClass string,
-	storageClassName string) (string, *vmopv1.VirtualMachine, *vmopv1.VirtualMachineService, error) {
-
+	storageClassName string, createBootstrapSecret bool) (string, *vmopv1.VirtualMachine, *vmopv1.VirtualMachineService, error) {
+	var err error
+	var secretName string
 	/*Fetch the VM image name from the environment variable. This image is used for
 	creating the VirtualMachineInstance */
 	vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
@@ -1267,7 +1268,9 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 
 	/* Create a bootstrap secret for the VirtualMachineService VM. This secret contains
 	credentials or configuration data needed by the VM. */
-	secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
+	if createBootstrapSecret {
+		secretName = createBootstrapSecretForVmsvcVms(ctx, client, namespace)
+	}
 
 	var vm *vmopv1.VirtualMachine
 	//Create the Virtual Machine with PVC
@@ -1281,12 +1284,6 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 
 	// Create a service (load balancer) for the VM.
 	vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
-
-	// Wait for the VM to get an IP address.
-	vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("failed to get VM IP: %w", err)
-	}
 
 	// Verify that the PVCs are attached to the VirtualMachine.
 	if len(pvclaims) == 1 {
@@ -1302,13 +1299,6 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 	vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("failed to get VM info: %w", err)
-	}
-
-	/* Verify that the attached volumes are accessible and validate data integrity. The function iterates through each
-	volume of the VM, verifies that the PVC is accessible, and checks the data integrity on each attached disk */
-	for i, vol := range vm.Status.Volumes {
-		volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-		verifyDataIntegrityOnVmDisk(vmIp, volFolder)
 	}
 
 	return secretName, vm, vmlbsvc, nil
@@ -1397,4 +1387,24 @@ func verifyVmServiceVMNodeLocation(vm *vmopv1.VirtualMachine, nodeList *v1.NodeL
 		}
 	}
 	return false, fmt.Errorf("VM: %s is not running on any node with matching IP", vm.Name)
+}
+
+func verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx context.Context, vm *vmopv1.VirtualMachine, vmopC ctlrclient.Client, namespace string) error {
+	// get vm ip address
+	vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get VM IP: %w", err)
+	}
+
+	// refresh vm info
+	vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	/* Verify that the attached volumes are accessible and validate data integrity. The function iterates through each
+	volume of the VM, verifies that the PVC is accessible, and checks the data integrity on each attached disk */
+	for i, vol := range vm.Status.Volumes {
+		volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+		verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+	}
+	return nil
 }
