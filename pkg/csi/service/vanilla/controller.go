@@ -779,10 +779,13 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				"failed to create volume. Error: %+v", err)
 		}
 
+		createVolumeFromSnapshotDiffDatastore := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.CreateVolumeFromSnapshotDiffDatastore)
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
 			c.manager, &createVolumeSpec, sharedDatastores,
 			common.CreateBlockVolumeOptions{
-				FilterSuspendedDatastores: filterSuspendedDatastores,
+				FilterSuspendedDatastores:             filterSuspendedDatastores,
+				CreateVolumeFromSnapshotDiffDatastore: createVolumeFromSnapshotDiffDatastore,
 			},
 			nil)
 		if err != nil {

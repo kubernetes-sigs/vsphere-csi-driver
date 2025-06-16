@@ -440,13 +440,16 @@ const (
 	FileVolumesWithVmService = "file-volume-with-vm-service"
 	// SharedDiskFss is an FSS that tells whether shared disks are supported or not
 	SharedDiskFss = "supports_shared_disks"
+	// CreateVolumeFromSnapshotDiffDatastore enables creation of volumes from snapshots on different datastores
+	CreateVolumeFromSnapshotDiffDatastore = "create-volume-from-snapshot-diff-datastore"
 )
 
 var WCPFeatureStates = map[string]struct{}{
-	PodVMOnStretchedSupervisor: {},
-	CSIDetachOnSupervisor:      {},
-	WorkloadDomainIsolation:    {},
-	VPCCapabilitySupervisor:    {},
+	PodVMOnStretchedSupervisor:            {},
+	CSIDetachOnSupervisor:                 {},
+	WorkloadDomainIsolation:               {},
+	VPCCapabilitySupervisor:               {},
+	CreateVolumeFromSnapshotDiffDatastore: {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
