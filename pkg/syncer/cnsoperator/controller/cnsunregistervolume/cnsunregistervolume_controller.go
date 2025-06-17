@@ -245,9 +245,8 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 	}
 
 	if !isUnregistrable {
-		msg := fmt.Sprintf("Volume %q is in use by a PodVM or TKG cluster. "+
-			"Cannot unregister the volume. Set ForceUnregister to true to force unregister the volume.",
-			instance.Spec.VolumeID)
+		msg := fmt.Sprintf("Volume %q is in use. Cannot unregister the volume. "+
+			"Set ForceUnregister to true to force the unregistration.", instance.Spec.VolumeID)
 		log.Error(msg)
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
