@@ -1371,6 +1371,19 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			log.Errorf(msg)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
+
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) {
+			// Cannot be nil as it is already verified in validateWCPControllerPublishVolumeRequest
+			volCap := req.GetVolumeCapability()
+			caps := []*csi.VolumeCapability{volCap}
+			if isSharedRawBlockRequest(ctx, caps) {
+				// Shared Disk feature is not supported for PodVMs.
+				err := fmt.Errorf("shared disks are not supportd for PodVMs. Invalid request %+v", *req)
+				log.Errorf("failed to verify if volume is a shared disk. Err: %+v", err)
+				return nil, csifault.CSIInvalidArgumentFault, err
+			}
+		}
+
 		volumeType = prometheus.PrometheusBlockVolumeType
 		volumeAttachment, err := commonco.ContainerOrchestratorUtility.GetVolumeAttachment(ctx, req.VolumeId, req.NodeId)
 		if err != nil {
