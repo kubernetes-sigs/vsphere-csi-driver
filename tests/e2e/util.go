@@ -7563,6 +7563,15 @@ func restartWcpWithWg(ctx context.Context, vcAddress string, wg *sync.WaitGroup)
 }
 
 /*
+Stop WCP with WaitGroup
+*/
+func stopWcpWithWg(ctx context.Context, vcAddress string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	err := invokeVCenterServiceControl(ctx, stopOperation, wcpServiceName, vcAddress)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+/*
 Restart WCP
 */
 func restartWcp(ctx context.Context, vcAddress string) error {
