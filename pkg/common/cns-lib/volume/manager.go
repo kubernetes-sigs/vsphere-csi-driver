@@ -658,6 +658,125 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 		spec.Metadata.ContainerClusterArray[0].ClusterId)
 }
 
+// createVolumeWithTransaction creates volume with supplied PVC UUID as VolumeID in the CreateVolumeSpec
+func (m *defaultManager) createVolumeWithTransaction(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
+	extraParams interface{}) (resp *CnsVolumeInfo, faultType string, finalErr error) {
+	log := logger.GetLogger(ctx)
+	var (
+		// Store the volume name passed in by input spec, this
+		// name may exceed 80 characters.
+		volNameFromInputSpec = spec.Name
+		// Reference to the CreateVolume task on CNS.
+		task *object.Task
+		// Local instance of CreateVolume details that needs to
+		// be persisted.
+		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
+		// quotaInfo consists of values required to populate QuotaDetails in CnsVolumeOperationRequest CR.
+		quotaInfo                            *cnsvolumeoperationrequest.QuotaDetails
+		isPodVMOnStretchSupervisorFSSEnabled bool
+	)
+
+	if extraParams != nil {
+		createVolParams, ok := extraParams.(*CreateVolumeExtraParams)
+		if !ok {
+			return nil, csifault.CSIInternalFault,
+				logger.LogNewErrorf(log, "unrecognised type for CreateVolume params: %+v", extraParams)
+		}
+		log.Debugf("Received CreateVolume extraParams: %+v", *createVolParams)
+
+		isPodVMOnStretchSupervisorFSSEnabled = createVolParams.IsPodVMOnStretchSupervisorFSSEnabled
+		if isPodVMOnStretchSupervisorFSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			var storagePolicyID string
+			if len(spec.Profile) >= 1 {
+				storagePolicyID = spec.Profile[0].(*vim25types.VirtualMachineDefinedProfileSpec).ProfileId
+			}
+			reservedQty := resource.NewQuantity(createVolParams.VolSizeBytes, resource.BinarySI)
+			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
+				Reserved:         reservedQty,
+				StoragePolicyId:  storagePolicyID,
+				StorageClassName: createVolParams.StorageClassName,
+				Namespace:        createVolParams.Namespace,
+			}
+			log.Infof("QuotaInfo during CreateVolume call: %+v", *quotaInfo)
+		}
+	}
+
+	if m.operationStore == nil {
+		return nil, csifault.CSIInternalFault, logger.LogNewError(log, "operation store cannot be nil")
+	}
+	var vCenterServerForVolumeOperationCR string
+	if m.multivCenterTopologyDeployment {
+		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host
+	}
+
+	volumeOperationDetails, finalErr = m.operationStore.GetRequestDetails(ctx, volNameFromInputSpec)
+	if !apierrors.IsNotFound(finalErr) {
+		return nil, csifault.CSIInternalFault, finalErr
+	}
+	defer func() {
+		// Persist the operation details before returning. Only success or error
+		// needs to be stored as InProgress details are stored when the task is
+		// created on CNS.
+		if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
+			volumeOperationDetails.OperationDetails.TaskStatus != taskInvocationStatusInProgress {
+
+			if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && isPodVMOnStretchSupervisorFSSEnabled {
+				// Decrease the reserved field in QuotaDetails when the CreateVolume task is
+				// successful or has errored out.
+				taskStatus := volumeOperationDetails.OperationDetails.TaskStatus
+				if (taskStatus == taskInvocationStatusSuccess || taskStatus == taskInvocationStatusError) &&
+					volumeOperationDetails.QuotaDetails != nil {
+					volumeOperationDetails.QuotaDetails.Reserved = resource.NewQuantity(0,
+						resource.BinarySI)
+					log.Infof("Setting the reserved field for VolumeOperationDetails instance %s to 0",
+						volumeOperationDetails.Name)
+				}
+				tempErr := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+				if finalErr == nil && tempErr != nil {
+					log.Errorf("failed to store CreateVolume details with error: %v", tempErr)
+					finalErr = tempErr
+				}
+			} else {
+				err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+				if err != nil {
+					log.Warnf("failed to store CreateVolume details with error: %v", err)
+				}
+			}
+		}
+	}()
+	volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
+		quotaInfo, metav1.Now(), "", vCenterServerForVolumeOperationCR, "",
+		taskInvocationStatusInProgress, "")
+	err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+	if err != nil {
+		// Don't return if CreateVolume details can't be stored.
+		log.Warnf("failed to store CreateVolume details with error: %v", err)
+	}
+	task, finalErr = invokeCNSCreateVolume(ctx, m.virtualCenter, spec)
+	if finalErr != nil {
+		log.Errorf("failed to create volume with error: %v", finalErr)
+		volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
+			quotaInfo, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "",
+			vCenterServerForVolumeOperationCR, "", taskInvocationStatusError, finalErr.Error())
+		faultType = ExtractFaultTypeFromErr(ctx, finalErr)
+		return nil, faultType, finalErr
+	}
+	if !isStaticallyProvisioned(spec) {
+		// Persist task details only for dynamically provisioned volumes.
+		volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
+			quotaInfo, metav1.Now(), task.Reference().Value, vCenterServerForVolumeOperationCR, "",
+			taskInvocationStatusInProgress, "")
+		err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+		if err != nil {
+			// Don't return if CreateVolume details can't be stored.
+			log.Warnf("failed to store CreateVolume details with error: %v", err)
+		}
+	}
+
+	return m.MonitorCreateVolumeTask(ctx, &volumeOperationDetails, task, volNameFromInputSpec,
+		spec.Metadata.ContainerClusterArray[0].ClusterId)
+}
+
 // IsTaskPending returns true in two cases -
 // 1. if the task status was in progress
 // 2. if the status was an error but the error was for adding the task to the listview
@@ -853,7 +972,11 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 		}
 		// Call CreateVolume implementation based on FSS value.
 		if m.idempotencyHandlingEnabled {
-			return m.createVolumeWithImprovedIdempotency(ctx, spec, extraParams)
+			if spec.VolumeId.Id != "" {
+				return m.createVolumeWithTransaction(ctx, spec, extraParams)
+			} else {
+				return m.createVolumeWithImprovedIdempotency(ctx, spec, extraParams)
+			}
 		}
 		return m.createVolume(ctx, spec)
 	}
