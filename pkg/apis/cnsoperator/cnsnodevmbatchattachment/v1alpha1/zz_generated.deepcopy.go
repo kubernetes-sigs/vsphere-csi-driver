@@ -27,9 +27,8 @@ func (in *CnsNodeVmBatchAttachment) DeepCopyInto(out *CnsNodeVmBatchAttachment) 
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	out.Spec = in.Spec
+	in.Spec.DeepCopyInto(&out.Spec)
 	in.Status.DeepCopyInto(&out.Status)
-	return
 }
 
 // DeepCopy creates a new CnsNodeVmBatchAttachment.
@@ -62,7 +61,6 @@ func (in *CnsNodeVmBatchAttachmentList) DeepCopyInto(out *CnsNodeVmBatchAttachme
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	return
 }
 
 // DeepCopy creates a new CnsNodeVmBatchAttachmentList.
@@ -86,7 +84,13 @@ func (in *CnsNodeVmBatchAttachmentList) DeepCopyObject() runtime.Object {
 // DeepCopyInto copies all properties from the source into the target.
 func (in *CnsNodeVmBatchAttachmentSpec) DeepCopyInto(out *CnsNodeVmBatchAttachmentSpec) {
 	*out = *in
-	return
+	if in.Volumes != nil {
+		in, out := &in.Volumes, &out.Volumes
+		*out = make([]VolumeSpec, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
 }
 
 // DeepCopy creates a new CnsNodeVmBatchAttachmentSpec.
@@ -104,11 +108,9 @@ func (in *CnsNodeVmBatchAttachmentStatus) DeepCopyInto(out *CnsNodeVmBatchAttach
 	*out = *in
 	if in.VolumeStatus != nil {
 		in, out := &in.VolumeStatus, &out.VolumeStatus
-		*out = make(map[string]VolumeStatus, len(*in))
-		for key, val := range *in {
-			var outVal VolumeStatus
-			val.DeepCopyInto(&outVal)
-			(*out)[key] = outVal
+		*out = make([]VolumeStatus, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
 }
@@ -126,6 +128,7 @@ func (in *CnsNodeVmBatchAttachmentStatus) DeepCopy() *CnsNodeVmBatchAttachmentSt
 // DeepCopyInto copies all properties from the source into the target.
 func (in *VolumeSpec) DeepCopyInto(out *VolumeSpec) {
 	*out = *in
+	in.PersistentVolumeClaim.DeepCopyInto(&out.PersistentVolumeClaim)
 }
 
 // DeepCopy creates a new VolumeSpec.
@@ -139,8 +142,24 @@ func (in *VolumeSpec) DeepCopy() *VolumeSpec {
 }
 
 // DeepCopyInto copies all properties from the source into the target.
+func (in *PersistentVolumeClaimSpec) DeepCopyInto(out *PersistentVolumeClaimSpec) {
+	*out = *in
+}
+
+// DeepCopy creates a new PersistentVolumeClaimSpec.
+func (in *PersistentVolumeClaimSpec) DeepCopy() *PersistentVolumeClaimSpec {
+	if in == nil {
+		return nil
+	}
+	out := new(PersistentVolumeClaimSpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies all properties from the source into the target.
 func (in *VolumeStatus) DeepCopyInto(out *VolumeStatus) {
 	*out = *in
+	in.PersistentVolumeClaim.DeepCopyInto(&out.PersistentVolumeClaim)
 }
 
 // DeepCopy creates a new VolumeStatus.
@@ -149,6 +168,21 @@ func (in *VolumeStatus) DeepCopy() *VolumeStatus {
 		return nil
 	}
 	out := new(VolumeStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies all properties from the source into the target.
+func (in *PersistentVolumeClaimStatus) DeepCopyInto(out *PersistentVolumeClaimStatus) {
+	*out = *in
+}
+
+// DeepCopy creates a new PersistentVolumeClaimStatus.
+func (in *PersistentVolumeClaimStatus) DeepCopy() *PersistentVolumeClaimStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(PersistentVolumeClaimStatus)
 	in.DeepCopyInto(out)
 	return out
 }

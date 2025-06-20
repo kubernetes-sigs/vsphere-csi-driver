@@ -20,21 +20,29 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type AttachState string
+// DiskMode describes the desired mode to use when attaching the volume.
+type DiskMode string
 
 const (
-	AttachCompleted  AttachState = "ATTACH_COMPLETED"
-	AttachFailed     AttachState = "ATTACH_FAILED"
-	DetachInProgress AttachState = "DETACH_IN_PROGRESS"
-	DetachFailed     AttachState = "DETACH_FAILED"
+	// Same as nonpersistent, but not affected by snapshots.
+	IndependentNonpersistent DiskMode = "independent_nonpersistent"
+	// Same as persistent, but not affected by snapshots.
+	IndependentPersistent DiskMode = "independent_persistent"
+	// Changes to virtual disk are made to a redo log and discarded at power off.
+	NonPersistent DiskMode = "nonpersistent"
+	// Changes are immediately and permanently written to the virtual disk.
+	Persistent DiskMode = "persistent"
 )
 
-type VolumeStatus struct {
-	AttachState AttachState `json:"attachState,omitempty"`
-	Error       string      `json:"error,omitempty"`
-	CnsVolumeID string      `json:"cnsVolumeId,omitEmpty"`
-	Diskuuid    string      `json:"diskuuid,omitEmpty"`
-}
+// The sharing mode of the virtual disk.
+type SharingMode string
+
+const (
+	// The virtual disk is shared between multiple virtual machines.
+	SharingMultiWriter SharingMode = "sharingMultiWriter"
+	// The virtual disk is not shared.
+	SharingNone SharingMode = "sharingNone"
+)
 
 // CnsNodeVmBatchAttachmentSpec defines the desired state of CnsNodeVmBatchAttachment
 // +k8s:openapi-gen=true
@@ -43,39 +51,61 @@ type CnsNodeVmBatchAttachmentSpec struct {
 	// Here NodeUUID is the bios UUID of the node.
 	NodeUUID string `json:"nodeuuid"`
 
+	// +listType=map
+	// +listMapKey=name
 	// VolumeName indicates the name of the volume on the supervisor Cluster.
 	// This is guaranteed to be unique in Supervisor cluster.
-	Volumes map[string]VolumeSpec `json:"volumes"`
+	Volumes []VolumeSpec `json:"volumes"`
 }
 
-type DiskMode string
-
-const (
-	IndependentNonpersistent DiskMode = "independent_nonpersistent"
-	IndependentPersistent    DiskMode = "independent_persistent"
-	NonPersistent            DiskMode = "nonpersistent"
-	Persistent               DiskMode = "persistent"
-)
-
-type SharingMode string
-
-const (
-	SharingMultiWriter SharingMode = "sharingMultiWriter"
-	SharingNone        SharingMode = "sharingNone"
-)
-
 type VolumeSpec struct {
-	PvcName       string      `json:"pvcName"`
-	DiskMode      DiskMode    `json:"diskMode,omitempty"`
-	SharingMode   SharingMode `json:"sharingMode,omitempty"`
-	ControllerKey int64       `json:"controllerKey,omitempty"`
-	UnitNumber    int64       `json:"unitNumber,omitempty"`
+	// Name of the volume as given by the user.
+	Name string `json:"name"`
+	// PersistentVolumeClaim contains details about the volume's desired state.
+	PersistentVolumeClaim PersistentVolumeClaimSpec `json:"persistentVolumeClaim"`
+}
+
+type PersistentVolumeClaimSpec struct {
+	// ClaimName is the PVC name.
+	ClaimName string `json:"claimName,omitempty"`
+	// DiskMode is the desired mode to use when attaching the volume
+	DiskMode DiskMode `json:"diskMode,omitempty"`
+	// SharingMode indicates the shraring mode if the virtual disk while attaching.
+	SharingMode SharingMode `json:"sharingMode,omitempty"`
+	// ControllerKey is the object key for the controller object for this device.
+	ControllerKey int64 `json:"controllerKey,omitempty"`
+	// UnitNumber of this device on its controller.
+	UnitNumber int64 `json:"unitNumber,omitempty"`
 }
 
 // CnsNodeVmBatchAttachmentStatus defines the observed state of CnsNodeVmBatchAttachment
 // +k8s:openapi-gen=true
 type CnsNodeVmBatchAttachmentStatus struct {
-	VolumeStatus map[string]VolumeStatus `json:"volumeStatus,omitEmpty"`
+	// Error is the overall error status for the instance.
+	Error string `json:"error,omitempty"`
+	// +listType=map
+	// +listMapKey=name
+	VolumeStatus []VolumeStatus `json:"volumes,omitempty"`
+}
+
+type VolumeStatus struct {
+	// Name of the volume as given by the user.
+	Name string `json:"name"`
+	// PersistentVolumeClaim contains details about the volume's current state.
+	PersistentVolumeClaim PersistentVolumeClaimStatus `json:"persistentVolumeClaim"`
+}
+
+type PersistentVolumeClaimStatus struct {
+	// ClaimName is the PVC name.
+	ClaimName string `json:"claimName,omitempty"`
+	// Attached indicates whether the volume is attached or not.
+	Attached bool `json:"attached,omitempty"`
+	// Error indicates the error which may have occurred during attach/detach.
+	Error string `json:"error,omitempty"`
+	// CnsVolumeID is the volume ID for the PVC.
+	CnsVolumeID string `json:"cnsVolumeId,omitempty"`
+	// Diskuuid is the ID obtained when volume is attached to a VM.
+	Diskuuid string `json:"diskuuid,omitempty"`
 }
 
 // +genclient
