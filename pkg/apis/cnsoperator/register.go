@@ -51,6 +51,8 @@ var (
 	CnsNodeVMAttachmentSingular = "cnsnodevmattachment"
 	// CnsNodeVMAttachmentPlural is plural of CnsNodeVmAttachment
 	CnsNodeVMAttachmentPlural = "cnsnodevmattachments"
+	// CnsNodeVmBatchAttachmentPlural is plural of CnsNodeVmBatchAttachment
+	CnsNodeVmBatchAttachmentPlural = "cnsnodevmbatchattachments"
 	// CnsVolumeMetadataSingular is Singular of CnsVolumeMetadata
 	CnsVolumeMetadataSingular = "cnsvolumemetadata"
 	// CnsVolumeMetadataPlural is plural of CnsVolumeMetadata
