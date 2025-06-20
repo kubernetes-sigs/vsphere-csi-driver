@@ -44,7 +44,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
@@ -82,7 +81,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return nil
 	}
 
-	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) {
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) {
 		log.Debug("Not initializing the CnsNodeVmBatchAttachment Controller as SharedDisk FSS is not enabled")
 		return nil
 	}
@@ -254,9 +253,20 @@ func (r *ReconcileCnsNodeVmBatchAttachment) Reconcile(ctx context.Context,
 	log.Debugf("Reconciling CnsNodeVmBatchAttachment with Request.Name: %q instance %q timeout %q seconds",
 		request.Name, instance.Name, timeout)
 
+	// Get a map of volumeID to PVC map in the current namespace in K8s cluster.
+	volumeIdToPvc, pvcToVolumeId, err := cnsoperatorutil.GetVolumeIDPvcMappingInCluster(ctx, instance.Namespace)
+	if err != nil {
+		return reconcile.Result{RequeueAfter: timeout}, err
+	}
+
 	// Instance is considered processed if all volumes have been attached or detached
 	// successfully.
-	isInstanceProcessed := isInstanceProcessed(instance)
+	isInstanceProcessed, volumesToAttach,
+		volumesToDetach, nodeVMExists, nodeVM, err := r.isInstanceProcessed(ctx, volumeIdToPvc, pvcToVolumeId, instance)
+	if err != nil {
+		// TODO: add error to all volumes in status
+		return reconcile.Result{RequeueAfter: timeout}, err
+	}
 
 	// If the CnsNodeVmBatchAttachment instance is already processed and
 	// not deleted by the user, remove the instance from the queue.
@@ -271,6 +281,9 @@ func (r *ReconcileCnsNodeVmBatchAttachment) Reconcile(ctx context.Context,
 		return reconcile.Result{}, nil
 	}
 
+	if instance.Status.VolumeStatus == nil {
+		instance.Status.VolumeStatus = make(map[string]cnsnodevmbatchattachmentv1alpha1.VolumeStatus)
+	}
 	// All volumes are not processed yet and the CR is not being deleted either.
 	if !isInstanceProcessed && instance.DeletionTimestamp == nil {
 
@@ -290,14 +303,11 @@ func (r *ReconcileCnsNodeVmBatchAttachment) Reconcile(ctx context.Context,
 			}
 		}
 
-		// Get the list of volumes which need to be attached and the ones which need to be detached.
-		volumesToAttach, volumesToDetach := getVolumesToAttachAndDetach(batchAttachCtx, instance)
-
 		// Call batch attach for volumes which need to be attached.
 		if len(volumesToAttach) != 0 {
-			err := r.batchAttach(batchAttachCtx, instance, volumesToAttach)
+			err := r.batchAttach(batchAttachCtx, nodeVM, pvcToVolumeId, instance, volumesToAttach)
 			if err != nil {
-				log.Errorf("failed to detach all volumes. Err: +v", err)
+				log.Errorf("failed to attach all volumes. Err: %+v", err)
 				updateErr := updateCnsNodeVmBatchAttachment(batchAttachCtx, r.client, instance)
 				if updateErr != nil {
 					log.Errorf("failed to update CnsNodeVmBatchAttachment %s. Err: +%v", instance.Name, updateErr)
@@ -310,7 +320,7 @@ func (r *ReconcileCnsNodeVmBatchAttachment) Reconcile(ctx context.Context,
 
 		// If there are some volumes which need to be detached
 		if len(volumesToDetach) != 0 {
-			err := r.detachVolumes(batchAttachCtx, instance, volumesToDetach)
+			err := r.detachVolumes(batchAttachCtx, nodeVM, nodeVMExists, instance, volumesToDetach)
 			if err != nil {
 				log.Errorf("failed to detach all volumes. Err: +v", err)
 				updateErr := updateCnsNodeVmBatchAttachment(batchAttachCtx, r.client, instance)
@@ -339,11 +349,11 @@ func (r *ReconcileCnsNodeVmBatchAttachment) Reconcile(ctx context.Context,
 		log.Infof("Deletion timestamp observed on instance %s. Detaching all volumes.", instance.Name)
 		// Detach all volumes in spec
 		volumesToDetach := make([]string, 0)
-		for _, volume := range instance.Spec.Volumes {
-			volumesToDetach = append(volumesToDetach, volume.PvcName)
+		for volume, _ := range instance.Spec.Volumes {
+			volumesToDetach = append(volumesToDetach, volume)
 		}
 
-		err = r.detachVolumes(batchAttachCtx, instance, volumesToDetach)
+		err = r.detachVolumes(batchAttachCtx, nodeVM, nodeVMExists, instance, volumesToDetach)
 		if err != nil {
 			log.Errorf("failed to detach all volumes. Err: +v", err)
 			updateErr := updateCnsNodeVmBatchAttachment(batchAttachCtx, r.client, instance)
@@ -398,88 +408,180 @@ func cnsFinalizerOnCrExists(instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVm
 	return false
 }
 
-func validateCnsVolumeIdBeforeDetach(ctx context.Context, instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment, volumeToDetach string) (string, string, error) {
+func validateCnsVolumeIdBeforeDetach(ctx context.Context, instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment, volumeToDetach string) (string, error) {
 	log := logger.GetLogger(ctx)
 
 	// Verify cnsVolumeId is present
 	volumeStatus, ok := instance.Status.VolumeStatus[volumeToDetach]
 	if !ok {
-		return "", csifault.CSIInternalFault, fmt.Errorf("failed to find status for volume %s", volumeToDetach)
+		return "", fmt.Errorf("failed to find status for volume %s", volumeToDetach)
 	}
 	if volumeStatus.CnsVolumeID == "" {
 		log.Errorf("CnsNodeVmBatchAttachment does not have CNS volume ID. Volume Status: %+v",
 			volumeStatus)
-		return "", csifault.CSIInternalFault, fmt.Errorf("CnsNodeVmBatchAttachment %s does not have CNS volume ID", instance.Name)
+		return "", fmt.Errorf("CnsNodeVmBatchAttachment %s does not have CNS volume ID", instance.Name)
 	}
-	return volumeStatus.CnsVolumeID, "", nil
+	return volumeStatus.CnsVolumeID, nil
 }
 
-// isInstanceProcessed returns false if number of volumes in spec and status do not match or
-// if there are volumes whose status is not ATTACH_COMPLETED
-func isInstanceProcessed(instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment) bool {
-	if len(instance.Spec.Volumes) != len(instance.Status.VolumeStatus) {
-		return false
-	}
+// isInstanceProcessed finds the VM on vCenter to find the list of FCDs attached to it.
+// It then takes a diff of those FCDs and the ones in spec to find out
+// while volumes need to be attached and which ones need to be detached.
+//
+// VM retrieval from the VC because VM is not found,
+// For attach - it finds if there are volumes in the instance spec
+// which are not in instance status. If yes, then this is an invalid operations as
+// there seems to be some volumes that should get attached but VM itself is gone.
+// For detach - it sends all volumes in spec to detach.
+//
+// If VM retrieval from the VC failed because of some other reason,
+// then fail this operation as it is invalid.
+//
+// isInstanceProcessed returns true if no attach or detach is required.
+// It also returns list of volumes to attach, list of volumes to detach,
+// if VM was found on VC, VM object and error.
+func (r *ReconcileCnsNodeVmBatchAttachment) isInstanceProcessed(ctx context.Context,
+	volumeIdToPvc map[string]string, pvcToVolumeId map[string]string,
+	instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment) (bool,
+	[]string, []string, bool, *cnsvsphere.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
 
-	for _, volume := range instance.Status.VolumeStatus {
-		if volume.AttachState != cnsnodevmbatchattachmentv1alpha1.AttachCompleted {
-			return false
+	volumesToAttach := make([]string, 0)
+	volumesToDetach := make([]string, 0)
+
+	// First verify if VM even exists or not
+	nodeVM, err := r.getNodeVm(ctx, instance)
+	if err != nil {
+		// Check if volumes need to be attached from Status
+		/*hasVolumesToAttach := hasVolumesToBeAttachedFromInstanceStatus(instance)
+		if hasVolumesToAttach {
+			// Node not found and there are volumes that need to be attached.
+			// Error out.
+			return false, []string{}, []string{}, false, nil,
+				fmt.Errorf(fmt.Sprintf("failed to get nodeVM. Err: %+v", err))
 		}
+
+		if apierrors.IsNotFound(err) {
+			log.Infof("VM not found on vCenter")
+			// Put all volumes in spec for detach
+			volumesToDetach := getVolumesInSpec(instance)
+			return false, []string{}, volumesToDetach, false, nil, nil
+		}
+
+		log.Errorf("failed to find the VM with UUID: %q for CnsNodeVmBatchAttachment "+
+			"request with name: %q on namespace: %q. Err: %+v",
+			instance.Spec.NodeUUID, instance.Name, instance.Namespace, err)
+		return false, []string{}, []string{}, false, nil, err*/
+		return false, volumesToAttach, volumesToDetach, false, nil, err
 	}
 
-	return true
+	// Get a map of volumeID to PVC map in the current namespace in K8s cluster.
+	/*volumeIdToPvc, pvcToVolumeId, err := cnsoperatorutil.GetVolumeIDPvcMappingInCluster(ctx, instance.Namespace)
+	if err != nil {
+		return false, volumesToAttach, volumesToDetach, false, nil, err
+	}*/
+
+	// Query vCenter to find the list of FCDs which are attached to the VM.
+	attachedFcdList, err := volumes.GetListOfAttachedVolumes(ctx, volumeIdToPvc, nodeVM)
+	if err != nil {
+		return false, []string{}, []string{}, false, nil, err
+	}
+	log.Infof("List of attached FCDs %+v", attachedFcdList)
+
+	// Find volumes to attach and detach
+	volumesToAttach, volumesToDetach = volumesToAttachAndDetach(ctx, instance, pvcToVolumeId, attachedFcdList)
+	if len(volumesToAttach) == 0 && len(volumesToDetach) == 0 {
+		return true, volumesToAttach, volumesToDetach, true, nodeVM, nil
+	}
+	log.Infof("length of volattach %s voldetach %s", len(volumesToAttach), len(volumesToDetach))
+
+	log.Infof("Volumes to be attached %+v, volumes to be detached %+v", volumesToAttach, volumesToDetach)
+
+	return false, volumesToAttach, volumesToDetach, false, nodeVM, nil
 }
+
+/*func getPvToVolumeIdMap(ctx context.Context, client client.Client, namespace string, instanceName string) (map[string]string, error) {
+	pvcToVolumeId := make(map[string]string)
+	for _, volume := range volumes {
+		volumeID, err := cnsoperatorutil.GetVolumeID(ctx, client, volume, namespace)
+		if err != nil {
+			log.Errorf("failed to get volumeID from volumeName: %q for CnsNodeVmBatchAttachment "+
+				"request with name: %q on namespace: %q. Error: %+v",
+				volume, instanceName, namespace, err)
+			/*for _, volume := range volumes {
+				volumeStatus := instance.Status.VolumeStatus[volume]
+				volumeStatus.AttachState = cnsnodevmbatchattachmentv1alpha1.AttachFailed
+				instance.Status.VolumeStatus[volume] = volumeStatus
+				updateInstanceWithError(instance, volume, err.Error())
+			}
+			updateErr := updateCnsNodeVmBatchAttachment(ctx, r.client, instance)
+			if updateErr != nil {
+				log.Errorf("updateCnsNodeVmBatchAttachment failed. err: %v", updateErr)
+				return updateErr
+			}
+			return pvcToVolumeId, err
+		}
+		pvcToVolumeId[volume] = volumeID
+	}
+
+	return pvcToVolumeId, nil
+}
+
+/*
+func getVolumesInSpec(instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment) []string {
+
+	volumesInSpec := make([]string, 0)
+
+	for volume, _ := range instance.Spec.Volumes {
+		volumesInSpec = append(volumesInSpec, volume)
+	}
+
+	return volumesInSpec
+}*/
 
 // validateVmBeforeDetach finds the VM on the instance and validates if it exists on the VC and K8s.
-func (r *ReconcileCnsNodeVmBatchAttachment) validateVmBeforeDetach(ctx context.Context, instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment) (*cnsvsphere.VirtualMachine, bool, error) {
+/*func (r *ReconcileCnsNodeVmBatchAttachment) validateVmBeforeDetach(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
+	instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment) (bool, error) {
 	log := logger.GetLogger(ctx)
 
 	nodeUUID := instance.Spec.NodeUUID
 	detachCompleted := false
-	nodeVM, err := r.getNodeVm(ctx, instance)
-	if err != nil {
-		if err != cnsvsphere.ErrVMNotFound {
-			log.Errorf("failed to find node VM with UUID %s", nodeUUID)
-			return nodeVM, false, err
-		}
 
-		// Now that VM on VC is not found, check VirtualMachine CRD instance exists.
-		// This check is needed in scenarios where VC inventory is stale due
-		// to upgrade or back-up and restore.
-		vmInstance, err := cnsoperatorutil.IsVmCrPresent(ctx, r.vmOperatorClient, nodeUUID,
-			instance.Namespace)
-		if err != nil {
-			log.Errorf("failed to find VM CR for node with UUID", nodeUUID)
-			return nodeVM, false, err
-		}
-		if vmInstance == nil {
+	// Now that VM on VC is not found, check VirtualMachine CRD instance exists.
+	// This check is needed in scenarios where VC inventory is stale due
+	// to upgrade or back-up and restore.
+	vmInstance, err := cnsoperatorutil.IsVmCrPresent(ctx, r.vmOperatorClient, nodeUUID,
+		instance.Namespace)
+	if err != nil {
+		log.Errorf("failed to find VM CR for node with UUID", nodeUUID)
+		return false, err
+	}
+	if vmInstance == nil {
+		// This is the case where VirtualMachine is not present on the VC and VM CR
+		// is also not found in the API server. The detach will be marked as
+		// successful in CnsNodeVmBatchAttachment.
+		log.Infof("VM CR is not present with UUID: %s in namespace: %s. "+
+			"Removing finalizer on CnsNodeVmBatchAttachment: %s instance.",
+			nodeUUID, instance.Namespace, instance.Name)
+		detachCompleted = true
+	} else {
+		if vmInstance.DeletionTimestamp != nil {
 			// This is the case where VirtualMachine is not present on the VC and VM CR
-			// is also not found in the API server. The detach will be marked as
-			// successful in CnsNodeVmBatchAttachment.
-			log.Infof("VM CR is not present with UUID: %s in namespace: %s. "+
-				"Removing finalizer on CnsNodeVmBatchAttachment: %s instance.",
-				nodeUUID, instance.Namespace, instance.Name)
+			// has the deletionTimestamp set. The CnsNodeVmBatchAttachment
+			// can be marked as a success since the VM CR has deletionTimestamp set
+			log.Infof("VM on VC not found but VM CR with UUID: %s "+
+				"is still present in namespace: %s and is being deleted. "+
+				"Hence returning success.", nodeUUID, instance.Namespace)
 			detachCompleted = true
 		} else {
-			if vmInstance.DeletionTimestamp != nil {
-				// This is the case where VirtualMachine is not present on the VC and VM CR
-				// has the deletionTimestamp set. The CnsNodeVmBatchAttachment
-				// can be marked as a success since the VM CR has deletionTimestamp set
-				log.Infof("VM on VC not found but VM CR with UUID: %s "+
-					"is still present in namespace: %s and is being deleted. "+
-					"Hence returning success.", nodeUUID, instance.Namespace)
-				detachCompleted = true
-			} else {
-				// This is a case where VirtualMachine is not present on the VC and VM CR
-				// does not have the deletionTimestamp set.
-				// This is an error and will need to be retried.
-				return nodeVM, false, fmt.Errorf("VM with nodeUUID %s not present on VM but is present in K8s cluster. unexpected failure", nodeUUID)
-			}
+			// This is a case where VirtualMachine is not present on the VC and VM CR
+			// does not have the deletionTimestamp set.
+			// This is an error and will need to be retried.
+			return false, fmt.Errorf("VM with nodeUUID %s not present on VM but is present in K8s cluster. unexpected failure", nodeUUID)
 		}
-
 	}
 
-	return nodeVM, detachCompleted, nil
+	return detachCompleted, nil
 }
 
 // removePvcFinalizer removed finalizer from the CNS finalizer
@@ -557,6 +659,102 @@ func (r *ReconcileCnsNodeVmBatchAttachment) addPvcFinalizer(ctx context.Context,
 		}
 	}
 	return nil
+}*/
+
+/*func hasVolumesToBeAttachedFromInstanceStatus(
+	instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment) bool {
+
+	if len(instance.Spec.Volumes) > len(instance.Status.VolumeStatus) {
+		return true
+	}
+
+	volumesInSpec := make(map[string]bool)
+	for volume, _ := range instance.Spec.Volumes {
+		volumesInSpec[volume] = true
+	}
+
+	for volume, volumeStatus := range instance.Status.VolumeStatus {
+		if _, ok := volumesInSpec[volume]; !ok {
+			return true
+		}
+		if volumeStatus.AttachState == cnsnodevmbatchattachmentv1alpha1.AttachFailed {
+			return true
+		}
+	}
+
+	return false
+
+}*/
+
+/*func getVolumesToAttachAndDetach(ctx context.Context, instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment) ([]string, []string) {
+	log := logger.GetLogger(ctx)
+
+	volumesToAttach := make([]string, 0)
+	volumesToDetach := make([]string, 0)
+
+	// All volumes need to be attached every single time
+	for volume, _ := range instance.Spec.Volumes {
+		volumesToAttach = append(volumesToAttach, volume)
+	}
+
+	volumesInSpec := make(map[string]bool)
+	for volume, _ := range instance.Spec.Volumes {
+		volumesInSpec[volume] = true
+	}
+
+	for volumeName, _ := range instance.Status.VolumeStatus {
+		if _, ok := volumesInSpec[volumeName]; !ok {
+			volumesToDetach = append(volumesToDetach, volumeName)
+		}
+	}
+
+	log.Infof("Volumes to attach: %+v, volumes to detach %+v", volumesToAttach, volumesToDetach)
+
+	return volumesToAttach, volumesToDetach
+}*/
+
+// volumesToAttachAndDetach returns list of volumes to attach and to detach by taking a diff of
+// volumes in spec and in attachedFCDs list
+func volumesToAttachAndDetach(ctx context.Context, instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment,
+	pvcToVolumeId map[string]string, attachedFCDs map[string]bool) ([]string, []string) {
+	log := logger.GetLogger(ctx)
+
+	volumesToAttach := []string{}
+	volumesToDetach := []string{}
+
+	// Map of volumeIDs from instance spec for easy lookup.
+	volumeSpecMap := make(map[string]string)
+
+	// Add those volumes to volumesToAttach list
+	// which are present in the instance's spec
+	// but are not present int he attachedFCDs list.
+	for pvc, _ := range instance.Spec.Volumes {
+		// Find the PVC's volumeID
+		pvcVolumeId, exists := pvcToVolumeId[pvc]
+		if !exists {
+			log.Errorf("failed to find volumeID for PVC %s in cluster", pvc)
+			//return error
+			return volumesToAttach, volumesToDetach
+		}
+		// Store PVC's volumeID for easy lookup.
+		volumeSpecMap[pvcVolumeId] = pvc
+		// If the PVC is not found in attachedFCDs list,
+		// add it to volumesToAttach list.
+		if _, ok := attachedFCDs[pvcVolumeId]; !ok {
+			volumesToAttach = append(volumesToAttach, pvc)
+		}
+	}
+
+	/// Add those volumes to to volumesToDetach list
+	// which are present in attachedFCDs list but not in
+	// instance spec.
+	for attachedFcdId, _ := range attachedFCDs {
+		if pvc, ok := volumeSpecMap[attachedFcdId]; !ok {
+			volumesToDetach = append(volumesToDetach, pvc)
+		}
+	}
+
+	return volumesToAttach, volumesToDetach
 }
 
 func updateCnsNodeVmBatchAttachment(ctx context.Context, client client.Client,
@@ -664,15 +862,23 @@ func (r *ReconcileCnsNodeVmBatchAttachment) getNodeVm(ctx context.Context, insta
 }
 
 func (r *ReconcileCnsNodeVmBatchAttachment) detachVolumes(ctx context.Context,
+	nodeVM *cnsvsphere.VirtualMachine, nodeVMExists bool,
 	instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment, volumesToDetach []string) error {
 	log := logger.GetLogger(ctx)
 
+	/*detachCompleted := false
 	// Check if nodeVM exists or not.
-	nodeVM, detachCompleted, err := r.validateVmBeforeDetach(ctx, instance)
-	if err != nil {
-		log.Errorf("failed to validate node VM with nodeUUID %s", instance.Spec.NodeUUID)
-		return err
+	if nodeVM == nil {
+		if !nodeVMExists {
+			var err error
+			detachCompleted, err = r.validateVmBeforeDetach(ctx, nodeVM, instance)
+			if err != nil {
+				log.Errorf("failed to validate node VM with nodeUUID %s", instance.Spec.NodeUUID)
+				return err
+			}
+		}
 	}
+
 	// Detach may already be completed if:
 	// 1. The node itself is deleted.
 	// 2. VM has deletion timestamp.
@@ -691,7 +897,7 @@ func (r *ReconcileCnsNodeVmBatchAttachment) detachVolumes(ctx context.Context,
 		}
 		log.Debugf("Detach completed for VM %s for volume %+v", instance.Spec.NodeUUID, volumesToDetach)
 		return nil
-	}
+	}*/
 
 	// Start detach for every volume
 	volumesThatFailedToDetach := r.callDetachForAllVolumes(ctx, nodeVM, volumesToDetach, instance)
@@ -716,7 +922,7 @@ func (r *ReconcileCnsNodeVmBatchAttachment) callDetachForAllVolumes(ctx context.
 	volumesThatFailedToDetach := make([]string, 0)
 
 	for _, volume := range volumesToDetach {
-		cnsVolumeID, _, err := validateCnsVolumeIdBeforeDetach(ctx, instance, volume)
+		cnsVolumeID, err := validateCnsVolumeIdBeforeDetach(ctx, instance, volume)
 		if err != nil {
 			updateInstanceWithError(instance, volume, err.Error())
 			volumesThatFailedToDetach = append(volumesThatFailedToDetach, volume)
@@ -756,34 +962,13 @@ func (r *ReconcileCnsNodeVmBatchAttachment) callDetachForAllVolumes(ctx context.
 	return volumesThatFailedToDetach
 }
 
-func (r *ReconcileCnsNodeVmBatchAttachment) batchAttach(ctx context.Context, instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment, volumesToAttach []string) error {
+func (r *ReconcileCnsNodeVmBatchAttachment) batchAttach(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
+	pvcToVolumeId map[string]string, instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment, volumesToAttach []string) error {
 	log := logger.GetLogger(ctx)
 
-	// First verify if VM even exists or not
-	nodeVM, err := r.getNodeVm(ctx, instance)
-	if err != nil {
-		log.Errorf("failed to find the VM with UUID: %q for CnsNodeVmBatchAttachment "+
-			"request with name: %q on namespace: %q. Err: %+v",
-			instance.Spec.NodeUUID, instance.Name, instance.Namespace, err)
-		// Update error for all volumes
-		for _, volume := range volumesToAttach {
-			updateInstanceWithError(instance, volume, err.Error())
-		}
-		updateErr := updateCnsNodeVmBatchAttachment(ctx, r.client, instance)
-		if updateErr != nil {
-			log.Errorf("updateCnsNodeVmBatchAttachment failed. err: %v", err)
-			return updateErr
-		}
-		return err
-	}
-
-	pvcToVolumeId := make(map[string]string)
 	for _, volume := range volumesToAttach {
-		volumeID, err := cnsoperatorutil.GetVolumeID(ctx, r.client, volume, instance.Namespace)
-		if err != nil {
-			log.Errorf("failed to get volumeID from volumeName: %q for CnsNodeVmBatchAttachment "+
-				"request with name: %q on namespace: %q. Error: %+v",
-				volume, instance.Name, instance.Namespace, err)
+		if _, ok := pvcToVolumeId[volume]; !ok {
+			err := fmt.Errorf("failed to find volumeID for PVC %s in volumeSpec", volume)
 			for _, volume := range volumesToAttach {
 				volumeStatus := instance.Status.VolumeStatus[volume]
 				volumeStatus.AttachState = cnsnodevmbatchattachmentv1alpha1.AttachFailed
@@ -797,7 +982,6 @@ func (r *ReconcileCnsNodeVmBatchAttachment) batchAttach(ctx context.Context, ins
 			}
 			return err
 		}
-		pvcToVolumeId[volume] = volumeID
 	}
 
 	// TODO:  Add finalizer to PVC if it is not already added
@@ -822,7 +1006,7 @@ func (r *ReconcileCnsNodeVmBatchAttachment) batchAttach(ctx context.Context, ins
 			volumeStatus := instance.Status.VolumeStatus[volume]
 			volumeStatus.AttachState = cnsnodevmbatchattachmentv1alpha1.AttachFailed
 			instance.Status.VolumeStatus[volume] = volumeStatus
-			updateInstanceWithError(instance, volume, err.Error())
+			updateInstanceWithError(instance, volume, attachErr.Error())
 		}
 	} else {
 		if instance.Status.VolumeStatus == nil {
@@ -873,33 +1057,6 @@ func updateInstanceWithAttachState(instance *cnsnodevmbatchattachmentv1alpha1.Cn
 	instance.Status.VolumeStatus[volume] = volumeStatus
 }
 
-func getVolumesToAttachAndDetach(ctx context.Context, instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment) ([]string, []string) {
-	log := logger.GetLogger(ctx)
-
-	volumesToAttach := make([]string, 0)
-	volumesToDetach := make([]string, 0)
-
-	// All volumes need to be attached every single time
-	for _, volume := range instance.Spec.Volumes {
-		volumesToAttach = append(volumesToAttach, volume.PvcName)
-	}
-
-	volumesInSpec := make(map[string]bool)
-	for _, volume := range instance.Spec.Volumes {
-		volumesInSpec[volume.PvcName] = true
-	}
-
-	for volumeName, _ := range instance.Status.VolumeStatus {
-		if _, ok := volumesInSpec[volumeName]; !ok {
-			volumesToDetach = append(volumesToDetach, volumeName)
-		}
-	}
-
-	log.Infof("Volumes to attach: %+v, volumes to detach %+v", volumesToAttach, volumesToDetach)
-
-	return volumesToAttach, volumesToDetach
-}
-
 // removeFinalizerFromCRDInstance will remove the CNS Finalizer, cns.vmware.com,
 // from a given nodevmattachment instance.
 func removeFinalizerFromCRDInstance(ctx context.Context,
@@ -911,29 +1068,5 @@ func removeFinalizerFromCRDInstance(ctx context.Context,
 				cnsoperatortypes.CNSFinalizer, instance.Name, instance.Namespace)
 			instance.Finalizers = append(instance.Finalizers[:i], instance.Finalizers[i+1:]...)
 		}
-	}
-}
-
-// recordEvent records the event, sets the backOffDuration for the instance
-// appropriately and logs the message.
-// backOffDuration is reset to 1 second on success and doubled on failure.
-func recordEvent(ctx context.Context, r *ReconcileCnsNodeVmBatchAttachment,
-	instance *cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment, eventtype string, msg string) {
-	log := logger.GetLogger(ctx)
-	switch eventtype {
-	case v1.EventTypeWarning:
-		// Double backOff duration.
-		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Namespace+"/"+instance.Name] = backOffDuration[instance.Namespace+"/"+instance.Name] * 2
-		backOffDurationMapMutex.Unlock()
-		r.recorder.Event(instance, v1.EventTypeWarning, "NodeVmBatchAttachFailed", msg)
-		log.Error(msg)
-	case v1.EventTypeNormal:
-		// Reset backOff duration to one second.
-		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Namespace+"/"+instance.Name] = time.Second
-		backOffDurationMapMutex.Unlock()
-		r.recorder.Event(instance, v1.EventTypeNormal, "NodeVmBatchAttachSucceeded", msg)
-		log.Info(msg)
 	}
 }

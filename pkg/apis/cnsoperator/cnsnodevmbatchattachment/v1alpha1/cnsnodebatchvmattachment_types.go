@@ -65,7 +65,6 @@ const (
 )
 
 type VolumeSpec struct {
-	PvcName       string      `json:"pvcName"`
 	DiskMode      DiskMode    `json:"diskMode,omitempty"`
 	SharingMode   SharingMode `json:"sharingMode,omitempty"`
 	ControllerKey int64       `json:"controllerKey,omitempty"`
