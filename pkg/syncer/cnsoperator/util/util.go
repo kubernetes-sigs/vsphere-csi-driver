@@ -96,6 +96,35 @@ func GetVolumeID(ctx context.Context, client client.Client, pvcName string, name
 	return pv.Spec.CSI.VolumeHandle, nil
 }
 
+func GetVolumeIDPvcMappingInCluster(ctx context.Context, namespace string) (map[string]string, map[string]string, error) {
+	log := logger.GetLogger(ctx)
+
+	volumeIdToPvc := make(map[string]string)
+	pvcToVolumeId := make(map[string]string)
+
+	k8sclient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("failed to get k8sclient with error: %v", err)
+		return volumeIdToPvc, pvcToVolumeId, err
+	}
+
+	pvList, err := k8sclient.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("failed to list PersistentVolumes with error %v.", err)
+		return volumeIdToPvc, pvcToVolumeId, err
+	}
+
+	for _, pv := range pvList.Items {
+		volumeIdToPvc[pv.Spec.CSI.VolumeHandle] = pv.Spec.ClaimRef.Name
+		pvcToVolumeId[pv.Spec.ClaimRef.Name] = pv.Spec.CSI.VolumeHandle
+	}
+	log.Infof("volumeidtoPVc map %+v", volumeIdToPvc)
+	log.Infof("pvcToVolumeId map %+v", pvcToVolumeId)
+
+	return volumeIdToPvc, pvcToVolumeId, nil
+
+}
+
 // GetTKGVMIP finds the external facing IP address of a TKG VM object from a
 // given Supervisor Namespace based on the networking configuration (NSX-T or
 // VDS).

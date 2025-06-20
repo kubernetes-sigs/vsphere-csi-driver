@@ -102,15 +102,7 @@ func (in *CnsNodeVmBatchAttachmentSpec) DeepCopy() *CnsNodeVmBatchAttachmentSpec
 // DeepCopyInto copies all properties from the source into the target.
 func (in *CnsNodeVmBatchAttachmentStatus) DeepCopyInto(out *CnsNodeVmBatchAttachmentStatus) {
 	*out = *in
-	if in.VolumeStatus != nil {
-		in, out := &in.VolumeStatus, &out.VolumeStatus
-		*out = make(map[string]VolumeStatus, len(*in))
-		for key, val := range *in {
-			var outVal VolumeStatus
-			val.DeepCopyInto(&outVal)
-			(*out)[key] = outVal
-		}
-	}
+	return
 }
 
 // DeepCopy creates a new CnsNodeVmBatchAttachmentStatus.

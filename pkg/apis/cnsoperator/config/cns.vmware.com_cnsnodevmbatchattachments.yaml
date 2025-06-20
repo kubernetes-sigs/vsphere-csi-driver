@@ -47,14 +47,19 @@ spec:
                   Here NodeUUID is the bios UUID of the node.
                 type: string
               volumes:
-                additionalProperties:
+                description: |-
+                  VolumeName indicates the name of the volume on the supervisor Cluster.
+                  This is guaranteed to be unique in Supervisor cluster.
+                items:
                   properties:
+                    claimName:
+                      type: string
                     controllerKey:
                       format: int64
                       type: integer
                     diskMode:
                       type: string
-                    pvcName:
+                    name:
                       type: string
                     sharingMode:
                       type: string
@@ -62,12 +67,13 @@ spec:
                       format: int64
                       type: integer
                   required:
-                  - pvcName
+                  - claimName
+                  - name
                   type: object
-                description: |-
-                  VolumeName indicates the name of the volume on the supervisor Cluster.
-                  This is guaranteed to be unique in Supervisor cluster.
-                type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
             required:
             - nodeuuid
             - volumes
@@ -76,10 +82,12 @@ spec:
             description: CnsNodeVmBatchAttachmentStatus defines the observed state
               of CnsNodeVmBatchAttachment
             properties:
-              volumeStatus:
-                additionalProperties:
+              volumes:
+                items:
                   properties:
                     attachState:
+                      type: boolean
+                    claimName:
                       type: string
                     cnsVolumeId:
                       type: string
@@ -87,11 +95,20 @@ spec:
                       type: string
                     error:
                       type: string
+                    name:
+                      type: string
                   required:
+                  - claimName
                   - cnsVolumeId
                   - diskuuid
+                  - name
                   type: object
-                type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+            required:
+            - volumes
             type: object
         type: object
     served: true

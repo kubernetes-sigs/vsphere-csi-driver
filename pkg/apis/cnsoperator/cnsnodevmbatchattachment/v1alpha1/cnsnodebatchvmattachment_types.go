@@ -22,18 +22,13 @@ import (
 
 type AttachState string
 
-const (
-	AttachCompleted  AttachState = "ATTACH_COMPLETED"
-	AttachFailed     AttachState = "ATTACH_FAILED"
-	DetachInProgress AttachState = "DETACH_IN_PROGRESS"
-	DetachFailed     AttachState = "DETACH_FAILED"
-)
-
 type VolumeStatus struct {
-	AttachState AttachState `json:"attachState,omitempty"`
-	Error       string      `json:"error,omitempty"`
-	CnsVolumeID string      `json:"cnsVolumeId,omitEmpty"`
-	Diskuuid    string      `json:"diskuuid,omitEmpty"`
+	Name        string `json:"name"`
+	ClaimName   string `json:"claimName,omitEmpty"`
+	Attached    bool   `json:"attachState,omitempty"`
+	Error       string `json:"error,omitempty"`
+	CnsVolumeID string `json:"cnsVolumeId,omitEmpty"`
+	Diskuuid    string `json:"diskuuid,omitEmpty"`
 }
 
 // CnsNodeVmBatchAttachmentSpec defines the desired state of CnsNodeVmBatchAttachment
@@ -43,9 +38,11 @@ type CnsNodeVmBatchAttachmentSpec struct {
 	// Here NodeUUID is the bios UUID of the node.
 	NodeUUID string `json:"nodeuuid"`
 
+	// +listType=map
+	// +listMapKey=name
 	// VolumeName indicates the name of the volume on the supervisor Cluster.
 	// This is guaranteed to be unique in Supervisor cluster.
-	Volumes map[string]VolumeSpec `json:"volumes"`
+	Volumes []VolumeSpec `json:"volumes"`
 }
 
 type DiskMode string
@@ -65,7 +62,8 @@ const (
 )
 
 type VolumeSpec struct {
-	PvcName       string      `json:"pvcName"`
+	Name          string      `json:"name"`
+	ClaimName     string      `json:"claimName,omitEmpty"`
 	DiskMode      DiskMode    `json:"diskMode,omitempty"`
 	SharingMode   SharingMode `json:"sharingMode,omitempty"`
 	ControllerKey int64       `json:"controllerKey,omitempty"`
@@ -75,7 +73,9 @@ type VolumeSpec struct {
 // CnsNodeVmBatchAttachmentStatus defines the observed state of CnsNodeVmBatchAttachment
 // +k8s:openapi-gen=true
 type CnsNodeVmBatchAttachmentStatus struct {
-	VolumeStatus map[string]VolumeStatus `json:"volumeStatus,omitEmpty"`
+	// +listType=map
+	// +listMapKey=name
+	VolumeStatus []VolumeStatus `json:"volumes,omitEmpty"`
 }
 
 // +genclient
