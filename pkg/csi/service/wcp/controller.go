@@ -488,6 +488,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	topologyRequirement = req.GetAccessibilityRequirements()
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
+	isCSITransactionSupportEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSITranSactionSupport)
+
 	topoSegToDatastoresMap := make(map[string][]*cnsvsphere.DatastoreInfo)
 	if isTKGSHAEnabled {
 		// TKGS-HA feature is enabled
@@ -710,10 +712,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 
 	createVolumeOpts := common.CreateBlockVolumeOptions{
-		FilterSuspendedDatastores:     filterSuspendedDatastores,
-		UseSupervisorId:               isTKGSHAEnabled,
-		IsVdppOnStretchedSvFssEnabled: isVdppOnStretchedSVEnabled,
-		IsByokEnabled:                 isByokEnabled,
+		FilterSuspendedDatastores:      filterSuspendedDatastores,
+		UseSupervisorId:                isTKGSHAEnabled,
+		IsVdppOnStretchedSvFssEnabled:  isVdppOnStretchedSVEnabled,
+		IsByokEnabled:                  isByokEnabled,
+		IsCSITransactionSupportEnabled: isCSITransactionSupportEnabled,
 	}
 
 	var (
@@ -729,6 +732,21 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				Namespace:                            req.Parameters[common.AttributePvcNamespace],
 				IsPodVMOnStretchSupervisorFSSEnabled: isPodVMOnStretchSupervisorFSSEnabled,
 			})
+		if err != nil {
+			if cnsvolume.IsNotSupportedFaultType(ctx, faultType) {
+				log.Warnf("NotSupported fault is detected: retrying CreateVolume without VolumeID in spec.")
+				// Disable CSI transaction support for retry
+				createVolumeOpts.IsCSITransactionSupportEnabled = false
+				volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
+					c.manager, &createVolumeSpec, candidateDatastores, createVolumeOpts,
+					&cnsvolume.CreateVolumeExtraParams{
+						VolSizeBytes:                         volSizeBytes,
+						StorageClassName:                     req.Parameters[common.AttributeStorageClassName],
+						Namespace:                            req.Parameters[common.AttributePvcNamespace],
+						IsPodVMOnStretchSupervisorFSSEnabled: isPodVMOnStretchSupervisorFSSEnabled,
+					})
+			}
+		}
 	} else {
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
 			c.manager, &createVolumeSpec, candidateDatastores, createVolumeOpts, nil)

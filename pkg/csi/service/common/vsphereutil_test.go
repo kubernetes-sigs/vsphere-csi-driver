@@ -19,7 +19,7 @@ func TestQueryVolumeSnapshotsByVolumeIDWithQuerySnapshotsCnsVolumeNotFoundFault(
 		resultEntry := cnstypes.CnsSnapshotQueryResultEntry{
 			Snapshot: cnstypes.CnsSnapshot{},
 			Error: &types.LocalizedMethodFault{
-				Fault: cnstypes.CnsVolumeNotFoundFault{
+				Fault: &cnstypes.CnsVolumeNotFoundFault{
 					CnsFault: cnstypes.CnsFault{},
 					VolumeId: cnstypes.CnsVolumeId{
 						Id: volumeId,
@@ -75,7 +75,7 @@ func TestQueryVolumeSnapshotWithQuerySnapshotsCnsSnapshotNotFoundFault(t *testin
 		resultEntry := cnstypes.CnsSnapshotQueryResultEntry{
 			Snapshot: cnstypes.CnsSnapshot{},
 			Error: &types.LocalizedMethodFault{
-				Fault: cnstypes.CnsSnapshotNotFoundFault{
+				Fault: &cnstypes.CnsSnapshotNotFoundFault{
 					CnsFault: cnstypes.CnsFault{},
 					VolumeId: cnstypes.CnsVolumeId{
 						Id: volumeId,
