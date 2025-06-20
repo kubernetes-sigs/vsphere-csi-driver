@@ -47,27 +47,47 @@ spec:
                   Here NodeUUID is the bios UUID of the node.
                 type: string
               volumes:
-                additionalProperties:
+                description: VolumeSpec reflects the desired state for each volume.
+                items:
                   properties:
-                    controllerKey:
-                      format: int64
-                      type: integer
-                    diskMode:
+                    name:
+                      description: Name of the volume as given by the user.
                       type: string
-                    pvcName:
-                      type: string
-                    sharingMode:
-                      type: string
-                    unitNumber:
-                      format: int64
-                      type: integer
+                    persistentVolumeClaim:
+                      description: PersistentVolumeClaim contains details about the
+                        volume's desired state.
+                      properties:
+                        claimName:
+                          description: ClaimName is the PVC name.
+                          type: string
+                        controllerKey:
+                          description: ControllerKey is the object key for the controller
+                            object for this device.
+                          format: int64
+                          type: integer
+                        diskMode:
+                          description: DiskMode is the desired mode to use when attaching
+                            the volume
+                          type: string
+                        sharingMode:
+                          description: SharingMode indicates the shraring mode if
+                            the virtual disk while attaching.
+                          type: string
+                        unitNumber:
+                          description: UnitNumber of this device on its controller.
+                          format: int64
+                          type: integer
+                      required:
+                      - claimName
+                      type: object
                   required:
-                  - pvcName
+                  - name
+                  - persistentVolumeClaim
                   type: object
-                description: |-
-                  VolumeName indicates the name of the volume on the supervisor Cluster.
-                  This is guaranteed to be unique in Supervisor cluster.
-                type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
             required:
             - nodeuuid
             - volumes
@@ -76,22 +96,52 @@ spec:
             description: CnsNodeVmBatchAttachmentStatus defines the observed state
               of CnsNodeVmBatchAttachment
             properties:
-              volumeStatus:
-                additionalProperties:
+              error:
+                description: Error is the overall error status for the instance.
+                type: string
+              volumes:
+                description: VolumeStatus reflects the status for each volume.
+                items:
                   properties:
-                    attachState:
+                    name:
+                      description: Name of the volume as given by the user.
                       type: string
-                    cnsVolumeId:
-                      type: string
-                    diskuuid:
-                      type: string
-                    error:
-                      type: string
+                    persistentVolumeClaim:
+                      description: PersistentVolumeClaim contains details about the
+                        volume's current state.
+                      properties:
+                        attached:
+                          description: |-
+                            If volume is not attached, Attached will be set to false.
+                            If volume is attached, Attached will be set to true.
+                            If volume is detached successfully, its entry will be removed from VolumeStatus.
+                          type: boolean
+                        claimName:
+                          description: ClaimName is the PVC name.
+                          type: string
+                        cnsVolumeId:
+                          description: CnsVolumeID is the volume ID for the PVC.
+                          type: string
+                        diskuuid:
+                          description: Diskuuid is the ID obtained when volume is
+                            attached to a VM.
+                          type: string
+                        error:
+                          description: Error indicates the error which may have occurred
+                            during attach/detach.
+                          type: string
+                      required:
+                      - attached
+                      - claimName
+                      type: object
                   required:
-                  - cnsVolumeId
-                  - diskuuid
+                  - name
+                  - persistentVolumeClaim
                   type: object
-                type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
             type: object
         type: object
     served: true

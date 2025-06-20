@@ -364,6 +364,17 @@ func (c *FakeK8SOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (string
 	return "mock-pvc", "mock-namespace", true
 }
 
+// GetVolumeIDFromPVCName simlates an invalid case when pvcName contains "invalid".
+func (c *FakeK8SOrchestrator) GetVolumeIDFromPVCName(pvcName string) (string, bool) {
+	if strings.Contains(pvcName, "invalid") {
+		// Simulate a case where the volumeID is invalid and does not correspond to any PVC.
+		return "", false
+	}
+
+	// Simulate a case where the volumeID corresponds to a PVC.
+	return "12345-6789", true
+}
+
 // InitializeCSINodes creates CSINode instances for each K8s node with the appropriate topology keys.
 func (c *FakeK8SOrchestrator) InitializeCSINodes(ctx context.Context) error {
 	return nil
