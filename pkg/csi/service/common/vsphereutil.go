@@ -19,6 +19,7 @@ package common
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -58,7 +59,8 @@ type CreateBlockVolumeOptions struct {
 	FilterSuspendedDatastores,
 	UseSupervisorId,
 	IsVdppOnStretchedSvFssEnabled bool
-	IsByokEnabled bool
+	IsByokEnabled                  bool
+	IsCSITransactionSupportEnabled bool
 }
 
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
@@ -235,6 +237,18 @@ func CreateBlockVolumeUtil(
 			ContainerClusterArray: containerClusterArray,
 		},
 	}
+
+	if opts.IsCSITransactionSupportEnabled {
+		re := regexp.MustCompile(`pvc-([0-9a-fA-F\-]+)`)
+		matches := re.FindStringSubmatch(spec.Name)
+		if len(matches) > 1 {
+			createSpec.VolumeId.Id = matches[1]
+		} else {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+				"failed to get UUID from the PV name: %q", spec.Name)
+		}
+	}
+
 	if spec.StoragePolicyID != "" {
 		profileSpec := &vim25types.VirtualMachineDefinedProfileSpec{
 			ProfileId: spec.StoragePolicyID,
@@ -349,7 +363,7 @@ func CreateBlockVolumeUtil(
 }
 
 // CreateBlockVolumeUtilForMultiVC is the helper function to create CNS block volume when multi-VC FSS is enabled.
-func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{}) (
+func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{}, opts CreateBlockVolumeOptions) (
 	*cnsvolume.CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	params, ok := reqParams.(VanillaCreateBlockVolParamsForMultiVC)
@@ -421,6 +435,18 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 			ContainerClusterArray: containerClusterArray,
 		},
 	}
+
+	if opts.IsCSITransactionSupportEnabled {
+		re := regexp.MustCompile(`pvc-([0-9a-fA-F\-]+)`)
+		matches := re.FindStringSubmatch(createSpec.Name)
+		if len(matches) > 1 {
+			createSpec.VolumeId.Id = matches[1]
+		} else {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+				"failed to get UUID from the PV name: %q", createSpec.Name)
+		}
+	}
+
 	if params.StoragePolicyID != "" {
 		profileSpec := &vim25types.VirtualMachineDefinedProfileSpec{
 			ProfileId: params.StoragePolicyID,

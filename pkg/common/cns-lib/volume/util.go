@@ -557,3 +557,11 @@ func IsNotFoundFault(ctx context.Context, faultType string) bool {
 	return faultType == "vim.fault.NotFound"
 
 }
+
+// IsNotSupportedFault returns true if a given faultType value is vim.fault.NotSupported
+func IsNotSupportedFault(ctx context.Context, faultType string) bool {
+	log := logger.GetLogger(ctx)
+	log.Infof("Checking fault type: %q is vim.fault.NotFound", faultType)
+	return faultType == "vim.fault.NotSupported"
+
+}

@@ -150,6 +150,7 @@ apiVersion: v1
 data:
   "trigger-csi-fullsync": "false"
   "pv-to-backingdiskobjectid-mapping": "false"
+  "csi-transaction-support": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
