@@ -312,8 +312,8 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 // InitCommonModules initializes the common modules for all flavors.
 func InitCommonModules(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	coInitParams *interface{}) error {
-	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
+	log.Infof("Initializing common modules for cluster flavor: %s", clusterFlavor)
 	var err error
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		commonco.ContainerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
