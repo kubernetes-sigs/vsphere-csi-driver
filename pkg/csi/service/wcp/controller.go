@@ -709,11 +709,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		CryptoKeyID:             cryptoKeyID,
 	}
 
+	createVolumeFromSnapshotDiffDatastore := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.CreateVolumeFromSnapshotDiffDatastore)
 	createVolumeOpts := common.CreateBlockVolumeOptions{
-		FilterSuspendedDatastores:     filterSuspendedDatastores,
-		UseSupervisorId:               isTKGSHAEnabled,
-		IsVdppOnStretchedSvFssEnabled: isVdppOnStretchedSVEnabled,
-		IsByokEnabled:                 isByokEnabled,
+		FilterSuspendedDatastores:             filterSuspendedDatastores,
+		UseSupervisorId:                       isTKGSHAEnabled,
+		IsVdppOnStretchedSvFssEnabled:         isVdppOnStretchedSVEnabled,
+		CreateVolumeFromSnapshotDiffDatastore: createVolumeFromSnapshotDiffDatastore,
+		IsByokEnabled:                         isByokEnabled,
 	}
 
 	var (
