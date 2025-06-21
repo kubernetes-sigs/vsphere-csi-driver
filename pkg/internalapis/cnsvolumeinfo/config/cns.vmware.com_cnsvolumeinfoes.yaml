@@ -62,6 +62,9 @@ spec:
                 validaggregatedsnapshotsize:
                   description: ValidAggregatedSnapshotSize defines if the presented AggregatedSnapshotSize is valid.
                   type: boolean
+                isLinkedClone:
+                  description: Indicates if the volume is a Linked Clone
+                  type: boolean
                 aggregatedsnapshotsize:
                   anyOf:
                     - type: integer

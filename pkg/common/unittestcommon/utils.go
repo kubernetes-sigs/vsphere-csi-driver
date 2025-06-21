@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"sync"
 
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/simulator"
 	"github.com/vmware/govmomi/simulator/vpx"
 	"google.golang.org/grpc/codes"
@@ -369,6 +370,40 @@ func (c *FakeK8SOrchestrator) StartZonesInformer(ctx context.Context, restClient
 // GetZonesForNamespace fetches the zones associated with a namespace when
 // WorkloadDomainIsolation is supported in supervisor.
 func (c *FakeK8SOrchestrator) GetZonesForNamespace(ns string) map[string]struct{} {
+	return nil
+}
+
+func (c *FakeK8SOrchestrator) IsLinkedCloneRequest(ctx context.Context, pvcName string,
+	pvcNamespace string) (bool, error) {
+	return false, nil
+}
+
+func (c *FakeK8SOrchestrator) GetSourceVolumeHandleForLinkedCloneRequest(ctx context.Context, pvcName string,
+	pvcNamespace string) (string, error) {
+	return "", nil
+}
+
+func (c *FakeK8SOrchestrator) PostLinkedCloneCreateAction(ctx context.Context, pvcName string,
+	pvcNamespace string) error {
+	return nil
+}
+func (c *FakeK8SOrchestrator) UpdateLinkedCloneSource(ctx context.Context, sourceNamespace string, sourceName string,
+	isDelete bool) error {
+	return nil
+}
+
+func (c *FakeK8SOrchestrator) GetLinkedCloneSource(ctx context.Context, pvcName string,
+	pvcNamespace string) (string, string, error) {
+	return "", "", nil
+}
+
+func (c *FakeK8SOrchestrator) GetLinkedCloneSourceFromVolumeId(ctx context.Context, volumeId string,
+	clusterFlavor cnstypes.CnsClusterFlavor) (string, string, error) {
+	return "", "", nil
+}
+
+func (c *FakeK8SOrchestrator) PreLinkedCloneCreateAction(ctx context.Context, pvcNamespace string,
+	pvcName string) error {
 	return nil
 }
 

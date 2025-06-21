@@ -12,6 +12,7 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crConfig "sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -20,6 +21,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -188,6 +190,11 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 			resp.AdmissionResponse = *admissionResp.DeepCopy()
 
 		}
+	} else if req.Kind.Kind == "VolumeSnapshot" {
+		if featureIsLinkedCloneSupportEnabled {
+			admissionResp := validateSnapshotOperationSupervisorRequest(ctx, &req.AdmissionRequest)
+			resp.AdmissionResponse = *admissionResp.DeepCopy()
+		}
 	}
 	return
 }
@@ -227,6 +234,19 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 			return admission.Denied(err.Error())
 		} else if ok {
 			wasMutated = true
+		}
+	}
+
+	if featureIsLinkedCloneSupportEnabled {
+		if v1.HasAnnotation(newPVC.ObjectMeta, common.AttributeIsLinkedClone) {
+			// Set the same label
+			if newPVC.Labels == nil {
+				newPVC.Labels = make(map[string]string)
+			}
+			if _, ok := newPVC.Labels[common.AnnKeyLinkedClone]; !ok {
+				newPVC.Labels[common.LinkedClonePVCLabel] = newPVC.Annotations[common.AttributeIsLinkedClone]
+				wasMutated = true
+			}
 		}
 	}
 

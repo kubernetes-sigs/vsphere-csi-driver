@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -16,8 +17,10 @@ import (
 )
 
 const (
-	ExpandVolumeWithSnapshotErrorMessage = "Expanding volume with snapshots is not allowed"
-	DeleteVolumeWithSnapshotErrorMessage = "Deleting volume with snapshots is not allowed"
+	ExpandVolumeWithSnapshotErrorMessage   = "Expanding volume with snapshots is not allowed"
+	ExpandLinkedCloneVolumeErrorMessage    = "Expanding linked clone volume is not allowed"
+	UpdateLinkedCloneVolumeAnnErrorMessage = "Cannot update linked clone volume annotations after creation"
+	DeleteVolumeWithSnapshotErrorMessage   = "Deleting volume with snapshots is not allowed"
 )
 
 // validatePVC helps validate AdmissionReview requests for PersistentVolumeClaim.
@@ -63,10 +66,10 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 				Allowed: true,
 			}
 		}
-
+		var newPVC corev1.PersistentVolumeClaim
 		var newReq resource.Quantity
 		if req.Operation != admissionv1.Delete {
-			newPVC := corev1.PersistentVolumeClaim{}
+			newPVC = corev1.PersistentVolumeClaim{}
 			log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
 			// req.Object is null for DELETE operations.
 			if err := json.Unmarshal(req.Object.Raw, &newPVC); err != nil {
@@ -116,6 +119,58 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 				} else if req.Operation == admissionv1.Delete {
 					result = &metav1.Status{
 						Reason: DeleteVolumeWithSnapshotErrorMessage,
+					}
+				}
+			} else {
+				// Determine the state of the linked clone annotation on the old PVC
+				oldPVCHasLinkedCloneAnn := metav1.HasAnnotation(oldPVC.ObjectMeta, common.AttributeIsLinkedClone)
+				oldPVCLinkedCloneIsFalse := oldPVCHasLinkedCloneAnn && oldPVC.Annotations[common.AnnKeyLinkedClone] == "false"
+
+				// Determine the state of the linked clone annotation on the new PVC
+				newPVCHasLinkedCloneAnn := metav1.HasAnnotation(newPVC.ObjectMeta, common.AttributeIsLinkedClone)
+				newPVCLinkedCloneIsTrue := newPVCHasLinkedCloneAnn && newPVC.Annotations[common.AnnKeyLinkedClone] == "true"
+
+				if !oldPVCHasLinkedCloneAnn && newPVCHasLinkedCloneAnn {
+					// Scenario 1: Adding the linked clone annotation where it didn't exist before
+					allowed = false
+					result = &metav1.Status{
+						Reason: UpdateLinkedCloneVolumeAnnErrorMessage,
+					}
+				} else if oldPVCLinkedCloneIsFalse && newPVCLinkedCloneIsTrue {
+					// Scenario 2: Changing the linked clone annotation from "false" to "true"
+					allowed = false
+					result = &metav1.Status{
+						Reason: UpdateLinkedCloneVolumeAnnErrorMessage,
+					}
+				}
+			}
+		}
+		if featureIsLinkedCloneSupportEnabled && allowed {
+			// If the LinkedClone PVC annotation is being removed
+			if req.Operation == admissionv1.Update {
+				oldPVCLinkedClone := metav1.HasAnnotation(oldPVC.ObjectMeta, common.AttributeIsLinkedClone) &&
+					oldPVC.Annotations[common.AnnKeyLinkedClone] == "true"
+
+				if oldPVCLinkedClone {
+					newPVCLinkedClone := metav1.HasAnnotation(newPVC.ObjectMeta, common.AttributeIsLinkedClone) &&
+						newPVC.Annotations[common.AnnKeyLinkedClone] == "true"
+
+					if !newPVCLinkedClone {
+						allowed = false
+						result = &metav1.Status{
+							Reason: UpdateLinkedCloneVolumeAnnErrorMessage,
+						}
+					}
+				}
+			}
+			// If the LinkedClone PVC is being expanded
+			if req.Operation == admissionv1.Update && newReq.Cmp(oldReq) > 0 && allowed {
+				if metav1.HasAnnotation(oldPVC.ObjectMeta, common.AttributeIsLinkedClone) {
+					if oldPVC.Annotations[common.AnnKeyLinkedClone] == "true" {
+						allowed = false
+						result = &metav1.Status{
+							Reason: ExpandLinkedCloneVolumeErrorMessage,
+						}
 					}
 				}
 			}
