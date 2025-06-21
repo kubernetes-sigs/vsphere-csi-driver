@@ -110,7 +110,8 @@ var (
 	nodeMgr node.Manager
 	// IsPodVMOnStretchSupervisorFSSEnabled is true when PodVMOnStretchedSupervisor FSS is enabled.
 	IsPodVMOnStretchSupervisorFSSEnabled bool
-
+	// IsLinkedCloneSupportFSSEnabled is true when linked-clone-support FSS is enabled.
+	IsLinkedCloneSupportFSSEnabled bool
 	// ResourceAPIgroupPVC is an empty string as PVC belongs to the core resource group denoted by `""`.
 	ResourceAPIgroupPVC = ""
 
@@ -277,7 +278,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				return logger.LogNewErrorf(log, "failed to initialize CSINodes creation. Error: %+v", err)
 			}
 		}
-
+		IsLinkedCloneSupportFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.LinkedCloneSupport)
 		// Check if finalizer is added on CnsFileVolumeClient CRs, if not then add a finalizer.
 		// We want to protect CnsFileVolumeClient from getting abruptly deleted, as it is being used
 		// in CnsFileAccessConfig CR. So, in case of upgrade we will add finalizer if it is missing.
