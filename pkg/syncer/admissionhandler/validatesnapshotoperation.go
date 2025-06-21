@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"strconv"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -85,7 +87,59 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 				return admission.Denied(SnapshotFeatureNotEnabled)
 			}
 		}
+
+		// Handle VolumeSnapshot deletion with Linked Clone support.
+		if featureIsLinkedCloneSupportEnabled && req.Operation == admissionv1.Delete {
+			return validateVolumeSnapshotLinkedCloneCount(vs)
+		}
 	}
 	log.Debugf("validateSnapshotOperationGuestRequest completed for the request %v", req)
+	return admission.Allowed("")
+}
+
+func validateSnapshotOperationSupervisorRequest(ctx context.Context, req *admissionv1.AdmissionRequest) admission.Response {
+	log := logger.GetLogger(ctx)
+	log.Debugf("validateSnapshotOperationSupervisorRequest called with the request %v", req)
+
+	if req.Kind.Kind == "VolumeSnapshot" {
+		if !featureIsLinkedCloneSupportEnabled {
+			return admission.Allowed("")
+		}
+		vs := snap.VolumeSnapshot{}
+		log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
+		if err := json.Unmarshal(req.Object.Raw, &vs); err != nil {
+			reason := "error deserializing volume snapshot"
+			log.Warn(reason)
+			return admission.Denied(reason)
+		}
+		log.Debugf("Validating VolumeSnapshot: %q", vs.Name)
+
+		// Only apply Linked Clone validation for delete operations.
+		if featureIsLinkedCloneSupportEnabled && req.Operation == admissionv1.Delete {
+			return validateVolumeSnapshotLinkedCloneCount(vs)
+		}
+	}
+	log.Debugf("validateSnapshotOperationSupervisorRequest completed for the request %v", req)
+	return admission.Allowed("")
+}
+
+// validateVolumeSnapshotLinkedCloneCount checks if a VolumeSnapshot has associated Linked Clones and prevents deletion if found.
+func validateVolumeSnapshotLinkedCloneCount(vs snap.VolumeSnapshot) admission.Response {
+	linkedCloneCountStr, found := vs.ObjectMeta.Labels[common.LinkedCloneCountLabel]
+	if !found {
+		return admission.Allowed("") // No linked clones, allow deletion
+	}
+
+	linkedCloneCount, err := strconv.Atoi(linkedCloneCountStr)
+	if err != nil {
+		reason := fmt.Sprintf("error reading the value of label %q on VolumeSnapshot. "+
+			"Error: %v", common.LinkedCloneCountLabel, err)
+		return admission.Denied(reason)
+	}
+
+	if linkedCloneCount >= 1 {
+		reason := fmt.Sprintf("VolumeSnapshot has %d LinkedClones, please delete them before deleting the VolumeSnapshot", linkedCloneCount)
+		return admission.Denied(reason)
+	}
 	return admission.Allowed("")
 }

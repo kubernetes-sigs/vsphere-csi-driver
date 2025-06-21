@@ -58,8 +58,8 @@ type VolumeInfoService interface {
 
 	// CreateVolumeInfoWithPolicyInfo creates VolumeInfo CR to persist VolumeID,
 	// pvcnamespace, storage policy info and  vCenter details
-	CreateVolumeInfoWithPolicyInfo(ctx context.Context, volumeID, pvcnamespace, storagePolicyId,
-		storageClassName, vCenter string, capacity *resource.Quantity) error
+	CreateVolumeInfoWithPolicyInfo(ctx context.Context, volumeID, pvcnamespace, storagePolicyId, storageClassName,
+		vCenter string, capacity *resource.Quantity, isLinkedClone bool) error
 
 	// DeleteVolumeInfo deletes VolumeInfo CR for the given VolumeID
 	DeleteVolumeInfo(ctx context.Context, volumeID string) error
@@ -199,8 +199,8 @@ func (volumeInfo *volumeInfo) CreateVolumeInfo(ctx context.Context, volumeID str
 }
 
 // CreateVolumeInfoWithPolicyInfo creates VolumeInfo CR to persist VolumeID to Storage policy mapping
-func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context, volumeID string,
-	namespace, storagePolicyId, storageClassName, vCenter string, capacity *resource.Quantity) error {
+func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context, volumeID, pvcnamespace,
+	storagePolicyId, storageClassName, vCenter string, capacity *resource.Quantity, isLinkedClone bool) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("creating cnsvolumeinfo for volumeID: %q, StoragePolicyID: %q, "+
 		"StorageClassName: %q, vCenter: %q, Capacity: %+v in the namespace: %q",
@@ -215,11 +215,12 @@ func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context
 		},
 		Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
 			VolumeID:         volumeID,
-			Namespace:        namespace,
+			Namespace:        pvcnamespace,
 			VCenterServer:    vCenter,
 			StoragePolicyID:  storagePolicyId,
 			StorageClassName: storageClassName,
 			Capacity:         capacity,
+			IsLinkedClone:    isLinkedClone,
 		},
 	}
 	err := volumeInfo.k8sClient.Create(ctx, &cnsvolumeinfo)
@@ -231,9 +232,9 @@ func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context
 		log.Infof("cnsvolumeInfo CR already exists for VolumeID: %q", volumeID)
 		return nil
 	}
-	log.Infof("Successfully created CNSVolumeInfo CR for volumeID: %q, StoragePolicyID: %q, "+
-		"StorageClassName: %q, vCenter: %q, Capacity: %+v mapping in the namespace: %q",
-		volumeID, storagePolicyId, storageClassName, vCenter, *capacity, csiNamespace)
+	log.Infof("Successfully created CNSVolumeInfo CR for volumeID: %q ,StoragePolicyID: %q,"+
+		"StorageClassName: %q, vCenter: %q, Capacity: %+v mapping in the namespace: %q. IsLinkedClone: %+v",
+		volumeID, storagePolicyId, storageClassName, vCenter, *capacity, csiNamespace, isLinkedClone)
 	return nil
 }
 

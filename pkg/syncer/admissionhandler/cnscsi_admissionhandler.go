@@ -6,8 +6,10 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"net/http"
 	"os"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"strconv"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -188,6 +190,11 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 			resp.AdmissionResponse = *admissionResp.DeepCopy()
 
 		}
+	} else if req.Kind.Kind == "VolumeSnapshot" {
+		if featureIsLinkedCloneSupportEnabled {
+			admissionResp := validateSnapshotOperationSupervisorRequest(ctx, &req.AdmissionRequest)
+			resp.AdmissionResponse = *admissionResp.DeepCopy()
+		}
 	}
 	return
 }
@@ -226,6 +233,14 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 		if ok, err := setDefaultEncryptionClass(ctx, h.CryptoClient, newPVC); err != nil {
 			return admission.Denied(err.Error())
 		} else if ok {
+			wasMutated = true
+		}
+	}
+
+	if featureIsLinkedCloneSupportEnabled {
+		if v1.HasAnnotation(newPVC.ObjectMeta, common.AttributeIsLinkedClone) {
+			// Set the same label
+			newPVC.Labels[common.AttributeIsLinkedClone] = newPVC.Annotations[common.AttributeIsLinkedClone]
 			wasMutated = true
 		}
 	}

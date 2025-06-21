@@ -273,6 +273,7 @@ func CreateBlockVolumeUtil(
 			SnapshotId: cnstypes.CnsSnapshotId{
 				Id: cnsSnapshotID,
 			},
+			LinkedClone: spec.IsLinkedCloneRequest,
 		}
 
 		// select the compatible datastore for the case of create volume from snapshot

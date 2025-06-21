@@ -564,6 +564,7 @@ data:
   "WCP_VMService_BYOK": "false"
   "sv-pvc-snapshot-protection-finalizer": "false"
   "file-volume-with-vm-service" : "false"
+  "linked-clone-support" : "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
@@ -651,14 +652,8 @@ webhooks:
         operations:  ["CREATE", "UPDATE", "DELETE"]
         resources:   ["persistentvolumeclaims"]
         scope: "Namespaced"
-      - apiGroups:   ["snapshot.storage.k8s.io"]
-        apiVersions: ["v1"]
-        operations:  ["CREATE"]
-        resources:   ["volumesnapshots"]
-        scope:       "Namespaced"
-        scope:  "Namespaced"
-      - apiVersions: ["v1"]
-        operations:  ["CREATE"]
+      - apiVersions: ["snapshot.storage.k8s.io"]
+        operations:  ["CREATE", "DELETE"]
         resources:   ["volumesnapshots"]
         scope:       "Namespaced"
       - apiGroups:   ["cns.vmware.com"]

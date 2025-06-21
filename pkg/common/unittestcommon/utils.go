@@ -372,6 +372,31 @@ func (c *FakeK8SOrchestrator) GetZonesForNamespace(ns string) map[string]struct{
 	return nil
 }
 
+func (c *FakeK8SOrchestrator) IsLinkedCloneRequest(ctx context.Context, pvcName string,
+	pvcNamespace string) (bool, error) {
+	return false, nil
+}
+
+func (c *FakeK8SOrchestrator) GetSourceVolumeHandleForLinkedCloneRequest(ctx context.Context, pvcName string,
+	pvcNamespace string) (string, error) {
+	return "", nil
+}
+
+func (c *FakeK8SOrchestrator) PostLinkedCloneCreateAction(ctx context.Context, pvcName string, pvcNamespace string) error {
+	return nil
+}
+func (c *FakeK8SOrchestrator) UpdateLinkedCloneSource(ctx context.Context, sourceNamespace string, sourceName string, isDelete bool) error {
+	return nil
+}
+
+func (c *FakeK8SOrchestrator) GetLinkedCloneSource(ctx context.Context, pvcName string, pvcNamespace string) (string, string, error) {
+	return "", "", nil
+}
+
+func (c *FakeK8SOrchestrator) GetLinkedCloneSourceFromVolumeId(ctx context.Context, volumeId string) (string, string, error) {
+	return "", "", nil
+}
+
 // configFromVCSim starts a vcsim instance and returns config for use against the
 // vcsim instance. The vcsim instance is configured with an empty tls.Config.
 func configFromVCSim(vcsimParams VcsimParams, isTopologyEnv bool) (*config.Config, func()) {
