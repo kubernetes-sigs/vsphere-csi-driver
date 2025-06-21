@@ -9,9 +9,13 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
+
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crConfig "sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -20,6 +24,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
@@ -65,7 +71,8 @@ func getMetricsBindAddress() string {
 }
 
 // startCNSCSIWebhookManager starts the webhook server in supervisor cluster
-func startCNSCSIWebhookManager(ctx context.Context, enableWebhookClientCertVerification bool) error {
+func startCNSCSIWebhookManager(ctx context.Context, enableWebhookClientCertVerification bool,
+	commonInterface commonco.COCommonInterface) error {
 	log := logger.GetLogger(ctx)
 
 	var clientCAName string
@@ -129,15 +136,17 @@ func startCNSCSIWebhookManager(ctx context.Context, enableWebhookClientCertVerif
 	webhookServer := mgr.GetWebhookServer()
 
 	webhookServer.Register(ValidationWebhookPath, &webhook.Admission{Handler: &CSISupervisorWebhook{
-		Client:       k8sClient,
-		CryptoClient: cryptoClient,
-		clientConfig: mgr.GetConfig(),
+		Client:            k8sClient,
+		CryptoClient:      cryptoClient,
+		clientConfig:      mgr.GetConfig(),
+		coCommonInterface: commonInterface,
 	}})
 
 	log.Infof("registering mutation webhook with the endpoint %v", MutationWebhookPath)
 	webhookServer.Register(MutationWebhookPath, &webhook.Admission{Handler: &CSISupervisorMutationWebhook{
-		Client:       k8sClient,
-		CryptoClient: cryptoClient,
+		Client:            k8sClient,
+		CryptoClient:      cryptoClient,
+		coCommonInterface: commonInterface,
 	}})
 
 	if err = mgr.Start(signals.SetupSignalHandler()); err != nil {
@@ -151,8 +160,9 @@ var _ admission.Handler = &CSISupervisorWebhook{}
 
 type CSISupervisorWebhook struct {
 	client.Client
-	CryptoClient crypto.Client
-	clientConfig *rest.Config
+	CryptoClient      crypto.Client
+	clientConfig      *rest.Config
+	coCommonInterface commonco.COCommonInterface
 }
 
 func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request) (resp admission.Response) {
@@ -195,6 +205,11 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 				resp.AdmissionResponse = *admissionResp.DeepCopy()
 			}
 		}
+	} else if req.Kind.Kind == "VolumeSnapshot" {
+		if featureIsLinkedCloneSupportEnabled {
+			admissionResp := validateSnapshotOperationSupervisorRequest(ctx, &req.AdmissionRequest)
+			resp.AdmissionResponse = *admissionResp.DeepCopy()
+		}
 	}
 	return
 }
@@ -203,7 +218,8 @@ var _ admission.Handler = &CSISupervisorMutationWebhook{}
 
 type CSISupervisorMutationWebhook struct {
 	client.Client
-	CryptoClient crypto.Client
+	CryptoClient      crypto.Client
+	coCommonInterface commonco.COCommonInterface
 }
 
 func (h *CSISupervisorMutationWebhook) Handle(ctx context.Context, req admission.Request) admission.Response {
@@ -279,6 +295,62 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 		if ok, err := setDefaultEncryptionClass(ctx, h.CryptoClient, newPVC); err != nil {
 			return admission.Denied(err.Error())
 		} else if ok {
+			wasMutated = true
+		}
+	}
+
+	if featureIsLinkedCloneSupportEnabled &&
+		v1.HasAnnotation(newPVC.ObjectMeta, common.AnnKeyLinkedClone) &&
+		newPVC.Annotations[common.AnnKeyLinkedClone] == "true" {
+		// Set the same label
+		if newPVC.Labels == nil {
+			newPVC.Labels = make(map[string]string)
+		}
+		if _, ok := newPVC.Labels[common.AnnKeyLinkedClone]; !ok {
+			newPVC.Labels[common.LinkedClonePVCLabel] = newPVC.Annotations[common.AnnKeyLinkedClone]
+			wasMutated = true
+		}
+		// Retrieve the datasource
+		dataSource, err := k8sorchestrator.GetPVCDataSource(ctx, newPVC)
+		if err != nil {
+			return admission.Denied("failed to retrieve the linked clone source " +
+				"volumesnapshot. err:" + err.Error())
+		}
+		volumeSnapshotNamespace, volumeSnapshotName := dataSource.Namespace, dataSource.Name
+		// Retrieve the source PVC
+		sourcePVC, err := h.coCommonInterface.GetVolumeSnapshotPVCSource(ctx, volumeSnapshotNamespace,
+			volumeSnapshotName)
+		if err != nil {
+			return admission.Denied("failed to retrieve the linked clone source PVC. err:" + err.Error())
+		}
+		sourcePVCAccessibility, ok := sourcePVC.Annotations[common.AnnVolumeAccessibleTopology]
+		if !ok {
+			errMsg := fmt.Sprintf("source PVC %s/%s does not have volume accessiblity annotation %s"+
+				" set, cannot determine accessibility requrirement for linked clone PVC %s/%s",
+				sourcePVC.Namespace, sourcePVC.Name, common.AnnVolumeAccessibleTopology,
+				newPVC.Namespace, newPVC.Name)
+			return admission.Denied(errMsg)
+		}
+		// Case-1: If the linked clone PVC has "csi.vsphere.volume-requested-topology" annotation:
+		// - Determine the source PVC accessibility from "csi.vsphere.volume-accessible-topology" annotation
+		// - Validate that it is same the linked clone PVC requested topology, fail the request if not.
+		// Case-2: If the linked clone PVC does NOT have "csi.vsphere.volume-requested-topology" annotation:
+		// - Determine the source PVC accessibility from "csi.vsphere.volume-accessible-topology" annotation
+		// - Add it as the "csi.vsphere.volume-requested-topology" annotation on the linked clone PVC
+		hasTopologyRequirement := v1.HasAnnotation(newPVC.ObjectMeta, common.AnnGuestClusterRequestedTopology)
+		if hasTopologyRequirement {
+			// determined the source accessibility requirement
+			newPVCAccessibility := sourcePVC.Annotations[common.AnnGuestClusterRequestedTopology]
+			if strings.Compare(newPVCAccessibility, sourcePVCAccessibility) != 0 {
+				// accessibility requirement mismatch, deny the request and suggest the correct annotation
+				errMsg := fmt.Sprintf("expected accessibility requirement: %s but got %s, "+
+					"linked clone volumes must have the same accessibility as the source volume, if unset, it "+
+					"will be automatically chosen", sourcePVCAccessibility, newPVCAccessibility)
+				return admission.Denied(errMsg)
+			}
+		} else {
+			// If not present, set it as the same as the source PVC
+			newPVC.Annotations[common.AnnGuestClusterRequestedTopology] = sourcePVCAccessibility
 			wasMutated = true
 		}
 	}

@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 
+	v1 "k8s.io/api/core/v1"
+
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	storagev1 "k8s.io/api/storage/v1"
 	restclient "k8s.io/client-go/rest"
@@ -104,6 +106,17 @@ type COCommonInterface interface {
 	// GetZonesForNamespace fetches the zones associated with a namespace when
 	// WorkloadDomainIsolation is supported in supervisor.
 	GetZonesForNamespace(ns string) map[string]struct{}
+	// PreLinkedCloneCreateAction updates the PVC label with the values specified in map
+	PreLinkedCloneCreateAction(ctx context.Context, pvcNamespace string, pvcName string) error
+	// GetLinkedCloneVolumeSnapshotSourceUUID retrieves the source of the LinkedClone.
+	GetLinkedCloneVolumeSnapshotSourceUUID(ctx context.Context, pvcName string, pvcNamespace string) (string, error)
+	// GetVolumeSnapshotPVCSource retrieves the PVC from which the VolumeSnapshot was taken.
+	GetVolumeSnapshotPVCSource(ctx context.Context, volumeSnapshotNamespace string, volumeSnapshotName string) (
+		*v1.PersistentVolumeClaim, error)
+	// IsLinkedCloneRequest checks if the pvc is a linked clone request
+	IsLinkedCloneRequest(ctx context.Context, pvcName string, pvcNamespace string) (bool, error)
+	// UpdatePersistentVolumeLabel Updates the PV label with the specified key value.
+	UpdatePersistentVolumeLabel(ctx context.Context, pvName string, key string, value string) error
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given

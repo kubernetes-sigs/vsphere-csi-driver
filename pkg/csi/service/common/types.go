@@ -92,6 +92,7 @@ type CreateVolumeSpec struct {
 	VsanDatastoreURL        string // Datastore URL used by host local volumes (vSAN Direct/vSAN SNA)
 	ContentSourceSnapshotID string // SnapshotID from VolumeContentSource in CreateVolumeRequest
 	CryptoKeyID             *CryptoKeyID
+	IsLinkedCloneRequest    bool
 }
 
 // StorageClassParams represents the storage class parameterss

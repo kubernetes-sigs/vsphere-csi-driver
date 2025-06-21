@@ -64,7 +64,7 @@ rules:
     verbs: ["get", "update", "watch", "list"]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshots" ]
-    verbs: [ "get", "list", "patch" ]
+    verbs: [ "get", "list", "patch"]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshotclasses" ]
     verbs: [ "watch", "get", "list" ]
@@ -325,6 +325,7 @@ spec:
             - "--leader-election-retry-period=30s"
             - "--enable-capacity=true"
             - "--capacity-ownerref-level=-1"
+            - "--extra-create-metadata"
           imagePullPolicy: "IfNotPresent"
           env:
             - name: ADDRESS
@@ -670,6 +671,7 @@ data:
   "csi-windows-support": "true"
   "workload-domain-isolation": "true"
   "sv-pvc-snapshot-protection-finalizer": "false"
+  "linked-clone-support": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

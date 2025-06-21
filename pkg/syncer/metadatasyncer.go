@@ -110,7 +110,8 @@ var (
 	nodeMgr node.Manager
 	// IsPodVMOnStretchSupervisorFSSEnabled is true when PodVMOnStretchedSupervisor FSS is enabled.
 	IsPodVMOnStretchSupervisorFSSEnabled bool
-
+	// IsLinkedCloneSupportFSSEnabled is true when linked-clone-support FSS is enabled.
+	IsLinkedCloneSupportFSSEnabled bool
 	// ResourceAPIgroupPVC is an empty string as PVC belongs to the core resource group denoted by `""`.
 	ResourceAPIgroupPVC = ""
 
@@ -277,7 +278,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				return logger.LogNewErrorf(log, "failed to initialize CSINodes creation. Error: %+v", err)
 			}
 		}
-
+		IsLinkedCloneSupportFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.LinkedCloneSupport)
 		// Check if finalizer is added on CnsFileVolumeClient CRs, if not then add a finalizer.
 		// We want to protect CnsFileVolumeClient from getting abruptly deleted, as it is being used
 		// in CnsFileAccessConfig CR. So, in case of upgrade we will add finalizer if it is missing.
@@ -611,7 +613,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 	err = metadataSyncer.k8sInformerManager.AddPVListener(
 		ctx,
-		nil, // Add.
+		func(obj interface{}) {
+			pvAdded(obj, metadataSyncer)
+		}, // Add.
 		func(oldObj interface{}, newObj interface{}) { // Update.
 			pvUpdated(oldObj, newObj, metadataSyncer)
 		},
@@ -2391,6 +2395,41 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		pvcsiVolumeDeleted(ctx, string(pvc.GetUID()), metadataSyncer, pv)
 	} else {
 		csiPVCDeleted(ctx, pvc, pv, metadataSyncer)
+	}
+}
+
+// pvAdded updates the PV labels with linkedclone's volumesnapshot uuid
+func pvAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
+	if !IsLinkedCloneSupportFSSEnabled {
+		return
+	}
+	if metadataSyncer.clusterFlavor != cnstypes.CnsClusterFlavorGuest {
+		return
+	}
+	ctx, log := logger.GetNewContextWithLogger()
+	pv, ok := obj.(*v1.PersistentVolume)
+	if pv == nil || !ok {
+		log.Warnf("pvAdded: unrecognized object %+v", obj)
+		return
+	}
+	log.Debugf("pvAdded: PV: %+v", pv)
+	// Verify if pv is a vSphere csi volume.
+	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
+		log.Debugf("pvAdded: Not a vSphere CSI Volume. PV: %+v", pv)
+		return
+	}
+
+	vsUID, ok := pv.Spec.CSI.VolumeAttributes[common.VolumeContextAttributeLinkedCloneVolumeSnapshotSourceUID]
+	if !ok {
+		// Not a linked clone volume, nothing to do
+		return
+	}
+	err := metadataSyncer.coCommonInterface.UpdatePersistentVolumeLabel(ctx, pv.Name,
+		common.VolumeContextAttributeLinkedCloneVolumeSnapshotSourceUID, vsUID)
+	if err != nil {
+		log.Errorf("PVAdded: Error updating PV label with key: %s, value: %s error: %v",
+			common.VolumeContextAttributeLinkedCloneVolumeSnapshotSourceUID, vsUID, err)
+		return
 	}
 }
 
