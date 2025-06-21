@@ -265,7 +265,7 @@ const (
 	envZonalStoragePolicyName2               = "ZONAL2_STORAGECLASS"
 	volExtensionName                         = "volume.cns.vsphere.vmware.com"
 	snapshotExtensionName                    = "snapshot.cns.vsphere.vmware.com"
-	vmServiceExtensionName                   = "vmservice.cns.vsphere.vmware.com"
+	vmServiceExtensionName                   = "vmware-system-vmop-webhook-service"
 	pvcUsage                                 = "-pvc-usage"
 	snapshotUsage                            = "-snapshot-usage"
 	vmUsage                                  = "-vm-usage"
