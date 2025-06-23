@@ -502,6 +502,7 @@ var (
 	vmMigrationUserPwd                             = "VM_MIGRATION_USER_PWD"
 	envZone2DatastoreUrl                           = "ZONE2_DATASTORE_URL"
 	envIsolationSharedStoragePolicyNameLateBidning = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY_WFFC"
+	envSharedZone1Zone2Zone3StoragePolicyName      = "SHARED_ZONE1_ZONE2_ZONE3_STORAGE_POLICY_IMM"
 )
 
 // storage policy usages for storage quota validation

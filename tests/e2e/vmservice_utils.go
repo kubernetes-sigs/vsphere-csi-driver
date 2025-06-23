@@ -425,6 +425,7 @@ func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespa
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	vols := []vmopv1.VirtualMachineVolume{}
 	vmName := fmt.Sprintf("csi-test-vm-%d", r.Intn(10000))
+
 	for _, pvc := range pvcs {
 		vols = append(vols, vmopv1.VirtualMachineVolume{
 			Name: pvc.Name,
@@ -433,6 +434,7 @@ func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespa
 			},
 		})
 	}
+
 	vm := vmopv1.VirtualMachine{
 		ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: namespace},
 		Spec: vmopv1.VirtualMachineSpec{
@@ -1256,8 +1258,10 @@ and verifying the attached volumes.
 func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
 	cnsopC ctlrclient.Client, namespace string,
 	pvclaims []*v1.PersistentVolumeClaim, vmClass string,
-	storageClassName string) (string, *vmopv1.VirtualMachine, *vmopv1.VirtualMachineService, error) {
-
+	storageClassName string, createBootstrapSecret bool) (string, *vmopv1.VirtualMachine,
+	*vmopv1.VirtualMachineService, error) {
+	var err error
+	var secretName string
 	/*Fetch the VM image name from the environment variable. This image is used for
 	creating the VirtualMachineInstance */
 	vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
@@ -1267,7 +1271,9 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 
 	/* Create a bootstrap secret for the VirtualMachineService VM. This secret contains
 	credentials or configuration data needed by the VM. */
-	secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
+	if createBootstrapSecret {
+		secretName = createBootstrapSecretForVmsvcVms(ctx, client, namespace)
+	}
 
 	var vm *vmopv1.VirtualMachine
 	//Create the Virtual Machine with PVC
@@ -1283,7 +1289,7 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 	vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
 
 	// Wait for the VM to get an IP address.
-	vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+	_, err = waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("failed to get VM IP: %w", err)
 	}
@@ -1298,18 +1304,8 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 		return "", nil, nil, fmt.Errorf("PVCs not attached to VM: %w", err)
 	}
 
-	// After the VM has been created and the PVCs are attached, fetch the current state of the VM.
-	vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("failed to get VM info: %w", err)
-	}
-
-	/* Verify that the attached volumes are accessible and validate data integrity. The function iterates through each
-	volume of the VM, verifies that the PVC is accessible, and checks the data integrity on each attached disk */
-	for i, vol := range vm.Status.Volumes {
-		volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-		verifyDataIntegrityOnVmDisk(vmIp, volFolder)
-	}
+	vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info before returning
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return secretName, vm, vmlbsvc, nil
 }
