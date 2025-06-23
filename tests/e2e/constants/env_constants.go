@@ -16,6 +16,11 @@ limitations under the License.
 
 package constants
 
+// ENV variable to specify path of the E2E test config file
+const (
+	E2eTestConfFileEnvVar = "E2E_TEST_CONF_FILE"
+)
+
 // For rwx
 const (
 	EnvVsanDsStoragePolicyCluster1           = "VSAN_DATASTORE_CLUSTER1_STORAGE_POLICY"
