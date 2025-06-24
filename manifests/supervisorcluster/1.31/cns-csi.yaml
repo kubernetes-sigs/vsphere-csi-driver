@@ -656,7 +656,6 @@ webhooks:
         operations:  ["CREATE"]
         resources:   ["volumesnapshots"]
         scope:       "Namespaced"
-        scope:  "Namespaced"
       - apiVersions: ["v1"]
         operations:  ["CREATE"]
         resources:   ["volumesnapshots"]
