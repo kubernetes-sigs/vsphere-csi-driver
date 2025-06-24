@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,9 +17,14 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
-// validateCnsFileAccessConfig validates if a CnsFileAccessConfig CR with the same VM and PVC already exists.
+const (
+	KubernetesServiceAccount = "system:serviceaccount:kube-system"
+	KubernetesAdmin          = "kubernetes-admin"
+)
+
+// validateCreateCnsFileAccessConfig validates if a CnsFileAccessConfig CR with the same VM and PVC already exists.
 // If it already exists, do not allow creation of another CR.
-func validateCnsFileAccessConfig(ctx context.Context, clientConfig *rest.Config,
+func validateCreateCnsFileAccessConfig(ctx context.Context, clientConfig *rest.Config,
 	req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
 	log := logger.GetLogger(ctx)
 
@@ -97,4 +103,86 @@ func cnsFileAccessConfigAlreadyExists(ctx context.Context, clientConfig *rest.Co
 		}
 	}
 	return "", nil
+}
+
+// validateDeleteCnsFileAccessConfig allows deletion of a CnsFileAccessConfig instance without
+// devops label (indicates that it is a CR being used by guest cluster) if user deleting the instance
+// is a CSI or K8s system user or K8s admin.
+func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.Config,
+	req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
+	log := logger.GetLogger(ctx)
+
+	cnsFileAccessConfig := cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
+	log.Debugf("JSON req.Object.Raw: %v", string(req.OldObject.Raw))
+	if err := json.Unmarshal(req.OldObject.Raw, &cnsFileAccessConfig); err != nil {
+		log.Errorf("error deserializing CnsFileAccessConfig: %v. skipping validation.", err)
+		// return AdmissionResponse result
+		return &admissionv1.AdmissionResponse{
+			Allowed: false,
+			Result: &metav1.Status{
+				Message: fmt.Sprintf("Failed to serialize CnsFileAccessConfig: %v", err),
+			},
+		}
+	}
+	// If CR has devops user label, allow this request as
+	// it means that it is created by devops user or K8s admin
+	// and not by VKS (CSI service account).
+	if _, ok := cnsFileAccessConfig.Labels[devopsUserLabelKey]; ok {
+		log.Infof("CnsFileAccessConfig %s does not have devops user label. Allow this reqeust.",
+			cnsFileAccessConfig.Name)
+		return &admissionv1.AdmissionResponse{
+			Allowed: true,
+		}
+	}
+
+	// Check if user is allowed to delete this CR.
+	allowed, err := isUserAllowedForDeletion(req.UserInfo.Username)
+	if err != nil {
+		return &admissionv1.AdmissionResponse{
+			Allowed: false,
+			Result: &metav1.Status{
+				Message: fmt.Sprintf("Failed to find out if CnsFileAccessConfig can be deleted: %v", err),
+			},
+		}
+	}
+	if !allowed {
+		return &admissionv1.AdmissionResponse{
+			Allowed: false,
+			Result: &metav1.Status{
+				Message: fmt.Sprintf("User %s is not allowed to delete this CnsFileAccesConfig.",
+					req.UserInfo.Username),
+			},
+		}
+	}
+
+	return &admissionv1.AdmissionResponse{
+		Allowed: true,
+	}
+}
+
+// isUserAllowedForDeletion returns true if user is either a CSI service account or
+// K8s' namespace-cotnroller.
+func isUserAllowedForDeletion(username string) (bool, error) {
+	csiServiceAccountRegex, err := regexp.Compile(CSIServiceAccountPrefix)
+	if err != nil {
+		return false, err
+	}
+
+	kubernetesServiceAccount, err := regexp.Compile(KubernetesServiceAccount)
+	if err != nil {
+		return false, err
+	}
+
+	// Allowed users are :
+	// 1. CSI service account
+	// 2. K8s service account (like namespace-controller)
+	// 3. K8s admin
+	if csiServiceAccountRegex.MatchString(username) ||
+		kubernetesServiceAccount.MatchString(username) || username == KubernetesAdmin {
+		return true, nil
+
+	}
+
+	return false, nil
+
 }
