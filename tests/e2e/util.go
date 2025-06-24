@@ -7814,3 +7814,4 @@ func reconfigPolicyParallel(ctx context.Context, volID string, policyId string, 
 	err := e2eVSphere.reconfigPolicy(ctx, volID, policyId)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
+
