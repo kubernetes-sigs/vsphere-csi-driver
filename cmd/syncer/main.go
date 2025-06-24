@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"regexp"
@@ -84,6 +85,7 @@ var (
 	internalFSSNamespace      = flag.String("fss-namespace", "", "Namespace of the feature state switch configmap")
 	periodicSyncIntervalInMin = flag.Duration("storagequota-sync-interval", 30*time.Minute,
 		"Periodic sync interval in Minutes")
+	enableProfileServer = flag.Bool("enable-profile-server", false, "Enable profiling endpoint for the syncer.")
 )
 
 // main for vsphere syncer.
@@ -97,6 +99,16 @@ func main() {
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Version : %s", syncer.Version)
+
+	if *enableProfileServer {
+		go func() {
+			log.Info("Starting the http server to expose profiling metrics..")
+			err := http.ListenAndServe(":9501", nil)
+			if err != nil {
+				log.Fatalf("Unable to start profiling server: %s", err)
+			}
+		}()
+	}
 
 	// Set CO agnostic init params.
 	clusterFlavor, err := config.GetClusterFlavor(ctx)
