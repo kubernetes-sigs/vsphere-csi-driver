@@ -21,11 +21,9 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -324,61 +322,6 @@ func markZoneForRemovalFromNs(namespace string, zone string, vcRestSessionId str
 	fmt.Println(deleteZoneFromNs)
 	_, statusCode := invokeVCRestAPIDeleteRequest(vcRestSessionId, deleteZoneFromNs)
 	return statusCode
-}
-
-/*
-This function creates a wcp namespace in a vSphere supervisor Cluster, associating it
-with multiple storage policies and zones.
-It constructs an API request and sends it to the vSphere REST API.
-*/
-func createtWcpNsWithZonesAndPolicies(
-	vcRestSessionId string, storagePolicyId []string,
-	supervisorId string, zoneNames []string,
-	vmClass string, contentLibId string) (string, int, error) {
-
-	r := rand.New(rand.NewSource(time.Now().Unix()))
-	namespace := fmt.Sprintf("csi-vmsvcns-%v", r.Intn(10000))
-	initailUrl := createInitialNsApiCallUrl()
-	nsCreationUrl := initailUrl + "v2"
-
-	var storageSpecs []map[string]string
-	for _, policyId := range storagePolicyId {
-		storageSpecs = append(storageSpecs, map[string]string{"policy": policyId})
-	}
-
-	var zones []map[string]string
-	for _, zone := range zoneNames {
-		zones = append(zones, map[string]string{"name": zone})
-	}
-
-	// Create request body struct
-	requestBody := map[string]interface{}{
-		"namespace":     namespace,
-		"storage_specs": storageSpecs,
-		"supervisor":    supervisorId,
-		"zones":         zones,
-	}
-
-	// Add vm_service_spec only if vmClass and contentLibId are provided
-	if vmClass != "" && contentLibId != "" {
-		requestBody["vm_service_spec"] = map[string]interface{}{
-			"vm_classes":        []string{vmClass},
-			"content_libraries": []string{contentLibId},
-		}
-	}
-
-	reqBodyBytes, err := json.Marshal(requestBody)
-	if err != nil {
-		return "", 500, fmt.Errorf("error marshalling request body: %w", err)
-	}
-
-	reqBody := string(reqBodyBytes)
-	fmt.Println(reqBody)
-
-	// Make the API request
-	_, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, nsCreationUrl, reqBody)
-
-	return namespace, statusCode, nil
 }
 
 /*

@@ -219,7 +219,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storageclass.Name, namespace, pvcUsage, volExtensionName)
+					storageclass.Name, namespace, pvcUsage, volExtensionName, false)
 
 		}
 
@@ -237,12 +237,16 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		svcPVCName := pv.Spec.CSI.VolumeHandle
 		svcPVC := getPVCFromSupervisorCluster(svcPVCName)
 
+		diskSizeInMbStr := convertInt64ToStrMbFormat(diskSizeInMb)
+
 		if isQuotaValidationSupported {
-			_, storagePolicyQuotaAfter, storagePolicyUsageAfter =
+			sp_quota_pvc_status, sp_usage_pvc_status :=
 				validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName,
-					diskSizeInMb, totalQuotaUsedBefore, storagePolicyQuotaBefore,
-					storagePolicyUsageBefore)
+					[]string{diskSizeInMbStr}, totalQuotaUsedBefore, storagePolicyQuotaBefore,
+					storagePolicyUsageBefore, false)
+			gomega.Expect(sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
+
 		}
 
 		defer func() {
@@ -301,7 +305,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		if isQuotaValidationSupported {
 			tqAfterSanpshot, _, _, _, _, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName)
+					storageclass.Name, namespace, snapshotUsage, snapshotExtensionName, false)
 		}
 
 		defer func() {
@@ -358,8 +362,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		if isQuotaValidationSupported {
 			validateQuotaUsageAfterCleanUp(ctx, restConfig, storageclass.Name, namespace, pvcUsage,
-				volExtensionName, diskSizeInMb, tqAfterSanpshot, storagePolicyQuotaAfter,
-				storagePolicyUsageAfter)
+				volExtensionName, diskSizeInMbStr, tqAfterSanpshot, storagePolicyQuotaAfter,
+				storagePolicyUsageAfter, false)
 
 		}
 	})
@@ -417,7 +421,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					zonalPolicy, namespace, pvcUsage, volExtensionName)
+					zonalPolicy, namespace, pvcUsage, volExtensionName, false)
 
 		}
 
@@ -430,12 +434,16 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
 
+		totalDiskSizeInMb := diskSizeInMb * 3
+		totalDiskSizeInMbStr := convertInt64ToStrMbFormat(totalDiskSizeInMb)
+
 		if isQuotaValidationSupported {
-			totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter =
+			sp_quota_pvc_status, sp_usage_pvc_status :=
 				validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 					storageclass.Name, namespace, pvcUsage, volExtensionName,
-					diskSizeInMb*3, totalQuotaUsedBefore, storagePolicyQuotaBefore,
-					storagePolicyUsageBefore)
+					[]string{totalDiskSizeInMbStr}, totalQuotaUsedBefore, storagePolicyQuotaBefore,
+					storagePolicyUsageBefore, false)
+			gomega.Expect(sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
 		}
 
 		defer func() {
@@ -459,8 +467,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 			if isQuotaValidationSupported {
 				validateQuotaUsageAfterCleanUp(ctx, restConfig, storageclass.Name, namespace, pvcUsage,
-					volExtensionName, diskSizeInMb*3, totalQuotaUsedAfter, storagePolicyQuotaAfter,
-					storagePolicyUsageAfter)
+					volExtensionName, totalDiskSizeInMbStr, totalQuotaUsedAfter, storagePolicyQuotaAfter,
+					storagePolicyUsageAfter, false)
 			}
 		}()
 
@@ -667,7 +675,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storageclass.Name, namespace, pvcUsage, volExtensionName)
+					storageclass.Name, namespace, pvcUsage, volExtensionName, false)
 		}
 
 		defer func() {
@@ -714,25 +722,27 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		verifyOnlineVolumeExpansionOnGc(client, namespace, svcPVCName, volHandle, pvclaim, pod, f)
 
+		diskSizeInMbStr := convertInt64ToStrMbFormat(diskSizeInMb)
+
 		if isQuotaValidationSupported {
 			totalquotaUsedAfterExpansion, _ := getTotalQuotaConsumedByStoragePolicy(ctx, restConfig,
-				storageclass.Name, svNamespace)
+				storageclass.Name, svNamespace, false)
 			framework.Logf("totalquotaUsedAfterExpansion :%v", totalquotaUsedAfterExpansion)
-			quotavalidationStatus_afterexpansion := validate_increasedQuota(ctx, diskSizeInMb,
+			quotavalidationStatus_afterexpansion := validate_increasedQuota(ctx, diskSizeInMbStr,
 				totalQuotaUsedBefore, totalquotaUsedAfterExpansion)
 			gomega.Expect(quotavalidationStatus_afterexpansion).NotTo(gomega.BeFalse())
 
 			storagepolicyquotaAfterExpansion, _ := getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
-				storageclass.Name, svNamespace, volExtensionName)
+				storageclass.Name, svNamespace, volExtensionName, false)
 			framework.Logf("storagepolicyquotaAfterExpansion :%v", storagepolicyquotaAfterExpansion)
-			quotavalidationStatus_afterexpansion = validate_increasedQuota(ctx, diskSizeInMb,
+			quotavalidationStatus_afterexpansion = validate_increasedQuota(ctx, diskSizeInMbStr,
 				storagePolicyQuotaBefore, storagepolicyquotaAfterExpansion)
 			gomega.Expect(quotavalidationStatus_afterexpansion).NotTo(gomega.BeFalse())
 
 			storagePolicyUsageUsageAfterExpansion, _ := getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
 				storageclass.Name, svNamespace, pvcUsage)
 			framework.Logf("storagePolicyUsageUsageAfterExpansion :%v", storagePolicyUsageUsageAfterExpansion)
-			quotavalidationStatus_afterexpansion = validate_increasedQuota(ctx, diskSizeInMb,
+			quotavalidationStatus_afterexpansion = validate_increasedQuota(ctx, diskSizeInMbStr,
 				storagePolicyUsageBefore, storagePolicyUsageUsageAfterExpansion)
 			gomega.Expect(quotavalidationStatus_afterexpansion).NotTo(gomega.BeFalse())
 		}
@@ -797,7 +807,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storageclass.Name, namespace, pvcUsage, volExtensionName)
+					storageclass.Name, namespace, pvcUsage, volExtensionName, false)
 
 		}
 
@@ -844,25 +854,27 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		verifyOfflineVolumeExpansionOnGc(ctx, client, pvclaim, svcPVCName, namespace, volHandle, pod, pv, f)
 
+		diskSizeInMbStr := convertInt64ToStrMbFormat(diskSizeInMb)
+
 		if isQuotaValidationSupported {
 			totalquotaUsedAfterExpansion, _ := getTotalQuotaConsumedByStoragePolicy(ctx, restConfig,
-				storageclass.Name, svNamespace)
+				storageclass.Name, svNamespace, false)
 			framework.Logf("totalquotaUsedAfterExpansion :%v", totalquotaUsedAfterExpansion)
-			quotavalidationStatus_afterexpansion := validate_increasedQuota(ctx, diskSizeInMb,
+			quotavalidationStatus_afterexpansion := validate_increasedQuota(ctx, diskSizeInMbStr,
 				totalQuotaUsedBefore, totalquotaUsedAfterExpansion)
 			gomega.Expect(quotavalidationStatus_afterexpansion).NotTo(gomega.BeFalse())
 
 			storagepolicyquotaAfterExpansion, _ := getStoragePolicyQuotaForSpecificResourceType(ctx, restConfig,
-				storageclass.Name, svNamespace, volExtensionName)
+				storageclass.Name, svNamespace, volExtensionName, false)
 			framework.Logf("storagepolicyquotaAfterExpansion :%v", storagepolicyquotaAfterExpansion)
-			quotavalidationStatus_afterexpansion = validate_increasedQuota(ctx, diskSizeInMb,
+			quotavalidationStatus_afterexpansion = validate_increasedQuota(ctx, diskSizeInMbStr,
 				storagePolicyQuotaBefore, storagepolicyquotaAfterExpansion)
 			gomega.Expect(quotavalidationStatus_afterexpansion).NotTo(gomega.BeFalse())
 
 			storagePolicyUsageAfterExpansion, _ := getStoragePolicyUsageForSpecificResourceType(ctx, restConfig,
 				storageclass.Name, svNamespace, pvcUsage)
 			framework.Logf("storagePolicyUsageAfterExpansion :%v", storagePolicyUsageAfterExpansion)
-			quotavalidationStatus_afterexpansion = validate_increasedQuota(ctx, diskSizeInMb,
+			quotavalidationStatus_afterexpansion = validate_increasedQuota(ctx, diskSizeInMbStr,
 				storagePolicyUsageBefore, storagePolicyUsageAfterExpansion)
 			gomega.Expect(quotavalidationStatus_afterexpansion).NotTo(gomega.BeFalse())
 		}
@@ -928,7 +940,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storageclass.Name, namespace, pvcUsage, volExtensionName)
+					storageclass.Name, namespace, pvcUsage, volExtensionName, false)
 
 		}
 
@@ -1023,11 +1035,15 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 					staticPv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		}()
 
+		diskSizeInMbStr := convertInt64ToStrMbFormat(diskSizeInMb)
+
 		if isQuotaValidationSupported {
-			validateQuotaUsageAfterResourceCreation(ctx, restConfig,
+			sp_quota_pvc_status, sp_usage_pvc_status := validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 				storageclass.Name, namespace, pvcUsage, volExtensionName,
-				diskSizeInMb, totalQuotaUsedBefore, storagePolicyQuotaBefore,
-				storagePolicyUsageBefore)
+				[]string{diskSizeInMbStr}, totalQuotaUsedBefore, storagePolicyQuotaBefore,
+				storagePolicyUsageBefore, false)
+			gomega.Expect(sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
+
 		}
 
 		_, err = verifyPodLocationLevel5(pod, nodeList, allowedTopologyHAMap)
