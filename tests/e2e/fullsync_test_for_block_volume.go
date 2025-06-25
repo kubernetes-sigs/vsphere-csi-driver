@@ -24,25 +24,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vmware/govmomi/find"
-	"github.com/vmware/govmomi/object"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	admissionapi "k8s.io/pod-security-admission/api"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-
-	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 // Tests to verify Full Sync.
@@ -839,7 +836,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		ginkgo.By("create a new pod pod2, using pvc1")
 		pod2, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, execCommand)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		//Since VSAN is down , POD will not reach running state. It is expected to throw error
+		gomega.Expect(err).To(gomega.HaveOccurred())
 		defer func() {
 			err := fpod.DeletePodWithWait(ctx, client, pod2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

@@ -27,31 +27,28 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
-	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/util/wait"
-	admissionapi "k8s.io/pod-security-admission/api"
-
-	"k8s.io/kubernetes/test/e2e/framework"
-
-	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 	restclient "k8s.io/client-go/rest"
+	"k8s.io/kubernetes/test/e2e/framework"
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
 
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
-
-	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 )
 
 var _ = ginkgo.Describe("Volume Expansion Test", func() {
@@ -1619,11 +1616,11 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("File system resize should not succeed since SPS service is down. " +
 			"Expecting an error")
-		expectedErrMsg := "VolumeResizeFailed"
-		isFailureFound, err := waitForEventWithReason(client, namespace, pvclaim.Name, expectedErrMsg)
+		expectedMsg := "FileSystemResizeRequired"
+		isFailureFound, err := waitForEventWithReason(client, namespace, pvclaim.Name, expectedMsg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isFailureFound).To(
-			gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedErrMsg)
+			gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedMsg)
 
 		ginkgo.By("Bringup SPS service")
 		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
