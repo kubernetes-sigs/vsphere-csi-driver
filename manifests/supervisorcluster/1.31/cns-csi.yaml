@@ -656,10 +656,6 @@ webhooks:
         operations:  ["CREATE"]
         resources:   ["volumesnapshots"]
         scope:       "Namespaced"
-      - apiVersions: ["v1"]
-        operations:  ["CREATE"]
-        resources:   ["volumesnapshots"]
-        scope:       "Namespaced"
       - apiGroups:   ["cns.vmware.com"]
         apiVersions: ["v1alpha1"]
         operations: ["CREATE"]
