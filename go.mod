@@ -234,3 +234,9 @@ replace (
 	k8s.io/sample-controller => k8s.io/sample-controller v0.33.0
 	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.1
 )
+
+// The below fixes the "go list -m all" execution
+replace (
+	k8s.io/endpointslice => k8s.io/endpointslice v0.33.0
+	k8s.io/externaljwt => k8s.io/externaljwt v0.33.0
+)
