@@ -1053,16 +1053,17 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 				vmUUID, pv.Spec.CSI.VolumeHandle))
 		defer func() {
 			testCleanUpUtil(ctx, restConfig, cnsRegisterVolume, namespace, pvc.Name, pv.Name)
-			//Validates PVC quota in both StoragePolicyQuota and StoragePolicyUsage CR
-			_, _, storagePolicyQuota_afterCleanUp, _, storagePolicyUsage_AfterCleanup, _ :=
-				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storagePolicyName, namespace, pvcUsage, volExtensionName, false)
+			if isQuotaValidationSupported {
+				//Validates PVC quota in both StoragePolicyQuota and StoragePolicyUsage CR
+				_, _, storagePolicyQuota_afterCleanUp, _, storagePolicyUsage_AfterCleanup, _ :=
+					getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+						storagePolicyName, namespace, pvcUsage, volExtensionName, false)
 
-			expectEqual(storagePolicyQuota_afterCleanUp, storagePolicyQuotaBefore,
-				"Before and After values of storagePolicy-Quota CR should match")
-			expectEqual(storagePolicyUsage_AfterCleanup, storagePolicyUsageBefore,
-				"Before and After values of storagePolicy-Usage CR should match")
-
+				expectEqual(storagePolicyQuota_afterCleanUp, storagePolicyQuotaBefore,
+					"Before and After values of storagePolicy-Quota CR should match")
+				expectEqual(storagePolicyUsage_AfterCleanup, storagePolicyUsageBefore,
+					"Before and After values of storagePolicy-Usage CR should match")
+			}
 		}()
 	})
 

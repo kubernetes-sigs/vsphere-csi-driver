@@ -1573,8 +1573,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		10. Make sure data is intact on the PV mounted on the pod
 		11. Make sure file system has increased
 	*/
-	ginkgo.It("[csi-supervisor] Verify Offline volume expansion when SPS-Service is "+
-		"down", ginkgo.Label(p1, block, wcp, vc70), func() {
+	ginkgo.It("[csi-supervisor] Verify in Offline volume expansion FileSystemResize works "+
+		"when SPS-Service is down", ginkgo.Label(p1, block, wcp, vc70), func() {
 
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1614,16 +1614,12 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
-		ginkgo.By("File system resize should not succeed since SPS service is down. " +
-			"Expecting an error")
+		ginkgo.By("File system resize should work when SPS service is down")
 		expectedMsg := "FileSystemResizeRequired"
 		isFailureFound, err := waitForEventWithReason(client, namespace, pvclaim.Name, expectedMsg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isFailureFound).To(
-			gomega.BeTrue(), "Expected error %v, to occur but did not occur", expectedMsg)
-
-		ginkgo.By("Bringup SPS service")
-		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
+			gomega.BeTrue(), "Expected msg %v, to occur but did not occur", expectedMsg)
 
 		pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 		if pvcSize.Cmp(newSize) != 0 {
@@ -1637,6 +1633,9 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Checking for conditions on pvc")
 		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Bringup SPS service")
+		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
