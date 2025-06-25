@@ -490,3 +490,49 @@ func passZonesToStayInMap(allowedTopologyMap map[string][]string,
 	}
 	return allowedTopologyMap
 }
+
+// Power off hosts from given zone.
+// clusterDown: If True , Powering off all hosts in cluster and ignoring numberOfHost param
+// clusterDown: if False, then considering numberOfHost to power of the hosts
+func powerOffHostsFromZone(ctx context.Context, zone string, clusterDown bool, numberOfHost int) []string {
+	var hostIpsToPowerOff []string
+	clusterName := getClusterNameFromZone(ctx, zone)
+	//Get all hosts of given zone cluster
+	nodes := getHostsByClusterName(ctx, clusterComputeResource, clusterName)
+	gomega.Expect(len(nodes) > 0).To(gomega.BeTrue())
+	for i, node := range nodes {
+		host := node.Common.InventoryPath
+		hostIpString := strings.Split(host, "/")
+		hostIp := hostIpString[len(hostIpString)-1]
+		hostIpsToPowerOff = append(hostIpsToPowerOff, hostIp)
+		if !clusterDown {
+			if i+1 == numberOfHost {
+				break
+			}
+		}
+	}
+	// Power off Host
+	powerOffHostParallel(ctx, hostIpsToPowerOff)
+	return hostIpsToPowerOff
+}
+
+// Power off hosts from given fault domain.
+// fdDown: If True , Powering off all hosts in fault domain and ignoring numberOfHost param
+// fdDown: if False, then considering numberOfHost to power of the hosts
+func powerOffHostsFromFaultDomain(ctx context.Context, fdName string, fdMap map[string]string, fdDown bool,
+	numberOfHost int) []string {
+	var hostIpsToPowerOff []string
+	for hostIp, site := range fdMap {
+		if strings.Contains(site, fdName) {
+			hostIpsToPowerOff = append(hostIpsToPowerOff, hostIp)
+			if !fdDown {
+				if len(hostIpsToPowerOff) == numberOfHost {
+					break
+				}
+			}
+		}
+	}
+	// Power off Host
+	powerOffHostParallel(ctx, hostIpsToPowerOff)
+	return hostIpsToPowerOff
+}

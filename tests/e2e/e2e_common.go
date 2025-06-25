@@ -504,6 +504,8 @@ var (
 	envZone2DatastoreUrl                           = "ZONE2_DATASTORE_URL"
 	envIsolationSharedStoragePolicyNameLateBidning = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY_WFFC"
 	envSharedZone1Zone2Zone3StoragePolicyName      = "SHARED_ZONE1_ZONE2_ZONE3_STORAGE_POLICY_IMM"
+	nimbusWorkerIp                                 = "NIMBUS_WORKER_IP"
+	vsanMaxFaultDomainName                         = "VSAN_MAX_FD_NAME"
 )
 
 // storage policy usages for storage quota validation
