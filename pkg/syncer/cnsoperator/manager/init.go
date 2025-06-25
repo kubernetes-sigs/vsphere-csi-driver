@@ -357,6 +357,7 @@ func InitCommonModules(ctx context.Context, clusterFlavor cnstypes.CnsClusterFla
 		key := k8stypes.NamespacedName{Namespace: "", Name: common.TriggerCsiFullSyncCRName}
 		if err := cnsOperatorClient.Get(ctx, key, triggerCsiFullSyncInstance); err != nil {
 			if apierrors.IsNotFound(err) {
+				// TODO-perf-refactor - no need to create a variable here
 				newtriggerCsiFullSyncInstance := triggercsifullsyncv1alpha1.CreateTriggerCsiFullSyncInstance()
 				if err := cnsOperatorClient.Create(ctx, newtriggerCsiFullSyncInstance); err != nil {
 					log.Errorf("Failed to create TriggerCsiFullSync instance: %q. Error: %v",
