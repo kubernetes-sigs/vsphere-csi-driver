@@ -20,6 +20,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,6 +43,7 @@ var (
 		"Namespace of the feature state switch configmap in supervisor cluster")
 	internalFSSName      = flag.String("fss-name", "", "Name of the feature state switch configmap")
 	internalFSSNamespace = flag.String("fss-namespace", "", "Namespace of the feature state switch configmap")
+	enableProfileServer  = flag.Bool("enable-profile-server", false, "Enable profiling endpoint for the controller.")
 )
 
 // main is ignored when this package is built as a go plug-in.
@@ -54,6 +57,16 @@ func main() {
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Version : %s", service.Version)
+
+	if *enableProfileServer {
+		go func() {
+			log.Info("Starting the http server to expose profiling metrics..")
+			err := http.ListenAndServe(":9500", nil)
+			if err != nil {
+				log.Fatalf("Unable to start profiling server: %s", err)
+			}
+		}()
+	}
 
 	// Set CO Init params.
 	clusterFlavor, err := csiconfig.GetClusterFlavor(ctx)
