@@ -386,6 +386,7 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 		vCenterServerForVolumeOperationCR string
 	)
 	log := logger.GetLogger(ctx)
+	log.Debugf("Invoked MonitorCreateVolumeTask for task: %v", task.Reference())
 	if m.multivCenterTopologyDeployment {
 		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host
 	}
@@ -467,21 +468,33 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 	}
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
-		// Validate if the volume is already registered.
-		faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
-		resp, err := validateCreateVolumeResponseFault(ctx, volNameFromInputSpec, volumeOperationRes)
+		if IsNotSupportedFault(ctx, volumeOperationRes.Fault) {
+			faultType = "vim25:NotSupported"
+			err = fmt.Errorf("failed to create volume with fault: %q", faultType)
+		} else if _, ok := volumeOperationRes.Fault.Fault.(*cnstypes.CnsVolumeAlreadyExistsFault); ok {
+			faultType = "vim.fault.CnsVolumeAlreadyExistsFault"
+			err = fmt.Errorf("failed to create volume with fault: %q", faultType)
+		} else {
+			// Validate if the volume is already registered.
+			faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
+			resp, err := validateCreateVolumeResponseFault(ctx, volNameFromInputSpec, volumeOperationRes)
+			if err == nil {
+				*volumeOperationDetails = createRequestDetails(volNameFromInputSpec, resp.VolumeID.Id, "", 0,
+					(*volumeOperationDetails).QuotaDetails,
+					(*volumeOperationDetails).OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
+					vCenterServerForVolumeOperationCR, taskInfo.ActivationId, taskInvocationStatusSuccess, "")
+				return resp, faultType, err
+			}
+		}
 		if err != nil {
+			log.Errorf("err:%v observed for task: %v, volume name: %q, OpID: %q",
+				err.Error(), task.Reference().Value, volNameFromInputSpec, taskInfo.ActivationId)
 			*volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
 				(*volumeOperationDetails).QuotaDetails, (*volumeOperationDetails).OperationDetails.TaskInvocationTimestamp,
 				task.Reference().Value, vCenterServerForVolumeOperationCR, taskInfo.ActivationId,
 				taskInvocationStatusError, err.Error())
-		} else {
-			*volumeOperationDetails = createRequestDetails(volNameFromInputSpec, resp.VolumeID.Id, "", 0,
-				(*volumeOperationDetails).QuotaDetails,
-				(*volumeOperationDetails).OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
-				vCenterServerForVolumeOperationCR, taskInfo.ActivationId, taskInvocationStatusSuccess, "")
+			return nil, faultType, err
 		}
-		return resp, faultType, err
 	}
 	// Extract the CnsVolumeInfo from the taskResult.
 	resp, faultType, err := getCnsVolumeInfoFromTaskResult(ctx, m.virtualCenter, volNameFromInputSpec,
@@ -651,6 +664,125 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 				// Don't return if CreateVolume details can't be stored.
 				log.Warnf("failed to store CreateVolume details with error: %v", err)
 			}
+		}
+	}
+
+	return m.MonitorCreateVolumeTask(ctx, &volumeOperationDetails, task, volNameFromInputSpec,
+		spec.Metadata.ContainerClusterArray[0].ClusterId)
+}
+
+// createVolumeWithTransaction creates volume with supplied PVC UUID as VolumeID in the CreateVolumeSpec
+func (m *defaultManager) createVolumeWithTransaction(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
+	extraParams interface{}) (resp *CnsVolumeInfo, faultType string, finalErr error) {
+	log := logger.GetLogger(ctx)
+	var (
+		// Store the volume name passed in by input spec, this
+		// name may exceed 80 characters.
+		volNameFromInputSpec = spec.Name
+		// Reference to the CreateVolume task on CNS.
+		task *object.Task
+		// Local instance of CreateVolume details that needs to
+		// be persisted.
+		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
+		// quotaInfo consists of values required to populate QuotaDetails in CnsVolumeOperationRequest CR.
+		quotaInfo                            *cnsvolumeoperationrequest.QuotaDetails
+		isPodVMOnStretchSupervisorFSSEnabled bool
+	)
+
+	if extraParams != nil {
+		createVolParams, ok := extraParams.(*CreateVolumeExtraParams)
+		if !ok {
+			return nil, csifault.CSIInternalFault,
+				logger.LogNewErrorf(log, "unrecognised type for CreateVolume params: %+v", extraParams)
+		}
+		log.Debugf("Received CreateVolume extraParams: %+v", *createVolParams)
+
+		isPodVMOnStretchSupervisorFSSEnabled = createVolParams.IsPodVMOnStretchSupervisorFSSEnabled
+		if isPodVMOnStretchSupervisorFSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			var storagePolicyID string
+			if len(spec.Profile) >= 1 {
+				storagePolicyID = spec.Profile[0].(*vim25types.VirtualMachineDefinedProfileSpec).ProfileId
+			}
+			reservedQty := resource.NewQuantity(createVolParams.VolSizeBytes, resource.BinarySI)
+			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
+				Reserved:         reservedQty,
+				StoragePolicyId:  storagePolicyID,
+				StorageClassName: createVolParams.StorageClassName,
+				Namespace:        createVolParams.Namespace,
+			}
+			log.Infof("QuotaInfo during CreateVolume call: %+v", *quotaInfo)
+		}
+	}
+
+	if m.operationStore == nil {
+		return nil, csifault.CSIInternalFault, logger.LogNewError(log, "operation store cannot be nil")
+	}
+	var vCenterServerForVolumeOperationCR string
+	if m.multivCenterTopologyDeployment {
+		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host
+	}
+
+	volumeOperationDetails, finalErr = m.operationStore.GetRequestDetails(ctx, volNameFromInputSpec)
+	if !apierrors.IsNotFound(finalErr) {
+		return nil, csifault.CSIInternalFault, finalErr
+	}
+	defer func() {
+		// Persist the operation details before returning. Only success or error
+		// needs to be stored as InProgress details are stored when the task is
+		// created on CNS.
+		if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
+			volumeOperationDetails.OperationDetails.TaskStatus != taskInvocationStatusInProgress {
+
+			if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && isPodVMOnStretchSupervisorFSSEnabled {
+				// Decrease the reserved field in QuotaDetails when the CreateVolume task is
+				// successful or has errored out.
+				taskStatus := volumeOperationDetails.OperationDetails.TaskStatus
+				if (taskStatus == taskInvocationStatusSuccess || taskStatus == taskInvocationStatusError) &&
+					volumeOperationDetails.QuotaDetails != nil {
+					volumeOperationDetails.QuotaDetails.Reserved = resource.NewQuantity(0,
+						resource.BinarySI)
+					log.Infof("Setting the reserved field for VolumeOperationDetails instance %s to 0",
+						volumeOperationDetails.Name)
+				}
+				tempErr := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+				if finalErr == nil && tempErr != nil {
+					log.Errorf("failed to store CreateVolume details with error: %v", tempErr)
+					finalErr = tempErr
+				}
+			} else {
+				err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+				if err != nil {
+					log.Warnf("failed to store CreateVolume details with error: %v", err)
+				}
+			}
+		}
+	}()
+	volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
+		quotaInfo, metav1.Now(), "", vCenterServerForVolumeOperationCR, "",
+		taskInvocationStatusInProgress, "")
+	err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+	if err != nil {
+		// Don't return if CreateVolume details can't be stored.
+		log.Warnf("failed to store CreateVolume details with error: %v", err)
+	}
+	task, finalErr = invokeCNSCreateVolume(ctx, m.virtualCenter, spec)
+	if finalErr != nil {
+		log.Errorf("failed to create volume with error: %v", finalErr)
+		volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
+			quotaInfo, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "",
+			vCenterServerForVolumeOperationCR, "", taskInvocationStatusError, finalErr.Error())
+		faultType = ExtractFaultTypeFromErr(ctx, finalErr)
+		return nil, faultType, finalErr
+	}
+	if !isStaticallyProvisioned(spec) {
+		// Persist task details only for dynamically provisioned volumes.
+		volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
+			quotaInfo, metav1.Now(), task.Reference().Value, vCenterServerForVolumeOperationCR, "",
+			taskInvocationStatusInProgress, "")
+		err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+		if err != nil {
+			// Don't return if CreateVolume details can't be stored.
+			log.Warnf("failed to store CreateVolume details with error: %v", err)
 		}
 	}
 
@@ -853,7 +985,29 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 		}
 		// Call CreateVolume implementation based on FSS value.
 		if m.idempotencyHandlingEnabled {
-			return m.createVolumeWithImprovedIdempotency(ctx, spec, extraParams)
+			if spec.VolumeId != nil && spec.VolumeId.Id != "" {
+				var cnsVolumeInfo *CnsVolumeInfo
+				cnsVolumeInfo, faultType, err = m.createVolumeWithTransaction(ctx, spec, extraParams)
+				if err != nil {
+					log.Errorf("failed to create volume with VolumeID: %q, faultType: %q, err: %v",
+						spec.VolumeId.Id, faultType, err)
+					if IsCnsVolumeAlreadyExistsFault(ctx, faultType) {
+						log.Infof("Observed volume with Id: %q is already Exists. Deleting Volume.", spec.VolumeId.Id)
+						deleteFaultType, deleteError := m.deleteVolume(ctx, spec.VolumeId.Id, true)
+						if deleteError != nil {
+							log.Errorf("failed to delete volume: %q to handle CnsVolumeAlreadyExistsFault , err :%v", spec.VolumeId.Id, err)
+							return nil, deleteFaultType, deleteError
+						}
+						log.Infof("Attempt to re-create volume with Id: %q", spec.VolumeId.Id)
+						cnsVolumeInfo, faultType, err = m.createVolumeWithTransaction(ctx, spec, extraParams)
+						return cnsVolumeInfo, faultType, err
+					}
+					return nil, faultType, err
+				}
+				return cnsVolumeInfo, faultType, err
+			} else {
+				return m.createVolumeWithImprovedIdempotency(ctx, spec, extraParams)
+			}
 		}
 		return m.createVolume(ctx, spec)
 	}
@@ -1854,7 +2008,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
-		if _, ok := volumeOperationRes.Fault.Fault.(cnstypes.CnsFault); ok {
+		if _, ok := volumeOperationRes.Fault.Fault.(*cnstypes.CnsFault); ok {
 			log.Debugf("ExtendVolume task %s returned with CnsFault. Querying CNS to "+
 				"determine if volume with ID %s was successfully expanded.",
 				task.Reference().Value, volumeID)
@@ -2562,7 +2716,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 				errMsg = fmt.Sprintf("snapshot %q on volume %q got created, but post-processing failed. "+
 					"Fault: %q, opID: %q", instanceName, volumeID, spew.Sdump(createSnapshotsOperationRes.Fault),
 					createSnapshotsTaskInfo.ActivationId)
-				snapshotId := createSnapshotsOperationRes.Fault.Fault.(cnstypes.CnsSnapshotCreatedFault).SnapshotId.Id
+				snapshotId := createSnapshotsOperationRes.Fault.Fault.(*cnstypes.CnsSnapshotCreatedFault).SnapshotId.Id
 				volumeOperationDetails = createRequestDetails(instanceName, volumeID, snapshotId, 0, nil,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
 					"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusPartiallyFailed, errMsg)

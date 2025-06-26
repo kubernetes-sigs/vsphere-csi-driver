@@ -58,7 +58,8 @@ type CreateBlockVolumeOptions struct {
 	FilterSuspendedDatastores,
 	UseSupervisorId,
 	IsVdppOnStretchedSvFssEnabled bool
-	IsByokEnabled bool
+	IsByokEnabled                  bool
+	IsCSITransactionSupportEnabled bool
 }
 
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
@@ -235,6 +236,15 @@ func CreateBlockVolumeUtil(
 			ContainerClusterArray: containerClusterArray,
 		},
 	}
+
+	if opts.IsCSITransactionSupportEnabled {
+		volumeUID, err := ExtractVolumeIDFromPVName(ctx, spec.Name)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, err
+		}
+		createSpec.VolumeId = &cnstypes.CnsVolumeId{Id: volumeUID}
+	}
+
 	if spec.StoragePolicyID != "" {
 		profileSpec := &vim25types.VirtualMachineDefinedProfileSpec{
 			ProfileId: spec.StoragePolicyID,
@@ -349,7 +359,7 @@ func CreateBlockVolumeUtil(
 }
 
 // CreateBlockVolumeUtilForMultiVC is the helper function to create CNS block volume when multi-VC FSS is enabled.
-func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{}) (
+func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{}, opts CreateBlockVolumeOptions) (
 	*cnsvolume.CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	params, ok := reqParams.(VanillaCreateBlockVolParamsForMultiVC)
@@ -421,6 +431,18 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 			ContainerClusterArray: containerClusterArray,
 		},
 	}
+
+	if opts.IsCSITransactionSupportEnabled {
+		log.Debugf("Creating volume with Transaction Support")
+		volumeUID, err := ExtractVolumeIDFromPVName(ctx, createSpec.Name)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, err
+		}
+		createSpec.VolumeId = &cnstypes.CnsVolumeId{Id: volumeUID}
+	} else {
+		log.Debugf("Creating volume without Transaction Support")
+	}
+
 	if params.StoragePolicyID != "" {
 		profileSpec := &vim25types.VirtualMachineDefinedProfileSpec{
 			ProfileId: params.StoragePolicyID,
@@ -482,6 +504,23 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 	if err != nil {
 		log.Errorf("failed to create disk %s on vCenter %q with error %+v faultType %q",
 			params.Spec.Name, params.Vcenter.Config.Host, err, faultType)
+		if cnsvolume.IsCnsVolumeAlreadyExistsFault(ctx, faultType) {
+			log.Infof("Observed volume with Id: %q is already Exists. Deleting Volume.", createSpec.VolumeId.Id)
+			_, deleteError := params.VolumeManager.DeleteVolume(ctx, createSpec.VolumeId.Id, true)
+			if deleteError != nil {
+				log.Errorf("failed to delete volume: %q, err :%v", createSpec.VolumeId.Id, err)
+				return nil, faultType, err
+			}
+			log.Infof("Attempt to re-create volume with Id: %q", createSpec.VolumeId.Id)
+			volumeInfo, faultType, err := params.VolumeManager.CreateVolume(ctx, createSpec, nil)
+			if err != nil {
+				log.Errorf("failed to re-create disk %s on vCenter %q with error %+v faultType %q",
+					params.Spec.Name, params.Vcenter.Config.Host, err, faultType)
+				return nil, faultType, err
+			} else {
+				return volumeInfo, "", nil
+			}
+		}
 		return nil, faultType, err
 	}
 	return volumeInfo, "", nil
@@ -802,7 +841,7 @@ func QueryVolumeSnapshot(ctx context.Context, volManager cnsvolume.Manager, volI
 	snapshotResult := queryResultEntries[0]
 	if snapshotResult.Error != nil {
 		fault := snapshotResult.Error.Fault
-		if _, ok := fault.(cnstypes.CnsSnapshotNotFoundFault); ok {
+		if _, ok := fault.(*cnstypes.CnsSnapshotNotFoundFault); ok {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"snapshot-id: %s not found for volume-id: %s during QuerySnapshots, err: %+v", snapID, volID, fault)
 		}
@@ -942,7 +981,7 @@ func QueryVolumeSnapshotsByVolumeID(ctx context.Context, volManager cnsvolume.Ma
 			// Currently, CnsVolumeNotFoundFault is the only possible fault when QuerySnapshots is
 			// invoked with only volume-id
 			fault := queryResult.Error.Fault
-			if faultInfo, ok := fault.(cnstypes.CnsVolumeNotFoundFault); ok {
+			if faultInfo, ok := fault.(*cnstypes.CnsVolumeNotFoundFault); ok {
 				faultVolumeId := faultInfo.VolumeId.Id
 				log.Warnf("volume %s was not found during QuerySnapshots, ignore volume..", faultVolumeId)
 				continue

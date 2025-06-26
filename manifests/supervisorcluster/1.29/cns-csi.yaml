@@ -559,6 +559,7 @@ data:
   "workload-domain-isolation": "false"
   "WCP_VMService_BYOK": "false"
   "file-volume-with-vm-service": "false"
+  "csi-transaction-support": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

@@ -92,7 +92,7 @@ var (
 	// The following variables hold feature states for multi-vcenter-csi-topology, CSI Migration
 	// and authorisation check.
 	multivCenterCSITopologyEnabled, csiMigrationEnabled, filterSuspendedDatastores,
-	isTopologyAwareFileVolumeEnabled bool
+	isTopologyAwareFileVolumeEnabled, isCSITransactionSupportEnabled bool
 
 	// variables for list volumes
 	volIDsInK8s             = make([]string, 0)
@@ -136,6 +136,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		common.CnsMgrSuspendCreateVolume)
 	isTopologyAwareFileVolumeEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.TopologyAwareFileVolume)
+	isCSITransactionSupportEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSITranSactionSupport)
 
 	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
 	if !multivCenterCSITopologyEnabled {
@@ -1116,7 +1117,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 				"error occurred while getting CreateVolume task details for block volume %q. Error: %+v",
 				req.Name, err)
 		}
-	} else if volumeOperationDetails.OperationDetails != nil {
+	} else if !isCSITransactionSupportEnabled && volumeOperationDetails.OperationDetails != nil {
 		if volumeOperationDetails.OperationDetails.TaskStatus ==
 			cnsvolumeoperationrequest.TaskInvocationStatusSuccess &&
 			volumeOperationDetails.VolumeID != "" {
@@ -1144,7 +1145,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 				},
 			}
 			volTaskAlreadyRegistered = true
-		} else if cnsvolume.IsTaskPending(volumeOperationDetails) {
+		} else if !isCSITransactionSupportEnabled && cnsvolume.IsTaskPending(volumeOperationDetails) {
 			// If task is already created in CNS for this volume but task is in progress,
 			// we need to monitor the task to check if volume creation is complete or not.
 			log.Infof("Volume with name %s has CreateVolume task %s pending on VC %q.",
@@ -1248,7 +1249,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 
 	if !volTaskAlreadyRegistered {
 		// Iterate through each VC and its accessibility requirements to try and create a volume.
-		// If it fails for any reason, move unto the next VC in list.
+		// If it fails for any reason, move to the next VC in list.
 		if topologyRequirement != nil {
 			var topologySegmentsList []map[string]string
 			for vcHost, topologySegmentsList = range vcTopologySegmentsMap {
@@ -1325,6 +1326,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 				// Call CreateVolume.
 				// TODO: Few errors encountered  in CreateBlockVolumeUtilForMultiVC can be
 				// retried instead of moving unto next VC. Need to throw a custom error for such scenarios.
+
 				volumeInfo, faultType, err = common.CreateBlockVolumeUtilForMultiVC(ctx,
 					common.VanillaCreateBlockVolParamsForMultiVC{
 						Vcenter:              vcenter,
@@ -1335,11 +1337,33 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 						SharedDatastores:     sharedDatastores,
 						SnapshotDatastoreURL: snapshotDatastoreURL,
 						ClusterFlavor:        cnstypes.CnsClusterFlavorVanilla,
+					},
+					common.CreateBlockVolumeOptions{
+						IsCSITransactionSupportEnabled: isCSITransactionSupportEnabled,
 					})
 				if err != nil {
-					log.Error(err)
-					combinedErrMssgs = append(combinedErrMssgs, err.Error())
-					continue
+					if cnsvolume.IsNotSupportedFaultType(ctx, faultType) {
+						log.Warnf("NotSupported fault is detected: retrying CreateVolume without VolumeID in spec.")
+						volumeInfo, faultType, err = common.CreateBlockVolumeUtilForMultiVC(ctx,
+							common.VanillaCreateBlockVolParamsForMultiVC{
+								Vcenter:              vcenter,
+								VolumeManager:        volumeMgr,
+								CNSConfig:            c.managers.CnsConfig,
+								StoragePolicyID:      storagePolicyID,
+								Spec:                 &createVolumeSpec,
+								SharedDatastores:     sharedDatastores,
+								SnapshotDatastoreURL: snapshotDatastoreURL,
+								ClusterFlavor:        cnstypes.CnsClusterFlavorVanilla,
+							},
+							common.CreateBlockVolumeOptions{
+								IsCSITransactionSupportEnabled: false,
+							})
+					}
+					if err != nil {
+						log.Error(err)
+						combinedErrMssgs = append(combinedErrMssgs, err.Error())
+						continue
+					}
 				}
 				log.Infof("volume %q created in vCenter %q. Proceeding to calculate "+
 					"accessible topology for the volume", volumeInfo.VolumeID.Id, vcHost)
@@ -1388,7 +1412,6 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to create volume. Error: %+v", err)
 			}
-
 			volumeInfo, faultType, err = common.CreateBlockVolumeUtilForMultiVC(ctx,
 				common.VanillaCreateBlockVolParamsForMultiVC{
 					Vcenter:              vcenter,
@@ -1399,10 +1422,35 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 					SharedDatastores:     sharedDatastores,
 					SnapshotDatastoreURL: snapshotDatastoreURL,
 					ClusterFlavor:        cnstypes.CnsClusterFlavorVanilla,
+				},
+				common.CreateBlockVolumeOptions{
+					IsCSITransactionSupportEnabled: isCSITransactionSupportEnabled,
 				})
 			if err != nil {
-				return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to create volume. Error: %+v", err)
+				if cnsvolume.IsNotSupportedFaultType(ctx, faultType) {
+					log.Warnf("NotSupported fault is detected: retrying CreateVolume without VolumeID in spec.")
+					volumeInfo, faultType, err = common.CreateBlockVolumeUtilForMultiVC(ctx,
+						common.VanillaCreateBlockVolParamsForMultiVC{
+							Vcenter:              vcenter,
+							VolumeManager:        volumeMgr,
+							CNSConfig:            c.managers.CnsConfig,
+							StoragePolicyID:      storagePolicyID,
+							Spec:                 &createVolumeSpec,
+							SharedDatastores:     sharedDatastores,
+							SnapshotDatastoreURL: snapshotDatastoreURL,
+							ClusterFlavor:        cnstypes.CnsClusterFlavorVanilla,
+						},
+						common.CreateBlockVolumeOptions{
+							IsCSITransactionSupportEnabled: false,
+						})
+					if err != nil {
+						return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+							"failed to create volume without supplying VolumeID in the Spec. Error: %+v", err)
+					}
+				} else {
+					return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to create volume. Error: %+v", err)
+				}
 			}
 			log.Infof("volume %q created in vCenter %q", volumeInfo.VolumeID.Id, vcHost)
 		}

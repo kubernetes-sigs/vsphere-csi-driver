@@ -97,7 +97,7 @@ func IsVimFaultNotFoundError(err error) bool {
 func IsCnsSnapshotCreatedFaultError(err error) bool {
 	isCnsSnapshotCreatedFaultError := false
 	if soap.IsVimFault(err) {
-		_, isCnsSnapshotCreatedFaultError = soap.ToVimFault(err).(cnstypes.CnsSnapshotCreatedFault)
+		_, isCnsSnapshotCreatedFaultError = soap.ToVimFault(err).(*cnstypes.CnsSnapshotCreatedFault)
 	}
 	return isCnsSnapshotCreatedFaultError
 }
@@ -106,7 +106,7 @@ func IsCnsSnapshotCreatedFaultError(err error) bool {
 func IsCnsSnapshotNotFoundError(err error) bool {
 	isCnsSnapshotNotFoundError := false
 	if soap.IsVimFault(err) {
-		_, isCnsSnapshotNotFoundError = soap.ToVimFault(err).(cnstypes.CnsSnapshotNotFoundFault)
+		_, isCnsSnapshotNotFoundError = soap.ToVimFault(err).(*cnstypes.CnsSnapshotNotFoundFault)
 	}
 	return isCnsSnapshotNotFoundError
 }

@@ -440,6 +440,8 @@ const (
 	FileVolumesWithVmService = "file-volume-with-vm-service"
 	// SharedDiskFss is an FSS that tells whether shared disks are supported or not
 	SharedDiskFss = "supports_shared_disks"
+	// CSITranSactionSupport is an FSS for transaction support
+	CSITranSactionSupport = "csi-transaction-support"
 )
 
 var WCPFeatureStates = map[string]struct{}{
