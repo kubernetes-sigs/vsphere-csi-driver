@@ -56,10 +56,12 @@ const (
 	EnvIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
 	EnvSharedZone2Zone4StoragePolicyName  = "SHARED_ZONE2_ZONE4_STORAGE_POLICY_IMM"
 	EnvSharedZone2Zone4DatastoreUrl       = "SHARED_ZONE2_ZONE4_DATASTORE_URL"
+	EnvTopologyType                       = "TOPOLOGY_TYPE"
 )
 
 // multi svc environment variables
 const (
+	EnvSupervisorType                   = "SUPERVISOR_TYPE"
 	EnvStoragePolicyNameForSharedDsSvc1 = "STORAGE_POLICY_FOR_SHARED_DATASTORES_SVC1"
 	EnvStoragePolicyNameForSharedDsSvc2 = "STORAGE_POLICY_FOR_SHARED_DATASTORES_SVC2"
 	EnvSupervisorClusterNamespace1      = "SVC_NAMESPACE1"
@@ -82,6 +84,7 @@ const (
 const (
 	EnvWindowsUser = "WINDOWS_USER"
 	EnvWindowsPwd  = "WINDOWS_PWD"
+	EnvWorkerType  = "WORKER_TYPE"
 )
 
 // reading port numbers for VC, Master VM and ESXi from export variables
@@ -151,6 +154,7 @@ const (
 // For vsan stretched cluster tests
 const (
 	EnvTestbedInfoJsonPath = "TESTBEDINFO_JSON"
+	EnvStretchedSvc        = "STRETCHED_SVC"
 )
 const (
 	EnsureAccessibilityMModeType               = "ensureObjectAccessibility"
@@ -207,4 +211,6 @@ const (
 	EnvComputeClusterName                      = "COMPUTE_CLUSTER_NAME"
 	EnvTKGImage                                = "TKG_IMAGE_NAME"
 	EnvVmknic4Vsan                             = "VMKNIC_FOR_VSAN"
+	EnvAccessMode                              = "ACCESS_MODE"
+	EnvVpToCsi                                 = "VCPTOCSI"
 )
