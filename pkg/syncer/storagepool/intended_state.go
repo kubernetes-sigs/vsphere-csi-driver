@@ -291,16 +291,10 @@ func (c *SpController) getVsanHostCapacities(ctx context.Context) (map[string]*c
 	log := logger.GetLogger(ctx)
 	out := make(map[string]*cnsvsphere.VsanHostCapacity)
 
-	var hosts []*cnsvsphere.HostSystem
-	for _, clusterID := range c.clusterIDs {
-		// Fetch all hosts in VC cluster.
-		clusterHosts, err := c.vc.GetHostsByCluster(ctx, clusterID)
-		if err != nil {
-			log.Errorf("Failed to find datastores from VC. Err: %+v", err)
-			continue
-		}
-
-		hosts = append(hosts, clusterHosts...)
+	hosts, err := c.vc.GetHostsByClusters(ctx, c.clusterIDs)
+	if err != nil {
+		log.Errorf("Failed to get hosts from vCenter. Err: %+v", err)
+		return out, err
 	}
 
 	// Get hostMoid to k8s node names.
@@ -311,6 +305,7 @@ func (c *SpController) getVsanHostCapacities(ctx context.Context) (map[string]*c
 	}
 
 	// XXX: We should consider running these in threads to speed this up.
+	// TODO-perf: WIP
 	for _, host := range hosts {
 		capacity, err := host.GetHostVsanCapacity(ctx)
 		if err != nil {

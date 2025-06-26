@@ -489,6 +489,43 @@ func (vc *VirtualCenter) Disconnect(ctx context.Context) error {
 	return nil
 }
 
+// GetHostsByClusters returns hosts inside the clusters using their morefs.
+func (vc *VirtualCenter) GetHostsByClusters(ctx context.Context,
+	clusterMoRefValues []string) ([]*HostSystem, error) {
+	log := logger.GetLogger(ctx)
+	if err := vc.Connect(ctx); err != nil {
+		log.Errorf("failed to connect to vCenter. err: %v", err)
+		return nil, err
+	}
+
+	var clusterMorefs []types.ManagedObjectReference
+	for _, clusterMoRefValue := range clusterMoRefValues {
+		clusterMorefs = append(clusterMorefs, types.ManagedObjectReference{
+			Type:  "ClusterComputeResource",
+			Value: clusterMoRefValue,
+		})
+	}
+	var clusterComputeResourceMos []mo.ClusterComputeResource
+	err := vc.Client.Retrieve(ctx, clusterMorefs, []string{"host"}, &clusterComputeResourceMos)
+	if err != nil {
+		log.Errorf("failed to fetch hosts from clusters given clusterMoRefValues %v with err: %v",
+			clusterMoRefValues, err)
+		return nil, err
+	}
+
+	var hostObjList []*HostSystem
+	for _, clusterComputeResourceMo := range clusterComputeResourceMos {
+		for _, hostMoRef := range clusterComputeResourceMo.Host {
+			hostObjList = append(hostObjList,
+				&HostSystem{
+					HostSystem: object.NewHostSystem(vc.Client.Client, hostMoRef),
+				})
+		}
+	}
+
+	return hostObjList, nil
+}
+
 // GetHostsByCluster return hosts inside the cluster using cluster moref.
 func (vc *VirtualCenter) GetHostsByCluster(ctx context.Context,
 	clusterMorefValue string) ([]*HostSystem, error) {

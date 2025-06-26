@@ -453,6 +453,7 @@ spec:
             - "--leader-election-retry-period=30s"
             - "--storagequota-sync-interval=10m"
             - "--webhook-client-cert-verification"
+            - "enable-profile-server=false"
           env:
             - name: CLUSTER_FLAVOR
               value: "WORKLOAD"

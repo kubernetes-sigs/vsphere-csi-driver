@@ -690,10 +690,12 @@ func GetClusterFlavor(ctx context.Context) (cnstypes.CnsClusterFlavor, error) {
 	log := logger.GetLogger(ctx)
 	// CLUSTER_FLAVOR is defined only in Supervisor and Guest cluster deployments.
 	// If it is empty, it is implied that cluster flavor is Vanilla K8S.
-	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv("CLUSTER_FLAVOR"))
-	if strings.TrimSpace(string(clusterFlavor)) == "" {
+	clusterFlavor := cnstypes.CnsClusterFlavor(strings.TrimSpace(os.Getenv("CLUSTER_FLAVOR")))
+	if clusterFlavor == "" {
 		return cnstypes.CnsClusterFlavorVanilla, nil
-	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest ||
+	}
+
+	if clusterFlavor == cnstypes.CnsClusterFlavorGuest ||
 		clusterFlavor == cnstypes.CnsClusterFlavorWorkload ||
 		clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		return clusterFlavor, nil
