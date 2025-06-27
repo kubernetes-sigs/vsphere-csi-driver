@@ -429,6 +429,8 @@ const (
 	// WorkloadDomainIsolationFSS is FSS for Workload Domain isolation feature
 	// Used in PVCSI
 	WorkloadDomainIsolationFSS = "workload-domain-isolation"
+	// SharedDiskFss is FSS for supporting shared disks functionality.
+	SharedDiskFss = "supports-shared-disks"
 	// VPCCapabilitySupervisor is a supervisor capability indicating if VPC FSS is enabled
 	VPCCapabilitySupervisor = "VPC_Supported"
 	// WCP_VMService_BYOK_FSS enables Bring Your Own Key (BYOK) capabilities.
