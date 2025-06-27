@@ -359,8 +359,6 @@ const (
 const (
 	// Default interval to check if the feature is enabled or not.
 	DefaultFeatureEnablementCheckInterval = 1 * time.Minute
-	// VolumeHealth is the feature flag name for volume health.
-	VolumeHealth = "volume-health"
 	// VolumeExtend is feature flag name for volume expansion.
 	VolumeExtend = "volume-extend"
 	// OnlineVolumeExtend guards the feature for online volume expansion.
