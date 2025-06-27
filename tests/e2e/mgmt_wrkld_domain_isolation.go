@@ -1607,4 +1607,93 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			volumeSnapshot, pandoraSyncWaitTime, staticPv.Spec.CSI.VolumeHandle, snapshotId, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
+
+	/*
+		Verify workloads with same policy applicable to multiple zonal datastore.
+		Test steps:
+		1. Create a wcp namespace and tag zone-2 and zone-3 to it.
+		Use storage policy which has all 3 zonal datastores of zone-2, zone-3 and zone-4
+		2. Create multiple PVCs using storage policy tagged to wcp namespace.
+		(Verify it using Immediate and WFFC Binding mode)
+		3. Wait for PVC to reach Bound state.
+		4. Verify PVC annotation and PV affinity details. It shouls show affinity of either zone-2, zone-3
+		5. Create deployment Pods using the pvc created above.
+		6. Verify Pods should reach running state.
+		7. Verify Pod node annotation.
+		8. Perform cleanup. Delete Pods, PVcs and ns.
+	*/
+	ginkgo.It("Workloads with all-zone zonal storage policy", ginkgo.Label(p0, wldi, snapshot, vc90), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// reading zonal storage policy
+		zonalPolicy := GetAndExpectStringEnvVar(envZonalStoragePolicyName)
+		zonalProfileId := e2eVSphere.GetSpbmPolicyID(zonalPolicy)
+
+		// append late-binding now as it knowns to k8s and not to vc
+		zonalPolicyWffc := zonalPolicy + "-latebinding"
+
+		ginkgo.By("Creating wcp namespace tagged to any 2 zones")
+		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(
+			vcRestSessionId,
+			[]string{zonalProfileId},
+			getSvcId(vcRestSessionId), []string{zone1, zone2}, "", "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
+		defer func() {
+			delTestWcpNs(vcRestSessionId, namespace)
+			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+		}()
+
+		ginkgo.By("Read zonal class")
+		storageclassImm, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		storageclassWffc, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicyWffc, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Creating pvc using WFFC and Immediate binding")
+		pvclaim1, _, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+			diskSize, storageclassImm, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create a PVC using zonal policy-WFFC binding")
+		pvclaim2, err := createPVC(ctx, client, namespace, labelsMap, diskSize, storageclassWffc, v1.ReadWriteOnce)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating a Deployment")
+		dep, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace,
+			[]*v1.PersistentVolumeClaim{pvclaim1}, execRWXCommandPod1, false, busyBoxImageOnGcr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		_, err = fdep.GetPodsForDeployment(ctx, client, dep)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
+		// startIndex=0 & endIndex=2 to set allowedTopologies to zone-1 & zone-2
+		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, 0,
+			2)
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, nil, nil, dep, namespace,
+			allowedTopologies)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		dep, err = createDeployment(ctx, client, 1, labelsMap, nil, namespace,
+			[]*v1.PersistentVolumeClaim{pvclaim2}, execRWXCommandPod1, false, busyBoxImageOnGcr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		_, err = fdep.GetPodsForDeployment(ctx, client, dep)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify PVC is in Bound state.")
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
+			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, nil, nil, dep, namespace,
+			allowedTopologies)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	})
 })
