@@ -8117,3 +8117,18 @@ func createtWcpNsWithZonesAndPolicies(
 
 	return namespace, statusCode, nil
 }
+
+// Get vm name from testbedInfo.json for given host IP
+func getVmNameFromHostIp(hostIps []string) string {
+	// Assuming testbed info is read before calling this method
+	hostlist := ""
+	for _, hostIp := range hostIps {
+		for _, esxHost := range tbinfo.esxHosts {
+			if esxHost["ip"] == hostIp {
+				hostIp = esxHost["ip"]
+				hostlist += esxHost["vmName"] + " "
+			}
+		}
+	}
+	return hostlist
+}

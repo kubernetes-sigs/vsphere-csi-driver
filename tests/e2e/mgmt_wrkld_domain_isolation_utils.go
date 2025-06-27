@@ -490,3 +490,17 @@ func passZonesToStayInMap(allowedTopologyMap map[string][]string,
 	}
 	return allowedTopologyMap
 }
+
+// This method helps to get the host list from given zone
+func getNodesFromZone(ctx context.Context, client clientset.Interface, zoneName string) []v1.Node {
+	var hostList []v1.Node
+	nodeList, _ := fnodes.GetReadySchedulableNodes(ctx, client)
+	for _, node := range nodeList.Items {
+		if zone, found := node.Labels[v1.LabelTopologyZone]; found {
+			if strings.Contains(zone, zoneName) {
+				hostList = append(hostList, node)
+			}
+		}
+	}
+	return hostList
+}

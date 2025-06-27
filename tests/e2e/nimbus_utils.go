@@ -24,7 +24,9 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/onsi/gomega"
+	"golang.org/x/crypto/ssh"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 )
 
 type TestbedBasicInfo struct {
@@ -50,14 +52,31 @@ func vMPowerMgmt(user string, location string, podname string, hostList string, 
 	nimbusCmd := fmt.Sprintf("USER=%s /mts/git/bin/nimbus-ctl --nimbusLocation %s --nimbus %s %s %s", user,
 		location, podname, op, hostList)
 	framework.Logf("Running command: %s", nimbusCmd)
-	cmd := exec.Command("/bin/bash", "-c", nimbusCmd)
-	err = cmd.Start()
-	if err != nil {
-		return err
-	}
-	err = cmd.Wait()
 
-	framework.Logf("stdout:\n%v\nstderr:\n%v\n", cmd.Stdout, cmd.Stderr)
+	// Changes done for WLDI as nimbus-ctl cmd can't run from local mac
+	if GetAndExpectStringEnvVar(topologyFeature) == topologyDomainIsolation {
+		sshClientConfig := &ssh.ClientConfig{
+			User: "worker",
+			Auth: []ssh.AuthMethod{
+				ssh.Password(GetAndExpectStringEnvVar(vcUIPwd)),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		}
+		powerOffVm, er := sshExec(sshClientConfig, GetAndExpectStringEnvVar(nimbusWorkerIp), nimbusCmd)
+		if er != nil && powerOffVm.Code != 0 {
+			fssh.LogResult(powerOffVm)
+			err = er
+		}
+	} else {
+		cmd := exec.Command("/bin/bash", "-c", nimbusCmd)
+		err = cmd.Start()
+		if err != nil {
+			return err
+		}
+		err = cmd.Wait()
+
+		framework.Logf("stdout:\n%v\nstderr:\n%v\n", cmd.Stdout, cmd.Stderr)
+	}
 	return err
 }
 
