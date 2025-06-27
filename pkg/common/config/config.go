@@ -80,8 +80,8 @@ const (
 	DefaultCSIFetchPreferredDatastoresIntervalInMin = 5
 	// DefaultCnsVolumeOperationRequestCleanupIntervalInMin is the default time
 	// interval after which stale CnsVSphereVolumeMigration CRs will be cleaned up.
-	// Current default value is set to 24 hours.
-	DefaultCnsVolumeOperationRequestCleanupIntervalInMin = 1440
+	// Current default value is set to 15 minutes.
+	DefaultCnsVolumeOperationRequestCleanupIntervalInMin = 15
 	// DefaultGlobalMaxSnapshotsPerBlockVolume is the default maximum number of block volume snapshots per volume.
 	DefaultGlobalMaxSnapshotsPerBlockVolume = 3
 	// MaxNumberOfTopologyCategories is the max number of topology domains/categories allowed.
