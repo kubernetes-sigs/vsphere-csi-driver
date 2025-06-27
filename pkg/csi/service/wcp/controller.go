@@ -425,7 +425,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 
 // createBlockVolume creates a block volume based on the CreateVolumeRequest.
 func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolumeRequest,
-	isWorkloadDomainIsolationEnabled bool) (
+	isWorkloadDomainIsolationEnabled bool, clusterMoIds []string) (
 	*csi.CreateVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
 	var (
@@ -548,13 +548,13 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
 					"volume provisioning request received without topologyRequirement.")
 			}
-			if len(clusterComputeResourceMoIds) > 1 {
+			if len(clusterMoIds) > 1 {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 					"stretched supervisor cluster does not support creating volumes "+
 						"without zone keys in the topologyRequirement.")
 			}
 			sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc,
-				clusterComputeResourceMoIds[0], true)
+				clusterMoIds[0], true)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed finding candidate datastores to place volume. Error: %v", err)
@@ -623,12 +623,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 
 		if isVdppOnStretchedSVEnabled {
-			datastore, err := cnsvsphere.GetDatastoreInfoByURL(ctx, vc, clusterComputeResourceMoIds, selectedDatastoreURL)
+			datastore, err := cnsvsphere.GetDatastoreInfoByURL(ctx, vc, clusterMoIds, selectedDatastoreURL)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to find the datastore from the selected datastore URL %s. Error: %v", selectedDatastoreURL, err)
 			}
-
 			candidateDatastores = []*cnsvsphere.DatastoreInfo{datastore}
 		}
 	}
@@ -1186,6 +1185,15 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
 		// Later we may need to define different csi faults.
 
+		var clusterMoIds = make([]string, 0)
+		if isWorkloadDomainIsolationEnabled {
+			for _, clusters := range c.topologyMgr.GetAZClustersMap(ctx) {
+				clusterMoIds = append(clusterMoIds, clusters...)
+			}
+		} else {
+			clusterMoIds = clusterComputeResourceMoIds
+		}
+
 		isBlockRequest := !isFileVolumeRequestInWcp(ctx, req.GetVolumeCapabilities())
 		if isBlockRequest {
 			volumeType = prometheus.PrometheusBlockVolumeType
@@ -1216,7 +1224,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			// FSS Workload_Domain_Isolation_Supported is enabled, where we allow file volume provisioning
 			// with multiple vSphere clusters.
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-				if len(clusterComputeResourceMoIds) > 1 &&
+				if len(clusterMoIds) > 1 &&
 					!isWorkloadDomainIsolationEnabled {
 					return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
 						"file volume provisioning is not supported on a stretched supervisor cluster")
@@ -1224,7 +1232,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 			return c.createFileVolume(ctx, req, isWorkloadDomainIsolationEnabled)
 		}
-		return c.createBlockVolume(ctx, req, isWorkloadDomainIsolationEnabled)
+		return c.createBlockVolume(ctx, req, isWorkloadDomainIsolationEnabled, clusterMoIds)
 	}
 	resp, faultType, err := createVolumeInternal()
 	log.Debugf("createVolumeInternal: returns fault %q", faultType)
@@ -1794,6 +1802,19 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		return nil, status.Error(codes.Unimplemented, "list volumes FSS disabled")
 	}
 	controllerListVolumeInternal := func() (*csi.ListVolumesResponse, string, error) {
+		// Get volume ID to VMMap and vmMoidToHostMoid map
+		isWorkloadDomainIsolationEnabled := commonco.ContainerOrchestratorUtility.
+			IsFSSEnabled(ctx, common.WorkloadDomainIsolation)
+
+		var clusterMoIds = make([]string, 0)
+		if isWorkloadDomainIsolationEnabled {
+			for _, clusters := range c.topologyMgr.GetAZClustersMap(ctx) {
+				clusterMoIds = append(clusterMoIds, clusters...)
+			}
+		} else {
+			clusterMoIds = clusterComputeResourceMoIds
+		}
+
 		log.Debugf("ListVolumes called with args %+v, expectedStartingIndex %v", *req, expectedStartingIndex)
 		k8sVolumeIDs := commonco.ContainerOrchestratorUtility.GetAllVolumes()
 
@@ -1828,8 +1849,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 				cnsVolumeIDs = append(cnsVolumeIDs, cnsVolume.VolumeId.Id)
 			}
 
-			// Get volume ID to VMMap and vmMoidToHostMoid map
-			vmMoidToHostMoid, volumeIDToVMMap, err = c.GetVolumeToHostMapping(ctx)
+			vmMoidToHostMoid, volumeIDToVMMap, err = c.GetVolumeToHostMapping(ctx, clusterMoIds)
 			if err != nil {
 				log.Errorf("failed to get VM MoID to Host MoID map, err:%v", err)
 				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "failed to get VM MoID to Host MoID map")

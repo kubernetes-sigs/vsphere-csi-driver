@@ -543,7 +543,9 @@ func checkTopologyKeysFromAccessibilityReqs(topologyRequirement *csi.TopologyReq
 
 // GetVolumeToHostMapping returns a map containing VM MoID to host MoID and VolumeID
 // and VM MoID. This map is constructed by fetching all virtual machines belonging to each host.
-func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]string, map[string]string, error) {
+// Look up for VMs will be performed in the supplied list of clusterComputeResourceMoIds
+func (c *controller) GetVolumeToHostMapping(ctx context.Context,
+	clusterComputeResourceMoIds []string) (map[string]string, map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	vmMoIDToHostMoID := make(map[string]string)
 	volumeIDVMMap := make(map[string]string)
@@ -555,29 +557,30 @@ func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]str
 		return nil, nil, fmt.Errorf("failed to get vCenter from Manager, err: %v", err)
 	}
 
-	// Get all the hosts belonging to the cluster
-	hostSystems, err := vc.GetHostsByCluster(ctx, c.manager.CnsConfig.Global.ClusterID)
-	if err != nil {
-		log.Errorf("failed to get hosts for cluster %v, err:%v", c.manager.CnsConfig.Global.ClusterID, err)
-		return nil, nil, fmt.Errorf("failed to get hosts for cluster %v, err:%v", c.manager.CnsConfig.Global.ClusterID, err)
-	}
-
-	// Get all the virtual machines belonging to all the hosts
-	vms, err := vc.GetAllVirtualMachines(ctx, hostSystems)
-	if err != nil {
-		log.Errorf("failed to get VM MoID err: %v", err)
-		return nil, nil, fmt.Errorf("failed to get VM MoID err: %v", err)
-	}
-
 	var vmRefs []vimtypes.ManagedObjectReference
-	var vmMoList []mo.VirtualMachine
-
-	for _, vm := range vms {
-		vmRefs = append(vmRefs, vm.Reference())
+	for _, clusterMoId := range clusterComputeResourceMoIds {
+		// Get all the hosts belonging to the cluster
+		hostSystems, err := vc.GetHostsByCluster(ctx, clusterMoId)
+		if err != nil {
+			errMsg := fmt.Sprintf("failed to get hosts for cluster %s: %v", clusterMoId, err)
+			log.Error(errMsg)
+			return nil, nil, fmt.Errorf("%s", errMsg)
+		}
+		// Get all the virtual machines belonging to all the hosts
+		vms, err := vc.GetAllVirtualMachines(ctx, hostSystems)
+		if err != nil {
+			errMsg := fmt.Sprintf("failed to get VMs from cluster %s: %v", clusterMoId, err)
+			log.Error(errMsg)
+			return nil, nil, fmt.Errorf("%s", errMsg)
+		}
+		for _, vm := range vms {
+			vmRefs = append(vmRefs, vm.Reference())
+		}
 	}
 	properties := []string{"runtime.host", "config.hardware"}
 	pc := property.DefaultCollector(vc.Client.Client)
 	// Obtain host MoID and virtual disk ID
+	var vmMoList []mo.VirtualMachine
 	err = pc.Retrieve(ctx, vmRefs, properties, &vmMoList)
 	if err != nil {
 		log.Errorf("Error while retrieving host properties, err: %v", err)
