@@ -45,6 +45,35 @@ func validateManager(ctx context.Context, m *defaultManager) error {
 	return nil
 }
 
+func GetListOfAttachedVolumes(ctx context.Context, volumeIdToPvc map[string]string, vm *cnsvsphere.VirtualMachine) (map[string]bool, error) {
+	log := logger.GetLogger(ctx)
+	attachedFCDs := make(map[string]bool)
+	// Verify if the volume id is on the VM backing virtual disk devices.
+	vmDevices, err := vm.Device(ctx)
+	if err != nil {
+		log.Errorf("failed to get devices from vm: %s", vm.InventoryPath)
+		return attachedFCDs, err
+	}
+	if len(vmDevices) == 0 {
+		return attachedFCDs, nil
+	}
+	for _, device := range vmDevices {
+		if vmDevices.TypeName(device) == "VirtualDisk" {
+			if virtualDisk, ok := device.(*types.VirtualDisk); ok {
+				if virtualDisk.VDiskId != nil {
+					// If the given volumeID does not exist in K8s cluster,
+					// do not add it to attachedFCDs list because it is not being consumed
+					// by any PVC.
+					if _, existsOnK8s := volumeIdToPvc[virtualDisk.VDiskId.Id]; existsOnK8s {
+						attachedFCDs[virtualDisk.VDiskId.Id] = true
+					}
+				}
+			}
+		}
+	}
+	return attachedFCDs, nil
+}
+
 // IsDiskAttached checks if the volume is attached to the VM.
 // If the volume is attached to the VM, return disk uuid of the volume,
 // else return empty string.
