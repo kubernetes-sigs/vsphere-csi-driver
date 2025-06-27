@@ -24,8 +24,12 @@ const (
 func validatePVCAnnotationForVolumeHealth(ctx context.Context, request admission.Request) admission.Response {
 	log := logger.GetLogger(ctx)
 	username := request.UserInfo.Username
-	isCSIServiceAccount := validateCSIServiceAccount(request.UserInfo.Username)
 	log.Debugf("validatePVCAnnotationForVolumeHealth called with the request %v by user: %v", request, username)
+
+	isCSIServiceAccount, err := validateCSIServiceAccount(request.UserInfo.Username)
+	if err != nil {
+		return admission.Denied(fmt.Sprintf("failed to verify if user is a CSI service account. Err %+v", err))
+	}
 	if request.Operation == admissionv1.Delete {
 		// PVC volume health annotation validation is not required for delete PVC calls
 		return admission.Allowed("")
@@ -75,10 +79,10 @@ func validatePVCAnnotationForVolumeHealth(ctx context.Context, request admission
 	return admission.Allowed("")
 }
 
-func validateCSIServiceAccount(username string) bool {
+func validateCSIServiceAccount(username string) (bool, error) {
 	csiServiceAccountRegex, err := regexp.Compile(CSIServiceAccountPrefix)
 	if err != nil {
-		return true // fail open
+		return false, err // fail open
 	}
-	return csiServiceAccountRegex.MatchString(username)
+	return csiServiceAccountRegex.MatchString(username), nil
 }
