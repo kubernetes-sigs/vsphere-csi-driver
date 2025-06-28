@@ -41,6 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/discovery"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -70,6 +71,16 @@ const (
 	timeout  = 60 * time.Second
 	pollTime = 5 * time.Second
 )
+
+type CustomResourceVersion struct {
+	Group    string
+	Kind    string
+	Version string
+}
+
+func (c CustomResourceVersion) String() string {
+	return fmt.Sprintf("Group: %s, Kind: %s, Version: %s", c.Group, c.Kind, c.Version)
+}
 
 // GetKubeConfig helps retrieve Kubernetes Config.
 func GetKubeConfig(ctx context.Context) (*restclient.Config, error) {
