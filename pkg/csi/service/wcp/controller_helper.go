@@ -62,6 +62,7 @@ func validateCreateBlockReqParam(paramName, value string) bool {
 		paramName == common.AttributePvcName ||
 		paramName == common.AttributePvcNamespace ||
 		paramName == common.AttributeStorageClassName ||
+		paramName == common.AttributeIsLinkedCloneKey ||
 		(paramName == common.AttributeHostLocal && strings.EqualFold(value, "true"))
 }
 

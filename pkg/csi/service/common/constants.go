@@ -38,6 +38,15 @@ const (
 	// AttributeDiskType is a PersistentVolume's attribute.
 	AttributeDiskType = "type"
 
+	// VolumeContextAttributeIsLinkedClone is a PersistentVolume's attribute.
+	VolumeContextAttributeIsLinkedClone = "is-linked-clone"
+
+	// LinkedClonePVCLabel indicates if the PVC is a linked clone
+	LinkedClonePVCLabel = "linked-clone"
+
+	// VolumeContextAttributeLinkedCloneSource is a PersistentVolume's attribute.
+	VolumeContextAttributeLinkedCloneSource = "linked-clone-source"
+
 	// AttributeDatastoreURL represents URL of the datastore in the StorageClass.
 	// For Example: DatastoreURL: "ds:///vmfs/volumes/5c9bb20e-009c1e46-4b85-0200483b2a97/".
 	AttributeDatastoreURL = "datastoreurl"
@@ -83,6 +92,15 @@ const (
 
 	// AttributeStorageClassName represents name of the Storage Class.
 	AttributeStorageClassName = "csi.storage.k8s.io/sc/name"
+
+	// AttributeIsLinkedClone represents if this is a linked clone request
+	AttributeIsLinkedClone = "csi.vsphere.volume/fast-provisioning"
+
+	// AttributeIsLinkedCloneKey represents if this is a linked clone request
+	AttributeIsLinkedCloneKey = "csi.vsphere.k8s.io/linked-clone"
+
+	// LinkedCloneCountLabel represents linkedclone count label
+	LinkedCloneCountLabel = "csi.vsphere.volume/linked-clone-count"
 
 	// HostMoidAnnotationKey represents the Node annotation key that has the value
 	// of VC's ESX host moid of this node.
@@ -347,6 +365,9 @@ const (
 
 	// WCPCapabilitiesCRName is the name of the CR where WCP component's capabilities are stored
 	WCPCapabilitiesCRName = "supervisor-capabilities"
+
+	// AnnKeyLinkedClone is the linked clone annotation on the PVC
+	AnnKeyLinkedClone = "csi.vsphere.volume/fast-provisioning"
 )
 
 // Supported container orchestrators.
@@ -442,6 +463,8 @@ const (
 	SharedDiskFss = "supports_shared_disks"
 	// CSITranSactionSupport is an FSS for transaction support
 	CSITranSactionSupport = "csi-transaction-support"
+	// LinkedCloneSupport is an FSS that tells whether LinkedClone feature is supported in CSI.
+	LinkedCloneSupport = "linked-clone-support"
 )
 
 var WCPFeatureStates = map[string]struct{}{

@@ -77,9 +77,23 @@ type COCommonInterface interface {
 	// GetAllK8sVolumes returns list of volumes in a bound state, in the K8s cluster
 	// list Includes Migrated vSphere Volumes VMDK Paths and CSI Volume IDs
 	GetAllK8sVolumes() []string
+	// PreLinkedCloneCreateAction updates the PVC label with the values specified in map
+	PreLinkedCloneCreateAction(ctx context.Context, pvcNamespace string, pvcName string) error
 	// AnnotateVolumeSnapshot annotates the volumesnapshot CR in k8s cluster with the snapshot-id and fcd-id
 	AnnotateVolumeSnapshot(ctx context.Context, volumeSnapshotName string,
 		volumeSnapshotNamespace string, annotations map[string]string) (bool, error)
+	// PostLinkedCloneCreateAction labels the VolumeSnapshotContent to indicate that a LinkedClone was
+	// created from it by incrementing the ref count. For LinkedClone deletion the ref count is decremented.
+	PostLinkedCloneCreateAction(ctx context.Context, pvcName string, pvcNamespace string) error
+	// UpdateLinkedCloneSource labels the VolumeSnapshot to indicate that a LinkedClone was
+	// created from it by incrementing the ref count. For LinkedClone deletion the ref count is decremented.
+	UpdateLinkedCloneSource(ctx context.Context, sourceNamespace string, sourceName string, isDelete bool) error
+	// GetLinkedCloneSource retrieves the source of the LinkedClone. For now it's going to be the VolumeSnapshot
+	GetLinkedCloneSource(ctx context.Context, pvcName string, pvcNamespace string) (string, string, error)
+	// GetLinkedCloneSourceFromVolumeId retrieves the source of the LinkedClone from a given volume-id.
+	// For now it's going to be the VolumeSnapshot
+	GetLinkedCloneSourceFromVolumeId(ctx context.Context, volumeId string,
+		clusterFlavor cnstypes.CnsClusterFlavor) (string, string, error)
 	// GetConfigMap checks if ConfigMap with given name exists in the given namespace.
 	// If it exists, this function returns ConfigMap data, otherwise returns error.
 	GetConfigMap(ctx context.Context, name string, namespace string) (map[string]string, error)
@@ -104,6 +118,10 @@ type COCommonInterface interface {
 	// GetZonesForNamespace fetches the zones associated with a namespace when
 	// WorkloadDomainIsolation is supported in supervisor.
 	GetZonesForNamespace(ns string) map[string]struct{}
+	// IsLinkedCloneRequest checks if the pvc is a linked clone request
+	IsLinkedCloneRequest(ctx context.Context, pvcName string, pvcNamespace string) (bool, error)
+	// GetSourceVolumeHandleForLinkedCloneRequest returns source volume handle for a linked clone request.
+	GetSourceVolumeHandleForLinkedCloneRequest(ctx context.Context, pvcName string, pvcNamespace string) (string, error)
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given
