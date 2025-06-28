@@ -45,17 +45,17 @@ const (
 )
 
 var (
-	virtualMachineGroup             = "vmoperator.vmware.com"
-	virtualMachineKind              = "VirtualMachine"
-	availableVirtualMachineVersions []kubernetes.CustomResourceVersions
+	virtualMachineGroup    = "vmoperator.vmware.com"
+	virtualMachineKind     = "VirtualMachine"
+	virtualMachineVersions []kubernetes.CustomResourceVersions
 )
 
 func init() {
-	cacheAvailableVirtualMachineVersions(context.Background())
+	cacheVirtualMachineVersions(logger.NewContextWithLogger(context.Background()))
 }
 
 // TODO-perf: inquire if there's a possibility that the available versions can change at runtime.
-func cacheAvailableVirtualMachineVersions(ctx context.Context) {
+func cacheVirtualMachineVersions(ctx context.Context) {
 	log := logger.GetLogger(ctx)
 	vmVersions, err := kubernetes.ListCustomResourceVersions(ctx, virtualMachineGroup, virtualMachineKind)
 	if err != nil {
@@ -63,7 +63,7 @@ func cacheAvailableVirtualMachineVersions(ctx context.Context) {
 			virtualMachineGroup, virtualMachineKind, err)
 	}
 
-	availableVirtualMachineVersions = *vmVersions
+	virtualMachineVersions = *vmVersions
 }
 
 // ListVirtualMachinesAcrossVersions lists all VirtualMachine resources across all API versions
@@ -73,7 +73,7 @@ func ListVirtualMachinesAcrossVersions(ctx context.Context, clt client.Client,
 	log.Infof("Listing all VirtualMachines across all API versions in namespace: %s", namespace)
 
 	vmList := &vmoperatorv1alpha4.VirtualMachineList{}
-	for _, version := range availableVirtualMachineVersions {
+	for _, version := range virtualMachineVersions {
 		log.Info("Attempting to list VirtualMachines with API version,", version)
 		switch version.Version {
 		case "v1alpha1":
