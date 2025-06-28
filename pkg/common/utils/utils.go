@@ -33,6 +33,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 const (
@@ -42,6 +43,98 @@ const (
 	DefaultQuerySnapshotLimit  = int64(128)
 	vmOperatorApiVersionPrefix = "vmoperator.vmware.com"
 )
+
+var (
+	virtualMachineGroup             = "vmoperator.vmware.com"
+	virtualMachineKind              = "VirtualMachine"
+	availableVirtualMachineVersions []kubernetes.CustomResourceVersions
+)
+
+func init() {
+	cacheAvailableVirtualMachineVersions(context.Background())
+}
+
+// TODO-perf: inquire if there's a possibility that the available versions can change at runtime.
+func cacheAvailableVirtualMachineVersions(ctx context.Context) {
+	log := logger.GetLogger(ctx)
+	vmVersions, err := kubernetes.ListCustomResourceVersions(ctx, virtualMachineGroup, virtualMachineKind)
+	if err != nil {
+		log.Fatalf("failed to list available versions for group %s and kind %s: %s",
+			virtualMachineGroup, virtualMachineKind, err)
+	}
+
+	availableVirtualMachineVersions = *vmVersions
+}
+
+// ListVirtualMachinesAcrossVersions lists all VirtualMachine resources across all API versions
+func ListVirtualMachinesAcrossVersions(ctx context.Context, clt client.Client,
+	namespace string) (*vmoperatorv1alpha4.VirtualMachineList, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("Listing all VirtualMachines across all API versions in namespace: %s", namespace)
+
+	vmList := &vmoperatorv1alpha4.VirtualMachineList{}
+	for _, version := range availableVirtualMachineVersions {
+		log.Info("Attempting to list VirtualMachines with API version,", version)
+		switch version.Version {
+		case "v1alpha1":
+			vmAlpha1List := &vmoperatorv1alpha1.VirtualMachineList{}
+			err := clt.List(ctx, vmAlpha1List, client.InNamespace(namespace))
+			if err != nil {
+				log.Error("failed listing VirtualMachine resources for v1alpha1:", err)
+				return nil, err
+			}
+
+			err = vmoperatorv1alpha1.Convert_v1alpha1_VirtualMachineList_To_v1alpha4_VirtualMachineList(
+				vmAlpha1List, vmList, nil)
+			if err != nil {
+				log.Fatal("Error converting v1alpha1 VirtualMachineList to v1alpha4:", err)
+			}
+		case "v1alpha2":
+			vmAlpha2List := &vmoperatorv1alpha2.VirtualMachineList{}
+			err := clt.List(ctx, vmAlpha2List, client.InNamespace(namespace))
+			if err != nil {
+				log.Error("failed listing VirtualMachine resources for v1alpha2:", err)
+				return nil, err
+			}
+
+			err = vmoperatorv1alpha2.Convert_v1alpha2_VirtualMachineList_To_v1alpha4_VirtualMachineList(
+				vmAlpha2List, vmList, nil)
+			if err != nil {
+				log.Fatalf("Error converting v1alpha2 VirtualMachineList to v1alpha4: %s", err)
+			}
+		case "v1alpha3":
+			vmAlpha3List := &vmoperatorv1alpha3.VirtualMachineList{}
+			err := clt.List(ctx, vmAlpha3List, client.InNamespace(namespace))
+			if err != nil {
+				log.Error("failed listing VirtualMachine resources for v1alpha3:", err)
+				return nil, err
+			}
+
+			err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachineList_To_v1alpha4_VirtualMachineList(
+				vmAlpha3List, vmList, nil)
+			if err != nil {
+				log.Fatal("Error converting v1alpha3 VirtualMachineList to v1alpha4: ", err)
+			}
+		case "v1alpha4":
+			vmAlpha4List := &vmoperatorv1alpha4.VirtualMachineList{}
+			err := clt.List(context.Background(), vmAlpha4List, client.InNamespace(namespace))
+			if err != nil {
+				log.Error("failed listing VirtualMachine resources for v1alpha4:", err)
+				return nil, err
+			}
+
+			// No conversion needed for v1alpha4 as it is the latest version.
+			vmList.Items = append(vmList.Items, vmAlpha4List.Items...)
+		default:
+			// This should never happen. So, we crash the program.
+			log.Fatalf("Unsupported version: %s", version.Version)
+		}
+	}
+
+	log.Infof("Successfully listed %d VirtualMachines across all API versions in namespace: %s",
+		len(vmList.Items), namespace)
+	return vmList, nil
+}
 
 // QueryVolumeUtil helps to invoke query volume API based on the feature
 // state set for using query async volume. If useQueryVolumeAsync is set to
