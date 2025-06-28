@@ -20,6 +20,7 @@ import (
 	"context"
 	"embed"
 	"flag"
+	"fmt"
 	"net"
 	"os"
 	"strconv"
@@ -75,6 +76,7 @@ func GetKubeConfig(ctx context.Context) (*restclient.Config, error) {
 	log := logger.GetLogger(ctx)
 	var config *restclient.Config
 	var err error
+	// TODO-perf: can this be cached?
 	kubecfgPath := getKubeConfigPath(ctx)
 	if kubecfgPath != "" {
 		log.Debugf("k8s client using kubeconfig from %s", kubecfgPath)
@@ -642,4 +644,36 @@ func getCRDFromManifest(ctx context.Context, embedFS embed.FS, fileName string) 
 		return nil, err
 	}
 	return &crd, nil
+}
+
+// GetLatestCRDVersion retrieves the latest version of a Custom Resource Definition (CRD) by its name.
+func GetLatestCRDVersion(ctx context.Context, crdName string) (string, error) {
+	log := logger.GetLogger(ctx)
+	config, err := GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("Failed to get KubeConfig. err: %s", err)
+		return "", err
+	}
+
+	c, err := apiextensionsclientset.NewForConfig(config)
+	if err != nil {
+		log.Errorf("Failed to create API extensions client. err: %s", err)
+		return "", err
+	}
+
+	crd, err := c.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("Failed to get CRD %s. Error: %s", crdName, err)
+		return "", err
+	}
+
+	for _, version := range crd.Spec.Versions {
+		if version.Storage {
+			return version.Name, nil
+		}
+	}
+
+	err = fmt.Errorf("no storage version found for CRD %s", crdName)
+	log.Error(err)
+	return "", err
 }
