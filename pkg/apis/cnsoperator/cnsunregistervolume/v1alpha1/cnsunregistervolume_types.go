@@ -31,7 +31,7 @@ type CnsUnregisterVolumeSpec struct {
 	RetainFCD bool `json:"retainFCD,omitempty"`
 
 	// ForceUnregister indicates if the volume should be forcefully unregistered.
-	// If set to true, the volume will be unregistered even if it is still in use.
+	// If set to true, the volume will be unregistered even if it is still in use by any VM.
 	// This should be used with caution as it may lead to data loss.
 	ForceUnregister bool `json:"forceUnregister,omitempty"`
 }
