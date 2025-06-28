@@ -60,6 +60,7 @@ type CreateBlockVolumeOptions struct {
 	IsVdppOnStretchedSvFssEnabled bool
 	IsByokEnabled                  bool
 	IsCSITransactionSupportEnabled bool
+	VolFromSnapshotOnTargetDs bool
 }
 
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
@@ -285,42 +286,45 @@ func CreateBlockVolumeUtil(
 			},
 		}
 
+		// If VolFromSnapshotOnTargetDs is not enabled,
 		// select the compatible datastore for the case of create volume from snapshot
-		// step 1: query the datastore of snapshot. By design, snapshot is always located at the same datastore
-		// as the source volume
-		querySelection := cnstypes.CnsQuerySelection{
-			Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
-		}
-		cnsVolume, err := QueryVolumeByID(ctx, manager.VolumeManager, cnsVolumeID, &querySelection)
-		if err != nil {
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
-				"failed to query datastore for the snapshot %s with error %+v",
-				spec.ContentSourceSnapshotID, err)
-		}
-
-		// step 2: validate if the snapshot datastore is compatible with datastore candidates in create spec
-		var compatibleDatastore vim25types.ManagedObjectReference
-		var foundCompatibleDatastore bool = false
-		for _, dsInfo := range datastoreInfoList {
-			if dsInfo.Info.Url == cnsVolume.DatastoreUrl {
-				log.Infof("compatible datastore found, dsURL = %q, dsRef = %v", dsInfo.Info.Url,
-					dsInfo.Datastore.Reference())
-				compatibleDatastore = dsInfo.Datastore.Reference()
-				foundCompatibleDatastore = true
-				break
+		if !opts.VolFromSnapshotOnTargetDs {
+			// step 1: query the datastore of snapshot. By design, snapshot is always located at the same datastore
+			// as the source volume
+			querySelection := cnstypes.CnsQuerySelection{
+				Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
 			}
-		}
-		if !foundCompatibleDatastore {
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
-				"failed to get the compatible datastore for create volume from snapshot %s with error: %+v",
-				spec.ContentSourceSnapshotID, err)
-		}
+			cnsVolume, err := QueryVolumeByID(ctx, manager.VolumeManager, cnsVolumeID, &querySelection)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+					"failed to query datastore for the snapshot %s with error %+v",
+					spec.ContentSourceSnapshotID, err)
+			}
 
-		// overwrite the datatstores field in create spec with the compatible datastore
-		log.Infof("Overwrite the datatstores field in create spec %v with the compatible datastore %v "+
-			"when create volume from snapshot %s", createSpec.Datastores, compatibleDatastore,
-			spec.ContentSourceSnapshotID)
-		createSpec.Datastores = []vim25types.ManagedObjectReference{compatibleDatastore}
+			// step 2: validate if the snapshot datastore is compatible with datastore candidates in create spec
+			var compatibleDatastore vim25types.ManagedObjectReference
+			var foundCompatibleDatastore bool = false
+			for _, dsInfo := range datastoreInfoList {
+				if dsInfo.Info.Url == cnsVolume.DatastoreUrl {
+					log.Infof("compatible datastore found, dsURL = %q, dsRef = %v", dsInfo.Info.Url,
+						dsInfo.Datastore.Reference())
+					compatibleDatastore = dsInfo.Datastore.Reference()
+					foundCompatibleDatastore = true
+					break
+				}
+			}
+			if !foundCompatibleDatastore {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+					"failed to get the compatible datastore for create volume from snapshot %s with error: %+v",
+					spec.ContentSourceSnapshotID, err)
+			}
+
+			// overwrite the datatstores field in create spec with the compatible datastore
+			log.Infof("Overwrite the datatstores field in create spec %v with the compatible datastore %v "+
+				"when create volume from snapshot %s", createSpec.Datastores, compatibleDatastore,
+				spec.ContentSourceSnapshotID)
+			createSpec.Datastores = []vim25types.ManagedObjectReference{compatibleDatastore}
+		}
 
 		if opts.IsByokEnabled {
 			// Retrieve the encryption key ID from the source volume
