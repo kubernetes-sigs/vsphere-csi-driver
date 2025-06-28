@@ -357,17 +357,11 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 
 // isVolUnregisterable validates whether the volume to be unregistered is not in use by
 // either PodVM, TKG cluster or Volume service VM.
+// TODO: Add logic to force unregister the volume if ForceUnregister is set to true.
 func isVolUnregisterable(ctx context.Context, spec cnsunregistervolumev1alpha1.CnsUnregisterVolumeSpec,
 	pvcName string, pvcNamespace string, k8sClient clientset.Interface) (bool, error) {
 
 	log := logger.GetLogger(ctx)
-
-	if spec.ForceUnregister {
-		// when ForceUnregister is set to true, we will unregister the volume
-		// even if it is in use. So, we return true and exit.
-		log.Debugf("ForceUnregister is set to true for volume %s", spec.VolumeID)
-		return true, nil
-	}
 
 	// Check if the Supervisor volume is not in use by any pods (PodVMs) in the namespace.
 	pods, err := k8sClient.CoreV1().Pods(pvcNamespace).List(ctx, metav1.ListOptions{})
