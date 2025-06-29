@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -68,7 +69,7 @@ const (
 // instances and for instances whose latest reconcile operation succeeded.
 // If the reconcile fails, backoff is incremented exponentially.
 var (
-	backOffDuration         map[string]time.Duration
+	backOffDuration         map[types.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
@@ -120,7 +121,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		log.Errorf("failed to create new CnsVolumeMetadata controller with error: %+v", err)
 		return err
 	}
-	backOffDuration = make(map[string]time.Duration)
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
 	// Predicates are used to determine under which conditions
 	// the reconcile callback will be made for an instance.
 
@@ -207,10 +208,10 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 	// Initialize backOffDuration for the instance, if required.
 	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
-	if _, exists := backOffDuration[instance.Name]; !exists {
-		backOffDuration[instance.Name] = time.Second
+	if _, exists := backOffDuration[request.NamespacedName]; !exists {
+		backOffDuration[request.NamespacedName] = time.Second
 	}
-	timeout = backOffDuration[instance.Name]
+	timeout = backOffDuration[request.NamespacedName]
 	backOffDurationMapMutex.Unlock()
 	// Validate input instance fields.
 	if err = validateReconileRequest(instance); err != nil {
@@ -257,7 +258,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 		}
 		// Cleanup instance entry from backOffDuration map.
 		backOffDurationMapMutex.Lock()
-		delete(backOffDuration, instance.Name)
+		delete(backOffDuration, request.NamespacedName)
 		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
@@ -498,18 +499,22 @@ func validateReconileRequest(req *cnsv1alpha1.CnsVolumeMetadata) error {
 func recordEvent(ctx context.Context, r *ReconcileCnsVolumeMetadata,
 	instance *cnsv1alpha1.CnsVolumeMetadata, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
+	namespacedName := types.NamespacedName{
+		Name:      instance.Name,
+		Namespace: instance.Namespace,
+	}
 	switch eventtype {
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		backOffDuration[namespacedName] = backOffDuration[namespacedName] * 2
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "UpdateFailed", msg)
 		log.Error(msg)
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = time.Second
+		backOffDuration[namespacedName] = time.Second
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeNormal, "UpdateSucceeded", msg)
 		log.Info(msg)
