@@ -47,7 +47,7 @@ const (
 var (
 	virtualMachineGroup    = "vmoperator.vmware.com"
 	virtualMachineKind     = "VirtualMachine"
-	virtualMachineVersions []kubernetes.CustomResourceVersions
+	virtualMachineVersions []kubernetes.CustomResourceVersion
 )
 
 func init() {

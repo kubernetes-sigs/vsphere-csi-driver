@@ -20,6 +20,7 @@ import (
 	"context"
 	"embed"
 	"flag"
+	"fmt"
 	"net"
 	"os"
 	"strconv"
@@ -71,10 +72,14 @@ const (
 	pollTime = 5 * time.Second
 )
 
-type CustomResourceVersions struct {
+type CustomResourceVersion struct {
 	Group    string
 	Kind    string
 	Version string
+}
+
+func (c CustomResourceVersion) String() string {
+	return fmt.Sprintf("Group: %s, Kind: %s, Version: %s", c.Group, c.Kind, c.Version)
 }
 
 // GetKubeConfig helps retrieve Kubernetes Config.
@@ -652,7 +657,7 @@ func getCRDFromManifest(ctx context.Context, embedFS embed.FS, fileName string) 
 	return &crd, nil
 }
 
-func ListCustomResourceVersions(ctx context.Context, group, kind string) (*[]CustomResourceVersions, error) {
+func ListCustomResourceVersions(ctx context.Context, group, kind string) (*[]CustomResourceVersion, error) {
 	log := logger.GetLogger(ctx)
 	cfg, err := GetKubeConfig(ctx)
 	if err != nil {
@@ -669,7 +674,7 @@ func ListCustomResourceVersions(ctx context.Context, group, kind string) (*[]Cus
 		return nil, err
 	}
 
-	var versions []CustomResourceVersions
+	var versions []CustomResourceVersion
 	for _, g := range apiGroups.Groups {
 		if g.Name != group {
 			continue
@@ -691,7 +696,7 @@ func ListCustomResourceVersions(ctx context.Context, group, kind string) (*[]Cus
 
 			for _, res := range resList.APIResources {
 				if res.Kind == kind {
-					versions = append(versions, CustomResourceVersions{
+					versions = append(versions, CustomResourceVersion{
 						Group:   group,
 						Kind:    kind,
 						Version: v.Version,
