@@ -40,6 +40,15 @@ spec:
                 description: VolumeID indicates the volume handle of CNS volume to be unregistered.
                 type: string
                 pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
+              retainFCD:
+                description: RetainFCD indicates if the volume should be retained as an FCD. 
+                  If set to false or not specified, the volume will be retained as a VMDK.
+                type: boolean
+              forceUnregister:
+                description: ForceUnregister indicates if the volume should be forcefully unregistered.
+                  If set to true, the volume will be unregistered even if it is still in use by any VM.
+                  This should be used with caution as it may lead to data loss.
+                type: boolean
             required:
             - volumeID
             type: object
