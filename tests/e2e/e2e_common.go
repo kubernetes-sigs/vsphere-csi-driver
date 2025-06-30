@@ -523,7 +523,7 @@ const (
 )
 
 var (
-	policy4knKey   = "vmware/4kn-volume-for-pod"
+	policy4knKey   = "pod.vmware.com/4kn-volume"
 	policy4knValue = "enabled"
 )
 
