@@ -364,6 +364,7 @@ var (
 	multipleSvc          bool
 	multivc              bool
 	stretchedSVC         bool
+	policy4kn            bool
 )
 
 // For busybox pod image
@@ -521,6 +522,11 @@ const (
 	storagePolicyUsagePollTimeout  = 1 * time.Minute
 )
 
+var (
+	policy4knKey   = "vmware/4kn-volume-for-pod"
+	policy4knValue = "enabled"
+)
+
 // GetAndExpectEnvVar returns the value of an environment variable or fails the regression if it's not set.
 func GetAndExpectEnvVar(varName string) string {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -632,6 +638,12 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	testbedType := os.Getenv("STRETCHED_SVC")
 	if strings.TrimSpace(string(testbedType)) == "1" {
 		stretchedSVC = true
+	}
+
+	//Check what type of policy is passed
+	policyType := os.Getenv("POLICY_TYPE")
+	if strings.TrimSpace(string(policyType)) == "POLICY_4KN" {
+		policy4kn = true
 	}
 }
 

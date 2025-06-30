@@ -4227,6 +4227,13 @@ func createPod(ctx context.Context, client clientset.Interface, namespace string
 		securityLevel = api.LevelPrivileged
 	}
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, securityLevel, command)
+
+	if policy4kn {
+		framework.Logf("******* Inside 4kn block in pod creation ******")
+		pod.Annotations = make(map[string]string)
+		pod.Annotations[policy4knKey] = policy4knValue
+	}
+
 	if windowsEnv {
 		var commands []string
 		if (len(command) == 0) || (command == execCommand) {
@@ -4343,6 +4350,13 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 		deploymentSpec.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
 		deploymentSpec.Spec.Template.Spec.Containers[0].Args = commands
 	}
+
+	if policy4kn {
+		framework.Logf("******* Inside 4kn block in deployment creation ******")
+		deploymentSpec.Annotations = make(map[string]string)
+		deploymentSpec.Spec.Template.ObjectMeta.Annotations[policy4knKey] = policy4knValue
+	}
+
 	deployment, err := client.AppsV1().Deployments(namespace).Create(ctx, deploymentSpec, metav1.CreateOptions{})
 	if err != nil {
 		return deployment, fmt.Errorf("deployment %q Create API error: %v", deploymentSpec.Name, err)
