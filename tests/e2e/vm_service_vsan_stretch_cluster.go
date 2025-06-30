@@ -89,6 +89,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 
 		storageClassName = strings.ReplaceAll(storagePolicyName, " ", "-") // since this is a wcp setup
 		storageClassName = strings.ToLower(storageClassName)
+		storageClassName = storageClassName + "-latebinding"
 		framework.Logf("storageClassName: %s", storageClassName)
 
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
