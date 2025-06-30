@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
@@ -53,6 +54,8 @@ type FileVolumeClient interface {
 	// GetVMIPFromVMName returns the VMIP associated with a
 	// given client VM name.
 	GetVMIPFromVMName(ctx context.Context, fileVolumeName string, clientVMName string) (string, int, error)
+	// CnsFileVolumeClientExistsForPvc returns true if CnsFileVolumeClient for a PVC is found.
+	CnsFileVolumeClientExistsForPvc(ctx context.Context, fileVolumeName string) (bool, error)
 }
 
 // fileVolumeClient maintains a client to the API
@@ -371,6 +374,44 @@ func (f *fileVolumeClient) GetVMIPFromVMName(ctx context.Context,
 		}
 	}
 	return "", 0, err
+}
+
+// CnsFileVolumeClientExistsForPvc returns true if CnsFileVolumeClient for PVC exists.
+// Presence of this CR indicates that PVC is still used by at least one of the VMs.
+func (f *fileVolumeClient) CnsFileVolumeClientExistsForPvc(ctx context.Context,
+	fileVolumeName string) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	log.Infof("Fetching cnsfilevolumeclient instance for volume %s", fileVolumeName)
+	actual, _ := f.volumeLock.LoadOrStore(fileVolumeName, &sync.Mutex{})
+	instanceLock, ok := actual.(*sync.Mutex)
+	if !ok {
+		return true, fmt.Errorf("failed to cast lock for cnsfilevolumeclient instance: %s", fileVolumeName)
+	}
+	instanceLock.Lock()
+	defer instanceLock.Unlock()
+
+	instance := &v1alpha1.CnsFileVolumeClient{}
+	instanceNamespace, instanceName, err := cache.SplitMetaNamespaceKey(fileVolumeName)
+	if err != nil {
+		log.Errorf("failed to split key %s with error: %+v", fileVolumeName, err)
+		return true, err
+	}
+	instanceKey := types.NamespacedName{
+		Namespace: instanceNamespace,
+		Name:      instanceName,
+	}
+	err = f.client.Get(ctx, instanceKey, instance)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// CnsFileVolumeClient instance not found.
+			// This means PVC is not being used by any VM.
+			return false, nil
+		}
+		log.Errorf("failed to get cnsfilevolumeclient instance %s with error: %+v", fileVolumeName, err)
+		return true, err
+	}
+	return true, nil
 }
 
 // removeFinalizer will remove the CNS Finalizer = cns.vmware.com,
