@@ -7671,6 +7671,18 @@ func restartWcpWithWg(ctx context.Context, vcAddress string, wg *sync.WaitGroup)
 }
 
 /*
+Stop VC service with WaitGroup
+*/
+func stopServiceWithWg(ctx context.Context, vcAddress string, serviceName string, wg *sync.WaitGroup, c chan<- error) {
+	var err error
+	defer wg.Done()
+	err = invokeVCenterServiceControl(ctx, stopOperation, serviceName, vcAddress)
+	if err != nil {
+		c <- err
+	}
+}
+
+/*
 Restart WCP
 */
 func restartWcp(ctx context.Context, vcAddress string) error {
