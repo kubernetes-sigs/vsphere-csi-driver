@@ -2422,9 +2422,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			masterIP = GetAndExpectStringEnvVar(svcMasterIP)
 		}
 
+		datastoreName, _, err := e2eVSphere.fetchDatastoreNameFromDatastoreUrl(ctx, fcdID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Get vmdk path from volume handle")
 		if vanillaCluster {
-			vmdk = getVmdkPathFromVolumeHandle(sshClientConfig, masterIP, defaultDatastore.Name(), pv.Spec.CSI.VolumeHandle)
+			vmdk = getVmdkPathFromVolumeHandle(sshClientConfig, masterIP, datastoreName, pv.Spec.CSI.VolumeHandle)
 		}
 		esxHost := GetAndExpectStringEnvVar(envEsxHostIP)
 		ginkgo.By("Delete the vmdk file associasted with the above FCD")
