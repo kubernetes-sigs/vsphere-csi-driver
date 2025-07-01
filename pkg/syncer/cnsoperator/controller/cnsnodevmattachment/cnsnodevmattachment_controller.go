@@ -69,7 +69,7 @@ const (
 // reconcile operation succeeded.
 // If the reconcile fails, backoff is incremented exponentially.
 var (
-	backOffDuration         map[string]time.Duration
+	backOffDuration         map[k8stypes.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
@@ -141,7 +141,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 
-	backOffDuration = make(map[string]time.Duration)
+	backOffDuration = make(map[k8stypes.NamespacedName]time.Duration)
 
 	// Watch for changes to primary resource CnsNodeVmAttachment.
 	err = c.Watch(source.Kind(
@@ -217,10 +217,10 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		// Initialize backOffDuration for the instance, if required.
 		backOffDurationMapMutex.Lock()
 		var timeout time.Duration
-		if _, exists := backOffDuration[instance.Namespace+"/"+instance.Name]; !exists {
-			backOffDuration[instance.Namespace+"/"+instance.Name] = time.Second
+		if _, exists := backOffDuration[request.NamespacedName]; !exists {
+			backOffDuration[request.NamespacedName] = time.Second
 		}
-		timeout = backOffDuration[instance.Namespace+"/"+instance.Name]
+		timeout = backOffDuration[request.NamespacedName]
 		backOffDurationMapMutex.Unlock()
 		log.Infof("Reconciling CnsNodeVmAttachment with Request.Name: %q Namespace %q timeout %q seconds",
 			request.Name, request.Namespace, timeout)
@@ -268,7 +268,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			log.Infof("CnsNodeVmAttachment instance %q status is already attached. Removing from the queue.", instance.Name)
 			// Cleanup instance entry from backOffDuration map.
 			backOffDurationMapMutex.Lock()
-			delete(backOffDuration, instance.Namespace+"/"+instance.Name)
+			delete(backOffDuration, request.NamespacedName)
 			backOffDurationMapMutex.Unlock()
 			return reconcile.Result{}, "", nil
 		}
@@ -472,7 +472,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			recordEvent(internalCtx, r, instance, v1.EventTypeNormal, msg)
 			// Cleanup instance entry from backOffDuration map.
 			backOffDurationMapMutex.Lock()
-			delete(backOffDuration, instance.Name)
+			delete(backOffDuration, request.NamespacedName)
 			backOffDurationMapMutex.Unlock()
 			return reconcile.Result{}, "", nil
 		}
@@ -594,7 +594,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					recordEvent(internalCtx, r, instance, v1.EventTypeNormal, msg)
 					// Cleanup instance entry from backOffDuration map.
 					backOffDurationMapMutex.Lock()
-					delete(backOffDuration, instance.Name)
+					delete(backOffDuration, request.NamespacedName)
 					backOffDurationMapMutex.Unlock()
 					return reconcile.Result{}, "", nil
 				}
@@ -633,7 +633,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		}
 		// Cleanup instance entry from backOffDuration map.
 		backOffDurationMapMutex.Lock()
-		delete(backOffDuration, instance.Name)
+		delete(backOffDuration, request.NamespacedName)
 		backOffDurationMapMutex.Unlock()
 		log.Infof("Finished Reconcile for CnsNodeVMAttachment request: %q", request.NamespacedName)
 		return reconcile.Result{}, "", nil
@@ -937,18 +937,22 @@ func getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx context.Context) int 
 func recordEvent(ctx context.Context, r *ReconcileCnsNodeVMAttachment,
 	instance *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
+	namespacedName := k8stypes.NamespacedName{
+		Name:      instance.Name,
+		Namespace: instance.Namespace,
+	}
 	switch eventtype {
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Namespace+"/"+instance.Name] = backOffDuration[instance.Namespace+"/"+instance.Name] * 2
+		backOffDuration[namespacedName] = backOffDuration[namespacedName] * 2
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "NodeVMAttachFailed", msg)
 		log.Error(msg)
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Namespace+"/"+instance.Name] = time.Second
+		backOffDuration[namespacedName] = time.Second
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeNormal, "NodeVMAttachSucceeded", msg)
 		log.Info(msg)
