@@ -19,6 +19,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	cryptoRand "crypto/rand"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -8128,4 +8129,17 @@ func createtWcpNsWithZonesAndPolicies(
 	_, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, nsCreationUrl, reqBody)
 
 	return namespace, statusCode, nil
+}
+
+// Generates random string of requested length
+func genrateRandomString(length int) (string, error) {
+	var generatedString string
+	rand.New(rand.NewSource(time.Now().UnixNano()))
+	b := make([]byte, length+2)
+	_, err := cryptoRand.Read(b)
+	if err != nil {
+		return generatedString, fmt.Errorf("error marshalling request body: %w", err)
+	}
+	generatedString = fmt.Sprintf("%x", b)[2 : length+2]
+	return generatedString, err
 }
