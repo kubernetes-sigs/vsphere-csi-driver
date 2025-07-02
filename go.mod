@@ -9,7 +9,7 @@ require (
 	github.com/akutz/gofsutil v0.1.2
 	github.com/container-storage-interface/spec v1.9.0
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
-	github.com/evanphx/json-patch/v5 v5.9.0
+	github.com/evanphx/json-patch/v5 v5.9.11
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/go-co-op/gocron v1.37.0
 	github.com/go-logr/zapr v1.3.0
@@ -19,7 +19,7 @@ require (
 	github.com/kubernetes-csi/csi-proxy/v2 v2.0.0-alpha.1
 	github.com/kubernetes-csi/external-snapshotter/client/v8 v8.2.0
 	github.com/onsi/ginkgo/v2 v2.22.0
-	github.com/onsi/gomega v1.36.0
+	github.com/onsi/gomega v1.36.1
 	github.com/pkg/sftp v1.13.6
 	github.com/prometheus/client_golang v1.22.0
 	github.com/stretchr/testify v1.10.0
@@ -45,7 +45,7 @@ require (
 	k8s.io/sample-controller v0.33.2
 	k8s.io/utils v0.0.0-20250502105355-0f33e8f1c979
 	sigs.k8s.io/cluster-api v1.9.7
-	sigs.k8s.io/controller-runtime v0.19.7
+	sigs.k8s.io/controller-runtime v0.21.0
 )
 
 require (
@@ -232,5 +232,5 @@ replace (
 	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.33.2
 	k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin v0.33.2
 	k8s.io/sample-controller => k8s.io/sample-controller v0.33.2
-	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.1
+	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.21.0
 )
