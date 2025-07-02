@@ -51,7 +51,7 @@ BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
 # Example: CUSTOM_REPO_FOR_GOLANG=<docker-registry>/dockerhub-proxy-cache/library/
 GOLANG_IMAGE=${CUSTOM_REPO_FOR_GOLANG:-}golang:1.24
 
-ARCH=(amd64 arm64)
+ARCH_LINUX=(amd64 arm64)
 OSVERSION=1809
 # OS Version for the Windows images: 1809, 20H2, ltsc2022
 OSVERSION_WIN=(1809 20H2 ltsc2022)
@@ -327,7 +327,7 @@ if [ "${PUSH}" ]; then
   fi
   # tag linux images with linux and push them to registry
   LINUX_IMAGE_OUTPUT="type=registry"
-  for arch in "${ARCH[@]}"
+  for arch in "${ARCH_LINUX[@]}"
     do
       ARCH="$arch"
       build_driver_images_linux
