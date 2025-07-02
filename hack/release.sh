@@ -327,7 +327,12 @@ if [ "${PUSH}" ]; then
   fi
   # tag linux images with linux and push them to registry
   LINUX_IMAGE_OUTPUT="type=registry"
-  build_driver_images_linux
+  for arch in "${ARCH[@]}"
+    do
+      ARCH="$arch"
+      build_driver_images_linux
+    done
+  
   if [ "$DO_WINDOWS_BUILD" = true ]; then
     #create and push manifest for driver
     push_manifest_driver

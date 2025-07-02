@@ -1903,7 +1903,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 				}
 				tempErr := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 				if finalErr == nil && tempErr != nil {
-					log.Errorf("failed to store ExpandVolume details with error: %v", tempErr)
+					log.Errorf("failed to save ExpandVolume details with error: %v", tempErr)
 					finalErr = tempErr
 				}
 			} else {
