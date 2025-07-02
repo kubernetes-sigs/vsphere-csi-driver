@@ -84,7 +84,7 @@ build-dirs:
 ################################################################################
 # Unless otherwise specified the binaries should be built for linux-amd64.
 GOOS ?= linux
-GOARCH ?= amd64 arm64
+GOARCH ?= amd64
 
 LDFLAGS := $(shell cat hack/make/ldflags.txt)
 LDFLAGS_CSI := $(LDFLAGS) -X "$(MOD_NAME)/pkg/csi/service.Version=$(VERSION)"
