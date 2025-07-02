@@ -155,6 +155,8 @@ function build_syncer_image_linux() {
       --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
       --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
       --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
+      --build-arg ARCH=amd64 \
+      --platform "linux/$ARCH" \
       .
 
   if [ "${LATEST}" ]; then
