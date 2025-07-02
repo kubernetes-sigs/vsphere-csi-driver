@@ -51,7 +51,7 @@ BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
 # Example: CUSTOM_REPO_FOR_GOLANG=<docker-registry>/dockerhub-proxy-cache/library/
 GOLANG_IMAGE=${CUSTOM_REPO_FOR_GOLANG:-}golang:1.24
 
-ARCH=amd64
+ARCH=(amd64 arm64)
 OSVERSION=1809
 # OS Version for the Windows images: 1809, 20H2, ltsc2022
 OSVERSION_WIN=(1809 20H2 ltsc2022)
@@ -136,7 +136,6 @@ function build_driver_images_linux() {
    --output "${LINUX_IMAGE_OUTPUT}" \
    --file images/driver/Dockerfile \
    --tag "${tag}" \
-   --build-arg ARCH=amd64 \
    --build-arg "VERSION=${VERSION}" \
    --build-arg "GOPROXY=${GOPROXY}" \
    --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
@@ -149,6 +148,7 @@ function build_syncer_image_linux() {
   echo "building ${SYNCER_IMAGE_NAME}:${VERSION} for linux"
   docker build \
       -f images/syncer/Dockerfile \
+      --platform "linux/$ARCH" \
       -t "${SYNCER_IMAGE_NAME}":"${VERSION}" \
       --build-arg "VERSION=${VERSION}" \
       --build-arg "GOPROXY=${GOPROXY}" \
