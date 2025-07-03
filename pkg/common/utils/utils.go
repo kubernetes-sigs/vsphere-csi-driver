@@ -129,6 +129,80 @@ func ListVirtualMachines(ctx context.Context, clt client.Client,
 	return vmList, nil
 }
 
+// GetVirtualMachine fetches the virtual machine with the specified key
+// converted to the latest API version(v1alpha4).
+// Additionally, it returns the API version of the virtual machine CRD.
+func GetVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
+	vmKey types.NamespacedName) (*vmoperatorv1alpha4.VirtualMachine, string, error) {
+	log := logger.GetLogger(ctx)
+
+	version, err := kubernetes.GetLatestCRDVersion(ctx, virtualMachineCRDName)
+	if err != nil {
+		log.Errorf("failed to get latest CRD version for %s: %s", virtualMachineCRDName, err)
+		return nil, "", err
+	}
+
+	log.Infof("finding virtual machine with key: %s, version: %s", vmKey.String(), version)
+	vm := &vmoperatorv1alpha4.VirtualMachine{}
+	apiVersion := vmOperatorApiVersionPrefix + "/" + version
+	switch version {
+	case "v1alpha1":
+		vmV1alpha1 := &vmoperatorv1alpha1.VirtualMachine{}
+		err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha1)
+		if err != nil {
+			log.Errorf("failed to get virtual machine with key %s in v1alpha1: %s", vmKey.String(), err)
+			return nil, "", err
+		}
+
+		err = vmoperatorv1alpha1.Convert_v1alpha1_VirtualMachine_To_v1alpha4_VirtualMachine(
+			vmV1alpha1, vm, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha1 virtual machine to v1alpha4:", err)
+			return nil, "", err
+		}
+	case "v1alpha2":
+		vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}
+		err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha2)
+		if err != nil {
+			log.Errorf("failed to get virtual machine with key %s in v1alpha2: %s", vmKey.String(), err)
+			return nil, "", err
+		}
+
+		err = vmoperatorv1alpha2.Convert_v1alpha2_VirtualMachine_To_v1alpha4_VirtualMachine(
+			vmV1alpha2, vm, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha2 virtual machine to v1alpha4:", err)
+			return nil, "", err
+		}
+	case "v1alpha3":
+		vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}
+		err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha3)
+		if err != nil {
+			log.Errorf("failed to get virtual machine with key %s in v1alpha3: %s", vmKey.String(), err)
+			return nil, "", err
+		}
+
+		err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachine_To_v1alpha4_VirtualMachine(
+			vmV1alpha3, vm, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha3 virtual machine to v1alpha4:", err)
+			return nil, "", err
+		}
+	case "v1alpha4":
+		err = vmOperatorClient.Get(ctx, vmKey, vm)
+		if err != nil {
+			log.Errorf("failed to get virtual machine with key %s in v1alpha4: %s", vmKey.String(), err)
+			return nil, "", err
+		}
+	default:
+		log.Errorf("Unsupported version: %s. Something is fishy...", version)
+		return nil, "", logger.LogNewErrorCodef(log, codes.Internal,
+			"Unsupported version: %s. Something is fishy...", version)
+	}
+
+	return vm, apiVersion, nil
+}
+
 // QueryVolumeUtil helps to invoke query volume API based on the feature
 // state set for using query async volume. If useQueryVolumeAsync is set to
 // true, the function invokes CNS QueryVolumeAsync, otherwise it invokes

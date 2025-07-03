@@ -42,8 +42,7 @@ func getVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 		Namespace: namespace,
 		Name:      vmName,
 	}
-	virtualMachine, apiVersion, err := utils.GetVirtualMachineAllApiVersions(ctx,
-		vmKey, vmOperatorClient)
+	virtualMachine, apiVersion, err := utils.GetVirtualMachine(ctx, vmOperatorClient, vmKey)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v", vmName, err)
 		log.Error(msg)

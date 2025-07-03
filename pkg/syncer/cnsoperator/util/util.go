@@ -100,8 +100,7 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 		Namespace: vmNamespace,
 		Name:      vmName,
 	}
-	virtualMachineInstance, _, err := utils.GetVirtualMachineAllApiVersions(ctx,
-		vmKey, vmOperatorClient)
+	virtualMachineInstance, _, err := utils.GetVirtualMachine(ctx, vmOperatorClient, vmKey)
 	if err != nil {
 		log.Errorf("failed to get virtualmachine %s/%s with error: %v", vmNamespace, vmName, err)
 		return "", err
