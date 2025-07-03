@@ -546,7 +546,8 @@ func UpdateVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 		}
 	}
 	if err != nil {
-		log.Errorf("UpdateVirtualMachine: error while updating virtualmachine name: %s, err %v", vmV1alpha4.Name, err)
+		log.Errorf("UpdateVirtualMachine: error while updating virtualmachine name: %s, err %v",
+			vmV1alpha4.Name, err)
 		return err
 	}
 	log.Infof("UpdateVirtualMachine: successfully updated the virtualmachine, name: %s", vmV1alpha4.Name)

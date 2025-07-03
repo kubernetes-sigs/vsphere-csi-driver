@@ -24,6 +24,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
@@ -496,4 +497,41 @@ func ExtractVolumeIDFromPVName(ctx context.Context, volumeName string) (string, 
 		return "", logger.LogNewErrorf(log, "failed to extract UID from volumeName name: %q", volumeName)
 	}
 	return matches[1], nil
+}
+
+func GetCNSVolumeInfoPatch(ctx context.Context, CapacityInMb int64, volumeId string) (map[string]interface{}, error) {
+	log := logger.GetLogger(ctx)
+	var patch map[string]interface{}
+	if volumeId == "" {
+		log.Errorf("VolumeID %q values cannot be empty", volumeId)
+		return nil, logger.LogNewErrorf(log, "VolumeID values cannot be empty")
+	}
+	if CapacityInMb == -1 {
+		log.Infof("Couldn't retrieve aggregated snapshot capacity for volume %q", volumeId)
+		patch = map[string]interface{}{
+			"spec": map[string]interface{}{
+				"validaggregatedsnapshotsize": false,
+			},
+		}
+	} else {
+		aggregatedSnapshotSizeBytes := CapacityInMb * MbInBytes
+		log.Infof("retrieved aggregated snapshot capacity %d for volume %q",
+			CapacityInMb, volumeId)
+		// In cases of concurrent request for vmsnapshot and volumesnapshot
+		// we compare the snapshotlatestoperationcompletetime and based on that allow update to cnsvolumeinfo.
+		// In cases where there is existing aggregatedSnapshotSizeBytes value and a new one is received
+		// on patching CNSVolumeInfo, in cnsVolumeInfoCRUpdated() compares the old value and new value
+		// based on result the exact differece is added to spu.
+		patch = map[string]interface{}{
+			"spec": map[string]interface{}{
+				"validaggregatedsnapshotsize": true,
+				"aggregatedsnapshotsize": resource.NewQuantity(
+					aggregatedSnapshotSizeBytes, resource.BinarySI),
+				"snapshotlatestoperationcompletetime": &metav1.Time{
+					Time: time.Now(),
+				},
+			},
+		}
+	}
+	return patch, nil
 }
