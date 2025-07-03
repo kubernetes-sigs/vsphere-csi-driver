@@ -72,7 +72,7 @@ func (vs *vSphere) queryCNSVolumeWithResult(fcdID string) (*cnstypes.CnsQueryRes
 	volumeIds = append(volumeIds, cnstypes.CnsVolumeId{
 		Id: fcdID,
 	})
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: volumeIds,
 		Cursor: &cnstypes.CnsCursor{
 			Offset: 0,

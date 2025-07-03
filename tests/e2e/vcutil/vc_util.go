@@ -278,7 +278,7 @@ func QueryCNSVolumeWithResult(vs *config.E2eTestConfig, fcdID string) (*cnstypes
 	volumeIds = append(volumeIds, cnstypes.CnsVolumeId{
 		Id: fcdID,
 	})
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: volumeIds,
 		Cursor: &cnstypes.CnsCursor{
 			Offset: 0,

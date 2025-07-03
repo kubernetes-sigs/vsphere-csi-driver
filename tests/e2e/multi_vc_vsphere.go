@@ -44,7 +44,7 @@ func (vs *multiVCvSphere) queryCNSVolumeWithResultInMultiVC(fcdID string) (*cnst
 	volumeIds = append(volumeIds, cnstypes.CnsVolumeId{
 		Id: fcdID,
 	})
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: volumeIds,
 		Cursor: &cnstypes.CnsCursor{
 			Offset: 0,

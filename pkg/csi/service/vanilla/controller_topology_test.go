@@ -534,7 +534,7 @@ func TestCreateVolumeWithAccessibilityRequirements(t *testing.T) {
 	}
 	volID := respCreate.Volume.VolumeId
 
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,

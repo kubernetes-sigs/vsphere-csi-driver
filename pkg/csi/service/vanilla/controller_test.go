@@ -324,7 +324,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -345,7 +345,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 	}
 
 	// QueryAll.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -353,7 +353,7 @@ func TestCreateVolumeWithStoragePolicy(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, *queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +482,7 @@ func TestCreateVolumeWithNewlyCreatedStoragePolicy(t *testing.T) {
 	}
 	volID := respCreate.Volume.VolumeId
 
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -557,7 +557,7 @@ func TestCreateVolumeWithMultipleDatastores(t *testing.T) {
 	}
 	volID := respCreate.Volume.VolumeId
 
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -729,7 +729,7 @@ func TestExtendVolume(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -746,7 +746,7 @@ func TestExtendVolume(t *testing.T) {
 	}
 
 	// QueryAll.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -754,7 +754,7 @@ func TestExtendVolume(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, *queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -784,7 +784,7 @@ func TestExtendVolume(t *testing.T) {
 	t.Logf("ControllerExpandVolume succeeded: volume is expanded to requested size %d", newSize)
 
 	// Query volume after expand volume.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -871,7 +871,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -888,7 +888,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 	}
 
 	// QueryAll.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -896,7 +896,7 @@ func TestCompleteControllerFlow(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, *queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1084,7 +1084,7 @@ func TestCreateBlockVolumeSnapshotWithIdempotency(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1101,7 +1101,7 @@ func TestCreateBlockVolumeSnapshotWithIdempotency(t *testing.T) {
 	}
 
 	// QueryAll.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1109,7 +1109,7 @@ func TestCreateBlockVolumeSnapshotWithIdempotency(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, *queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1259,7 +1259,7 @@ func TestCreateBlockVolumeSnapshot(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1276,7 +1276,7 @@ func TestCreateBlockVolumeSnapshot(t *testing.T) {
 	}
 
 	// QueryAll.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1284,7 +1284,7 @@ func TestCreateBlockVolumeSnapshot(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, *queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1400,7 +1400,7 @@ func TestCreateVolumeFromSnapshot(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1417,7 +1417,7 @@ func TestCreateVolumeFromSnapshot(t *testing.T) {
 	}
 
 	// QueryAll.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1425,7 +1425,7 @@ func TestCreateVolumeFromSnapshot(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, *queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1503,7 +1503,7 @@ func TestCreateVolumeFromSnapshot(t *testing.T) {
 	restoredVolID := respCreateFromSnapshot.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: restoredVolID,
@@ -1606,7 +1606,7 @@ func TestListSnapshotsOnSpecificVolumeAndSnapshot(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1728,7 +1728,7 @@ func TestListSnapshotsOnSpecificVolume(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1851,7 +1851,7 @@ func TestListSnapshots(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1973,7 +1973,7 @@ func TestListSnapshotsWithToken(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -2105,7 +2105,7 @@ func TestExpandVolumeWithSnapshots(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -2217,7 +2217,7 @@ func TestDeleteBlockVolumeSnapshotWithManagedObjectNotFound(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -2234,7 +2234,7 @@ func TestDeleteBlockVolumeSnapshotWithManagedObjectNotFound(t *testing.T) {
 	}
 
 	// QueryAll.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -2242,7 +2242,7 @@ func TestDeleteBlockVolumeSnapshotWithManagedObjectNotFound(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, *queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2326,7 +2326,7 @@ func TestCreateSnapshotWithManagedObjectNotFound(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -2343,7 +2343,7 @@ func TestCreateSnapshotWithManagedObjectNotFound(t *testing.T) {
 	}
 
 	// QueryAll.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -2351,7 +2351,7 @@ func TestCreateSnapshotWithManagedObjectNotFound(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, *queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2451,7 +2451,7 @@ func TestCreateSnapshotWithCnsSnapshotCreatedFault(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -2468,7 +2468,7 @@ func TestCreateSnapshotWithCnsSnapshotCreatedFault(t *testing.T) {
 	}
 
 	// QueryAll.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -2476,7 +2476,7 @@ func TestCreateSnapshotWithCnsSnapshotCreatedFault(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, *queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}

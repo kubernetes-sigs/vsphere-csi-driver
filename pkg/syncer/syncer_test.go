@@ -269,7 +269,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	}
 
 	// Set volume id to be queried.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volumeInfo.VolumeID.Id,
@@ -624,7 +624,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	}
 
 	// Set volume id to be queried.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volumeInfo.VolumeID.Id,

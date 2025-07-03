@@ -458,6 +458,9 @@ const (
 	LinkedCloneSupport = "linked-clone-support"
 	// StoragePolicyReservationSupport is FSS that tells whether StoragePolicyReservation is supported in CSI
 	StoragePolicyReservationSupport = "storage-policy-reservation-support"
+	// WCPVMServiceVMSnapshots is a supervisor capability indicating
+	// if supports_VM_service_VM_snapshots FSS is enabled
+	WCPVMServiceVMSnapshots = "supports_VM_service_VM_snapshots"
 )
 
 var WCPFeatureStates = map[string]struct{}{
@@ -467,6 +470,7 @@ var WCPFeatureStates = map[string]struct{}{
 	VPCCapabilitySupervisor:    {},
 	VolFromSnapshotOnTargetDs:  {},
 	SharedDiskFss:              {},
+	WCPVMServiceVMSnapshots:    {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later

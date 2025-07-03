@@ -201,7 +201,7 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	volID := respCreate.Volume.VolumeId
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -221,7 +221,7 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 	}
 
 	// QueryAll.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -229,7 +229,7 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, *queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestWCPCreateVolumeWithZonalLabelPresentButNoStorageTopoType(t *testing.T) 
 			}
 
 			// Verify the volume has been deleted.
-			queryFilter := cnstypes.CnsQueryFilter{
+			queryFilter := &cnstypes.CnsQueryFilter{
 				VolumeIds: []cnstypes.CnsVolumeId{
 					{
 						Id: volID,
@@ -447,7 +447,7 @@ func TestWCPCreateVolumeWithoutZoneLabelPresentForFileVolume(t *testing.T) {
 			}
 
 			// Verify the volume has been deleted.
-			queryFilter := cnstypes.CnsQueryFilter{
+			queryFilter := &cnstypes.CnsQueryFilter{
 				VolumeIds: []cnstypes.CnsVolumeId{
 					{
 						Id: volID,
@@ -553,7 +553,7 @@ func TestWCPCreateVolumeWithHostLabelPresentForFileVolume(t *testing.T) {
 			}
 
 			// Verify the volume has been deleted.
-			queryFilter := cnstypes.CnsQueryFilter{
+			queryFilter := &cnstypes.CnsQueryFilter{
 				VolumeIds: []cnstypes.CnsVolumeId{
 					{
 						Id: volID,
@@ -626,7 +626,7 @@ func TestWCPCreateDeleteSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	volID := respCreate.Volume.VolumeId
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -646,7 +646,7 @@ func TestWCPCreateDeleteSnapshot(t *testing.T) {
 	}
 
 	// QueryAll.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -654,7 +654,7 @@ func TestWCPCreateDeleteSnapshot(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, *queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -739,7 +739,7 @@ func TestListSnapshots(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -858,7 +858,7 @@ func TestListSnapshotsOnSpecificVolume(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -978,7 +978,7 @@ func TestListSnapshotsWithToken(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1108,7 +1108,7 @@ func TestListSnapshotsOnSpecificVolumeAndSnapshot(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1226,7 +1226,7 @@ func TestCreateVolumeFromSnapshot(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1243,7 +1243,7 @@ func TestCreateVolumeFromSnapshot(t *testing.T) {
 	}
 
 	// QueryAll.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1251,7 +1251,7 @@ func TestCreateVolumeFromSnapshot(t *testing.T) {
 		},
 	}
 	querySelection := cnstypes.CnsQuerySelection{}
-	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, *queryFilter, querySelection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1329,7 +1329,7 @@ func TestCreateVolumeFromSnapshot(t *testing.T) {
 	restoredVolID := respCreateFromSnapshot.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter = cnstypes.CnsQueryFilter{
+	queryFilter = &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: restoredVolID,
@@ -1431,7 +1431,7 @@ func TestWCPDeleteVolumeWithSnapshots(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,
@@ -1536,7 +1536,7 @@ func TestWCPExpandVolumeWithSnapshots(t *testing.T) {
 	volID := respCreate.Volume.VolumeId
 
 	// Verify the volume has been created.
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryFilter := &cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{
 			{
 				Id: volID,

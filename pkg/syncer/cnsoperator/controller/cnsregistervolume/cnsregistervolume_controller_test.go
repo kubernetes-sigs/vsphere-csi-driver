@@ -206,6 +206,10 @@ func (m *mockVolumeManager) CreateVolume(ctx context.Context, spec *cnstypes.Cns
 	return nil, "", nil
 }
 
+func (m *mockVolumeManager) SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
+	return "", nil
+}
+
 type mockCOCommon struct{}
 
 func (m *mockCOCommon) IsFSSEnabled(ctx context.Context, featureName string) bool {
