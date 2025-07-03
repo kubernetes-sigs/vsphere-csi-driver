@@ -146,3 +146,12 @@ const (
 	// storagePolicyQuotaWorkers represents the number of running worker threads
 	storagePolicyQuotaWorkers = 10
 )
+
+const (
+	// virtualMachineSnapshotRetryIntervalStart represents the start retry interval of the virtualMachineSnapshot reconciler
+	virtualMachineSnapshotRetryIntervalStart = time.Second
+	// virtualMachineSnapshotRetryIntervalMax represents the max retry interval of the virtualMachineSnapshot reconciler
+	virtualMachineSnapshotRetryIntervalMax = 5 * time.Minute
+	// virtualMachineSnapshotWorkers represents the number of running worker threads
+	virtualMachineSnapshotWorkers = 10
+)
