@@ -289,8 +289,8 @@ github.com/thecodeteam/gofsutil v0.1.2 h1:FL87mBzZeeuDMZm8hpYLFcYylQdq6bbm8UQ1oc
 github.com/thecodeteam/gofsutil v0.1.2/go.mod h1:7bDOpr2aMnmdm9RTdxBEeqdOr+8RpnQhsB/VUEI3DgM=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75 h1:6fotK7otjonDflCTK0BCfls4SPy3NcCVb5dqqmbRknE=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75/go.mod h1:KO6IkyS8Y3j8OdNO85qEYBsRPuteD+YciPomcXdrMnk=
-github.com/vmware-tanzu/vm-operator/api v1.8.7-0.20250509154507-b93e51fc90fa h1:LRfm1EMc+L96FzMOwujwbifo6pd/dkBJ4QhofuYNzBw=
-github.com/vmware-tanzu/vm-operator/api v1.8.7-0.20250509154507-b93e51fc90fa/go.mod h1:V0JbH4beGCU+q7yqnWUYYOuDij0ut5i1iBO4cyzg+tM=
+github.com/vmware-tanzu/vm-operator/api v1.8.7-0.20250701192635-878fb2b15563 h1:B+1Kt1VmI8BYGPtgmu6r20mpm26B1bQvyLac3h8e3To=
+github.com/vmware-tanzu/vm-operator/api v1.8.7-0.20250701192635-878fb2b15563/go.mod h1:f2zOJg30nPEsBBF0SlSw5hin1cZs2L5lDdB1t0gzqnc=
 github.com/vmware-tanzu/vm-operator/external/byok v0.0.0-20250509154507-b93e51fc90fa h1:4MKu14YJ7J54O6QKmT4ds5EUpysWLLtQRMff73cVkmU=
 github.com/vmware-tanzu/vm-operator/external/byok v0.0.0-20250509154507-b93e51fc90fa/go.mod h1:8tiuyYslzjLIUmOlXZuGKQdQP2ZgWGCVhVeyptmZYnk=
 github.com/vmware/govmomi v0.52.0-alpha.0.0.20250702012001-bedcaadc5399 h1:WhIEqQdAYyAoit0wR2UOhQN682F2pyeWQWYOdFXWGZc=

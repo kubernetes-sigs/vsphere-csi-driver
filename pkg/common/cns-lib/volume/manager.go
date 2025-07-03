@@ -152,6 +152,8 @@ type Manager interface {
 	// SetListViewNotReady explicitly states the listview state as not ready
 	// use case: unit tests
 	SetListViewNotReady(ctx context.Context)
+	// SyncVolume returns the aggregated capacity for volumes
+	SyncVolume(ctx context.Context, volumeIDList []cnstypes.CnsVolumeId) error
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -1027,6 +1029,11 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 	}
 
 	return resp, faultType, err
+}
+
+// SyncVolume creates a new volume given its spec.
+func (m *defaultManager) SyncVolume(ctx context.Context, volumeIDList []cnstypes.CnsVolumeId) error {
+	return nil
 }
 
 // ensureOperationContextHasATimeout checks if the passed context has a timeout associated with it.

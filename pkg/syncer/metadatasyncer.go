@@ -18,6 +18,8 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,6 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
@@ -850,8 +853,24 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					break
 				}
 			}()
+
+			vmSnapshotEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
+			defer vmSnapshotEnablementTicker.Stop()
+			go func() {
+				for ; true; <-vmSnapshotEnablementTicker.C {
+					ctx, log = logger.GetNewContextWithLogger()
+					if err := initVirtualMachineSnapshotReconciler(ctx, metadataSyncer); err != nil {
+						log.Warnf("Error while initializing VirtualMachineSnapshot reconciler. Err:%+v. "+
+							"Retry will be triggered at %v",
+							err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
+						continue
+					}
+					break
+				}
+			}()
 		}
 	}
+
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		volumeHealthEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
 		defer volumeHealthEnablementTicker.Stop()
@@ -3533,6 +3552,24 @@ func initStoragePolicyQuotaReconciler(ctx context.Context, metadataSyncInformer 
 	return nil
 }
 
+func initVirtualMachineSnapshotReconciler(ctx context.Context, metadataSyncInformer *metadataSyncInformer) error {
+	log := logger.GetLogger(ctx)
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	log.Infof("initStoragePolicyQuotaReconciler is triggered")
+	// TODO: Refactor the code to use existing NewInformer function to get informerFactory
+	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/585
+	rc, err := newVirtualMachineSnapshotReconciler(ctx, metadataSyncInformer,
+		workqueue.NewTypedItemExponentialFailureRateLimiter[any](virtualMachineSnapshotRetryIntervalStart,
+			virtualMachineSnapshotRetryIntervalMax), stopCh)
+	if err != nil {
+		log.Errorf("initVirtualMachineSnapshotReconciler: err received %v", err)
+		return err
+	}
+	rc.Run(ctx, virtualMachineSnapshotWorkers)
+	return nil
+}
+
 // createStoragePolicyUsageCR creates StoragePolicyUsage CR with given parameters
 func createStoragePolicyUsageCR(ctx context.Context, quotaClient client.Client, name, namespace,
 	storagePolicyId, storageClassName, resourceKind, resourceApiGroup,
@@ -4131,4 +4168,85 @@ func cnsVolumeInfoCRUpdated(oldObj interface{}, newObj interface{}, metadataSync
 		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size decreased by %s, decreased Used "+
 			"field for storagepolicyusage CR: %s", diffSnapshotSize.String(), patchedStoragePolicyUsageCR.Name)
 	}
+}
+
+func validateStorageQuotaforVMSnapshot(ctx context.Context, vmKey types.NamespacedName,
+	metadataSyncer *metadataSyncInformer) error {
+	log := logger.GetLogger(ctx)
+	virtualMachine, err := utils.GetVirtualMachineAllApiVersions(ctx, vmKey,
+		MetadataSyncer.cnsOperatorClient)
+	if err != nil {
+		log.Errorf("validateStorageQuotaforVMSnapshot: "+
+			" Could not create VirtualMachineSnapshot CR for %s/%s err: %v",
+			vmKey.Namespace, vmKey.Name, err)
+	}
+	cnsVolumeIds := []cnstypes.CnsVolumeId{}
+	var pvc *v1.PersistentVolumeClaim
+	var pv *v1.PersistentVolume
+	var cnsVolumeMgr volumes.Manager
+	var vcHost string
+	for _, vmVolume := range virtualMachine.Spec.Volumes {
+		pvc, err = metadataSyncer.pvcLister.PersistentVolumeClaims(vmKey.Namespace).Get(vmVolume.Name)
+		if err != nil {
+			log.Errorf("validateStorageQuotaforVMSnapshot: get pvc %s/%s failed: %+v", vmKey.Namespace, vmVolume.Name, err)
+			return err
+		}
+		if pvc.Spec.VolumeName != "" {
+			pv, err = metadataSyncer.pvLister.Get(pvc.Spec.VolumeName)
+			if err != nil {
+				log.Errorf("validateStorageQuotaforVMSnapshot: could not get the volume for pvc %s", pvc.Name)
+				return err
+			}
+			if pv.Spec.CSI != nil && pv.Spec.CSI.VolumeHandle != "" {
+				cnsVolumeIds = append(cnsVolumeIds, cnstypes.CnsVolumeId{Id: pv.Spec.CSI.VolumeHandle})
+			}
+		} else {
+			msg := fmt.Sprintf("validateStorageQuotaforVMSnapshot: could not find the PV associated with PVC %s/%s", vmKey.Namespace, vmVolume.Name)
+			log.Error(msg)
+			return errors.New(msg)
+		}
+	}
+	if len(cnsVolumeIds) == 0 {
+		log.Info("no volumes found for virtual machine %+v/%+v", vmKey.Name, vmKey.Namespace)
+		return nil
+	}
+	vcHost, cnsVolumeMgr, err = getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, pv.Spec.CSI.VolumeHandle)
+	if err != nil {
+		log.Errorf("validateStorageQuotaforVMSnapshot: failed to get vc host and volume manager. "+
+			"Error occoured: %+v", err)
+		return err
+	}
+	volumeOperationsLock[vcHost].Lock()
+	defer volumeOperationsLock[vcHost].Unlock()
+	// Trigger CNS VolumeSync API for identified volume-lds and Fetch Latest Aggregated snapshot size
+	if err := cnsVolumeMgr.SyncVolume(ctx, cnsVolumeIds); err != nil {
+		log.Errorf("validateStorageQuotaforVMSnapshot: SyncVolume opertion failed with error %+v", err)
+	}
+	// fetch updated cns volumes
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: cnsVolumeIds,
+	}
+	queryResult, err := metadataSyncer.volumeManager.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		log.Errorf("validateStorageQuotaforVMSnapshot: failed to query volume from cns with err: %v.", err)
+		return err
+	}
+	for _, cnsvolume := range queryResult.Volumes {
+		//  Update CNSVolumeInfo with latest aggregated Size and Update SPU used value.
+		patch, err := common.GetCNSVolumeInfoPatch(ctx, 10, cnsvolume.VolumeId.Id) // TODO: UDPATE to value returned
+		if err != nil {
+			log.Errorf("validateStorageQuotaforVMSnapshot: failed to create cnsvolumeinfo patch error %+v", err)
+			return err
+		}
+		patchBytes, err := json.Marshal(patch)
+		if err != nil {
+			return err
+		}
+		err = volumeInfoService.PatchVolumeInfo(ctx, cnsvolume.VolumeId.Id,
+			patchBytes, allowedRetriesToPatchCNSVolumeInfo)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

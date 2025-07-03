@@ -68,6 +68,10 @@ var (
 	CnsStoragePolicyQuotaSingular = "storagepolicyquota"
 	// CnsStoragePolicyQuotaPlural is plural of StoragePolicyQuota
 	CnsStoragePolicyQuotaPlural = "storagepolicyquotas"
+	// CnsVirtualMachineSnapshotSingular is Singular of VirtualMachineSnapshot
+	CnsVirtualMachineSnapshotSingular = "vitualmachinesnapshot"
+	// CnsVirtualMachineSnapshotPlural is plural of VirtualMachineSnapshot
+	CnsVirtualMachineSnapshotPlural = "vitualmachinesnapshots"
 )
 
 var (
