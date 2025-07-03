@@ -152,6 +152,8 @@ type Manager interface {
 	// SetListViewNotReady explicitly states the listview state as not ready
 	// use case: unit tests
 	SetListViewNotReady(ctx context.Context)
+	// SyncVolume returns the aggregated capacity for volumes
+	SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -1027,6 +1029,82 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 	}
 
 	return resp, faultType, err
+}
+
+// SyncVolume creates a new volume given its spec.
+func (m *defaultManager) SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
+	internalSyncVolumeInfo := func() (string, error) {
+		log := logger.GetLogger(ctx)
+		err := validateManager(ctx, m)
+		var faultType string
+		if err != nil {
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+			log.Errorf("failed to validate manager with error: %v", err)
+			return faultType, err
+		}
+		// Set up the VC connection.
+		err = m.virtualCenter.ConnectCns(ctx)
+		if err != nil {
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+			log.Errorf("ConnectCns failed with err: %+v", err)
+			return faultType, err
+		}
+		// Call the CNS QueryVolumeInfo.
+		syncVolumeInfoTask, err := m.virtualCenter.CnsClient.SyncVolume(ctx, syncVolumeSpecs)
+		if err != nil {
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+			log.Errorf("CNS SyncVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			return faultType, err
+		}
+
+		// Get the taskInfo.
+		var taskInfo *vim25types.TaskInfo
+		taskInfo, err = m.waitOnTask(ctx, syncVolumeInfoTask.Reference())
+		if err != nil || taskInfo == nil {
+			log.Errorf("failed to get SyncVolume taskInfo from vCenter %q with err: %v",
+				m.virtualCenter.Config.Host, err)
+			if err != nil {
+				faultType = ExtractFaultTypeFromErr(ctx, err)
+			} else {
+				faultType = csifault.CSITaskInfoEmptyFault
+			}
+			return faultType, err
+		}
+		log.Infof("SyncVolume: CnsSyncVolumeSpecs: %v, opId: %q", syncVolumeSpecs, taskInfo.ActivationId)
+		// Get the task results for the given task.
+		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
+		if err != nil {
+			log.Errorf("unable to find SyncVolume task result from vCenter %q: taskID %s and result %v",
+				m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResult)
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+			return faultType, err
+		}
+		if taskResult == nil {
+			return csifault.CSITaskResultEmptyFault, logger.LogNewErrorf(log, "taskResult is empty for SyncVolume task: %q, opID: %q",
+				taskInfo.Task.Value, taskInfo.ActivationId)
+		}
+		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
+		if volumeOperationRes.Fault != nil {
+			faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
+			return faultType, logger.LogNewErrorf(log, "failed to Sync volumes: %v, fault: %q, opID: %q",
+				syncVolumeSpecs, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		}
+		return "", nil
+	}
+	start := time.Now()
+	faultType, err := internalSyncVolumeInfo()
+	log := logger.GetLogger(ctx)
+	log.Debugf("internalSyncVolumeInfo: returns fault %q for CnsSyncVolumeSpecs %v", faultType, syncVolumeSpecs)
+	if err != nil {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsQueryVolumeInfoOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsQueryVolumeInfoOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return faultType, err
 }
 
 // ensureOperationContextHasATimeout checks if the passed context has a timeout associated with it.

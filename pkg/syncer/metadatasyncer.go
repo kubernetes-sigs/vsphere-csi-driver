@@ -18,6 +18,8 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,6 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
@@ -852,6 +855,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}()
 		}
 	}
+
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		volumeHealthEnablementTicker := time.NewTicker(common.DefaultFeatureEnablementCheckInterval)
 		defer volumeHealthEnablementTicker.Stop()
@@ -4131,4 +4135,101 @@ func cnsVolumeInfoCRUpdated(oldObj interface{}, newObj interface{}, metadataSync
 		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size decreased by %s, decreased Used "+
 			"field for storagepolicyusage CR: %s", diffSnapshotSize.String(), patchedStoragePolicyUsageCR.Name)
 	}
+}
+
+func ValidateStorageQuotaforVMSnapshot(ctx context.Context, vmKey types.NamespacedName,
+	metadataSyncer *metadataSyncInformer) error {
+	log := logger.GetLogger(ctx)
+	virtualMachine, _, err := utils.GetVirtualMachineAllApiVersions(ctx, vmKey,
+		MetadataSyncer.cnsOperatorClient)
+	if err != nil {
+		log.Errorf("validateStorageQuotaforVMSnapshot: "+
+			" Could not create VirtualMachineSnapshot CR for %s/%s err: %v",
+			vmKey.Namespace, vmKey.Name, err)
+	}
+	syncVolumeSpecs := []cnstypes.CnsSyncVolumeSpec{}
+	cnsVolumeIds := []cnstypes.CnsVolumeId{}
+	syncMode := []string{string(cnstypes.CnsSyncVolumeModeSPACE_USAGE)}
+	var pvc *v1.PersistentVolumeClaim
+	var pv *v1.PersistentVolume
+	var cnsVolumeMgr volumes.Manager
+	var vcHost string
+	for _, vmVolume := range virtualMachine.Spec.Volumes {
+		pvc, err = metadataSyncer.pvcLister.PersistentVolumeClaims(vmKey.Namespace).Get(vmVolume.Name)
+		if err != nil {
+			log.Errorf("validateStorageQuotaforVMSnapshot: get pvc %s/%s failed: %+v", vmKey.Namespace, vmVolume.Name, err)
+			return err
+		}
+		if pvc.Spec.VolumeName != "" {
+			pv, err = metadataSyncer.pvLister.Get(pvc.Spec.VolumeName)
+			if err != nil {
+				log.Errorf("validateStorageQuotaforVMSnapshot: could not get the volume for pvc %s", pvc.Name)
+				return err
+			}
+			if pv.Spec.CSI != nil && pv.Spec.CSI.VolumeHandle != "" {
+				cnsVolId := cnstypes.CnsVolumeId{Id: pv.Spec.CSI.VolumeHandle}
+				cnsVolumeIds = append(cnsVolumeIds, cnsVolId)
+				syncVolumeSpecs = append(syncVolumeSpecs, cnstypes.CnsSyncVolumeSpec{VolumeId: cnsVolId, SyncMode: syncMode})
+			}
+		} else {
+			msg := fmt.Sprintf("validateStorageQuotaforVMSnapshot: could not find the PV associated with PVC %s/%s", vmKey.Namespace, vmVolume.Name)
+			log.Error(msg)
+			return errors.New(msg)
+		}
+	}
+	if len(syncVolumeSpecs) == 0 {
+		log.Info("no volumes found for virtual machine %+v/%+v", vmKey.Name, vmKey.Namespace)
+		return nil
+	}
+	vcHost, cnsVolumeMgr, err = getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, pv.Spec.CSI.VolumeHandle)
+	if err != nil {
+		log.Errorf("validateStorageQuotaforVMSnapshot: failed to get vc host and volume manager. "+
+			"Error occoured: %+v", err)
+		return err
+	}
+	volumeOperationsLock[vcHost].Lock()
+	defer volumeOperationsLock[vcHost].Unlock()
+	// Trigger CNS VolumeSync API for identified volume-lds and Fetch Latest Aggregated snapshot size
+	syncVolumeFaultType, err := cnsVolumeMgr.SyncVolume(ctx, syncVolumeSpecs)
+	if err != nil {
+		log.Errorf("validateStorageQuotaforVMSnapshot: failed to sync volumes opertion failed with cnsfault: %q error %+v", syncVolumeFaultType, err)
+		return err
+	}
+	// fetch updated cns volumes
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: cnsVolumeIds,
+	}
+	queryResult, err := metadataSyncer.volumeManager.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		log.Errorf("validateStorageQuotaforVMSnapshot: failed to query volume from cns with err: %v.", err)
+		return err
+	}
+	if queryResult != nil && len(queryResult.Volumes) > 0 {
+		for _, cnsvolume := range queryResult.Volumes {
+			val, ok := cnsvolume.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+			if ok {
+				//  Update CNSVolumeInfo with latest aggregated Size and Update SPU used value.
+				patch, err := common.GetCNSVolumeInfoPatch(ctx, val.AggregatedSnapshotCapacityInMb, cnsvolume.VolumeId.Id) // TODO: UDPATE to value returned
+				if err != nil {
+					log.Errorf("validateStorageQuotaforVMSnapshot: failed to create cnsvolumeinfo patch error %+v", err)
+					return err
+				}
+				patchBytes, err := json.Marshal(patch)
+				if err != nil {
+					return err
+				}
+				err = volumeInfoService.PatchVolumeInfo(ctx, cnsvolume.VolumeId.Id,
+					patchBytes, allowedRetriesToPatchCNSVolumeInfo)
+				if err != nil {
+					return err
+				}
+				log.Infof("validateStorageQuotaforVMSnapshot: received aggregated capacity %d for volumeID %q",
+					val.AggregatedSnapshotCapacityInMb, cnsvolume.VolumeId.Id)
+			} else {
+				return logger.LogNewErrorf(log, "validateStorageQuotaforVMSnapshot: unable to retrieve"+
+					" CnsBlockBackingDetails for volumeID %q", cnsvolume.VolumeId.Id)
+			}
+		}
+	}
+	return nil
 }
