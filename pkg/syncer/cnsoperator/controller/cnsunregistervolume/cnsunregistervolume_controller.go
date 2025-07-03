@@ -285,6 +285,7 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 
 	// Delete PVC.
 	if pvcExists {
+		// TODO: delete the finalisers if force unregister is set to true
 		err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Delete(ctx,
 			pvcName, *metav1.NewDeleteOptions(0))
 		if err != nil {
@@ -359,6 +360,9 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 
 // isVolumeUnregisterable validates whether the volume to be unregistered is not in use by
 // either PodVM, TKG cluster or VM-service-managed VM.
+// TODO: verify if the volume is in use by guest cluster
+// verify if the volume has any associated snapshots
+// in case of force unregister, we need to remove the finalisers
 func isVolumeUnregisterable(ctx context.Context, spec cnsunregistervolumev1alpha1.CnsUnregisterVolumeSpec,
 	pvcName string, pvcNamespace string, k8sClient clientset.Interface) (bool, error) {
 	log := logger.GetLogger(ctx)
