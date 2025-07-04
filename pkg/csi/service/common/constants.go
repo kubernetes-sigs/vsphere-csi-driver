@@ -442,6 +442,8 @@ const (
 	SharedDiskFss = "supports_shared_disks"
 	// CSITranSactionSupport is an FSS for transaction support
 	CSITranSactionSupport = "csi-transaction-support"
+	// WCPVMServiceVMSnapshots is a supervisor capability indicating if VPC FSS is enabled
+	WCPVMServiceVMSnapshots = "WCP_VMService_VM_Snapshots"
 )
 
 var WCPFeatureStates = map[string]struct{}{
@@ -449,6 +451,7 @@ var WCPFeatureStates = map[string]struct{}{
 	CSIDetachOnSupervisor:      {},
 	WorkloadDomainIsolation:    {},
 	VPCCapabilitySupervisor:    {},
+	WCPVMServiceVMSnapshots:    {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
