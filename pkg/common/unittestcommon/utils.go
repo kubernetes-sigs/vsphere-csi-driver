@@ -25,6 +25,9 @@ import (
 	"strconv"
 	"sync"
 
+	v1 "k8s.io/api/core/v1"
+
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/simulator"
 	"github.com/vmware/govmomi/simulator/vpx"
 	"google.golang.org/grpc/codes"
@@ -370,6 +373,47 @@ func (c *FakeK8SOrchestrator) StartZonesInformer(ctx context.Context, restClient
 // WorkloadDomainIsolation is supported in supervisor.
 func (c *FakeK8SOrchestrator) GetZonesForNamespace(ns string) map[string]struct{} {
 	return nil
+}
+
+func (c *FakeK8SOrchestrator) IsLinkedCloneRequest(ctx context.Context, pvcName string,
+	pvcNamespace string) (bool, error) {
+	return false, nil
+}
+
+func (c *FakeK8SOrchestrator) GetSourceVolumeHandleForLinkedCloneRequest(ctx context.Context, pvcName string,
+	pvcNamespace string) (string, error) {
+	return "", nil
+}
+
+func (c *FakeK8SOrchestrator) PostLinkedCloneCreateAction(ctx context.Context, pvcName string,
+	pvcNamespace string) error {
+	return nil
+}
+func (c *FakeK8SOrchestrator) UpdateLinkedCloneVolumeSnapshotSource(ctx context.Context, sourceNamespace string,
+	sourceName string,
+	isDelete bool) error {
+	return nil
+}
+
+func (c *FakeK8SOrchestrator) GetLinkedCloneVolumeSnapshotSource(ctx context.Context, pvcName string,
+	pvcNamespace string) (string, string, error) {
+	return "", "", nil
+}
+
+func (c *FakeK8SOrchestrator) GetLinkedCloneVolumeSnapshotSourceFromVolumeId(ctx context.Context, volumeId string,
+	clusterFlavor cnstypes.CnsClusterFlavor) (string, string, error) {
+	return "", "", nil
+}
+
+func (c *FakeK8SOrchestrator) PreLinkedCloneCreateAction(ctx context.Context, pvcNamespace string,
+	pvcName string) error {
+	return nil
+}
+
+func (c *FakeK8SOrchestrator) GetVolumeSnapshotPVCSource(ctx context.Context, volumeSnapshotNamespace string,
+	volumeSnapshotName string) (*v1.PersistentVolumeClaim, error) {
+
+	return nil, nil
 }
 
 // configFromVCSim starts a vcsim instance and returns config for use against the

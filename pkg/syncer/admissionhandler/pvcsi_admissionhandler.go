@@ -3,9 +3,16 @@ package admissionhandler
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
+
+	admissionv1 "k8s.io/api/admission/v1"
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -21,6 +28,7 @@ import (
 
 const (
 	PVCSIValidationWebhookPath            = "/validate"
+	PVCSIMutationWebhookPath              = "/mutate"
 	PVCSIDefaultWebhookPort               = 9883
 	PVCSIDefaultWebhookMetricsBindAddress = "0"
 	PVCSIWebhookTlsMinVersion             = "1.2"
@@ -83,27 +91,48 @@ func startPVCSIWebhookManager(ctx context.Context) {
 		clientConfig: mgr.GetConfig(),
 	}})
 
+	log.Infof("registering mutating webhook with the endpoint %v", PVCSIMutationWebhookPath)
+
+	mgr.GetWebhookServer().Register(PVCSIMutationWebhookPath, &webhook.Admission{Handler: &CSIGuestMutationWebhook{
+		Client:       mgr.GetClient(),
+		clientConfig: mgr.GetConfig(),
+	}})
+
+	log.Info("registering webhooks complete")
+
 	if err = mgr.Start(signals.SetupSignalHandler()); err != nil {
 		log.Fatal(err, "unable to run the webhook manager")
 	}
 }
 
 var _ admission.Handler = &CSIGuestWebhook{}
+var _ admission.Handler = &CSIGuestMutationWebhook{}
 
 type CSIGuestWebhook struct {
 	client.Client
 	clientConfig *rest.Config
 }
 
+type CSIGuestMutationWebhook struct {
+	client.Client
+	clientConfig *rest.Config
+}
+
 func (h *CSIGuestWebhook) Handle(ctx context.Context, req admission.Request) (resp admission.Response) {
 	log := logger.GetLogger(ctx)
-	log.Debugf("PV-CSI validation webhook handler called with request: %+v", req)
-	defer log.Debugf("PV-CSI validation webhook handler completed for the request: %+v", req)
+	log.Debugf("PV-CSI validation webhook handler called with request: %s/%s", req.Name, req.Namespace)
+	defer log.Debugf("PV-CSI validation webhook handler completed for the request: %s/%s",
+		req.Name, req.Namespace)
 
 	resp = admission.Allowed("")
 	if req.Kind.Kind == "PersistentVolumeClaim" {
 		if featureGateBlockVolumeSnapshotEnabled {
 			admissionResp := validatePVC(ctx, &req.AdmissionRequest)
+			resp.AdmissionResponse = *admissionResp.DeepCopy()
+		}
+		// Do additional checks only if the previous checks were successful
+		if resp.Allowed && featureIsLinkedCloneSupportEnabled {
+			admissionResp := validateGuestPVCOperation(ctx, &req.AdmissionRequest)
 			resp.AdmissionResponse = *admissionResp.DeepCopy()
 		}
 	} else if req.Kind.Kind == "VolumeSnapshotClass" || req.Kind.Kind == "VolumeSnapshot" ||
@@ -112,4 +141,49 @@ func (h *CSIGuestWebhook) Handle(ctx context.Context, req admission.Request) (re
 		resp.AdmissionResponse = *admissionResp.DeepCopy()
 	}
 	return
+}
+
+func (g *CSIGuestMutationWebhook) Handle(ctx context.Context, req admission.Request) (resp admission.Response) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("PV-CSI mutation webhook handler called with request: %s/%s", req.Name, req.Namespace)
+	defer log.Debugf("PV-CSI mutation webhook handler completed for the request:%s/%s",
+		req.Name, req.Namespace)
+	resp = admission.Allowed("")
+	if req.Kind.Kind == "PersistentVolumeClaim" {
+		switch req.Operation {
+		case admissionv1.Create:
+			if featureGateBlockVolumeSnapshotEnabled {
+				return g.mutateNewPVC(ctx, req)
+			}
+		}
+	}
+	return
+}
+
+func (g *CSIGuestMutationWebhook) mutateNewPVC(ctx context.Context, req admission.Request) admission.Response {
+	newPVC := &corev1.PersistentVolumeClaim{}
+	if err := json.Unmarshal(req.Object.Raw, newPVC); err != nil {
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+	var wasMutated bool
+	if featureIsLinkedCloneSupportEnabled {
+		if v1.HasAnnotation(newPVC.ObjectMeta, common.AttributeIsLinkedClone) {
+			// Set the same label
+			if newPVC.Labels == nil {
+				newPVC.Labels = make(map[string]string)
+			}
+			if _, ok := newPVC.Labels[common.AnnKeyLinkedClone]; !ok {
+				newPVC.Labels[common.LinkedClonePVCLabel] = newPVC.Annotations[common.AttributeIsLinkedClone]
+				wasMutated = true
+			}
+		}
+	}
+	if !wasMutated {
+		return admission.Allowed("")
+	}
+	newRawPVC, err := json.Marshal(newPVC)
+	if err != nil {
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+	return admission.PatchResponseFromRaw(req.Object.Raw, newRawPVC)
 }

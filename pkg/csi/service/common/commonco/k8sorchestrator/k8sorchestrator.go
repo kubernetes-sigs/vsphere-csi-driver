@@ -19,13 +19,17 @@ package k8sorchestrator
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"k8s.io/client-go/util/retry"
 
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -942,19 +946,18 @@ func pvAdded(obj interface{}) {
 		return
 	}
 
-	if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name &&
-		pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound {
-		if !isFileVolume(pv) { // We should not be caching file volumes to the map.
-
+	if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
+		if !isFileVolume(pv) && pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound {
+			// We should not be caching file volumes to the map.
 			// Add volume handle to PVC mapping.
 			objKey := pv.Spec.CSI.VolumeHandle
 			objVal := pv.Spec.ClaimRef.Namespace + "/" + pv.Spec.ClaimRef.Name
 
 			k8sOrchestratorInstance.volumeIDToPvcMap.add(objKey, objVal)
-			log.Debugf("pvAdded: Added '%s -> %s' pair to volumeIDToPvcMap", objKey, objVal)
+			log.Infof("pvAdded: Added '%s -> %s' pair to volumeIDToPvcMap", objKey, objVal)
 		}
 		k8sOrchestratorInstance.volumeIDToNameMap.add(pv.Spec.CSI.VolumeHandle, pv.Name)
-		log.Debugf("pvAdded: Added '%s -> %s' pair to volumeIDToNameMap", pv.Spec.CSI.VolumeHandle, pv.Name)
+		log.Infof("pvAdded: Added '%s -> %s' pair to volumeIDToNameMap", pv.Spec.CSI.VolumeHandle, pv.Name)
 	}
 	// Add VCP-CSI migrated volumes to the volumeIDToNameMap map.
 	// Since cns query will return all the volumes including the migrated ones, the map would need to be a
@@ -1304,7 +1307,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 				}
 
 				if supervisorFeatureState, exists := WcpCapabilitiesMap[wcpFeatureState]; exists {
-					log.Infof("Supervisor capability %q is set to %t", wcpFeatureState,
+					log.Debugf("Supervisor capability %q is set to %t", wcpFeatureState,
 						supervisorFeatureState)
 					return supervisorFeatureState
 				}
@@ -1871,4 +1874,395 @@ func (c *K8sOrchestrator) GetPVNameFromCSIVolumeID(volumeID string) (string, boo
 // GetPVCNameFromCSIVolumeID retrieves the pvc name from volumeID using volumeIDToPvcMap.
 func (c *K8sOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (string, bool) {
 	return c.volumeIDToPvcMap.get(volumeID)
+}
+
+// IsLinkedCloneRequest checks if the pvc is a linked clone request
+func (c *K8sOrchestrator) IsLinkedCloneRequest(ctx context.Context, pvcName string, pvcNamespace string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	pvcObj, err := c.k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Errorf("PVC %s is not found in namespace %s using informer manager, err: %+v",
+				pvcName, pvcNamespace, err)
+			return false, common.ErrNotFound
+		}
+		log.Errorf("failed to get pvc: %s in namespace: %s. err=%v", pvcName, pvcNamespace, err)
+		return false, err
+	}
+	hasLinkedCloneAnn := metav1.HasAnnotation(pvcObj.ObjectMeta, common.AnnKeyLinkedClone)
+	isLinkedCloneSupported := c.IsFSSEnabled(ctx, common.LinkedCloneSupport)
+
+	if hasLinkedCloneAnn && !isLinkedCloneSupported {
+		log.Errorf("linked clone support is not enabled for the linked clone request pvc %s in namespace %s",
+			pvcName, pvcNamespace)
+		return false, errors.New("linked clone support is not enabled for the linked clone " +
+			"request pvc " + pvcName + " in namespace " + pvcNamespace)
+	}
+	if hasLinkedCloneAnn {
+		return true, nil
+	}
+	// default false
+	return false, nil
+}
+
+// GetSourceVolumeHandleForLinkedCloneRequest retrieves the volume handle for source PVC
+func (c *K8sOrchestrator) GetSourceVolumeHandleForLinkedCloneRequest(ctx context.Context, pvcName string,
+	pvcNamespace string) (string, error) {
+	log := logger.GetLogger(ctx)
+	linkedClonePVC, err := c.k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(ctx, pvcName,
+		metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Errorf("PVC %s is not found in namespace %s. err: %+v",
+				pvcName, pvcNamespace, err)
+			return "", common.ErrNotFound
+		}
+		log.Errorf("failed to get pvc: %s in namespace: %s. err=%v", pvcName, pvcNamespace, err)
+		return "", err
+	}
+
+	// Retrieve the VolumeSnapshot from which the LinkedClone is being created
+	dataSource, err := getDataSource(ctx, linkedClonePVC)
+	if err != nil {
+		log.Errorf("failed to get data source for linked clone PVC %s in "+
+			"namespace %s. err: %v", pvcName, pvcNamespace, err)
+		return "", err
+	}
+	volumeSnapshot, err := c.snapshotterClient.SnapshotV1().VolumeSnapshots(dataSource.Namespace).Get(ctx,
+		dataSource.Name, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("error getting snapshot %s from api server: %v", dataSource.Name, err)
+	}
+
+	// Retrieve the PVC from which the VolumeSnapshot was taken
+	// Retrieve the source PVC from the VolumeSnapshot
+	sourcePVCName := volumeSnapshot.Spec.Source.PersistentVolumeClaimName
+	sourcePVC, err := c.k8sClient.CoreV1().PersistentVolumeClaims(volumeSnapshot.Namespace).Get(ctx, *sourcePVCName,
+		metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("error getting PVC %s from api server: %v", *sourcePVCName, err)
+	}
+
+	sourcePVName := sourcePVC.Spec.VolumeName
+
+	// Retrieve the PV
+	sourcePV, err := c.k8sClient.CoreV1().PersistentVolumes().Get(ctx, sourcePVName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("error getting PV %s from api server: %v", sourcePVName, err)
+	}
+
+	// Retrieve the VolumeHandle
+	volumeHandle := sourcePV.Spec.CSI.VolumeHandle
+	log.Infof("LinkedClone PVC %s namespace %s, source PVC: %s, source PV: %s, volumeHandle %s", pvcName,
+		pvcNamespace, *sourcePVCName, sourcePVName, volumeHandle)
+	return volumeHandle, nil
+}
+
+// PostLinkedCloneCreateAction labels the VolumeSnapshot to indicate that a LinkedClone was
+// created from it by incrementing the ref count. For LinkedClone deletion the ref count is decremented.
+func (c *K8sOrchestrator) PostLinkedCloneCreateAction(ctx context.Context, pvcName string, pvcNamespace string) error {
+	log := logger.GetLogger(ctx)
+	linkedClonePVC, err := c.k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(ctx, pvcName,
+		metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Errorf("PVC %s is not found in namespace %s using informer manager, err: %+v",
+				pvcName, pvcNamespace, err)
+			return common.ErrNotFound
+		}
+		log.Errorf("failed to get pvc: %s in namespace: %s. err=%v", pvcName, pvcNamespace, err)
+		return err
+	}
+
+	// Retrieve the VolumeSnapshot from which the LinkedClone is being created
+	dataSource, err := getDataSource(ctx, linkedClonePVC)
+	if err != nil {
+		log.Errorf("failed to get data source for linked clone PVC %s in "+
+			"namespace %s. err: %v", pvcName, pvcNamespace, err)
+		return err
+	}
+
+	err = c.UpdateLinkedCloneVolumeSnapshotSource(ctx, dataSource.Namespace, dataSource.Name, false)
+	if err != nil {
+		log.Errorf("failed to increment linked clone count for volumesnapshot %s in "+
+			"namespace %s. err: %v", dataSource.Name, dataSource.Namespace, err)
+		return err
+	}
+
+	return nil
+}
+
+// GetLinkedCloneVolumeSnapshotSource retrieves the source of the LinkedClone. For now, it's going to be
+// the VolumeSnapshot
+func (c *K8sOrchestrator) GetLinkedCloneVolumeSnapshotSource(ctx context.Context, pvcName string,
+	pvcNamespace string) (string, string, error) {
+	log := logger.GetLogger(ctx)
+	linkedClonePVC, err := c.k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(ctx, pvcName,
+		metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Errorf("PVC %s is not found in namespace %s, err: %+v",
+				pvcName, pvcNamespace, err)
+			return "", "", common.ErrNotFound
+		}
+		log.Errorf("failed to get pvc: %s in namespace: %s. err=%v", pvcName, pvcNamespace, err)
+		return "", "", err
+	}
+
+	// Retrieve the VolumeSnapshot from which the LinkedClone is being created
+	dataSource, err := getDataSource(ctx, linkedClonePVC)
+	if err != nil {
+		log.Errorf("failed to get data source for linked clone PVC %s in "+
+			"namespace %s. err: %v", pvcName, pvcNamespace, err)
+		return "", "", err
+	}
+	return dataSource.Namespace, dataSource.Name, nil
+}
+
+// GetLinkedCloneVolumeSnapshotSourceFromVolumeId retrieves the source of the LinkedClone from a given volume-id.
+// For now, it's going to be the VolumeSnapshot
+func (c *K8sOrchestrator) GetLinkedCloneVolumeSnapshotSourceFromVolumeId(ctx context.Context, volumeId string,
+	clusterFlavor cnstypes.CnsClusterFlavor) (string, string, error) {
+	log := logger.GetLogger(ctx)
+	var linkedCloneSourceNamespace, linkedCloneSourceName string
+	var pvName string
+	if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		// Example of volume-id: 48c2f9c7-cd9f-4e25-956a-1f4720d95cfa-a383a9ce-43dd-4fb2-b5d7-8a4b92b12d19
+		// Which is combination of guest cluster UUID and guest PVC UUID
+		// The PVC UUID, is the name of the PV with a pre-fix of "pvc-"
+		// This approach is taken for guest since the volume-id to PV name mapping is not cached
+		// for guest cluster
+		pvcUUID := volumeId[37:73]
+		pvName = "pvc-" + pvcUUID
+		log.Infof("GetLinkedCloneVolumeSnapshotSourceFromVolumeId: retrieved PV %s from volumeId %s in Guest Cluster",
+			pvName, volumeId)
+	} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		var found bool
+		pvName, found = c.GetPVNameFromCSIVolumeID(volumeId)
+		if !found {
+			log.Errorf("PV not found for Volume Id %s in Supervisor Cluster", volumeId)
+			return "", "", common.ErrNotFound
+		}
+		log.Infof("GetLinkedCloneVolumeSnapshotSourceFromVolumeId: retrieved PV %s from volumeId %s in Supervisor Cluster",
+			pvName, volumeId)
+	} else {
+		return "", "", errors.New("retrieving linked clone" +
+			" source from volume-id is not supported for vanilla setups")
+	}
+	persistentVolume, err := c.k8sClient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+	if err != nil {
+		return "", "", err
+	}
+	sourceNamespaceName :=
+		persistentVolume.Spec.CSI.VolumeAttributes[common.VolumeContextAttributeLinkedCloneVolumeSnapshotSource]
+	parts := strings.Split(sourceNamespaceName, "/")
+	linkedCloneSourceNamespace = parts[0]
+	linkedCloneSourceName = parts[1]
+	return linkedCloneSourceNamespace, linkedCloneSourceName, nil
+}
+
+// UpdateLinkedCloneVolumeSnapshotSource labels the VolumeSnapshot to indicate that a LinkedClone was
+// created from it by incrementing the ref count. For LinkedClone deletion the ref count is decremented.
+func (c *K8sOrchestrator) UpdateLinkedCloneVolumeSnapshotSource(ctx context.Context, sourceNamespace, sourceName string,
+	isDelete bool) error {
+	log := logger.GetLogger(ctx)
+	var err error
+	if !isDelete {
+		err = c.incrementLinkedCloneCountLabel(ctx, sourceNamespace, sourceName)
+		if err != nil {
+			log.Errorf("failed to increment linked clone count for volumesnapshot %s in "+
+				"namespace %s. err: %v", sourceName, sourceNamespace, err)
+			return err
+		}
+	} else {
+		err = c.decrementLinkedCloneCountLabel(ctx, sourceNamespace, sourceName)
+		if err != nil {
+			log.Errorf("failed to increment linked clone count for volumesnapshot %s in "+
+				"namespace %s. err: %v", sourceName, sourceNamespace, err)
+			return err
+		}
+	}
+	return nil
+}
+
+// incrementLinkedCloneCountLabel increments the reference count label on a VolumeSnapshot
+func (c *K8sOrchestrator) incrementLinkedCloneCountLabel(ctx context.Context, vsNamespace, vsName string) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		log := logger.GetLogger(ctx)
+		// 1. Get the latest VolumeSnapshot object
+		volumeSnapshot, err := c.snapshotterClient.SnapshotV1().VolumeSnapshots(vsNamespace).Get(
+			ctx, vsName, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("error getting snapshot %s/%s from API server: %w", vsNamespace, vsName, err)
+		}
+
+		// 2. Read the current count
+		currentCountStr, exists := volumeSnapshot.Labels[common.LinkedCloneCountLabel]
+		currentCount := 0
+		if exists {
+			parsedCount, err := strconv.Atoi(currentCountStr)
+			if err != nil {
+				// Handle cases where the label might be malformed, e.g., reset to 0 or log and continue
+				log.Warnf("Warning: Malformed linked clone count label on snapshot %s/%s: %v. "+
+					"Resetting to 0.\n", vsNamespace, vsName, err)
+				currentCount = 0
+			} else {
+				currentCount = parsedCount
+			}
+		}
+
+		// 3. Increment the count
+		newCount := currentCount + 1
+
+		// 4. Update the label
+		if volumeSnapshot.Labels == nil {
+			volumeSnapshot.Labels = make(map[string]string)
+		}
+		volumeSnapshot.Labels[common.LinkedCloneCountLabel] = strconv.Itoa(newCount)
+
+		// 5. Attempt to update the VolumeSnapshot
+		// The resourceVersion in volumeSnapshot.ObjectMeta will ensure optimistic locking
+		_, err = c.snapshotterClient.SnapshotV1().VolumeSnapshots(vsNamespace).Update(ctx,
+			volumeSnapshot, metav1.UpdateOptions{})
+		if err != nil {
+			// If it's a conflict, the retry.RetryOnConflict helper will handle retrying
+			return err
+		}
+		log.Infof("Successfully incremented linked clone count for snapshot %s/%s to %d\n",
+			vsNamespace, vsName, newCount)
+		return nil
+	})
+}
+
+// decrementLinkedCloneCountLabel decrements the reference count label on a VolumeSnapshot
+func (c *K8sOrchestrator) decrementLinkedCloneCountLabel(ctx context.Context, vsNamespace, vsName string) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		log := logger.GetLogger(ctx)
+		// 1. Get the latest VolumeSnapshot object
+		volumeSnapshot, err := c.snapshotterClient.SnapshotV1().VolumeSnapshots(vsNamespace).Get(ctx,
+			vsName, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("error getting snapshot %s/%s from API server: %w", vsNamespace, vsName, err)
+		}
+
+		// 2. Read the current count
+		currentCountStr, exists := volumeSnapshot.Labels[common.LinkedCloneCountLabel]
+		currentCount := 0
+		if exists {
+			parsedCount, err := strconv.Atoi(currentCountStr)
+			if err != nil {
+				log.Warnf("Warning: Malformed linked clone count label on snapshot %s/%s: %v. "+
+					"Resetting to 0.\n", vsNamespace, vsName, err)
+				currentCount = 0
+			} else {
+				currentCount = parsedCount
+			}
+		}
+
+		// 3. Decrement the count, ensuring it doesn't go below zero
+		newCount := currentCount - 1
+		if newCount < 0 {
+			newCount = 0
+		}
+
+		// 4. Update the label
+		if volumeSnapshot.Labels == nil {
+			volumeSnapshot.Labels = make(map[string]string)
+		}
+		volumeSnapshot.Labels[common.LinkedCloneCountLabel] = strconv.Itoa(newCount)
+
+		// 5. Attempt to update the VolumeSnapshot
+		_, err = c.snapshotterClient.SnapshotV1().VolumeSnapshots(vsNamespace).Update(ctx,
+			volumeSnapshot, metav1.UpdateOptions{})
+		if err != nil {
+			return err
+		}
+		log.Infof("Successfully decremented linked clone count for snapshot %s/%s to %d\n",
+			vsNamespace, vsName, newCount)
+		return nil
+	})
+}
+
+// PreLinkedCloneCreateAction updates the PVC label with the values specified in map
+func (c *K8sOrchestrator) PreLinkedCloneCreateAction(ctx context.Context, pvcName string, pvcNamespace string) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		log := logger.GetLogger(ctx)
+		linkedClonePVC, err := c.k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(ctx, pvcName,
+			metav1.GetOptions{})
+		if err != nil {
+			log.Errorf("failed to get pvc: %s in namespace: %s. err=%v", pvcName, pvcNamespace, err)
+			return err
+		}
+
+		if linkedClonePVC.Labels == nil {
+			linkedClonePVC.Labels = make(map[string]string)
+		}
+		// Add label
+		if _, ok := linkedClonePVC.Labels[common.AnnKeyLinkedClone]; !ok {
+			linkedClonePVC.Labels[common.LinkedClonePVCLabel] = linkedClonePVC.Annotations[common.AttributeIsLinkedClone]
+		}
+
+		_, err = c.k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Update(ctx, linkedClonePVC, metav1.UpdateOptions{})
+		if err != nil {
+			log.Errorf("failed to add linked clone label for PVC %s/%s. Error: %+v, retrying...",
+				pvcNamespace, pvcName, err)
+			return err
+		}
+		log.Infof("Successfully added linked clone label for PVC %s/%s",
+			pvcNamespace, pvcName)
+		return nil
+	})
+}
+
+// GetVolumeSnapshotPVCSource retrieves the PVC from which the VolumeSnapshot was taken.
+func (c *K8sOrchestrator) GetVolumeSnapshotPVCSource(ctx context.Context, volumeSnapshotNamespace string,
+	volumeSnapshotName string) (*v1.PersistentVolumeClaim, error) {
+	log := logger.GetLogger(ctx)
+	volumeSnapshot, err := c.snapshotterClient.SnapshotV1().VolumeSnapshots(volumeSnapshotNamespace).Get(
+		ctx, volumeSnapshotName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error getting snapshot %s/%s from API server. Error: %v",
+			volumeSnapshotNamespace, volumeSnapshotName, err)
+	}
+	sourcePVCName := volumeSnapshot.Spec.Source.PersistentVolumeClaimName
+	// Retrieve the source volume
+	sourcePVC, err := c.k8sClient.CoreV1().PersistentVolumeClaims(volumeSnapshotNamespace).Get(ctx, *sourcePVCName,
+		metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error getting source PVC: %s for snapshot %s/%s from API server. Error: %v",
+			*sourcePVCName, volumeSnapshotNamespace, volumeSnapshotName, err)
+	}
+	log.Infof("GetVolumeSnapshotPVCSource: successfully retrieved source PVC %s for snapshot %s/%s",
+		sourcePVC.Name, volumeSnapshotNamespace, volumeSnapshotName)
+	return sourcePVC, nil
+}
+
+func getDataSource(ctx context.Context, claim *v1.PersistentVolumeClaim) (*v1.ObjectReference, error) {
+	var dataSource v1.ObjectReference
+
+	if claim.Spec.DataSource != nil {
+		dataSource.Kind = claim.Spec.DataSource.Kind
+		dataSource.Name = claim.Spec.DataSource.Name
+
+		if claim.Spec.DataSource.APIGroup != nil {
+			dataSource.APIVersion = *claim.Spec.DataSource.APIGroup
+		}
+
+		dataSource.Namespace = claim.Namespace
+	} else if claim.Spec.DataSourceRef != nil {
+		dataSource.Kind = claim.Spec.DataSourceRef.Kind
+		dataSource.Name = claim.Spec.DataSourceRef.Name
+		if claim.Spec.DataSourceRef.APIGroup != nil {
+			dataSource.APIVersion = *claim.Spec.DataSourceRef.APIGroup
+		}
+		if claim.Spec.DataSourceRef.Namespace != nil {
+			dataSource.Namespace = *claim.Spec.DataSourceRef.Namespace
+		} else {
+			dataSource.Namespace = claim.Namespace
+		}
+
+	} else {
+		return nil, nil
+	}
+	return &dataSource, nil
 }
