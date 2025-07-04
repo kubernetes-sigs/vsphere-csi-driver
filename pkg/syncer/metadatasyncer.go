@@ -826,12 +826,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		go func() {
 			for ; true; <-volumeHealthTicker.C {
 				ctx, log = logger.GetNewContextWithLogger()
-				if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.VolumeHealth) {
-					log.Warnf("VolumeHealth feature is disabled on the cluster")
-				} else {
-					log.Infof("getVolumeHealthStatus is triggered")
-					csiGetVolumeHealthStatus(ctx, k8sClient, metadataSyncer)
-				}
+				log.Infof("getVolumeHealthStatus is triggered")
+				csiGetVolumeHealthStatus(ctx, k8sClient, metadataSyncer)
 			}
 		}()
 		if IsPodVMOnStretchSupervisorFSSEnabled {
@@ -859,16 +855,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		go func() {
 			for ; true; <-volumeHealthEnablementTicker.C {
 				ctx, log = logger.GetNewContextWithLogger()
-				if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.VolumeHealth) {
-					log.Debugf("VolumeHealth feature is disabled on the cluster")
-				} else {
-					if err := initVolumeHealthReconciler(ctx, k8sClient, metadataSyncer.supervisorClient); err != nil {
-						log.Warnf("Error while initializing volume health reconciler. Err:%+v. Retry will be triggered at %v",
-							err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
-						continue
-					}
-					break
+				if err := initVolumeHealthReconciler(ctx, k8sClient, metadataSyncer.supervisorClient); err != nil {
+					log.Warnf("Error while initializing volume health reconciler. Err:%+v. Retry will be triggered at %v",
+						err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
+					continue
 				}
+				break
 			}
 		}()
 
