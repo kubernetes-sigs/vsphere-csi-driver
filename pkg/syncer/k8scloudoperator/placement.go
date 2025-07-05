@@ -550,39 +550,12 @@ func getAllPvcs(ctx context.Context, client kubernetes.Interface, namespace stri
 	return allPVCsMap, nil
 }
 
-// Check if internal FSS to check for sibling replica bound PVCs is enabled.
-func isSiblingReplicaBoundPvcFSSEnabled(ctx context.Context) bool {
-	log := logger.GetLogger(ctx)
-
-	containerOrchestratorUtility := commonco.ContainerOrchestratorUtility
-	if containerOrchestratorUtility == nil {
-		clusterFlavor, err := cnsconfig.GetClusterFlavor(ctx)
-		if err != nil {
-			log.Debugf("Failed retrieving cluster flavor. Error: %v", err)
-			return false
-		}
-		containerOrchestratorUtility, err = commonco.GetContainerOrchestratorInterface(ctx,
-			common.Kubernetes, clusterFlavor, *admissionhandler.COInitParams)
-		if err != nil {
-			log.Debugf("failed to get k8s interface. err: %v", err)
-			return false
-		}
-	}
-
-	return containerOrchestratorUtility.IsFSSEnabled(ctx, common.SiblingReplicaBoundPvcCheck)
-}
-
 // eliminateNodesWithPvcOfSiblingReplica filters out the nodes that have
 // bound PVCs of sibling replicas. It finds cousin PVCs of currPVC and
 // elimates all nodes which have at least one cousin PVC placed on them.
 func eliminateNodesWithPvcOfSiblingReplica(ctx context.Context, client kubernetes.Interface,
 	currPVC *v1.PersistentVolumeClaim, candidateHosts []string) ([]string, error) {
 	log := logger.GetLogger(ctx)
-
-	if !isSiblingReplicaBoundPvcFSSEnabled(ctx) {
-		log.Infof("FSS to check for sibling replica's PVCs is not enabled.")
-		return candidateHosts, nil
-	}
 
 	// Proceed only if it is a vDPP PVC.
 	pvcLabels := currPVC.GetLabels()
