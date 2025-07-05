@@ -92,7 +92,7 @@ var (
 	// The following variables hold feature states for multi-vcenter-csi-topology, CSI Migration
 	// and authorisation check.
 	multivCenterCSITopologyEnabled, csiMigrationEnabled, filterSuspendedDatastores,
-	isTopologyAwareFileVolumeEnabled, isCSITransactionSupportEnabled bool
+	isCSITransactionSupportEnabled bool
 
 	// variables for list volumes
 	volIDsInK8s             = make([]string, 0)
@@ -134,8 +134,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	csiMigrationEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
 	filterSuspendedDatastores = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CnsMgrSuspendCreateVolume)
-	isTopologyAwareFileVolumeEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.TopologyAwareFileVolume)
 	isCSITransactionSupportEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSITranSactionSupport)
 
 	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
@@ -1792,12 +1790,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		}
 		var combinedErrMssgs []string
 		if topologyRequirement != nil {
-			if !isTopologyAwareFileVolumeEnabled {
-				// Error out if TopologyRequirement is provided during file
-				// volume provisioning when FSS is turned off.
-				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
-					"volume topology feature for file volumes is not supported.")
-			}
 			var topologySegmentsList []map[string]string
 			for vcHost, topologySegmentsList = range vcTopologySegmentsMap {
 				// Get VC instance.
@@ -2028,14 +2020,6 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				"volume capability not supported. Err: %+v", err)
 		}
 		if common.IsFileVolumeRequest(ctx, volumeCapabilities) {
-			// Error out if TopologyRequirement is provided during file volume provisioning
-			// as this is not supported yet.
-			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TopologyAwareFileVolume) {
-				if req.GetAccessibilityRequirements() != nil {
-					return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
-						"volume topology feature for file volumes is not supported.")
-				}
-			}
 			volumeType = prometheus.PrometheusFileVolumeType
 			if multivCenterCSITopologyEnabled && len(c.managers.VcenterConfigs) > 1 {
 				isvSANFileServicesDisabledInAllVCs := true
@@ -2826,17 +2810,6 @@ func (c *controller) processQueryResultsListVolumes(ctx context.Context, startin
 
 	for i := startingToken; i < len(cnsVolumes); i++ {
 		if cnsVolumes[i].VolumeType == common.FileVolumeType {
-			// If this is multi-VC configuration, then
-			// skip processing query results for file volumes
-			if multivCenterCSITopologyEnabled && len(c.managers.VcenterConfigs) > 1 {
-				isTopologyAwareFileVolumeEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-					common.TopologyAwareFileVolume)
-				if !isTopologyAwareFileVolumeEnabled {
-					log.Debugf("Skipping processing for file volume %v in multi-VC configuration", cnsVolumes[i].Name)
-					continue
-				}
-			}
-
 			volumeType = prometheus.PrometheusFileVolumeType
 			fileVolID := cnsVolumes[i].VolumeId.Id
 
