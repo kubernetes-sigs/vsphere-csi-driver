@@ -415,7 +415,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
 		attributes := make(map[string]string)
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) && isFileVolumeRequest {
+		if isFileVolumeRequest {
 			attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
 		} else {
 			attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
@@ -640,12 +640,6 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		// File volumes support
 		if isFileVolumeRequest {
 			volumeType = prometheus.PrometheusFileVolumeType
-			// Check the feature state for file volume support
-			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
-				// Feature is disabled on the cluster
-				return nil, csifault.CSIInternalFault,
-					status.Error(codes.InvalidArgument, "File volume not supported.")
-			}
 			return controllerPublishForFileVolume(ctx, req, c)
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
@@ -1028,11 +1022,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		}
 		if isFileVolume {
 			volumeType = prometheus.PrometheusFileVolumeType
-			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
-				return controllerUnpublishForFileVolume(ctx, req, c)
-			}
-			// Feature is disabled on the cluster
-			return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.InvalidArgument, "File volume not supported.")
+			return controllerUnpublishForFileVolume(ctx, req, c)
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
 		return controllerUnpublishForBlockVolume(ctx, req, c)
