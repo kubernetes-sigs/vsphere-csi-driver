@@ -3197,8 +3197,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 				},
 			},
 		}
-		queryResult, err := utils.QueryVolumeUtil(ctx, cnsVolumeMgr, queryFilter,
-			nil, metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume))
+		queryResult, err := utils.QueryVolumeUtil(ctx, cnsVolumeMgr, queryFilter, nil)
 		if err != nil {
 			log.Error("PVDeleted: QueryVolumeUtil failed with err=%+v", err.Error())
 			return

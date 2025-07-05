@@ -63,7 +63,6 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"list-volumes":                      "true",
 				"csi-internal-generated-cluster-id": "true",
 				"online-volume-extend":              "true",
-				"async-query-volume":                "true",
 				"csi-windows-support":               "true",
 				"use-csinode-id":                    "true",
 				"pv-to-backingdiskobjectid-mapping": "false",
