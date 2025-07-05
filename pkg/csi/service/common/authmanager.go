@@ -115,6 +115,20 @@ func GetAuthorizationServices(ctx context.Context, vcs []*cnsvsphere.VirtualCent
 	return authManagerInstances, nil
 }
 
+// GetAuthorizationServices returns the AuthManager instances
+func GetAuthorizationServiceForTesting(ctx context.Context,
+	vc *cnsvsphere.VirtualCenter,
+	blockVolumeMap map[string]*cnsvsphere.DatastoreInfo,
+	fsEnabledClusterToDsMap map[string][]*cnsvsphere.DatastoreInfo) (*AuthManager, error) {
+	authManagerInstance = &AuthManager{
+		datastoreMapForBlockVolumes: blockVolumeMap,
+		fsEnabledClusterToDsMap:     fsEnabledClusterToDsMap,
+		rwMutex:                     sync.RWMutex{},
+		vcenter:                     vc,
+	}
+	return authManagerInstance, nil
+}
+
 // GetDatastoreMapForBlockVolumes returns a DatastoreMapForBlockVolumes. This
 // map maps datastore url to datastore info which need to be used when creating
 // block volume.

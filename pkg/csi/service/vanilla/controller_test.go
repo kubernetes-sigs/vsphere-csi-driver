@@ -234,6 +234,14 @@ func getControllerTest(t *testing.T) *controllerTest {
 			VolumeManager:  volumeManager,
 			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 		}
+		managers := &common.Managers{
+			VcenterConfigs: make(map[string]*cnsvsphere.VirtualCenterConfig),
+			CnsConfig:      config,
+			VolumeManagers: make(map[string]cnsvolume.Manager),
+			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
+		}
+		managers.VcenterConfigs[vcenterconfig.Host] = vcenterconfig
+		managers.VolumeManagers[vcenterconfig.Host] = volumeManager
 
 		var k8sClient clientset.Interface
 		if k8senv := os.Getenv("KUBECONFIG"); k8senv != "" {
@@ -254,13 +262,20 @@ func getControllerTest(t *testing.T) *controllerTest {
 			t.Fatalf("Failed to initialize node manager, err = %v", err)
 		}
 
-		c := &controller{
-			manager: manager,
-			nodeMgr: nodeManager,
-			authMgr: &FakeAuthManager{
-				vcenter: vcenter,
-			},
+		fakeAuthMgr := FakeAuthManager{
+			vcenter: vcenter,
 		}
+
+		c := &controller{
+			manager:  manager,
+			managers: managers,
+			nodeMgr:  nodeManager,
+			authMgr:  &fakeAuthMgr,
+			authMgrs: make(map[string]*common.AuthManager),
+		}
+		c.authMgrs[vcenterconfig.Host], _ =
+			common.GetAuthorizationServiceForTesting(ctx,
+				vcenter, fakeAuthMgr.GetDatastoreMapForBlockVolumes(ctx), nil)
 
 		commonco.ContainerOrchestratorUtility, err =
 			unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
