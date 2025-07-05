@@ -363,7 +363,6 @@ func getReleasedVanillaFSS() map[string]struct{} {
 		common.TopologyPreferentialDatastores: {},
 		common.MaxPVSCSITargetsPerVM:          {},
 		common.MultiVCenterCSITopology:        {},
-		common.CSIInternalGeneratedClusterID:  {},
 		common.TopologyAwareFileVolume:        {},
 	}
 }

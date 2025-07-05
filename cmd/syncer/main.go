@@ -274,8 +274,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		}
 		var configInfo *config.ConfigurationInfo
 		var err error
-		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIInternalGeneratedClusterID) {
+		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 			configInfo, err = syncer.SyncerInitConfigInfo(ctx)
 			if err != nil {
 				log.Errorf("failed to initialize the configInfo. Err: %+v", err)

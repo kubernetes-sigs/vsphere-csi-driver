@@ -61,7 +61,6 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"block-volume-snapshot":             "true",
 				"tkgs-ha":                           "true",
 				"list-volumes":                      "true",
-				"csi-internal-generated-cluster-id": "true",
 				"online-volume-extend":              "true",
 				"async-query-volume":                "true",
 				"csi-windows-support":               "true",
