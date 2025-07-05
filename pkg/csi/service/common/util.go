@@ -222,64 +222,48 @@ func IsValidVolumeCapabilities(ctx context.Context, volCaps []*csi.VolumeCapabil
 
 // ParseStorageClassParams parses the params in the CSI CreateVolumeRequest API
 // call back to StorageClassParams structure.
-func ParseStorageClassParams(ctx context.Context, params map[string]string,
-	csiMigrationFeatureState bool) (*StorageClassParams, error) {
+func ParseStorageClassParams(ctx context.Context, params map[string]string) (*StorageClassParams, error) {
 	log := logger.GetLogger(ctx)
 	scParams := &StorageClassParams{
 		DatastoreURL:      "",
 		StoragePolicyName: "",
 	}
-	if !csiMigrationFeatureState {
-		for param, value := range params {
+	otherParams := make(map[string]string)
+	for param, value := range params {
+		param = strings.ToLower(param)
+		if param == AttributeDatastoreURL {
+			scParams.DatastoreURL = value
+		} else if param == AttributeStoragePolicyName {
+			scParams.StoragePolicyName = value
+		} else if param == AttributeFsType {
+			log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
+		} else if param == CSIMigrationParams {
+			scParams.CSIMigration = value
+		} else {
+			otherParams[param] = value
+		}
+	}
+	// check otherParams belongs to in-tree migrated Parameters.
+	if scParams.CSIMigration == "true" {
+		for param, value := range otherParams {
 			param = strings.ToLower(param)
-			if param == AttributeDatastoreURL {
-				scParams.DatastoreURL = value
-			} else if param == AttributeStoragePolicyName {
-				scParams.StoragePolicyName = value
-			} else if param == AttributeFsType {
-				log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
+			if param == DatastoreMigrationParam {
+				scParams.Datastore = value
+			} else if param == DiskFormatMigrationParam && value == "thin" {
+				continue
+			} else if param == HostFailuresToTolerateMigrationParam ||
+				param == ForceProvisioningMigrationParam || param == CacheReservationMigrationParam ||
+				param == DiskstripesMigrationParam || param == ObjectspacereservationMigrationParam ||
+				param == IopslimitMigrationParam {
+				return nil, fmt.Errorf("vSphere CSI driver does not support creating volume using "+
+					"in-tree vSphere volume plugin parameter key:%v, value:%v", param, value)
 			} else {
-				return nil, fmt.Errorf("invalid param: %q and value: %q", param, value)
+				return nil, fmt.Errorf("invalid parameter. key:%v, value:%v", param, value)
 			}
 		}
 	} else {
-		otherParams := make(map[string]string)
-		for param, value := range params {
-			param = strings.ToLower(param)
-			if param == AttributeDatastoreURL {
-				scParams.DatastoreURL = value
-			} else if param == AttributeStoragePolicyName {
-				scParams.StoragePolicyName = value
-			} else if param == AttributeFsType {
-				log.Warnf("param 'fstype' is deprecated, please use 'csi.storage.k8s.io/fstype' instead")
-			} else if param == CSIMigrationParams {
-				scParams.CSIMigration = value
-			} else {
-				otherParams[param] = value
-			}
-		}
-		// check otherParams belongs to in-tree migrated Parameters.
-		if scParams.CSIMigration == "true" {
-			for param, value := range otherParams {
-				param = strings.ToLower(param)
-				if param == DatastoreMigrationParam {
-					scParams.Datastore = value
-				} else if param == DiskFormatMigrationParam && value == "thin" {
-					continue
-				} else if param == HostFailuresToTolerateMigrationParam ||
-					param == ForceProvisioningMigrationParam || param == CacheReservationMigrationParam ||
-					param == DiskstripesMigrationParam || param == ObjectspacereservationMigrationParam ||
-					param == IopslimitMigrationParam {
-					return nil, fmt.Errorf("vSphere CSI driver does not support creating volume using "+
-						"in-tree vSphere volume plugin parameter key:%v, value:%v", param, value)
-				} else {
-					return nil, fmt.Errorf("invalid parameter. key:%v, value:%v", param, value)
-				}
-			}
-		} else {
-			if len(otherParams) != 0 {
-				return nil, fmt.Errorf("invalid parameters :%v", otherParams)
-			}
+		if len(otherParams) != 0 {
+			return nil, fmt.Errorf("invalid parameters :%v", otherParams)
 		}
 	}
 	return scParams, nil
