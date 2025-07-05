@@ -2681,9 +2681,6 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
-	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "List Volumes")
-	}
 	cfg, err := cnsconfig.GetConfig(ctx)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log, "failed to read config. Error: %+v", err)
@@ -2982,10 +2979,8 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
 	}
 
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
-		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
-			csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES)
-	}
+	controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+		csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES)
 	var caps []*csi.ControllerServiceCapability
 	for _, cap := range controllerCaps {
 		c := &csi.ControllerServiceCapability{

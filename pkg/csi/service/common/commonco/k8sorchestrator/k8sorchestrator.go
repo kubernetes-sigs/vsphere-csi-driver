@@ -349,8 +349,7 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 
 			if ((controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
 				k8sOrchestratorInstance.IsFSSEnabled(ctx, common.FakeAttach)) ||
-				(controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
-					k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes))) &&
+				controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla) &&
 				(operationMode != operationModeWebHookServer) {
 				err := initVolumeHandleToPvcMap(ctx, controllerClusterFlavor)
 				if err != nil {
@@ -370,12 +369,9 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 					return nil, fmt.Errorf("failed to create node ID to name map. Error: %v", err)
 				}
 			} else if operationMode != operationModeWebHookServer {
-				// Initialize the map for volumeName to nodes, for non-WCP flavors and when ListVolume FSS is on
-				if k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes) {
-					err := initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
-					if err != nil {
-						return nil, fmt.Errorf("failed to create PV name to node names map. Error: %v", err)
-					}
+				err := initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create PV name to node names map. Error: %v", err)
 				}
 			}
 
@@ -393,7 +389,6 @@ func getReleasedVanillaFSS() map[string]struct{} {
 		common.OnlineVolumeExtend:             {},
 		common.BlockVolumeSnapshot:            {},
 		common.CSIWindowsSupport:              {},
-		common.ListVolumes:                    {},
 		common.CnsMgrSuspendCreateVolume:      {},
 		common.TopologyPreferentialDatastores: {},
 		common.MultiVCenterCSITopology:        {},
