@@ -347,8 +347,7 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 				return nil, fmt.Errorf("wrong orchestrator params type")
 			}
 
-			if ((controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-				k8sOrchestratorInstance.IsFSSEnabled(ctx, common.FakeAttach)) ||
+			if (controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload ||
 				(controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
 					k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes))) &&
 				(operationMode != operationModeWebHookServer) {
