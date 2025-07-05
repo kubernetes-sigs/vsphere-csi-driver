@@ -1614,10 +1614,6 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 
 		if !isBlockRequest {
-			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
-				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
-					"file volume feature is disabled on the cluster")
-			}
 			// Block file volume provisioning if FSS Workload_Domain_Isolation_Supported is enabled but
 			// 'fileVolumeActivated' field is set to false in vSphere config secret.
 			if isWorkloadDomainIsolationEnabled &&

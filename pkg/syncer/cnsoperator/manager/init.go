@@ -235,24 +235,22 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		}
 
 		if !stretchedSupervisor || (stretchedSupervisor && syncer.IsWorkloadDomainIsolationSupported) {
-			if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.FileVolume) {
-				// Create CnsFileAccessConfig CRD from manifest if file volume feature
-				// is enabled.
-				err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsFileAccessConfigCRFile,
-					cnsoperatorconfig.EmbedCnsFileAccessConfigCRFileName)
-				if err != nil {
-					log.Errorf("Failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsFileAccessConfigPlural, err)
-					return err
-				}
-				// Create FileVolumeClients CRD from manifest if file volume feature
-				// is enabled.
-				err = k8s.CreateCustomResourceDefinitionFromManifest(ctx,
-					internalapiscnsoperatorconfig.EmbedCnsFileVolumeClientFile,
-					internalapiscnsoperatorconfig.EmbedCnsFileVolumeClientFileName)
-				if err != nil {
-					log.Errorf("Failed to create %q CRD. Err: %+v", internalapis.CnsFileVolumeClientPlural, err)
-					return err
-				}
+			// Create CnsFileAccessConfig CRD from manifest if file volume feature
+			// is enabled.
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsFileAccessConfigCRFile,
+				cnsoperatorconfig.EmbedCnsFileAccessConfigCRFileName)
+			if err != nil {
+				log.Errorf("Failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsFileAccessConfigPlural, err)
+				return err
+			}
+			// Create FileVolumeClients CRD from manifest if file volume feature
+			// is enabled.
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx,
+				internalapiscnsoperatorconfig.EmbedCnsFileVolumeClientFile,
+				internalapiscnsoperatorconfig.EmbedCnsFileVolumeClientFileName)
+			if err != nil {
+				log.Errorf("Failed to create %q CRD. Err: %+v", internalapis.CnsFileVolumeClientPlural, err)
+				return err
 			}
 		}
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
