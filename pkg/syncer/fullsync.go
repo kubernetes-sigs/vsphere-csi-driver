@@ -87,7 +87,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	}
 	// Sync VolumeInfo CRs for the below conditions:
 	// Either it is a Vanilla k8s deployment with Multi-VC configuration or, it's a StretchSupervisor cluster
-	if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 ||
+	if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 ||
 		(metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsPodVMOnStretchSupervisorFSSEnabled) {
 		volumeInfoCRFullSync(ctx, metadataSyncer, vc)
 		cleanUpVolumeInfoCrDeletionMap(ctx, metadataSyncer, vc)
@@ -180,18 +180,10 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 
 	var vcenter *cnsvsphere.VirtualCenter
 	// Get VC instance.
-	if isMultiVCenterFssEnabled {
-		vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterHost(ctx, vc, true)
-		if err != nil {
-			log.Errorf("failed to get virtual center instance for VC: %s. Error: %v", vc, err)
-			return err
-		}
-	} else {
-		vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, metadataSyncer.configInfo, false)
-		if err != nil {
-			log.Errorf("failed to get virtual center instance with error: %v", err)
-			return err
-		}
+	vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterHost(ctx, vc, true)
+	if err != nil {
+		log.Errorf("failed to get virtual center instance for VC: %s. Error: %v", vc, err)
+		return err
 	}
 
 	// Iterate through all the k8sPVs to find all PVs with node affinity missing and
@@ -728,7 +720,7 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 		}
 		// Create VolumeInfo CR if not found.
 		if !crExists {
-			if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+			if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
 				err := volumeInfoService.CreateVolumeInfo(ctx, volumeID, vc)
 				if err != nil {
 					log.Errorf("FullSync for VC %s: failed to create VolumeInfo CR for volume %s."+
@@ -956,7 +948,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 					staticVolumeProvisioningSuccessReason, staticVolumeProvisioningSuccessMessage)
 			}
 
-			if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+			if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
 				// Create CNSVolumeInfo CR for the volume ID.
 				err = volumeInfoService.CreateVolumeInfo(ctx, volumeID, vc)
 				if err != nil {
@@ -1053,7 +1045,7 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 					continue
 				}
 
-				if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+				if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
 					// Delete CNSVolumeInfo CR for the volume ID.
 					err = volumeInfoService.DeleteVolumeInfo(ctx, volume.VolumeId.Id)
 					if err != nil {
