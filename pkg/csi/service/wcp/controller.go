@@ -462,9 +462,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		isLinkedCloneRequest      bool
 		linkedCloneSupportEnabled bool
 	)
-	isVdppOnStretchedSVEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VdppOnStretchedSupervisor)
 	linkedCloneSupportEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport)
-
 	// Support case insensitive parameters.
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
@@ -480,7 +478,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			storageTopologyType = req.Parameters[paramName]
 			val := strings.ToLower(storageTopologyType)
 			if val != "zonal" {
-				if isVdppOnStretchedSVEnabled && val == "hostlocal" {
+				if val == "hostlocal" {
 					log.Debugf("StorageTopologyType HostLocal is accepted.")
 				} else {
 					return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
@@ -557,17 +555,13 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		// keys as topology requirement during volume provisioning.
 		hostnameLabelPresent, zoneLabelPresent = checkTopologyKeysFromAccessibilityReqs(topologyRequirement)
 		if zoneLabelPresent && hostnameLabelPresent {
-			if isVdppOnStretchedSVEnabled {
-				if IsMultipleClustersPerVsphereZoneFSSEnabled && c.topologyMgr.ZonesWithMultipleClustersExist(ctx) {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-						"Creating volume with both zone and hostname in topology requirement is not "+
-							"supported on deployment with multiple vSphere Clusters per zone")
-				}
-				log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
-			} else {
-				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-					"support for topology requirement with both zone and hostname labels is not yet implemented.")
+			if IsMultipleClustersPerVsphereZoneFSSEnabled && c.topologyMgr.ZonesWithMultipleClustersExist(ctx) {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+					"Creating volume with both zone and hostname in topology requirement is not "+
+						"supported on deployment with multiple vSphere Clusters per zone")
 			}
+			log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
+			log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
 		} else if zoneLabelPresent {
 			if !isWorkloadDomainIsolationEnabled {
 				if storageTopologyType == "" {
@@ -671,7 +665,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					log.Infof("Active vSphere clusters: %v for the namespace: %q", vSphereClusterMorefs, pvcNamespace)
 				}
 			}
-		} else if hostnameLabelPresent && isVdppOnStretchedSVEnabled {
+		} else if hostnameLabelPresent {
 			log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
 		} else {
 			// No topology labels present in the topologyRequirement
@@ -734,14 +728,12 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					"too many accessible nodes")
 			}
 
-			if isVdppOnStretchedSVEnabled {
-				selectedDatastoreURL, err = getDatastoreURLFromStoragePool(ctx, storagePool)
-				if err != nil {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"error in specified StoragePool %s. Error: %+v", storagePool, err)
-				}
-				log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
+			selectedDatastoreURL, err = getDatastoreURLFromStoragePool(ctx, storagePool)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"error in specified StoragePool %s. Error: %+v", storagePool, err)
 			}
+			log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
 
 			hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, accessibleNodes[0])
 			if err != nil {
@@ -753,14 +745,12 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			log.Debugf("Setting the affineToHost value as %s", affineToHost)
 		}
 
-		if isVdppOnStretchedSVEnabled {
-			datastore, err := cnsvsphere.GetDatastoreInfoByURL(ctx, vc, clusterMoIds, selectedDatastoreURL)
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to find the datastore from the selected datastore URL %s. Error: %v", selectedDatastoreURL, err)
-			}
-			candidateDatastores = []*cnsvsphere.DatastoreInfo{datastore}
+		datastore, err := cnsvsphere.GetDatastoreInfoByURL(ctx, vc, clusterMoIds, selectedDatastoreURL)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to find the datastore from the selected datastore URL %s. Error: %v", selectedDatastoreURL, err)
 		}
+		candidateDatastores = []*cnsvsphere.DatastoreInfo{datastore}
 	}
 
 	// Volume Size - Default is 10 GiB.
@@ -847,7 +837,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	createVolumeOpts := common.CreateBlockVolumeOptions{
 		FilterSuspendedDatastores:      filterSuspendedDatastores,
 		UseSupervisorId:                isTKGSHAEnabled,
-		IsVdppOnStretchedSvFssEnabled:  isVdppOnStretchedSVEnabled,
 		IsByokEnabled:                  isByokEnabled,
 		IsCSITransactionSupportEnabled: isCSITransactionSupportEnabled,
 		VolFromSnapshotOnTargetDs:      volFromSnapshotOnTargetDs,
@@ -933,18 +922,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		if hostnameLabelPresent {
 			// Configure the volumeTopology in the response so that the external
 			// provisioner will properly sets up the nodeAffinity for this volume.
-			if isVdppOnStretchedSVEnabled {
-				resp.Volume.AccessibleTopology = topologyRequirement.GetPreferred()
-			} else {
-				for _, hostName := range accessibleNodes {
-					volumeTopology := &csi.Topology{
-						Segments: map[string]string{
-							v1.LabelHostname: hostName,
-						},
-					}
-					resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
-				}
-			}
+			resp.Volume.AccessibleTopology = topologyRequirement.GetPreferred()
 		} else if zoneLabelPresent {
 			if IsMultipleClustersPerVsphereZoneFSSEnabled && len(volumeInfo.Clusters) > 0 {
 				// Calculate Volume Accessible Topology from Clusters returned in CreateVolume Response
