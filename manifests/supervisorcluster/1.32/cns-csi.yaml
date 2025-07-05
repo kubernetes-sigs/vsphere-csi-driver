@@ -549,7 +549,7 @@ spec:
 ---
 apiVersion: v1
 data:
-  "online-volume-extend": "true"
+  "volume-health": "true"
   "file-volume": "true"
   "trigger-csi-fullsync": "false"
   "csi-sv-feature-states-replication": "true"
