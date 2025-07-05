@@ -665,7 +665,6 @@ data:
   "csi-sv-feature-states-replication": "false" # Do not enable for guest cluster, Refer PR#2386 for details
   "block-volume-snapshot": "true"
   "tkgs-ha": "true"
-  "cnsmgr-suspend-create-volume": "true"
   "csi-windows-support": "true"
   "workload-domain-isolation": "true"
   "sv-pvc-snapshot-protection-finalizer": "false"
