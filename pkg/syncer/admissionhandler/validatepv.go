@@ -20,13 +20,6 @@ const (
 func validatePv(ctx context.Context, req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
 
 	log := logger.GetLogger(ctx)
-
-	if !featureGateTopologyAwareFileVolumeEnabled {
-		return &admissionv1.AdmissionResponse{
-			Allowed: true,
-		}
-	}
-
 	var (
 		allowed bool
 		result  *metav1.Status
