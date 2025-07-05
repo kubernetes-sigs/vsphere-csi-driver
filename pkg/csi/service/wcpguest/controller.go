@@ -1394,26 +1394,6 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		volumeID := req.GetVolumeId()
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 
-		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend) {
-			vmList, err := utils.ListVirtualMachines(ctx, c.vmOperatorClient, c.supervisorNamespace)
-			if err != nil {
-				msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
-				log.Error(msg)
-				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
-			}
-
-			for _, vmInstance := range vmList.Items {
-				for _, vmVolume := range vmInstance.Status.Volumes {
-					if vmVolume.Name == volumeID && vmVolume.Attached {
-						msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to pod. "+
-							"Only offline volume expansion is supported", volumeID)
-						log.Error(msg)
-						return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.FailedPrecondition, msg)
-					}
-				}
-			}
-		}
-
 		// Retrieve Supervisor PVC
 		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
 			ctx, volumeID, metav1.GetOptions{})

@@ -67,14 +67,14 @@ func validateVanillaControllerUnpublishVolumeRequest(ctx context.Context,
 // validate ExpandVolumeRequest for Vanilla CSI driver.
 // Function returns error if validation fails otherwise returns nil.
 func validateVanillaControllerExpandVolumeRequest(ctx context.Context,
-	req *csi.ControllerExpandVolumeRequest, isOnlineExpansionEnabled, isOnlineExpansionSupported bool) error {
+	req *csi.ControllerExpandVolumeRequest, isOnlineExpansionSupported bool) error {
 	log := logger.GetLogger(ctx)
 	if err := common.ValidateControllerExpandVolumeRequest(ctx, req); err != nil {
 		return err
 	}
 
 	// Check online extend FSS and vCenter support.
-	if isOnlineExpansionEnabled && isOnlineExpansionSupported {
+	if isOnlineExpansionSupported {
 		return nil
 	}
 
