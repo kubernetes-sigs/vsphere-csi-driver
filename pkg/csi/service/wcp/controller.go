@@ -151,23 +151,18 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 	isPodVMOnStretchSupervisorFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.PodVMOnStretchedSupervisor)
-	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.CSIVolumeManagerIdempotency)
-	if idempotencyHandlingEnabled {
-		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
-		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
-			config.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
-			func() bool {
-				return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-			}, isPodVMOnStretchSupervisorFSSEnabled)
-		if err != nil {
-			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
-			return err
-		}
+	operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
+		config.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
+		func() bool {
+			return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+		}, isPodVMOnStretchSupervisorFSSEnabled)
+	if err != nil {
+		log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
+		return err
 	}
 
 	volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
-		idempotencyHandlingEnabled, false,
+		true, false,
 		false, cnstypes.CnsClusterFlavorWorkload)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
@@ -383,19 +378,14 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 			}
 			vcenter.Config = newVCConfig
 		}
-		idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-			common.CSIVolumeManagerIdempotency)
-		if idempotencyHandlingEnabled {
-			log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
-			operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
-				c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
-				func() bool {
-					return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-				}, isPodVMOnStretchSupervisorFSSEnabled)
-			if err != nil {
-				log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
-				return err
-			}
+		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
+			c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
+			func() bool {
+				return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+			}, isPodVMOnStretchSupervisorFSSEnabled)
+		if err != nil {
+			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
+			return err
 		}
 		err := c.manager.VolumeManager.ResetManager(ctx, vcenter)
 		if err != nil {
@@ -404,7 +394,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 		c.manager.VcenterConfig = newVCConfig
 
 		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
-			idempotencyHandlingEnabled, false,
+			true, false,
 			false, cnstypes.CnsClusterFlavorWorkload)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
