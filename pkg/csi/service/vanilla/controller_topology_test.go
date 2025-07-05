@@ -444,6 +444,14 @@ func getControllerTestWithTopology(t *testing.T) *controllerTestTopology {
 			VolumeManager:  volumeManager,
 			VcenterManager: vcManager,
 		}
+		managers := &common.Managers{
+			VcenterConfigs: make(map[string]*cnsvsphere.VirtualCenterConfig),
+			CnsConfig:      config,
+			VolumeManagers: make(map[string]cnsvolume.Manager),
+			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
+		}
+		managers.VcenterConfigs[vcenterconfig.Host] = vcenterconfig
+		managers.VolumeManagers[vcenterconfig.Host] = volumeManager
 
 		var k8sClient clientset.Interface
 		if k8senv := os.Getenv("KUBECONFIG"); k8senv != "" {
@@ -470,8 +478,9 @@ func getControllerTestWithTopology(t *testing.T) *controllerTestTopology {
 		}
 
 		c := &controller{
-			manager: manager,
-			nodeMgr: nodeManager,
+			manager:  manager,
+			managers: managers,
+			nodeMgr:  nodeManager,
 			authMgr: &FakeAuthManager{
 				vcenter: vcenter,
 			},
@@ -524,7 +533,13 @@ func TestCreateVolumeWithAccessibilityRequirements(t *testing.T) {
 					},
 				},
 			},
-			Preferred: []*csi.Topology{},
+			Preferred: []*csi.Topology{
+				{
+					Segments: map[string]string{
+						"topology.csi.vmware.com/k8s-zone": "zone-1",
+					},
+				},
+			},
 		},
 	}
 

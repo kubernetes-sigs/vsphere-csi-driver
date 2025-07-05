@@ -408,8 +408,6 @@ const (
 	PVtoBackingDiskObjectIdMapping = "pv-to-backingdiskobjectid-mapping"
 	// Block Create Volume for datastores that are in suspended mode
 	CnsMgrSuspendCreateVolume = "cnsmgr-suspend-create-volume"
-	// MultiVCenterCSITopology is the feature gate for enabling multi vCenter topology support for vSphere CSI driver.
-	MultiVCenterCSITopology = "multi-vcenter-csi-topology"
 	// CSIInternalGeneratedClusterID enables support to generate unique cluster
 	// ID internally if user doesn't provide it in vSphere config secret.
 	CSIInternalGeneratedClusterID = "csi-internal-generated-cluster-id"
