@@ -18,9 +18,6 @@ type VanillaRetrieveTopologyInfoParams struct {
 	// RequestedTopologySegments represents the topology segments
 	// which need to be satisfied during volume provisioning for a particular VC.
 	RequestedTopologySegments []map[string]string
-	// IsTopologyPreferentialDatastoresFSSEnabled determines the
-	// state of topology-preferential-datastores FSS.
-	IsTopologyPreferentialDatastoresFSSEnabled bool
 }
 
 // VanillaSharedDatastoresParams represents the params
