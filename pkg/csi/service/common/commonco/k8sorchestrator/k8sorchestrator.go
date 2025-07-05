@@ -389,7 +389,6 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 
 func getReleasedVanillaFSS() map[string]struct{} {
 	return map[string]struct{}{
-		common.CSIMigration:                   {},
 		common.OnlineVolumeExtend:             {},
 		common.BlockVolumeSnapshot:            {},
 		common.CSIWindowsSupport:              {},
@@ -999,7 +998,6 @@ func pvAdded(obj interface{}) {
 	// Since cns query will return all the volumes including the migrated ones, the map would need to be a
 	// union of migrated VCP-CSI volumes and CSI volumes, as well.
 	if pv.Spec.VsphereVolume != nil &&
-		k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) &&
 		isValidMigratedvSphereVolume(context.Background(), pv.ObjectMeta) {
 		if pv.Status.Phase == v1.VolumeBound {
 			k8sOrchestratorInstance.volumeIDToNameMap.add(pv.Spec.VsphereVolume.VolumePath, pv.Name)
@@ -1049,7 +1047,6 @@ func pvUpdated(oldObj, newObj interface{}) {
 	// Since cns query will return all the volumes including the migrated ones, the map would need to be a
 	// union of migrated VCP-CSI volumes and CSI volumes, as well.
 	if newPv.Spec.VsphereVolume != nil &&
-		k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) &&
 		isValidMigratedvSphereVolume(context.Background(), newPv.ObjectMeta) {
 		if oldPv.Status.Phase != v1.VolumeBound && newPv.Status.Phase == v1.VolumeBound {
 			k8sOrchestratorInstance.volumeIDToNameMap.add(newPv.Spec.VsphereVolume.VolumePath, newPv.Name)
@@ -1078,7 +1075,7 @@ func pvDeleted(obj interface{}) {
 		log.Debugf("k8sorchestrator: Deleted key %s from pvcToVolumeID",
 			pv.Spec.ClaimRef.Namespace+"/"+pv.Spec.ClaimRef.Name)
 	}
-	if pv.Spec.VsphereVolume != nil && k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) {
+	if pv.Spec.VsphereVolume != nil {
 		k8sOrchestratorInstance.volumeIDToNameMap.remove(pv.Spec.VsphereVolume.VolumePath)
 		log.Debugf("k8sorchestrator migrated volume: Deleted key %s from volumeIDToNameMap",
 			pv.Spec.VsphereVolume.VolumePath)
