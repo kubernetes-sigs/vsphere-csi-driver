@@ -555,7 +555,6 @@ data:
   "csi-sv-feature-states-replication": "true"
   "fake-attach": "true"
   "improved-csi-idempotency": "true"
-  "block-volume-snapshot": "true"
   "tkgs-ha": "true"
   "list-volumes": "true"
   "cnsmgr-suspend-create-volume": "true"

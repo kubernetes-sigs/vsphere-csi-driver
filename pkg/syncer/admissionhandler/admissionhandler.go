@@ -56,7 +56,6 @@ var (
 	// CO agnostic orchestrator in the admission handler package.
 	COInitParams                              *interface{}
 	featureGateCsiMigrationEnabled            bool
-	featureGateBlockVolumeSnapshotEnabled     bool
 	featureGateTKGSHaEnabled                  bool
 	featureGateTopologyAwareFileVolumeEnabled bool
 	featureGateByokEnabled                    bool
@@ -145,7 +144,6 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		featureGateTKGSHaEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
-		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		featureGateByokEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK)
 		featureIsSharedDiskEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
 		featureFileVolumesWithVmServiceEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
@@ -158,7 +156,6 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 		}
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		featureIsLinkedCloneSupportEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport)
-		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		startPVCSIWebhookManager(ctx)
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		if cfg == nil {
@@ -170,13 +167,12 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 			log.Debugf("webhook config: %v", cfg)
 		}
 		featureGateCsiMigrationEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
-		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		featureGateTopologyAwareFileVolumeEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.TopologyAwareFileVolume)
 		featureFileVolumesWithVmServiceEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.FileVolumesWithVmService)
 
-		if featureGateCsiMigrationEnabled || featureGateBlockVolumeSnapshotEnabled {
+		if featureGateCsiMigrationEnabled {
 			certs, err := tls.LoadX509KeyPair(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile)
 			if err != nil {
 				log.Errorf("failed to load key pair. certFile: %q, keyFile: %q err: %v",
