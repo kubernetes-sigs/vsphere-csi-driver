@@ -339,7 +339,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			return err
 		}
 	}
-	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && isStorageQuotaM2FSSEnabled {
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		cnsBlockVolumeMap := make(map[string]cnstypes.CnsVolume)
 		for _, vol := range queryAllResult.Volumes {
 			// We do not support file volume snapshot, filtering out block volume only.

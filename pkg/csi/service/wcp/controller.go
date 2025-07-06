@@ -2007,55 +2007,46 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		var snapshotID string
 		var cnsSnapshotInfo *cnsvolume.CnsSnapshotInfo
 		var cnsVolumeInfo *cnsvolumeinfov1alpha1.CNSVolumeInfo
-		isStorageQuotaM2FSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-			common.StorageQuotaM2)
-		if isStorageQuotaM2FSSEnabled {
-			cnsVolumeInfo, err = volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
-			if err != nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", volumeID, err)
-			}
-			snapshotID, cnsSnapshotInfo, err = common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
-				volumeID, req.Name, &cnsvolume.CreateSnapshotExtraParams{
-					StorageClassName:           cnsVolumeInfo.Spec.StorageClassName,
-					StoragePolicyID:            cnsVolumeInfo.Spec.StoragePolicyID,
-					Namespace:                  cnsVolumeInfo.Spec.Namespace,
-					Capacity:                   cnsVolumeInfo.Spec.Capacity,
-					IsStorageQuotaM2FSSEnabled: isStorageQuotaM2FSSEnabled,
-				})
-			if err != nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to create snapshot on volume %q with error: %v", volumeID, err)
-			}
-			cnsVolumeInfo, err := volumeInfoService.GetVolumeInfoForVolumeID(ctx, cnsSnapshotInfo.SourceVolumeID)
-			if err != nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", cnsVolumeInfo.Spec.VolumeID, err)
-			}
-			if cnsVolumeInfo.Spec.SnapshotLatestOperationCompleteTime.Time.Before(
-				cnsSnapshotInfo.SnapshotLatestOperationCompleteTime) {
-				patch, err := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapshotInfo)
-				if err != nil {
-					return nil, err
-				}
-				err = c.UpdateCNSVolumeInfo(ctx, patch, volumeID)
-				if err != nil {
-					return nil, err
-				}
-			} else {
-				log.Infof("CNSVolumeInfo is already updated, skipping update for volume %q and snapshot %q",
-					volumeID, snapshotID)
-			}
-			log.Infof("successfully updated aggregated snapshot capacity: %d for volume %q and snapshot %q",
-				cnsSnapshotInfo.AggregatedSnapshotCapacityInMb, volumeID, snapshotID)
-		} else {
-			snapshotID, cnsSnapshotInfo, err = common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
-				volumeID, req.Name, nil)
-			if err != nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to create snapshot on volume %q with error: %v", volumeID, err)
-			}
+
+		cnsVolumeInfo, err = volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", volumeID, err)
 		}
+		snapshotID, cnsSnapshotInfo, err = common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
+			volumeID, req.Name, &cnsvolume.CreateSnapshotExtraParams{
+				StorageClassName: cnsVolumeInfo.Spec.StorageClassName,
+				StoragePolicyID:  cnsVolumeInfo.Spec.StoragePolicyID,
+				Namespace:        cnsVolumeInfo.Spec.Namespace,
+				Capacity:         cnsVolumeInfo.Spec.Capacity,
+			})
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to create snapshot on volume %q with error: %v", volumeID, err)
+		}
+
+		cnsVolumeInfo, err = volumeInfoService.GetVolumeInfoForVolumeID(ctx, cnsSnapshotInfo.SourceVolumeID)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", cnsVolumeInfo.Spec.VolumeID, err)
+		}
+		if cnsVolumeInfo.Spec.SnapshotLatestOperationCompleteTime.Time.Before(
+			cnsSnapshotInfo.SnapshotLatestOperationCompleteTime) {
+			patch, err := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapshotInfo)
+			if err != nil {
+				return nil, err
+			}
+			err = c.UpdateCNSVolumeInfo(ctx, patch, volumeID)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			log.Infof("CNSVolumeInfo is already updated, skipping update for volume %q and snapshot %q",
+				volumeID, snapshotID)
+		}
+		log.Infof("successfully updated aggregated snapshot capacity: %d for volume %q and snapshot %q",
+			cnsSnapshotInfo.AggregatedSnapshotCapacityInMb, volumeID, snapshotID)
+
 		snapshotCreateTimeInProto := timestamppb.New(cnsSnapshotInfo.SnapshotLatestOperationCompleteTime)
 		createSnapshotResponse := &csi.CreateSnapshotResponse{
 			Snapshot: &csi.Snapshot{
@@ -2114,52 +2105,40 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	}
 	deleteSnapshotInternal := func() (*csi.DeleteSnapshotResponse, error) {
 		csiSnapshotID := req.GetSnapshotId()
-		isStorageQuotaM2FSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-			common.StorageQuotaM2)
-		if isStorageQuotaM2FSSEnabled {
-			volumeID, _, err := common.ParseCSISnapshotID(csiSnapshotID)
+		volumeID, _, err := common.ParseCSISnapshotID(csiSnapshotID)
+		if err != nil {
+			return nil, err
+		}
+		cnsVolumeInfo, err := volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", volumeID, err)
+		}
+		cnsSnapshotInfo, err := common.DeleteSnapshotUtil(ctx, c.manager.VolumeManager, csiSnapshotID,
+			&cnsvolume.DeletesnapshotExtraParams{
+				StorageClassName: cnsVolumeInfo.Spec.StorageClassName,
+				StoragePolicyID:  cnsVolumeInfo.Spec.StoragePolicyID,
+				Capacity:         resource.NewQuantity(0, resource.BinarySI),
+				Namespace:        cnsVolumeInfo.Namespace,
+			})
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"Failed to delete WCP snapshot %q. Error: %+v",
+				csiSnapshotID, err)
+		}
+		if cnsVolumeInfo.Spec.SnapshotLatestOperationCompleteTime.Time.Before(
+			cnsSnapshotInfo.SnapshotLatestOperationCompleteTime) {
+			patch, err := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapshotInfo)
 			if err != nil {
 				return nil, err
 			}
-			cnsVolumeInfo, err := volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
+			err = c.UpdateCNSVolumeInfo(ctx, patch, cnsVolumeInfo.Spec.VolumeID)
 			if err != nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", volumeID, err)
-			}
-			cnsSnapshotInfo, err := common.DeleteSnapshotUtil(ctx, c.manager.VolumeManager, csiSnapshotID,
-				&cnsvolume.DeletesnapshotExtraParams{
-					StorageClassName:           cnsVolumeInfo.Spec.StorageClassName,
-					StoragePolicyID:            cnsVolumeInfo.Spec.StoragePolicyID,
-					Capacity:                   resource.NewQuantity(0, resource.BinarySI),
-					Namespace:                  cnsVolumeInfo.Namespace,
-					IsStorageQuotaM2FSSEnabled: isStorageQuotaM2FSSEnabled,
-				})
-			if err != nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"Failed to delete WCP snapshot %q. Error: %+v",
-					csiSnapshotID, err)
-			}
-			if cnsVolumeInfo.Spec.SnapshotLatestOperationCompleteTime.Time.Before(
-				cnsSnapshotInfo.SnapshotLatestOperationCompleteTime) {
-				patch, err := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapshotInfo)
-				if err != nil {
-					return nil, err
-				}
-				err = c.UpdateCNSVolumeInfo(ctx, patch, cnsVolumeInfo.Spec.VolumeID)
-				if err != nil {
-					return nil, err
-				}
-			} else {
-				log.Infof("CNSVolumeInfo is already updated, skiping update for volume %d and snapshot %d",
-					cnsVolumeInfo.Spec.VolumeID, cnsSnapshotInfo.SnapshotID)
+				return nil, err
 			}
 		} else {
-			_, err := common.DeleteSnapshotUtil(ctx, c.manager.VolumeManager, csiSnapshotID, nil)
-			if err != nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"Failed to delete WCP snapshot %q. Error: %+v",
-					csiSnapshotID, err)
-			}
+			log.Infof("CNSVolumeInfo is already updated, skiping update for volume %d and snapshot %d",
+				cnsVolumeInfo.Spec.VolumeID, cnsSnapshotInfo.SnapshotID)
 		}
 
 		log.Infof("DeleteSnapshot: successfully deleted snapshot %q", csiSnapshotID)

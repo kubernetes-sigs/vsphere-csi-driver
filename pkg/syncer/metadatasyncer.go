@@ -117,9 +117,6 @@ var (
 	// ResourceAPIgroupSnapshot is API group for volume snapshot
 	ResourceAPIgroupSnapshot = "snapshot.storage.k8s.io"
 
-	// isStorageQuotaM2FSSEnabled is true if the Snapshot Storage Quota feature is enabled, false otherwise.
-	isStorageQuotaM2FSSEnabled bool
-
 	// IsWorkloadDomainIsolationSupported is true when Workload_Domain_Isolation_Supported FSS is enabled.
 	IsWorkloadDomainIsolationSupported bool
 
@@ -231,7 +228,6 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		isMultiVCenterFssEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
 		IsMigrationEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
 	}
-	isStorageQuotaM2FSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2)
 	// Create the kubernetes client from config.
 	k8sClient, err := k8s.NewClient(ctx)
 	if err != nil {
@@ -408,22 +404,19 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				return logger.LogNewErrorf(log, "failed to start CnsVolumeOperationRequest informer on %q instances. Error: %v",
 					cnsvolumeoperationrequest.CRDSingular, err)
 			}
-			isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
-			if isStorageQuotaM2Enabled {
-				// Create informer to watch on update events of CnsVolumeInfo CRs
-				cnsVolumeInfoCRInformerErr := startCnsVolumeInfoCRInformer(ctx, k8sConfig, metadataSyncer)
-				if cnsVolumeInfoCRInformerErr != nil {
-					log.Errorf("failed to start informer on %q instances. Error: %v",
-						cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, cnsVolumeInfoCRInformerErr)
-					os.Exit(1)
-				}
-				// start periodic sync for storage quota
-				err := initStorageQuotaPeriodicSync(ctx, metadataSyncer)
-				if err != nil {
-					log.Errorf("initStorageQuotaPeriodicSync: Failed to initialize the storagequota "+
-						"periodic sync, with error Error: %v", err)
-					os.Exit(1)
-				}
+			// Create informer to watch on update events of CnsVolumeInfo CRs
+			cnsVolumeInfoCRInformerErr := startCnsVolumeInfoCRInformer(ctx, k8sConfig, metadataSyncer)
+			if cnsVolumeInfoCRInformerErr != nil {
+				log.Errorf("failed to start informer on %q instances. Error: %v",
+					cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, cnsVolumeInfoCRInformerErr)
+				os.Exit(1)
+			}
+			// start periodic sync for storage quota
+			err = initStorageQuotaPeriodicSync(ctx, metadataSyncer)
+			if err != nil {
+				log.Errorf("initStorageQuotaPeriodicSync: Failed to initialize the storagequota "+
+					"periodic sync, with error Error: %v", err)
+				os.Exit(1)
 			}
 		}
 
@@ -2093,7 +2086,6 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 
 	if metadataSyncer.clusterFlavor != cnstypes.CnsClusterFlavorWorkload &&
 		metadataSyncer.clusterFlavor != cnstypes.CnsClusterFlavorGuest {
-		isStorageQuotaM2FSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2)
 		// Vanilla ReloadConfiguration
 		if isMultiVCenterFssEnabled {
 			newVcenterConfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, cfg)
@@ -2171,7 +2163,6 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to get VirtualCenterConfig. err=%v", err)
 		}
-		isStorageQuotaM2FSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StorageQuotaM2)
 		if newVCConfig != nil {
 			var vcenter *cnsvsphere.VirtualCenter
 			newVCConfig.ReloadVCConfigForNewClient = true
@@ -3558,7 +3549,6 @@ func getOrCreateStoragePolicyUsageCR(ctx context.Context, storagePolicyId string
 		log.Errorf("getOrCreateStoragePolicyUsageCR: Failed to list storageclasses. Err: %+v", err)
 		return nil, err
 	}
-	isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
 	usageCR := &storagepolicyv1alpha2.StoragePolicyUsage{}
 	// For each storage class associated with storage policy id of StoragePolicyQuota CR,
 	// check if StoragePolicyUsage CR with resource type PVC or Snapshot exists.
@@ -3582,7 +3572,7 @@ func getOrCreateStoragePolicyUsageCR(ctx context.Context, storagePolicyId string
 					if usage.Spec.ResourceKind == ResourceKindPVC {
 						foundPvcUsageInstance = true
 					}
-					if usage.Spec.ResourceKind == ResourceKindSnapshot && isStorageQuotaM2Enabled {
+					if usage.Spec.ResourceKind == ResourceKindSnapshot {
 						foundSnapUsageInstance = true
 					}
 				}
@@ -3601,7 +3591,7 @@ func getOrCreateStoragePolicyUsageCR(ctx context.Context, storagePolicyId string
 					"storageclass %v resourceKind %v", cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular,
 					namespace, storagePolicyId, sc.Name, ResourceKindPVC)
 			}
-			if isStorageQuotaM2Enabled && !foundSnapUsageInstance {
+			if !foundSnapUsageInstance {
 				snapQuotaUsageInstanceName := sc.Name + "-" + storagepolicyv1alpha2.NameSuffixForSnapshot
 				usageCR, err = createStoragePolicyUsageCR(ctx, storageQuotaClient, snapQuotaUsageInstanceName,
 					namespace, storagePolicyId, sc.Name, ResourceKindSnapshot, ResourceAPIgroupSnapshot,
@@ -3644,12 +3634,11 @@ func deleteStoragePolicyUsageCR(ctx context.Context, storagePolicyId string,
 			cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular, namespace, err)
 		return err
 	}
-	isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
 	// For each storagepolicyusage matching with the storage policy id, delete the usage CR.
 	for _, usage := range policyUsageList.Items {
 		if usage.Spec.StoragePolicyId == storagePolicyId &&
 			(usage.Spec.ResourceKind == ResourceKindPVC ||
-				(isStorageQuotaM2Enabled && usage.Spec.ResourceKind == ResourceKindSnapshot)) {
+				usage.Spec.ResourceKind == ResourceKindSnapshot) {
 			policyUsageCR := storagepolicyv1alpha2.StoragePolicyUsage{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      usage.Name,
@@ -3724,7 +3713,6 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 			"supervisor namespaces. Error: %+v", cnsoperatorv1alpha1.CnsStoragePolicyQuotaSingular, err)
 		return
 	}
-	isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
 	for _, spq := range spqList.Items {
 		// Make sure storagePolicyQuota instance is not getting deleted.
 		if spq.DeletionTimestamp != nil {
@@ -3765,38 +3753,37 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 						spq.Namespace, err)
 				}
 			}
-			if isStorageQuotaM2Enabled {
-				// Create StoragePolicyUsage CR for snapshot resource kind if not present already.
-				storagePolicyUsageInstanceName = scName + "-" + storagepolicyv1alpha2.NameSuffixForSnapshot
-				storagePolicyUsageCR = &storagepolicyv1alpha2.StoragePolicyUsage{}
-				err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
-					Namespace: spq.Namespace,
-					Name:      storagePolicyUsageInstanceName},
-					storagePolicyUsageCR)
-				if err == nil {
-					// Found storagePolicyUsageCR for snapshot kind. Move to the next SC.
-					log.Debugf("createStoragePolicyUsageCRS: Found storagePolicyUsage CR %q for "+
-						"StoragePolicyQuota %q in namespace %q", storagePolicyUsageInstanceName, spq.Name, spq.Namespace)
-					continue
-				} else {
-					if apierrors.IsNotFound(err) {
-						_, err = createStoragePolicyUsageCR(ctx, cnsOperatorClient, storagePolicyUsageInstanceName,
-							spq.Namespace, policyID, scName, ResourceKindSnapshot, ResourceAPIgroupSnapshot,
-							SnapQuotaExtensionServiceName)
-						if err != nil {
-							log.Errorf("createStoragePolicyUsageCRS: Failed to create %q CR with name %q in "+
-								"namespace %q for %q kind. Err: %+v", cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular,
-								storagePolicyUsageInstanceName, spq.Namespace, ResourceKindSnapshot, err)
-							continue
-						}
-						log.Infof("createStoragePolicyUsageCRS: Successfully created the storagePolicyUsage CR %q "+
-							"in namespace %q", storagePolicyUsageInstanceName, spq.Namespace)
-					} else {
-						log.Errorf("createStoragePolicyUsageCRS: Failed to fetch storagePolicyUsage CR %q for "+
-							"StoragePolicyQuota %q in namespace %q. Error: %+v", storagePolicyUsageInstanceName, spq.Name,
-							spq.Namespace, err)
+
+			// Create StoragePolicyUsage CR for snapshot resource kind if not present already.
+			storagePolicyUsageInstanceName = scName + "-" + storagepolicyv1alpha2.NameSuffixForSnapshot
+			storagePolicyUsageCR = &storagepolicyv1alpha2.StoragePolicyUsage{}
+			err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
+				Namespace: spq.Namespace,
+				Name:      storagePolicyUsageInstanceName},
+				storagePolicyUsageCR)
+			if err == nil {
+				// Found storagePolicyUsageCR for snapshot kind. Move to the next SC.
+				log.Debugf("createStoragePolicyUsageCRS: Found storagePolicyUsage CR %q for "+
+					"StoragePolicyQuota %q in namespace %q", storagePolicyUsageInstanceName, spq.Name, spq.Namespace)
+				continue
+			} else {
+				if apierrors.IsNotFound(err) {
+					_, err = createStoragePolicyUsageCR(ctx, cnsOperatorClient, storagePolicyUsageInstanceName,
+						spq.Namespace, policyID, scName, ResourceKindSnapshot, ResourceAPIgroupSnapshot,
+						SnapQuotaExtensionServiceName)
+					if err != nil {
+						log.Errorf("createStoragePolicyUsageCRS: Failed to create %q CR with name %q in "+
+							"namespace %q for %q kind. Err: %+v", cnsoperatorv1alpha1.CnsStoragePolicyUsageSingular,
+							storagePolicyUsageInstanceName, spq.Namespace, ResourceKindSnapshot, err)
 						continue
 					}
+					log.Infof("createStoragePolicyUsageCRS: Successfully created the storagePolicyUsage CR %q "+
+						"in namespace %q", storagePolicyUsageInstanceName, spq.Namespace)
+				} else {
+					log.Errorf("createStoragePolicyUsageCRS: Failed to fetch storagePolicyUsage CR %q for "+
+						"StoragePolicyQuota %q in namespace %q. Error: %+v", storagePolicyUsageInstanceName, spq.Name,
+						spq.Namespace, err)
+					continue
 				}
 			}
 		}
@@ -3851,7 +3838,7 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 			continue
 		}
 		cnsVolumeInfoMap[cnsVolumeInfoObj.Name] = cnsVolumeInfoObj.DeepCopy()
-		if isStorageQuotaM2FSSEnabled && cnsVolumeInfoObj.Spec.AggregatedSnapshotSize != nil {
+		if cnsVolumeInfoObj.Spec.AggregatedSnapshotSize != nil {
 			spuKey := generateSPUKey(cnsVolumeInfoObj)
 			if usedQty := spuAggregatedSumMap[spuKey]; usedQty == nil {
 				spuAggregatedSumMap[spuKey] = cnsVolumeInfoObj.Spec.AggregatedSnapshotSize
@@ -3885,7 +3872,7 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 					}
 					updateSpu = true
 				}
-			} else if isStorageQuotaM2FSSEnabled && storagePolicyUsage.Spec.ResourceKind == ResourceKindSnapshot {
+			} else if storagePolicyUsage.Spec.ResourceKind == ResourceKindSnapshot {
 				spuKey := strings.Join([]string{storagePolicyUsage.Spec.StorageClassName,
 					storagePolicyUsage.Spec.StoragePolicyId, storagePolicyUsage.Namespace}, "-")
 				if usedQty, ok := spuAggregatedSumMap[spuKey]; ok {
