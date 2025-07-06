@@ -104,6 +104,7 @@ type COCommonInterface interface {
 	// GetZonesForNamespace fetches the zones associated with a namespace when
 	// WorkloadDomainIsolation is supported in supervisor.
 	GetZonesForNamespace(ns string) map[string]struct{}
+	GetActiveClustersForNamespaceInRequestedZones(ctx context.Context, ns string, zones []string) ([]string, error)
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given

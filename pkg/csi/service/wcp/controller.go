@@ -41,7 +41,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/wait"
-
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -440,6 +439,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		// accessibleNodes will be used to populate volumeAccessTopology.
 		accessibleNodes      []string
 		sharedDatastores     []*cnsvsphere.DatastoreInfo
+		vSphereClusterMorefs []string
 		vsanDirectDatastores []*cnsvsphere.DatastoreInfo
 		hostnameLabelPresent bool
 		zoneLabelPresent     bool
@@ -489,9 +489,18 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 	isCSITransactionSupportEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSITranSactionSupport)
+	isMultipleClustersPerVsphereZoneEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.MultipleClustersPerVsphereZone)
 
 	topoSegToDatastoresMap := make(map[string][]*cnsvsphere.DatastoreInfo)
 	if isTKGSHAEnabled {
+		// topologyMgr can be nil if the AZ CR was not registered
+		// at the time of controller init. Handling that case in CreateVolume calls.
+		if c.topologyMgr == nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+				"topology manager not initialized.")
+		}
+
 		// TKGS-HA feature is enabled
 		// Identify the topology keys in Accessibility requirements and infer the environment type based on these keys.
 
@@ -511,6 +520,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		hostnameLabelPresent, zoneLabelPresent = checkTopologyKeysFromAccessibilityReqs(topologyRequirement)
 		if zoneLabelPresent && hostnameLabelPresent {
 			if isVdppOnStretchedSVEnabled {
+				if c.topologyMgr.ZonesWithMultipleClustersExist(ctx) {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+						"Creating volume with both zone and hostname in topology requirement is not "+
+							"supported on deployment with multiple vSphere Clusters per zone")
+				}
 				log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
 			} else {
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
@@ -523,22 +537,29 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 						"StorageTopologyType is unset while topology label is present")
 				}
 			}
-			// topologyMgr can be nil if the AZ CR was not registered
-			// at the time of controller init. Handling that case in CreateVolume calls.
-			if c.topologyMgr == nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-					"topology manager not initialized.")
-			}
 			// Initiate TKGs HA workflow when the topology requirement contains zone labels only.
 			log.Infof("Topology aware environment detected with requirement: %+v", topologyRequirement)
-			sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
-				commoncotypes.WCPTopologyFetchDSParams{
-					TopologyRequirement:    topologyRequirement,
-					Vc:                     vc,
-					TopoSegToDatastoresMap: topoSegToDatastoresMap})
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to find shared datastores for given topology requirement. Error: %v", err)
+			if !isMultipleClustersPerVsphereZoneEnabled {
+				sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
+					commoncotypes.WCPTopologyFetchDSParams{
+						TopologyRequirement:    topologyRequirement,
+						Vc:                     vc,
+						TopoSegToDatastoresMap: topoSegToDatastoresMap})
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to find shared datastores for given topology requirement. Error: %v", err)
+				}
+			} else {
+				log.Infof("MultipleClustersPerVsphereZone capability is enabled. Skipping to " +
+					"find candidate datastores for volume provisioning.")
+				zones := GetZonesFromAccessibilityRequirements(req.AccessibilityRequirements)
+				vSphereClusterMorefs, err = commonco.ContainerOrchestratorUtility.GetActiveClustersForNamespaceInRequestedZones(ctx,
+					pvcNamespace, zones)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to find active clusters for the namespace: %q, err :%v", pvcNamespace, err)
+				}
+				log.Infof("Active vSphere clusters: %v for the namespace: %q", vSphereClusterMorefs, pvcNamespace)
 			}
 		} else if hostnameLabelPresent && isVdppOnStretchedSVEnabled {
 			log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
@@ -711,11 +732,12 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 
 	createVolumeOpts := common.CreateBlockVolumeOptions{
-		FilterSuspendedDatastores:      filterSuspendedDatastores,
-		UseSupervisorId:                isTKGSHAEnabled,
-		IsVdppOnStretchedSvFssEnabled:  isVdppOnStretchedSVEnabled,
-		IsByokEnabled:                  isByokEnabled,
-		IsCSITransactionSupportEnabled: isCSITransactionSupportEnabled,
+		FilterSuspendedDatastores:               filterSuspendedDatastores,
+		UseSupervisorId:                         isTKGSHAEnabled,
+		IsVdppOnStretchedSvFssEnabled:           isVdppOnStretchedSVEnabled,
+		IsByokEnabled:                           isByokEnabled,
+		IsCSITransactionSupportEnabled:          isCSITransactionSupportEnabled,
+		IsMultipleClustersPerVsphereZoneEnabled: isMultipleClustersPerVsphereZoneEnabled,
 	}
 
 	var (
@@ -724,7 +746,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	)
 	if isPodVMOnStretchSupervisorFSSEnabled {
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
-			c.manager, &createVolumeSpec, candidateDatastores, createVolumeOpts,
+			c.manager, &createVolumeSpec, candidateDatastores, vSphereClusterMorefs, createVolumeOpts,
 			&cnsvolume.CreateVolumeExtraParams{
 				VolSizeBytes:                         volSizeBytes,
 				StorageClassName:                     req.Parameters[common.AttributeStorageClassName],
@@ -737,7 +759,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				// Disable CSI transaction support for retry
 				createVolumeOpts.IsCSITransactionSupportEnabled = false
 				volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
-					c.manager, &createVolumeSpec, candidateDatastores, createVolumeOpts,
+					c.manager, &createVolumeSpec, candidateDatastores, vSphereClusterMorefs, createVolumeOpts,
 					&cnsvolume.CreateVolumeExtraParams{
 						VolSizeBytes:                         volSizeBytes,
 						StorageClassName:                     req.Parameters[common.AttributeStorageClassName],
@@ -748,7 +770,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 	} else {
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
-			c.manager, &createVolumeSpec, candidateDatastores, createVolumeOpts, nil)
+			c.manager, &createVolumeSpec, candidateDatastores, []string{}, createVolumeOpts, nil)
 	}
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
@@ -784,78 +806,84 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				}
 			}
 		} else if zoneLabelPresent {
-			selectedDatastore := volumeInfo.DatastoreURL
-			// CreateBlockVolumeUtil with idempotency enabled does not return datastore
-			// information when it uses the cached information from CR. In such cases,
-			// querying the volume to retrieve the datastore URL.
-			if selectedDatastore == "" {
-				queryFilter := cnstypes.CnsQueryFilter{
-					VolumeIds: []cnstypes.CnsVolumeId{
-						{
-							Id: volumeInfo.VolumeID.Id,
+			if isMultipleClustersPerVsphereZoneEnabled && len(volumeInfo.Clusters) > 0 {
+				// Calculate Volume Accessible Topology from Clusters returned in CreateVolume Response
+				azClusterMap := c.topologyMgr.GetAZClustersMap(ctx)
+				resp.Volume.AccessibleTopology = GetAccessibleTopologies(volumeInfo.Clusters, azClusterMap)
+			} else {
+				selectedDatastore := volumeInfo.DatastoreURL
+				// CreateBlockVolumeUtil with idempotency enabled does not return datastore
+				// information when it uses the cached information from CR. In such cases,
+				// querying the volume to retrieve the datastore URL.
+				if selectedDatastore == "" {
+					queryFilter := cnstypes.CnsQueryFilter{
+						VolumeIds: []cnstypes.CnsVolumeId{
+							{
+								Id: volumeInfo.VolumeID.Id,
+							},
 						},
-					},
-				}
-				querySelection := cnstypes.CnsQuerySelection{
-					Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
-				}
-				queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection,
-					true)
-				if err != nil || queryResult == nil || len(queryResult.Volumes) != 1 {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"failed to find the datastore on which volume %q is provisioned. Error: %+v",
-						volumeInfo.VolumeID.Id, err)
-				}
-				selectedDatastore = queryResult.Volumes[0].DatastoreUrl
-			}
-
-			// Calculate accessible topology for the provisioned volume.
-			datastoreAccessibleTopology, err := c.topologyMgr.GetTopologyInfoFromNodes(ctx,
-				commoncotypes.WCPRetrieveTopologyInfoParams{
-					DatastoreURL:           selectedDatastore,
-					StorageTopologyType:    storageTopologyType,
-					TopologyRequirement:    topologyRequirement,
-					Vc:                     vc,
-					TopoSegToDatastoresMap: topoSegToDatastoresMap})
-			if err != nil {
-				// If the error is of InvalidTopologyProvisioningError type, it means we cannot
-				// recover from this error with a retry, so cleanup the volume created above.
-				if _, ok := err.(*common.InvalidTopologyProvisioningError); ok {
-					log.Errorf("Encountered error after creating volume. Cleaning up...")
-					// Delete the CnsVolumeOperationRequest created for CreateVolume call above.
-					deleteOpReqError := operationStore.DeleteRequestDetails(ctx, req.Name)
-					if deleteOpReqError != nil {
-						log.Warnf("failed to cleanup CnsVolumeOperationRequest instance before erroring "+
-							"out. Error received: %+v", deleteOpReqError)
-					} else {
-						// As the CnsVolumeOperationRequest for this CreateVolume call is deleted
-						// successfully, we can go ahead and delete the volume created above.
-						_, deleteVolumeError := common.DeleteVolumeUtil(ctx, c.manager.VolumeManager,
-							volumeInfo.VolumeID.Id, true)
-						if deleteVolumeError != nil {
-							// This is a best effort deletion. We do not propagate the delete volume error to K8s.
-							// NOTE: This might leave behind an orphan volume.
-							log.Warnf("failed to delete volume: %q while cleaning up after CreateVolume failure. "+
-								"Error: %+v", volumeInfo.VolumeID.Id, deleteVolumeError)
-						}
 					}
+					querySelection := cnstypes.CnsQuerySelection{
+						Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
+					}
+					queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection,
+						true)
+					if err != nil || queryResult == nil || len(queryResult.Volumes) != 1 {
+						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+							"failed to find the datastore on which volume %q is provisioned. Error: %+v",
+							volumeInfo.VolumeID.Id, err)
+					}
+					selectedDatastore = queryResult.Volumes[0].DatastoreUrl
+				}
+
+				// Calculate accessible topology for the provisioned volume.
+				datastoreAccessibleTopology, err := c.topologyMgr.GetTopologyInfoFromNodes(ctx,
+					commoncotypes.WCPRetrieveTopologyInfoParams{
+						DatastoreURL:           selectedDatastore,
+						StorageTopologyType:    storageTopologyType,
+						TopologyRequirement:    topologyRequirement,
+						Vc:                     vc,
+						TopoSegToDatastoresMap: topoSegToDatastoresMap})
+				if err != nil {
+					// If the error is of InvalidTopologyProvisioningError type, it means we cannot
+					// recover from this error with a retry, so cleanup the volume created above.
+					if _, ok := err.(*common.InvalidTopologyProvisioningError); ok {
+						log.Errorf("Encountered error after creating volume. Cleaning up...")
+						// Delete the CnsVolumeOperationRequest created for CreateVolume call above.
+						deleteOpReqError := operationStore.DeleteRequestDetails(ctx, req.Name)
+						if deleteOpReqError != nil {
+							log.Warnf("failed to cleanup CnsVolumeOperationRequest instance before erroring "+
+								"out. Error received: %+v", deleteOpReqError)
+						} else {
+							// As the CnsVolumeOperationRequest for this CreateVolume call is deleted
+							// successfully, we can go ahead and delete the volume created above.
+							_, deleteVolumeError := common.DeleteVolumeUtil(ctx, c.manager.VolumeManager,
+								volumeInfo.VolumeID.Id, true)
+							if deleteVolumeError != nil {
+								// This is a best effort deletion. We do not propagate the delete volume error to K8s.
+								// NOTE: This might leave behind an orphan volume.
+								log.Warnf("failed to delete volume: %q while cleaning up after CreateVolume failure. "+
+									"Error: %+v", volumeInfo.VolumeID.Id, deleteVolumeError)
+							}
+						}
+						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+							"encountered an error while fetching accessible topologies for volume %q. Error: %+v",
+							volumeInfo.VolumeID.Id, err)
+					}
+					// If error is not of InvalidTopologyProvisioningError type, do not delete volume created as idempotency
+					// feature will ensure we retry with the same volume.
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"encountered an error while fetching accessible topologies for volume %q. Error: %+v",
+						"failed to find accessible topologies for volume %q. Error: %+v",
 						volumeInfo.VolumeID.Id, err)
 				}
-				// If error is not of InvalidTopologyProvisioningError type, do not delete volume created as idempotency
-				// feature will ensure we retry with the same volume.
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to find accessible topologies for volume %q. Error: %+v",
-					volumeInfo.VolumeID.Id, err)
-			}
 
-			// Add topology segments to the CreateVolumeResponse.
-			for _, topoSegments := range datastoreAccessibleTopology {
-				volumeTopology := &csi.Topology{
-					Segments: topoSegments,
+				// Add topology segments to the CreateVolumeResponse.
+				for _, topoSegments := range datastoreAccessibleTopology {
+					volumeTopology := &csi.Topology{
+						Segments: topoSegments,
+					}
+					resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 				}
-				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 			}
 		}
 	} else {
@@ -920,12 +948,15 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		storageTopologyType  string
 		topologyRequirement  *csi.TopologyRequirement
 		candidateDatastores  []*cnsvsphere.DatastoreInfo
+		vSphereClusterMorefs []string
 		hostnameLabelPresent bool
 		zoneLabelPresent     bool
 		err                  error
 		volumeInfo           *cnsvolume.CnsVolumeInfo
 		faultType            string
 	)
+	isMultipleClustersPerVsphereZoneEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.MultipleClustersPerVsphereZone)
 	topologyRequirement = req.AccessibilityRequirements
 	// Volume Size - Default is 10 GiB.
 	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
@@ -983,43 +1014,57 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
 					"topology manager not initialized.")
 			}
-			// Initiate TKGs HA workflow when the topology requirement contains zone labels only.
-			log.Infof("Topology aware environment detected with requirement: %+v", topologyRequirement)
-			sharedDatastores, err := c.topologyMgr.GetSharedDatastoresInTopology(ctx,
-				commoncotypes.WCPTopologyFetchDSParams{
-					TopologyRequirement:    topologyRequirement,
-					Vc:                     vc,
-					TopoSegToDatastoresMap: topoSegToDatastoresMap})
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to find shared datastores for given topology requirement. Error: %v", err)
-			}
-			// Fetch all vSAN datastores in vCenter
-			datacenters, err := vc.ListDatacenters(ctx)
-			if err != nil {
-				log.Errorf("failed to find datacenters from vCenter: %q, Error: %+v", vc.Config.Host, err)
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-					"failed to find datacenters from vCenter")
-			}
-			// Get all vSAN datastores from VC.
-			vsanDsURLToInfoMap, err := vc.GetVsanDatastores(ctx, datacenters)
-			if err != nil {
-				log.Errorf("failed to get vSAN datastores for vCenter %q, error %+v", vc.Config.Host, err)
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-					"failed to get vSAN datacenters from vCenter")
-			}
-			// Return empty map if no vSAN datastores are found.
-			if len(vsanDsURLToInfoMap) == 0 {
-				log.Infof("No vSAN datastores found for vCenter %q", vc.Config.Host)
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-					"no vSAN datastores found to create file volume")
-			}
-			// Filter vSAN datastores from shared datastores for given topology requirements
-			for _, sharedDSInfo := range sharedDatastores {
-				for _, vSANDSInfo := range vsanDsURLToInfoMap {
-					if sharedDSInfo.Info.Url == vSANDSInfo.Info.Url {
-						log.Debugf("Adding datastore %q to filtered datastores", vSANDSInfo.Info.Url)
-						candidateDatastores = append(candidateDatastores, vSANDSInfo)
+			if isMultipleClustersPerVsphereZoneEnabled {
+				log.Infof("MultipleClustersPerVsphereZone capability is enabled. Skipping to find candidate " +
+					"datastores for volume provisioning.")
+				pvcNamespace := req.Parameters[common.AttributePvcNamespace]
+				zones := GetZonesFromAccessibilityRequirements(req.AccessibilityRequirements)
+				vSphereClusterMorefs, err = commonco.ContainerOrchestratorUtility.
+					GetActiveClustersForNamespaceInRequestedZones(ctx, pvcNamespace, zones)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to find active clusters for the namespace: %q, err :%v", pvcNamespace, err)
+				}
+				log.Infof("Active vSphere clusters: %v for the namespace: %q", vSphereClusterMorefs, pvcNamespace)
+			} else {
+				// Initiate TKGs HA workflow when the topology requirement contains zone labels only.
+				log.Infof("Topology aware environment detected with requirement: %+v", topologyRequirement)
+				sharedDatastores, err := c.topologyMgr.GetSharedDatastoresInTopology(ctx,
+					commoncotypes.WCPTopologyFetchDSParams{
+						TopologyRequirement:    topologyRequirement,
+						Vc:                     vc,
+						TopoSegToDatastoresMap: topoSegToDatastoresMap})
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to find shared datastores for given topology requirement. Error: %v", err)
+				}
+				// Fetch all vSAN datastores in vCenter
+				datacenters, err := vc.ListDatacenters(ctx)
+				if err != nil {
+					log.Errorf("failed to find datacenters from vCenter: %q, Error: %+v", vc.Config.Host, err)
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+						"failed to find datacenters from vCenter")
+				}
+				// Get all vSAN datastores from VC.
+				vsanDsURLToInfoMap, err := vc.GetVsanDatastores(ctx, datacenters)
+				if err != nil {
+					log.Errorf("failed to get vSAN datastores for vCenter %q, error %+v", vc.Config.Host, err)
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+						"failed to get vSAN datacenters from vCenter")
+				}
+				// Return empty map if no vSAN datastores are found.
+				if len(vsanDsURLToInfoMap) == 0 {
+					log.Infof("No vSAN datastores found for vCenter %q", vc.Config.Host)
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
+						"no vSAN datastores found to create file volume")
+				}
+				// Filter vSAN datastores from shared datastores for given topology requirements
+				for _, sharedDSInfo := range sharedDatastores {
+					for _, vSANDSInfo := range vsanDsURLToInfoMap {
+						if sharedDSInfo.Info.Url == vSANDSInfo.Info.Url {
+							log.Debugf("Adding datastore %q to filtered datastores", vSANDSInfo.Info.Url)
+							candidateDatastores = append(candidateDatastores, vSANDSInfo)
+						}
 					}
 				}
 			}
@@ -1070,7 +1115,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 
 	if isPodVMOnStretchSupervisorFSSEnabled {
 		volumeInfo, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, vc,
-			c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec, candidateDatastores,
+			c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec, candidateDatastores, vSphereClusterMorefs,
 			filterSuspendedDatastores, isTKGSHAEnabled, &cnsvolume.CreateVolumeExtraParams{
 				VolSizeBytes:                         volSizeBytes,
 				StorageClassName:                     req.Parameters[common.AttributeStorageClassName],
@@ -1079,7 +1124,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			})
 	} else {
 		volumeInfo, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, vc,
-			c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec, candidateDatastores,
+			c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec, candidateDatastores, []string{},
 			filterSuspendedDatastores, isTKGSHAEnabled, nil)
 	}
 	if err != nil {
@@ -1106,56 +1151,62 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	// Calculate accessible topology for the provisioned volume in case of topology aware environment.
 	if isWorkloadDomainIsolationEnabled {
 		if zoneLabelPresent {
-			// Note: with Workload domain isolation feature enabled, volumeInfo will always
-			// 			return URL of the datastore that volume is allocated on.
-			selectedDatastore := volumeInfo.DatastoreURL
-			// Calculate accessible topology for the provisioned volume.
-			datastoreAccessibleTopology, err := c.topologyMgr.GetTopologyInfoFromNodes(ctx,
-				commoncotypes.WCPRetrieveTopologyInfoParams{
-					DatastoreURL:           selectedDatastore,
-					StorageTopologyType:    storageTopologyType,
-					TopologyRequirement:    topologyRequirement,
-					Vc:                     vc,
-					TopoSegToDatastoresMap: topoSegToDatastoresMap})
-			if err != nil {
-				// If the error is of InvalidTopologyProvisioningError type, it means we cannot
-				// recover from this error with a retry, so cleanup the volume created above.
-				if _, ok := err.(*common.InvalidTopologyProvisioningError); ok {
-					log.Errorf("Encountered error after creating volume. Cleaning up...")
-					// Delete the CnsVolumeOperationRequest created for CreateVolume call above.
-					deleteOpReqError := operationStore.DeleteRequestDetails(ctx, req.Name)
-					if deleteOpReqError != nil {
-						log.Warnf("failed to cleanup CnsVolumeOperationRequest instance before erroring "+
-							"out. Error received: %+v", deleteOpReqError)
-					} else {
-						// As the CnsVolumeOperationRequest for this CreateVolume call is deleted
-						// successfully, we can go ahead and delete the volume created above.
-						_, deleteVolumeError := common.DeleteVolumeUtil(ctx, c.manager.VolumeManager,
-							volumeInfo.VolumeID.Id, true)
-						if deleteVolumeError != nil {
-							// This is a best effort deletion. We do not propagate the delete volume error to K8s.
-							// NOTE: This might leave behind an orphan volume.
-							log.Warnf("failed to delete volume: %q while cleaning up after CreateVolume failure. "+
-								"Error: %+v", volumeInfo.VolumeID.Id, deleteVolumeError)
+			if isMultipleClustersPerVsphereZoneEnabled && len(volumeInfo.Clusters) > 0 {
+				// Calculate Volume Accessible Topology from Clusters returned in CreateVolume Response
+				azClusterMap := c.topologyMgr.GetAZClustersMap(ctx)
+				resp.Volume.AccessibleTopology = GetAccessibleTopologies(volumeInfo.Clusters, azClusterMap)
+			} else {
+				// Note: with Workload domain isolation feature enabled, volumeInfo will always
+				// 			return URL of the datastore that volume is allocated on.
+				selectedDatastore := volumeInfo.DatastoreURL
+				// Calculate accessible topology for the provisioned volume.
+				datastoreAccessibleTopology, err := c.topologyMgr.GetTopologyInfoFromNodes(ctx,
+					commoncotypes.WCPRetrieveTopologyInfoParams{
+						DatastoreURL:           selectedDatastore,
+						StorageTopologyType:    storageTopologyType,
+						TopologyRequirement:    topologyRequirement,
+						Vc:                     vc,
+						TopoSegToDatastoresMap: topoSegToDatastoresMap})
+				if err != nil {
+					// If the error is of InvalidTopologyProvisioningError type, it means we cannot
+					// recover from this error with a retry, so cleanup the volume created above.
+					if _, ok := err.(*common.InvalidTopologyProvisioningError); ok {
+						log.Errorf("Encountered error after creating volume. Cleaning up...")
+						// Delete the CnsVolumeOperationRequest created for CreateVolume call above.
+						deleteOpReqError := operationStore.DeleteRequestDetails(ctx, req.Name)
+						if deleteOpReqError != nil {
+							log.Warnf("failed to cleanup CnsVolumeOperationRequest instance before erroring "+
+								"out. Error received: %+v", deleteOpReqError)
+						} else {
+							// As the CnsVolumeOperationRequest for this CreateVolume call is deleted
+							// successfully, we can go ahead and delete the volume created above.
+							_, deleteVolumeError := common.DeleteVolumeUtil(ctx, c.manager.VolumeManager,
+								volumeInfo.VolumeID.Id, true)
+							if deleteVolumeError != nil {
+								// This is a best effort deletion. We do not propagate the delete volume error to K8s.
+								// NOTE: This might leave behind an orphan volume.
+								log.Warnf("failed to delete volume: %q while cleaning up after CreateVolume failure. "+
+									"Error: %+v", volumeInfo.VolumeID.Id, deleteVolumeError)
+							}
 						}
+						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+							"encountered an error while fetching accessible topologies for volume %q. Error: %+v",
+							volumeInfo.VolumeID.Id, err)
 					}
+					// If error is not of InvalidTopologyProvisioningError type, do not delete volume created as idempotency
+					// feature will ensure we retry with the same volume.
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"encountered an error while fetching accessible topologies for volume %q. Error: %+v",
+						"failed to find accessible topologies for volume %q. Error: %+v",
 						volumeInfo.VolumeID.Id, err)
 				}
-				// If error is not of InvalidTopologyProvisioningError type, do not delete volume created as idempotency
-				// feature will ensure we retry with the same volume.
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to find accessible topologies for volume %q. Error: %+v",
-					volumeInfo.VolumeID.Id, err)
-			}
 
-			// Add topology segments to the CreateVolumeResponse.
-			for _, topoSegments := range datastoreAccessibleTopology {
-				volumeTopology := &csi.Topology{
-					Segments: topoSegments,
+				// Add topology segments to the CreateVolumeResponse.
+				for _, topoSegments := range datastoreAccessibleTopology {
+					volumeTopology := &csi.Topology{
+						Segments: topoSegments,
+					}
+					resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 				}
-				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 			}
 		}
 	}

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -507,6 +508,21 @@ func (volTopology *wcpControllerVolumeTopology) GetAZClustersMap(ctx context.Con
 // GetAZClustersMap returns the zone to clusterMorefs map from the azClustersMap.
 func (volTopology *controllerVolumeTopology) GetAZClustersMap(ctx context.Context) map[string][]string {
 	return nil
+}
+
+// ZonesWithMultipleClustersExist returns true if zone has more than 1 cluster
+func (volTopology *wcpControllerVolumeTopology) ZonesWithMultipleClustersExist(ctx context.Context) bool {
+	for _, clusters := range volTopology.GetAZClustersMap(ctx) {
+		if len(clusters) > 1 {
+			return true
+		}
+	}
+	return false
+}
+
+// ZonesWithMultipleClustersExist returns true if zone has more than 1 cluster
+func (volTopology *controllerVolumeTopology) ZonesWithMultipleClustersExist(ctx context.Context) bool {
+	return false
 }
 
 // startTopologyCRInformer creates and starts an informer for CSINodeTopology custom resource.
@@ -1824,4 +1840,33 @@ func (c *K8sOrchestrator) GetZonesForNamespace(targetNS string) map[string]struc
 		}
 	}
 	return zonesMap
+}
+
+// GetActiveClustersForNamespaceInRequestedZones fetches the active clusters from the zones associated with a namespace
+// for requested zone
+func (c *K8sOrchestrator) GetActiveClustersForNamespaceInRequestedZones(ctx context.Context,
+	targetNS string, requestedZones []string) ([]string, error) {
+	log := logger.GetLogger(ctx)
+	var activeClusters []string
+	// Get zones instances from the informer store.
+	zones := zoneInformer.GetStore()
+	for _, zoneObj := range zones.List() {
+		// Only consider zones in targetNS.
+		zoneObjUnstructured := zoneObj.(*unstructured.Unstructured)
+		if zoneObjUnstructured.GetNamespace() != targetNS && !slices.Contains(requestedZones, zoneObjUnstructured.GetName()) {
+			continue
+		}
+		// Only get active clusters from zones without a deletion timestamp.
+		if zoneObjUnstructured.GetDeletionTimestamp() == nil {
+			clusters, _, err := unstructured.NestedStringSlice(zoneObjUnstructured.Object,
+				"spec", "namespace", "clusterMoIDs")
+			if err != nil {
+				log.Errorf("failed to get clusterMoIDs from zone instance :%q. err :%v",
+					zoneObj.(*unstructured.Unstructured).GetName)
+				return nil, err
+			}
+			activeClusters = append(activeClusters, clusters...)
+		}
+	}
+	return activeClusters, nil
 }
