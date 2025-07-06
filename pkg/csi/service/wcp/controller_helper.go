@@ -897,7 +897,56 @@ func getPodVMUUID(ctx context.Context, volumeID, nodeName string) (string, error
 			}
 		}
 	}
-
 	return "", logger.LogNewErrorCodef(log, codes.NotFound,
 		"failed to find pod for pvc %q in the namespace %q", pvcName, pvcNamespace)
+}
+
+// GetAccessibleTopologies returns a list of CSI topology segments based on the clusters where the volume is accessible.
+func GetAccessibleTopologies(volumeClusters []vimtypes.ManagedObjectReference,
+	azClusterMap map[string][]string) []*csi.Topology {
+	zoneSet := make(map[string]struct{})
+	for _, clusterRef := range volumeClusters {
+		for zone, clusters := range azClusterMap {
+			for _, azCluster := range clusters {
+				if azCluster == clusterRef.Value {
+					zoneSet[zone] = struct{}{}
+					break
+				}
+			}
+		}
+	}
+	var topologies []*csi.Topology
+	for zone := range zoneSet {
+		topologies = append(topologies, &csi.Topology{
+			Segments: map[string]string{
+				v1.LabelTopologyZone: zone,
+			},
+		})
+	}
+	return topologies
+}
+
+// GetZonesFromAccessibilityRequirements returns zones from the supplied topologyRequirement received in the
+// CreateVolume Request
+func GetZonesFromAccessibilityRequirements(ctx context.Context,
+	topologyRequirement *csi.TopologyRequirement) ([]string, error) {
+	log := logger.GetLogger(ctx)
+	if topologyRequirement == nil {
+		return nil, fmt.Errorf("topologyRequirement can't we nil")
+	}
+	zoneKey := "topology.kubernetes.io/zone"
+	var zones []string
+	// Process Preferred topologies
+	// We use external provisioner with --strict-topology
+	// for strict-topology Requisite = Preferred = Selected node topology
+	// so only traversing Preferred topologyRequirement
+	for _, topology := range topologyRequirement.Preferred {
+		if zone, ok := topology.Segments[zoneKey]; ok {
+			zones = append(zones, zone)
+		}
+	}
+	if len(zones) == 0 {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal, "failed to retrieve zones for e nil")
+	}
+	return zones, nil
 }
