@@ -119,7 +119,6 @@ func ListVirtualMachines(ctx context.Context, clt client.Client,
 		vmList.Items = append(vmList.Items, vmAlpha4List.Items...)
 	default:
 		// XXX: This should ideally never happen.
-		log.Errorf("Unsupported version: %s. Something is fishy...", version)
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"Unsupported version: %s. Something is fishy...", version)
 	}
@@ -136,7 +135,7 @@ func GetVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 	vmKey types.NamespacedName) (*vmoperatorv1alpha4.VirtualMachine, string, error) {
 	log := logger.GetLogger(ctx)
 
-	version, err := kubernetes.GetLatestCRDVersion(ctx, virtualMachineCRDName)
+	version, err := getLatestCRDVersion(ctx, virtualMachineCRDName)
 	if err != nil {
 		log.Errorf("failed to get latest CRD version for %s: %s", virtualMachineCRDName, err)
 		return nil, "", err
@@ -195,7 +194,6 @@ func GetVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 			return nil, "", err
 		}
 	default:
-		log.Errorf("Unsupported version: %s. Something is fishy...", version)
 		return nil, "", logger.LogNewErrorCodef(log, codes.Internal,
 			"Unsupported version: %s. Something is fishy...", version)
 	}
@@ -434,69 +432,6 @@ func QueryAllVolumesForCluster(ctx context.Context, m cnsvolume.Manager, cluster
 	return queryAllResult, nil
 }
 
-func GetVirtualMachineAllApiVersions(ctx context.Context, vmKey types.NamespacedName,
-	vmOperatorClient client.Client) (*vmoperatorv1alpha4.VirtualMachine, string, error) {
-	log := logger.GetLogger(ctx)
-	apiVersion := vmOperatorApiVersionPrefix + "/v1alpha4"
-	vmV1alpha1 := &vmoperatorv1alpha1.VirtualMachine{}
-	vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}
-	vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}
-	vmV1alpha4 := &vmoperatorv1alpha4.VirtualMachine{}
-	var err error
-	log.Infof("get machine with vm-operator api version v1alpha4 name: %s, namespace: %s",
-		vmKey.Name, vmKey.Namespace)
-	err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha4)
-	if err != nil && isKindNotFound(err.Error()) {
-		log.Warnf("failed to get VirtualMachines. %s", err.Error())
-		err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha3)
-		if err != nil && isKindNotFound(err.Error()) {
-			log.Warnf("failed to get VirtualMachines. %s", err.Error())
-			err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha2)
-			if err != nil && isKindNotFound(err.Error()) {
-				log.Warnf("failed to get VirtualMachines. %s", err.Error())
-				err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha1)
-				if err != nil && isKindNotFound(err.Error()) {
-					log.Warnf("failed to get VirtualMachines. %s", err.Error())
-				} else if err == nil {
-					log.Debugf("GetVirtualMachineAllApiVersions: converting v1alpha1 VirtualMachine "+
-						"to v1alpha4 VirtualMachine, name %s", vmV1alpha1.Name)
-					apiVersion = vmOperatorApiVersionPrefix + "/v1alpha1"
-					err = vmoperatorv1alpha1.Convert_v1alpha1_VirtualMachine_To_v1alpha4_VirtualMachine(
-						vmV1alpha1, vmV1alpha4, nil)
-					if err != nil {
-						return nil, apiVersion, err
-					}
-				}
-			} else if err == nil {
-				log.Debugf("GetVirtualMachineAllApiVersions: converting v1alpha2 VirtualMachine "+
-					"to v1alpha4 VirtualMachine, name %s", vmV1alpha2.Name)
-				apiVersion = vmOperatorApiVersionPrefix + "/v1alpha2"
-				err = vmoperatorv1alpha2.Convert_v1alpha2_VirtualMachine_To_v1alpha4_VirtualMachine(
-					vmV1alpha2, vmV1alpha4, nil)
-				if err != nil {
-					return nil, apiVersion, err
-				}
-			}
-		} else if err == nil {
-			log.Debugf("GetVirtualMachineAllApiVersions: converting v1alpha3 VirtualMachine "+
-				"to v1alpha4 VirtualMachine, name %s", vmV1alpha3.Name)
-			apiVersion = vmOperatorApiVersionPrefix + "/v1alpha3"
-			err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachine_To_v1alpha4_VirtualMachine(
-				vmV1alpha3, vmV1alpha4, nil)
-			if err != nil {
-				return nil, apiVersion, err
-			}
-		}
-	}
-	if err != nil {
-		log.Errorf("GetVirtualMachineAllApiVersions: failed to get VirtualMachine "+
-			"with name %s and namespace %s, error %v", vmKey.Name, vmKey.Namespace, err)
-		return nil, apiVersion, err
-	}
-	log.Infof("successfully fetched the virtual machines with name %s and namespace %s",
-		vmKey.Name, vmKey.Namespace)
-	return vmV1alpha4, apiVersion, nil
-}
 func isKindNotFound(errMsg string) bool {
 	return strings.Contains(errMsg, "no matches for kind") || strings.Contains(errMsg, "no kind is registered")
 }

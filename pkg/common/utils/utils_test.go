@@ -21,6 +21,7 @@ import (
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -580,6 +581,348 @@ func TestListVirtualMachines(t *testing.T) {
 	})
 }
 
+func TestGetVirtualMachine(t *testing.T) {
+	getLatestCRDVersionOriginal := getLatestCRDVersion
+	defer func() {
+		getLatestCRDVersion = getLatestCRDVersionOriginal
+	}()
+
+	t.Run("WhenRetrievingCRDVersionFails", func(tt *testing.T) {
+		// Setup
+		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
+			return "", fmt.Errorf("CRD version not available")
+		}
+
+		// Execute
+		_, _, err := GetVirtualMachine(context.Background(), fake.NewFakeClient(), k8stypes.NamespacedName{})
+
+		// Assert
+		assert.NotNil(tt, err)
+	})
+
+	t.Run("WhenLatestCRDVersionIsV1Alpha1", func(tt *testing.T) {
+		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
+			return "v1alpha1", nil
+		}
+
+		tt.Run("WhenGetFails", func(t *testing.T) {
+			// Setup
+			clientBuilder := fake.NewClientBuilder()
+			clientBuilder.WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					return fmt.Errorf("failing get for testing purposes")
+				},
+			})
+
+			// Execute
+			_, _, err := GetVirtualMachine(context.Background(), clientBuilder.Build(), k8stypes.NamespacedName{})
+
+			// Assert
+			assert.NotNil(t, err)
+		})
+
+		tt.Run("WhenGetSucceeds", func(t *testing.T) {
+			// Setup
+			namespace := &v1.Namespace{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Namespace",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "namespace",
+				},
+				Spec: v1.NamespaceSpec{
+					Finalizers: []v1.FinalizerName{
+						v1.FinalizerKubernetes,
+					},
+				},
+				Status: v1.NamespaceStatus{
+					Phase: v1.NamespaceActive,
+				},
+			}
+			vm := &vmoperatorv1alpha1.VirtualMachine{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "VirtualMachine",
+					APIVersion: "vmoperator.vmware.com/v1alpha1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm1",
+					Namespace: namespace.Name,
+				},
+			}
+			clientBuilder := fake.NewClientBuilder()
+			scheme := runtime.NewScheme()
+			clientBuilder = registerSchemes(context.Background(), clientBuilder, scheme, runtime.SchemeBuilder{
+				v1.AddToScheme,
+				vmoperatorv1alpha1.AddToScheme,
+			})
+			clientBuilder.WithRuntimeObjects(namespace, vm)
+			exp, expVersion := &vmoperatorv1alpha4.VirtualMachine{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       vm.Kind,
+					APIVersion: vm.APIVersion,
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      vm.Name,
+					Namespace: vm.Namespace,
+				},
+			}, vmOperatorApiVersionPrefix+"/v1alpha1"
+
+			// Execute
+			actual, version, err := GetVirtualMachine(context.Background(), clientBuilder.Build(), k8stypes.NamespacedName{
+				Name:      exp.Name,
+				Namespace: exp.Namespace,
+			})
+
+			// Assert
+			assert.Nil(t, err)
+			assert.True(t, compareVirtualMachines(*exp, *actual))
+			assert.Equal(t, expVersion, version)
+		})
+	})
+
+	t.Run("WhenLatestCRDVersionIsV1Alpha2", func(tt *testing.T) {
+		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
+			return "v1alpha2", nil
+		}
+
+		tt.Run("WhenGetFails", func(ttt *testing.T) {
+			// Setup
+			clientBuilder := fake.NewClientBuilder()
+			clientBuilder.WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					return fmt.Errorf("failing get for testing purposes")
+				},
+			})
+
+			// Execute
+			_, _, err := GetVirtualMachine(context.Background(), clientBuilder.Build(), k8stypes.NamespacedName{})
+
+			// Assert
+			assert.NotNil(ttt, err)
+		})
+
+		tt.Run("WhenGetSucceeds", func(t *testing.T) {
+			// Setup
+			namespace := &v1.Namespace{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Namespace",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "namespace",
+				},
+				Spec: v1.NamespaceSpec{
+					Finalizers: []v1.FinalizerName{
+						v1.FinalizerKubernetes,
+					},
+				},
+				Status: v1.NamespaceStatus{
+					Phase: v1.NamespaceActive,
+				},
+			}
+			vm := &vmoperatorv1alpha2.VirtualMachine{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "VirtualMachine",
+					APIVersion: "vmoperator.vmware.com/v1alpha2",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm1",
+					Namespace: namespace.Name,
+				},
+			}
+			clientBuilder := fake.NewClientBuilder()
+			scheme := runtime.NewScheme()
+			clientBuilder = registerSchemes(context.Background(), clientBuilder, scheme, runtime.SchemeBuilder{
+				v1.AddToScheme,
+				vmoperatorv1alpha2.AddToScheme,
+			})
+			clientBuilder.WithRuntimeObjects(namespace, vm)
+			exp, expVersion := &vmoperatorv1alpha4.VirtualMachine{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       vm.Kind,
+					APIVersion: vm.APIVersion,
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      vm.Name,
+					Namespace: vm.Namespace,
+				},
+			}, vmOperatorApiVersionPrefix+"/v1alpha2"
+
+			// Execute
+			actual, version, err := GetVirtualMachine(context.Background(), clientBuilder.Build(), k8stypes.NamespacedName{
+				Name:      exp.Name,
+				Namespace: exp.Namespace,
+			})
+
+			// Assert
+			assert.Nil(t, err)
+			assert.True(t, compareVirtualMachines(*exp, *actual))
+			assert.Equal(t, expVersion, version)
+		})
+	})
+
+	t.Run("WhenLatestCRDVersionIsV1Alpha3", func(tt *testing.T) {
+		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
+			return "v1alpha3", nil
+		}
+
+		tt.Run("WhenGetFails", func(ttt *testing.T) {
+			// Setup
+			clientBuilder := fake.NewClientBuilder()
+			clientBuilder.WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					return fmt.Errorf("failing get for testing purposes")
+				},
+			})
+
+			// Execute
+			_, _, err := GetVirtualMachine(context.Background(), clientBuilder.Build(), k8stypes.NamespacedName{})
+
+			// Assert
+			assert.NotNil(ttt, err)
+		})
+
+		tt.Run("WhenGetSucceeds", func(t *testing.T) {
+			// Setup
+			namespace := &v1.Namespace{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Namespace",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "namespace",
+				},
+				Spec: v1.NamespaceSpec{
+					Finalizers: []v1.FinalizerName{
+						v1.FinalizerKubernetes,
+					},
+				},
+				Status: v1.NamespaceStatus{
+					Phase: v1.NamespaceActive,
+				},
+			}
+			vm := &vmoperatorv1alpha3.VirtualMachine{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "VirtualMachine",
+					APIVersion: "vmoperator.vmware.com/v1alpha3",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm1",
+					Namespace: namespace.Name,
+				},
+			}
+			clientBuilder := fake.NewClientBuilder()
+			scheme := runtime.NewScheme()
+			clientBuilder = registerSchemes(context.Background(), clientBuilder, scheme, runtime.SchemeBuilder{
+				v1.AddToScheme,
+				vmoperatorv1alpha3.AddToScheme,
+			})
+			clientBuilder.WithRuntimeObjects(namespace, vm)
+			exp, expVersion := &vmoperatorv1alpha4.VirtualMachine{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       vm.Kind,
+					APIVersion: vm.APIVersion,
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      vm.Name,
+					Namespace: vm.Namespace,
+				},
+			}, vmOperatorApiVersionPrefix+"/v1alpha3"
+
+			// Execute
+			actual, version, err := GetVirtualMachine(context.Background(), clientBuilder.Build(), k8stypes.NamespacedName{
+				Name:      exp.Name,
+				Namespace: exp.Namespace,
+			})
+
+			// Assert
+			assert.Nil(t, err)
+			assert.True(t, compareVirtualMachines(*exp, *actual))
+			assert.Equal(t, expVersion, version)
+		})
+	})
+
+	t.Run("WhenLatestCRDVersionIsV1Alpha4", func(tt *testing.T) {
+		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
+			return "v1alpha4", nil
+		}
+		tt.Run("WhenGetFails", func(ttt *testing.T) {
+			// Setup
+			clientBuilder := fake.NewClientBuilder()
+			clientBuilder.WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					return fmt.Errorf("failing get for testing purposes")
+				},
+			})
+
+			// Execute
+			_, _, err := GetVirtualMachine(context.Background(), clientBuilder.Build(), k8stypes.NamespacedName{})
+
+			// Assert
+			assert.NotNil(ttt, err)
+		})
+		tt.Run("WhenGetSucceeds", func(t *testing.T) {
+			// Setup
+			namespace := &v1.Namespace{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Namespace",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "namespace",
+				},
+				Spec: v1.NamespaceSpec{
+					Finalizers: []v1.FinalizerName{
+						v1.FinalizerKubernetes,
+					},
+				},
+				Status: v1.NamespaceStatus{
+					Phase: v1.NamespaceActive,
+				},
+			}
+			vm := &vmoperatorv1alpha4.VirtualMachine{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "VirtualMachine",
+					APIVersion: "vmoperator.vmware.com/v1alpha4",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm1",
+					Namespace: namespace.Name,
+				},
+			}
+			clientBuilder := fake.NewClientBuilder()
+			scheme := runtime.NewScheme()
+			clientBuilder = registerSchemes(context.Background(), clientBuilder, scheme, runtime.SchemeBuilder{
+				v1.AddToScheme,
+				vmoperatorv1alpha4.AddToScheme,
+			})
+			clientBuilder.WithRuntimeObjects(namespace, vm)
+			exp := vm
+
+			// Execute
+			actual, _, err := GetVirtualMachine(context.Background(), clientBuilder.Build(), k8stypes.NamespacedName{
+				Name:      exp.Name,
+				Namespace: exp.Namespace,
+			})
+
+			// Assert
+			assert.Nil(t, err)
+			assert.True(t, compareVirtualMachines(*exp, *actual), "Expected and actual VirtualMachine objects do not match")
+		})
+	})
+
+	t.Run("WhenLatestCRDVersionIsInvalid", func(tt *testing.T) {
+		// Setup
+		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
+			return "invalid", nil
+		}
+
+		// Execute
+		_, _, err := GetVirtualMachine(context.Background(), fake.NewFakeClient(), k8stypes.NamespacedName{})
+
+		// Assert
+		assert.NotNil(tt, err)
+		assert.Contains(tt, err.Error(), "Unsupported version")
+	})
+}
+
 func registerSchemes(ctx context.Context, clientBuilder *fake.ClientBuilder, scheme *runtime.Scheme,
 	schemeBuilder runtime.SchemeBuilder) *fake.ClientBuilder {
 	l := logger.GetLogger(ctx)
@@ -612,4 +955,9 @@ func compareVirtualMachineLists(exp, actual vmoperatorv1alpha4.VirtualMachineLis
 	}
 
 	return true
+}
+
+func compareVirtualMachines(exp, actual vmoperatorv1alpha4.VirtualMachine) bool {
+	return exp.Name == actual.Name &&
+		exp.Namespace == actual.Namespace
 }
