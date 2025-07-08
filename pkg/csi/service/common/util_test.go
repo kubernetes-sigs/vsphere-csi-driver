@@ -367,42 +367,7 @@ func isStorageClassParamsEqual(expected *StorageClassParams, actual *StorageClas
 	return true
 }
 
-func TestParseStorageClassParamsWithDeprecatedFSType(t *testing.T) {
-	params := map[string]string{
-		"fstype": "ext4",
-	}
-	expectedScParams := &StorageClassParams{}
-	csiMigrationFeatureState := false
-	actualScParams, err := ParseStorageClassParams(ctx, params, csiMigrationFeatureState)
-	if err != nil {
-		t.Errorf("failed to parse params: %+v", params)
-	}
-	if !isStorageClassParamsEqual(expectedScParams, actualScParams) {
-		t.Errorf("Expected: %+v\n Actual: %+v", expectedScParams, actualScParams)
-	}
-}
-
-func TestParseStorageClassParamsWithValidParams(t *testing.T) {
-	params := map[string]string{
-		AttributeDatastoreURL:      "ds1",
-		AttributeStoragePolicyName: "policy1",
-	}
-	expectedScParams := &StorageClassParams{
-		DatastoreURL:      "ds1",
-		StoragePolicyName: "policy1",
-	}
-	csiMigrationFeatureState := false
-	actualScParams, err := ParseStorageClassParams(ctx, params, csiMigrationFeatureState)
-	if err != nil {
-		t.Errorf("failed to parse params: %+v", params)
-	}
-	if !isStorageClassParamsEqual(expectedScParams, actualScParams) {
-		t.Errorf("Expected: %+v\n Actual: %+v", expectedScParams, actualScParams)
-	}
-}
-
 func TestParseStorageClassParamsWithMigrationEnabledNagative(t *testing.T) {
-	csiMigrationFeatureState := true
 	params := map[string]string{
 		CSIMigrationParams:                   "true",
 		DatastoreMigrationParam:              "vSANDatastore",
@@ -414,7 +379,7 @@ func TestParseStorageClassParamsWithMigrationEnabledNagative(t *testing.T) {
 		ObjectspacereservationMigrationParam: "50",
 		IopslimitMigrationParam:              "16",
 	}
-	scParam, err := ParseStorageClassParams(ctx, params, csiMigrationFeatureState)
+	scParam, err := ParseStorageClassParams(ctx, params)
 	if err == nil {
 		t.Errorf("error expected but not received. scParam received from ParseStorageClassParams: %v", scParam)
 	}
@@ -422,12 +387,11 @@ func TestParseStorageClassParamsWithMigrationEnabledNagative(t *testing.T) {
 }
 
 func TestParseStorageClassParamsWithDiskFormatMigrationEnableNegative(t *testing.T) {
-	csiMigrationFeatureState := true
 	params := map[string]string{
 		CSIMigrationParams:       "true",
 		DiskFormatMigrationParam: "thick",
 	}
-	scParam, err := ParseStorageClassParams(ctx, params, csiMigrationFeatureState)
+	scParam, err := ParseStorageClassParams(ctx, params)
 	if err == nil {
 		t.Errorf("error expected but not received. scParam received from ParseStorageClassParams: %v", scParam)
 	}
@@ -435,7 +399,6 @@ func TestParseStorageClassParamsWithDiskFormatMigrationEnableNegative(t *testing
 }
 
 func TestParseStorageClassParamsWithDiskFormatMigrationEnablePositive(t *testing.T) {
-	csiMigrationFeatureState := true
 	params := map[string]string{
 		CSIMigrationParams:       "true",
 		DiskFormatMigrationParam: "thin",
@@ -443,7 +406,7 @@ func TestParseStorageClassParamsWithDiskFormatMigrationEnablePositive(t *testing
 	expectedScParams := &StorageClassParams{
 		CSIMigration: "true",
 	}
-	scParam, err := ParseStorageClassParams(ctx, params, csiMigrationFeatureState)
+	scParam, err := ParseStorageClassParams(ctx, params)
 	if err != nil {
 		t.Errorf("failed to parse params: %+v, err: %+v", params, err)
 	}
@@ -453,7 +416,6 @@ func TestParseStorageClassParamsWithDiskFormatMigrationEnablePositive(t *testing
 }
 
 func TestParseStorageClassParamsWithMigrationEnabledPositive(t *testing.T) {
-	csiMigrationFeatureState := true
 	params := map[string]string{
 		CSIMigrationParams:         "true",
 		DatastoreMigrationParam:    "vSANDatastore",
@@ -464,28 +426,13 @@ func TestParseStorageClassParamsWithMigrationEnabledPositive(t *testing.T) {
 		StoragePolicyName: "policy1",
 		CSIMigration:      "true",
 	}
-	scParam, err := ParseStorageClassParams(ctx, params, csiMigrationFeatureState)
+	scParam, err := ParseStorageClassParams(ctx, params)
 	if err != nil {
 		t.Errorf("failed to parse params: %+v", params)
 	}
 	if !isStorageClassParamsEqual(expectedScParams, scParam) {
 		t.Errorf("Expected: %+v\n Actual: %+v", expectedScParams, scParam)
 	}
-}
-
-func TestParseStorageClassParamsWithMigrationDisabled(t *testing.T) {
-	csiMigrationFeatureState := false
-	params := map[string]string{
-		CSIMigrationParams:                   "true",
-		DatastoreMigrationParam:              "vSANDatastore",
-		AttributeStoragePolicyName:           "policy1",
-		HostFailuresToTolerateMigrationParam: "1",
-	}
-	scParam, err := ParseStorageClassParams(ctx, params, csiMigrationFeatureState)
-	if err == nil {
-		t.Errorf("error expected but not received. scParam received from ParseStorageClassParams: %v", scParam)
-	}
-	t.Logf("expected err received. err: %v", err)
 }
 
 func TestParseCSISnapshotID(t *testing.T) {
