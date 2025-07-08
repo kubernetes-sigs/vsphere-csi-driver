@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,8 +32,6 @@ import (
 	ccV1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
-	"slices"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
@@ -233,17 +232,31 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		}
 	}
 
-	queryAllResult, err := utils.QueryAllVolumesForCluster(ctx, volManager,
-		metadataSyncer.configInfo.Cfg.Global.ClusterID, cnstypes.CnsQuerySelection{})
-	if err != nil {
-		log.Errorf("FullSync for VC %s: QueryVolume failed with err=%+v", vc, err.Error())
-		return err
+	var queryAllResult *cnstypes.CnsQueryResult
+	if metadataSyncer.configInfo.Cfg.Global.ClusterID != "" {
+		// Cluster ID is removed from vSphere Config Secret post 9.0 release in Supervisor
+		queryAllResult, err = utils.QueryAllVolumesForCluster(ctx, volManager,
+			metadataSyncer.configInfo.Cfg.Global.ClusterID, cnstypes.CnsQuerySelection{})
+		if err != nil {
+			log.Errorf("FullSync for VC %s: QueryVolume failed with err=%+v", vc, err.Error())
+			return err
+		}
+	} else {
+		log.Infof("observed emptry string cluster-id in the vSphere Config secret. " +
+			"Skipping to replace volume metadata with older cluster-id to new supervisor-id")
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
 		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-		// Replace Volume Metadata using old cluster ID and replace with the new SupervisorID
+		// Replace the Cluster-ID in the volume metadata with the new Supervisor-ID.
+		//
+		// Note:
+		// - In vSphere 9.1 and later, this replacement is not required because volume metadata already contains
+		//   the correct Supervisor-ID.
+		// - In vSphere 9.0, the Cluster ID field in the metadata stores the Supervisor-ID. volume metadata created
+		//   before 9.0 has already been updated to use the new Supervisor-ID.
+
 		var volumeIDsWithOldClusterID []cnstypes.CnsVolumeId
-		if len(queryAllResult.Volumes) > 0 {
+		if queryAllResult != nil && len(queryAllResult.Volumes) > 0 {
 			for _, volume := range queryAllResult.Volumes {
 				volumeIDsWithOldClusterID = append(volumeIDsWithOldClusterID, volume.VolumeId)
 			}
