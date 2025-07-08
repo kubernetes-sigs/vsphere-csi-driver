@@ -33,15 +33,173 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 const (
 	// DefaultQuerySnapshotLimit constant is already present in pkg/csi/service/common/constants.go
 	// However, using that constant creates an import cycle.
 	// TODO: Refactor to move all the constants into a top level directory.
-	DefaultQuerySnapshotLimit  = int64(128)
+	DefaultQuerySnapshotLimit = int64(128)
+
 	vmOperatorApiVersionPrefix = "vmoperator.vmware.com"
+	virtualMachineCRDName      = "virtualmachines.vmoperator.vmware.com"
 )
+
+var getLatestCRDVersion = kubernetes.GetLatestCRDVersion
+
+// ListVirtualMachines lists all the virtual machines
+// converted to the latest API version(v1alpha4).
+// Since, VM Operator converts all the older API versions to the latest version,
+// this function determines the latest API version of the VirtualMachine CRD and lists the resources.
+func ListVirtualMachines(ctx context.Context, clt client.Client,
+	namespace string) (*vmoperatorv1alpha4.VirtualMachineList, error) {
+	log := logger.GetLogger(ctx)
+
+	version, err := getLatestCRDVersion(ctx, virtualMachineCRDName)
+	if err != nil {
+		log.Errorf("failed to get latest CRD version for %s: %s", virtualMachineCRDName, err)
+		return nil, err
+	}
+
+	vmList := &vmoperatorv1alpha4.VirtualMachineList{}
+	log.Info("Attempting to list virtual machines with the latest API version ", version)
+	switch version {
+	case "v1alpha1":
+		vmAlpha1List := &vmoperatorv1alpha1.VirtualMachineList{}
+		err := clt.List(ctx, vmAlpha1List, client.InNamespace(namespace))
+		if err != nil {
+			log.Error("failed listing virtual machines for v1alpha1: ", err)
+			return nil, err
+		}
+
+		err = vmoperatorv1alpha1.Convert_v1alpha1_VirtualMachineList_To_v1alpha4_VirtualMachineList(
+			vmAlpha1List, vmList, nil)
+		if err != nil {
+			log.Fatal("Error converting v1alpha1 virtual machines to v1alpha4: ", err)
+			return nil, err
+		}
+	case "v1alpha2":
+		vmAlpha2List := &vmoperatorv1alpha2.VirtualMachineList{}
+		err := clt.List(ctx, vmAlpha2List, client.InNamespace(namespace))
+		if err != nil {
+			log.Error("failed listing virtual machines for v1alpha2: ", err)
+			return nil, err
+		}
+
+		err = vmoperatorv1alpha2.Convert_v1alpha2_VirtualMachineList_To_v1alpha4_VirtualMachineList(
+			vmAlpha2List, vmList, nil)
+		if err != nil {
+			log.Fatal("Error converting v1alpha2 virtual machines to v1alpha4: ", err)
+			return nil, err
+		}
+	case "v1alpha3":
+		vmAlpha3List := &vmoperatorv1alpha3.VirtualMachineList{}
+		err := clt.List(ctx, vmAlpha3List, client.InNamespace(namespace))
+		if err != nil {
+			log.Error("failed listing virtual machines for v1alpha3: ", err)
+			return nil, err
+		}
+
+		err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachineList_To_v1alpha4_VirtualMachineList(
+			vmAlpha3List, vmList, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha3 virtual machines to v1alpha4: ", err)
+			return nil, err
+		}
+	case "v1alpha4":
+		vmAlpha4List := &vmoperatorv1alpha4.VirtualMachineList{}
+		err := clt.List(context.Background(), vmAlpha4List, client.InNamespace(namespace))
+		if err != nil {
+			log.Error("failed listing virtual machines for v1alpha4: ", err)
+			return nil, err
+		}
+
+		// No conversion needed for v1alpha4 as it is the latest version.
+		vmList.Items = append(vmList.Items, vmAlpha4List.Items...)
+	default:
+		// XXX: This should ideally never happen.
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"Unsupported version: %s. Something is fishy...", version)
+	}
+
+	log.Infof("Successfully listed %d virtual machines in namespace %s",
+		len(vmList.Items), namespace)
+	return vmList, nil
+}
+
+// GetVirtualMachine fetches the virtual machine with the specified key
+// converted to the latest API version(v1alpha4).
+// Additionally, it returns the API version of the virtual machine CRD.
+func GetVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
+	vmKey types.NamespacedName) (*vmoperatorv1alpha4.VirtualMachine, string, error) {
+	log := logger.GetLogger(ctx)
+
+	version, err := getLatestCRDVersion(ctx, virtualMachineCRDName)
+	if err != nil {
+		log.Errorf("failed to get latest CRD version for %s: %s", virtualMachineCRDName, err)
+		return nil, "", err
+	}
+
+	log.Infof("finding virtual machine with key: %s, version: %s", vmKey.String(), version)
+	vm := &vmoperatorv1alpha4.VirtualMachine{}
+	apiVersion := vmOperatorApiVersionPrefix + "/" + version
+	switch version {
+	case "v1alpha1":
+		vmV1alpha1 := &vmoperatorv1alpha1.VirtualMachine{}
+		err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha1)
+		if err != nil {
+			log.Errorf("failed to get virtual machine with key %s in v1alpha1: %s", vmKey.String(), err)
+			return nil, "", err
+		}
+
+		err = vmoperatorv1alpha1.Convert_v1alpha1_VirtualMachine_To_v1alpha4_VirtualMachine(
+			vmV1alpha1, vm, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha1 virtual machine to v1alpha4:", err)
+			return nil, "", err
+		}
+	case "v1alpha2":
+		vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}
+		err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha2)
+		if err != nil {
+			log.Errorf("failed to get virtual machine with key %s in v1alpha2: %s", vmKey.String(), err)
+			return nil, "", err
+		}
+
+		err = vmoperatorv1alpha2.Convert_v1alpha2_VirtualMachine_To_v1alpha4_VirtualMachine(
+			vmV1alpha2, vm, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha2 virtual machine to v1alpha4:", err)
+			return nil, "", err
+		}
+	case "v1alpha3":
+		vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}
+		err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha3)
+		if err != nil {
+			log.Errorf("failed to get virtual machine with key %s in v1alpha3: %s", vmKey.String(), err)
+			return nil, "", err
+		}
+
+		err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachine_To_v1alpha4_VirtualMachine(
+			vmV1alpha3, vm, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha3 virtual machine to v1alpha4:", err)
+			return nil, "", err
+		}
+	case "v1alpha4":
+		err = vmOperatorClient.Get(ctx, vmKey, vm)
+		if err != nil {
+			log.Errorf("failed to get virtual machine with key %s in v1alpha4: %s", vmKey.String(), err)
+			return nil, "", err
+		}
+	default:
+		return nil, "", logger.LogNewErrorCodef(log, codes.Internal,
+			"Unsupported version: %s. Something is fishy...", version)
+	}
+
+	return vm, apiVersion, nil
+}
 
 // QueryVolumeUtil helps to invoke query volume API based on the feature
 // state set for using query async volume. If useQueryVolumeAsync is set to
@@ -274,160 +432,8 @@ func QueryAllVolumesForCluster(ctx context.Context, m cnsvolume.Manager, cluster
 	return queryAllResult, nil
 }
 
-func GetVirtualMachineAllApiVersions(ctx context.Context, vmKey types.NamespacedName,
-	vmOperatorClient client.Client) (*vmoperatorv1alpha4.VirtualMachine, string, error) {
-	log := logger.GetLogger(ctx)
-	apiVersion := vmOperatorApiVersionPrefix + "/v1alpha4"
-	vmV1alpha1 := &vmoperatorv1alpha1.VirtualMachine{}
-	vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}
-	vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}
-	vmV1alpha4 := &vmoperatorv1alpha4.VirtualMachine{}
-	var err error
-	log.Infof("get machine with vm-operator api version v1alpha4 name: %s, namespace: %s",
-		vmKey.Name, vmKey.Namespace)
-	err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha4)
-	if err != nil && isKindNotFound(err.Error()) {
-		log.Warnf("failed to get VirtualMachines. %s", err.Error())
-		err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha3)
-		if err != nil && isKindNotFound(err.Error()) {
-			log.Warnf("failed to get VirtualMachines. %s", err.Error())
-			err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha2)
-			if err != nil && isKindNotFound(err.Error()) {
-				log.Warnf("failed to get VirtualMachines. %s", err.Error())
-				err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha1)
-				if err != nil && isKindNotFound(err.Error()) {
-					log.Warnf("failed to get VirtualMachines. %s", err.Error())
-				} else if err == nil {
-					log.Debugf("GetVirtualMachineAllApiVersions: converting v1alpha1 VirtualMachine "+
-						"to v1alpha4 VirtualMachine, name %s", vmV1alpha1.Name)
-					apiVersion = vmOperatorApiVersionPrefix + "/v1alpha1"
-					err = vmoperatorv1alpha1.Convert_v1alpha1_VirtualMachine_To_v1alpha4_VirtualMachine(
-						vmV1alpha1, vmV1alpha4, nil)
-					if err != nil {
-						return nil, apiVersion, err
-					}
-				}
-			} else if err == nil {
-				log.Debugf("GetVirtualMachineAllApiVersions: converting v1alpha2 VirtualMachine "+
-					"to v1alpha4 VirtualMachine, name %s", vmV1alpha2.Name)
-				apiVersion = vmOperatorApiVersionPrefix + "/v1alpha2"
-				err = vmoperatorv1alpha2.Convert_v1alpha2_VirtualMachine_To_v1alpha4_VirtualMachine(
-					vmV1alpha2, vmV1alpha4, nil)
-				if err != nil {
-					return nil, apiVersion, err
-				}
-			}
-		} else if err == nil {
-			log.Debugf("GetVirtualMachineAllApiVersions: converting v1alpha3 VirtualMachine "+
-				"to v1alpha4 VirtualMachine, name %s", vmV1alpha3.Name)
-			apiVersion = vmOperatorApiVersionPrefix + "/v1alpha3"
-			err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachine_To_v1alpha4_VirtualMachine(
-				vmV1alpha3, vmV1alpha4, nil)
-			if err != nil {
-				return nil, apiVersion, err
-			}
-		}
-	}
-	if err != nil {
-		log.Errorf("GetVirtualMachineAllApiVersions: failed to get VirtualMachine "+
-			"with name %s and namespace %s, error %v", vmKey.Name, vmKey.Namespace, err)
-		return nil, apiVersion, err
-	}
-	log.Infof("successfully fetched the virtual machines with name %s and namespace %s",
-		vmKey.Name, vmKey.Namespace)
-	return vmV1alpha4, apiVersion, nil
-}
 func isKindNotFound(errMsg string) bool {
 	return strings.Contains(errMsg, "no matches for kind") || strings.Contains(errMsg, "no kind is registered")
-}
-func GetVirtualMachineListAllApiVersions(ctx context.Context, namespace string,
-	vmOperatorClient client.Client) (*vmoperatorv1alpha4.VirtualMachineList, error) {
-	log := logger.GetLogger(ctx)
-	vmListV1alpha1 := &vmoperatorv1alpha1.VirtualMachineList{}
-	vmListV1alpha2 := &vmoperatorv1alpha2.VirtualMachineList{}
-	vmListV1alpha3 := &vmoperatorv1alpha3.VirtualMachineList{}
-	vmListV1alpha4 := &vmoperatorv1alpha4.VirtualMachineList{}
-	var err error
-	if namespace != "" {
-		// get list of virtualmachine for specific namespace
-		log.Infof("list virtualmachines for namespace %s", namespace)
-		err = vmOperatorClient.List(ctx, vmListV1alpha4, client.InNamespace(namespace))
-		if err != nil && isKindNotFound(err.Error()) {
-			err = vmOperatorClient.List(ctx, vmListV1alpha3, client.InNamespace(namespace))
-			if err != nil && isKindNotFound(err.Error()) {
-				err := vmOperatorClient.List(ctx, vmListV1alpha2, client.InNamespace(namespace))
-				if err != nil && isKindNotFound(err.Error()) {
-					err := vmOperatorClient.List(ctx, vmListV1alpha1, client.InNamespace(namespace))
-					if err != nil {
-						return nil, err
-					} else {
-						log.Info("converting v1alpha1 VirtualMachineList to v1alpha4 VirtualMachineList")
-						err = vmoperatorv1alpha1.Convert_v1alpha1_VirtualMachineList_To_v1alpha4_VirtualMachineList(
-							vmListV1alpha1, vmListV1alpha4, nil)
-						if err != nil {
-							return nil, err
-						}
-					}
-				} else if err == nil {
-					log.Info("converting v1alpha2 VirtualMachineList to v1alpha4 VirtualMachineList")
-					err = vmoperatorv1alpha2.Convert_v1alpha2_VirtualMachineList_To_v1alpha4_VirtualMachineList(
-						vmListV1alpha2, vmListV1alpha4, nil)
-					if err != nil {
-						return nil, err
-					}
-				}
-			} else if err == nil {
-				log.Info("converting v1alpha3 VirtualMachineList to v1alpha4 VirtualMachineList")
-				err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachineList_To_v1alpha4_VirtualMachineList(
-					vmListV1alpha3, vmListV1alpha4, nil)
-				if err != nil {
-					return nil, err
-				}
-			}
-		}
-	} else {
-		// get list of virtualmachine without providing namespace (all)
-		log.Info("list all virtualmachines")
-		err = vmOperatorClient.List(ctx, vmListV1alpha4)
-		if err != nil && isKindNotFound(err.Error()) {
-			err = vmOperatorClient.List(ctx, vmListV1alpha3)
-			if err != nil && isKindNotFound(err.Error()) {
-				err := vmOperatorClient.List(ctx, vmListV1alpha2)
-				if err != nil && isKindNotFound(err.Error()) {
-					err := vmOperatorClient.List(ctx, vmListV1alpha1)
-					if err != nil {
-						return nil, err
-					} else {
-						log.Info("converting v1alpha1 VirtualMachineList to v1alpha4 VirtualMachineList")
-						err = vmoperatorv1alpha1.Convert_v1alpha1_VirtualMachineList_To_v1alpha4_VirtualMachineList(
-							vmListV1alpha1, vmListV1alpha4, nil)
-						if err != nil {
-							return nil, err
-						}
-					}
-				} else if err == nil {
-					log.Info("converting v1alpha2 VirtualMachineList to v1alpha4 VirtualMachineList")
-					err = vmoperatorv1alpha2.Convert_v1alpha2_VirtualMachineList_To_v1alpha4_VirtualMachineList(
-						vmListV1alpha2, vmListV1alpha4, nil)
-					if err != nil {
-						return nil, err
-					}
-				}
-			} else if err == nil {
-				log.Info("converting v1alpha3 VirtualMachineList to v1alpha4 VirtualMachineList")
-				err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachineList_To_v1alpha4_VirtualMachineList(
-					vmListV1alpha3, vmListV1alpha4, nil)
-				if err != nil {
-					return nil, err
-				}
-			}
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-	log.Infof("successfully fetched the virtual machines for namespace %s", namespace)
-	return vmListV1alpha4, nil
 }
 
 func PatchVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
