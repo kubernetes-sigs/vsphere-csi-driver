@@ -508,17 +508,11 @@ func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
 	}
 
 	// Get tag manager instance.
-	tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
+	tagManager, err := vcenter.GetTagManager(ctx)
 	if err != nil {
 		log.Errorf("failed to create tagManager. Error: %v", err)
 		return nil, err
 	}
-	defer func() {
-		err := tagManager.Logout(ctx)
-		if err != nil {
-			log.Errorf("failed to logout tagManager. Error: %v", err)
-		}
-	}()
 
 	// Create a map of TopologyCategories with category as key and value as empty string.
 	var isZoneRegion bool

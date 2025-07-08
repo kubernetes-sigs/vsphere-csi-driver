@@ -82,16 +82,10 @@ func DiscoverTagEntities(ctx context.Context) error {
 				vcenterCfg.Host, err)
 		}
 		// Get tag manager instance.
-		tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
+		tagManager, err := vcenter.GetTagManager(ctx)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create tagManager. Error: %v", err)
 		}
-		defer func() {
-			err := tagManager.Logout(ctx)
-			if err != nil {
-				log.Errorf("failed to logout tagManager. Error: %v", err)
-			}
-		}()
 		for _, cat := range categories {
 			topoTags, err := tagManager.GetTagsForCategory(ctx, cat)
 			if err != nil {
@@ -439,17 +433,12 @@ func RefreshPreferentialDatastoresForMultiVCenter(ctx context.Context) error {
 				vcConfig.Host, err)
 		}
 		// Get tag manager instance.
-		tagMgr, err := cnsvsphere.GetTagManager(ctx, vc)
+		tagMgr, err := vc.GetTagManager(ctx)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create tag manager for vCenter %q. Error: %+v",
 				vcConfig.Host, err)
 		}
-		defer func() {
-			err := tagMgr.Logout(ctx)
-			if err != nil {
-				log.Errorf("failed to logout tagManager for vCenter %q. Error: %v", vcConfig.Host, err)
-			}
-		}()
+
 		// Get tags for category reserved for preferred datastore tagging.
 		tagIds, err := tagMgr.ListTagsForCategory(ctx, PreferredDatastoresCategory)
 		if err != nil {
