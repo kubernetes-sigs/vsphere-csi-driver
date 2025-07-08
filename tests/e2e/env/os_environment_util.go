@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -122,4 +123,26 @@ func GetPortNumAndIP(testbedConfig *config.TestBedConfig, ip string) (string, st
 	}
 
 	return ip, port, nil
+}
+
+/*
+This function add required images for pod creation
+*/
+func SetRequiredImages(testConfig *config.TestInputData) {
+	if os.Getenv(constants.BusyBoxImageEnvVar) != "" {
+		testConfig.BusyBoxGcr.Image = os.Getenv(constants.BusyBoxImageEnvVar)
+	}
+	if os.Getenv(constants.WindowsImageEnvVar) != "" {
+		testConfig.WindowsOnMcr.Image = os.Getenv(constants.WindowsImageEnvVar)
+	}
+
+}
+
+// k8s.io/kubernetes/tests/e2e/framework requires env KUBECONFIG to be set
+// it does not fall back to defaults
+func SetKubeEnv() {
+	if os.Getenv(constants.KubeconfigEnvVar) == "" {
+		kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
+		os.Setenv(constants.KubeconfigEnvVar, kubeconfig)
+	}
 }

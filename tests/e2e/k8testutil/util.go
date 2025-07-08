@@ -4116,7 +4116,7 @@ func CreatePod(ctx context.Context, e2eTestConfig *config.E2eTestConfig,
 		pod.Spec.Containers[0].Command = commands
 		pod.Spec.Containers[0].VolumeMounts[0].MountPath = pod.Spec.Containers[0].VolumeMounts[0].MountPath + "/"
 	} else {
-		pod.Spec.Containers[0].Image = constants.BusyBoxImageOnGcr
+		pod.Spec.Containers[0].Image = e2eTestConfig.TestInput.BusyBoxGcr.Image
 	}
 	pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
 	if err != nil {
