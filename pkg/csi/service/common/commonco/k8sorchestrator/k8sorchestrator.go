@@ -356,7 +356,6 @@ func getReleasedVanillaFSS() map[string]struct{} {
 		common.CSIMigration:                   {},
 		common.OnlineVolumeExtend:             {},
 		common.AsyncQueryVolume:               {},
-		common.BlockVolumeSnapshot:            {},
 		common.CSIWindowsSupport:              {},
 		common.ListVolumes:                    {},
 		common.CnsMgrSuspendCreateVolume:      {},

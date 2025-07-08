@@ -85,7 +85,7 @@ var (
 // VolumeOperationRequest interface. Clients are unaware of the implementation
 // details to read and persist volume operation details.
 func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval int,
-	isBlockVolumeSnapshotEnabled func() bool, isPodVMOnStretchSupervisorEnabled bool) (
+	isPodVMOnStretchSupervisorEnabled bool) (
 	VolumeOperationRequest, error) {
 	log := logger.GetLogger(ctx)
 	csiNamespace = getCSINamespace()

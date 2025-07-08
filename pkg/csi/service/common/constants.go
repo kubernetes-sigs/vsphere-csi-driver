@@ -381,9 +381,6 @@ const (
 	// CSIVolumeManagerIdempotency is the feature flag for idempotency handling
 	// in CSI volume manager.
 	CSIVolumeManagerIdempotency = "improved-csi-idempotency"
-	// BlockVolumeSnapshot is the feature to support CSI Snapshots for block
-	// volume on vSphere CSI driver.
-	BlockVolumeSnapshot = "block-volume-snapshot"
 	// SiblingReplicaBoundPvcCheck is the feature to check whether a PVC of
 	// a given replica can be placed on a node such that it does not have PVCs
 	// of any of its sibling replicas.

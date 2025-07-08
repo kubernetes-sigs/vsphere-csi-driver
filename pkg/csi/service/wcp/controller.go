@@ -157,9 +157,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
 		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
 			config.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
-			func() bool {
-				return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-			}, isPodVMOnStretchSupervisorFSSEnabled)
+			isPodVMOnStretchSupervisorFSSEnabled)
 		if err != nil {
 			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 			return err
@@ -389,9 +387,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 			log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
 			operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
 				c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
-				func() bool {
-					return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-				}, isPodVMOnStretchSupervisorFSSEnabled)
+				isPodVMOnStretchSupervisorFSSEnabled)
 			if err != nil {
 				log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 				return err
@@ -638,11 +634,10 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		volSizeBytes = int64(req.GetCapacityRange().GetRequiredBytes())
 	}
 	volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
-	isBlockVolumeSnapshotEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	// Check if requested volume size and source snapshot size matches
 	volumeSource := req.GetVolumeContentSource()
 	var contentSourceSnapshotID string
-	if isBlockVolumeSnapshotEnabled && volumeSource != nil {
+	if volumeSource != nil {
 		sourceSnapshot := volumeSource.GetSnapshot()
 		if sourceSnapshot == nil {
 			return nil, csifault.CSIInvalidArgumentFault,
@@ -1293,8 +1288,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			volumeType = convertCnsVolumeType(ctx, cnsVolumeType)
 		}
 		// Check if the volume contains CNS snapshots only for block volumes.
-		if cnsVolumeType == common.BlockVolumeType &&
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
+		if cnsVolumeType == common.BlockVolumeType {
 			snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, req.VolumeId,
 				common.QuerySnapshotLimit)
 			if err != nil {
@@ -1963,10 +1957,6 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("WCP CreateSnapshot: called with args %+v", *req)
-	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-	if !isBlockVolumeSnapshotWCPEnabled {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "createSnapshot")
-	}
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	createSnapshotInternal := func() (*csi.CreateSnapshotResponse, error) {
 		// Validate CreateSnapshotRequest
@@ -2111,10 +2101,6 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	log.Infof("DeleteSnapshot: called with args %+v", *req)
 	volumeType := prometheus.PrometheusBlockVolumeType
 	start := time.Now()
-	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-	if !isBlockVolumeSnapshotWCPEnabled {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "deleteSnapshot")
-	}
 	deleteSnapshotInternal := func() (*csi.DeleteSnapshotResponse, error) {
 		csiSnapshotID := req.GetSnapshotId()
 		isStorageQuotaM2FSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
@@ -2187,10 +2173,6 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusBlockVolumeType
 	log.Infof("ListSnapshots: called with args %+v", *req)
-	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-	if !isBlockVolumeSnapshotWCPEnabled {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listSnapshot")
-	}
 	listSnapshotsInternal := func() (*csi.ListSnapshotsResponse, error) {
 		err := validateWCPListSnapshotRequest(ctx, req)
 		if err != nil {
@@ -2262,8 +2244,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			}
 			volumeType = convertCnsVolumeType(ctx, cnsVolumeType)
 		}
-		if cnsVolumeType == common.BlockVolumeType &&
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
+		if cnsVolumeType == common.BlockVolumeType {
 			snapshots, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, c.manager.VolumeManager, req.VolumeId,
 				common.QuerySnapshotLimit)
 			if err != nil {
