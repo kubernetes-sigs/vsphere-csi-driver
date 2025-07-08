@@ -442,6 +442,8 @@ const (
 	SharedDiskFss = "supports_shared_disks"
 	// CSITranSactionSupport is an FSS for transaction support
 	CSITranSactionSupport = "csi-transaction-support"
+	// VolFromSnapshotOnTargetDs enables creation of volumes from snapshots on different datastores
+	VolFromSnapshotOnTargetDs = "vol-from-snapshot-on-target-ds"
 )
 
 var WCPFeatureStates = map[string]struct{}{
