@@ -841,7 +841,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
 			}
 
-			queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection, true)
+			queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection)
 			if err != nil {
 				// TODO: QueryVolume need to return faultType.
 				// Need to return faultType which is returned from QueryVolume.
@@ -1511,7 +1511,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 			querySelection := cnstypes.CnsQuerySelection{
 				Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
 			}
-			queryResult, err := utils.QueryVolumeUtil(ctx, volumeMgr, queryFilter, &querySelection, true)
+			queryResult, err := utils.QueryVolumeUtil(ctx, volumeMgr, queryFilter, &querySelection)
 			if err != nil {
 				// TODO: QueryVolume need to return faultType.
 				// Need to return faultType which is returned from QueryVolume.
@@ -2604,8 +2604,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			}
 		}
 
-		faultType, err = common.ExpandVolumeUtil(ctx, vCenterManager, vCenterHost, volumeManager, volumeID,
-			volSizeMB, commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume), nil)
+		faultType, err = common.ExpandVolumeUtil(ctx, vCenterManager,
+			vCenterHost, volumeManager, volumeID, volSizeMB, nil)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to expand volume: %q to size: %d with error: %+v", "df", volSizeMB, err)

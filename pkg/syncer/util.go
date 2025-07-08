@@ -189,7 +189,6 @@ func fullSyncGetQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolume
 	log := logger.GetLogger(ctx)
 	log.Debugf("FullSync: fullSyncGetQueryResults is called with volumeIds %v for clusterID %s",
 		volumeIds, clusterID)
-	useQueryVolumeAsync := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.AsyncQueryVolume)
 	var volumeIdsBatchesToFilter [][]cnstypes.CnsVolumeId
 	for i := 0; i < len(volumeIds); i += volumdIDLimitPerQuery {
 		end := i + volumdIDLimitPerQuery
@@ -207,8 +206,7 @@ func fullSyncGetQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolume
 		if clusterID != "" {
 			queryFilter.ContainerClusterIds = []string{clusterID}
 		}
-		queryResult, err := utils.QueryVolumeUtil(ctx, volumeManager, queryFilter, nil,
-			useQueryVolumeAsync)
+		queryResult, err := utils.QueryVolumeUtil(ctx, volumeManager, queryFilter, nil)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"queryVolumeUtil failed with err=%+v", err.Error())

@@ -440,8 +440,7 @@ func getPVNodeAffinity(ctx context.Context, metadataSyncer *metadataSyncInformer
 		querySelection := cnstypes.CnsQuerySelection{
 			Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
 		}
-		queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, &querySelection,
-			true)
+		queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, &querySelection)
 		if err != nil || queryResult == nil || len(queryResult.Volumes) != 1 {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to find the datastore on which volume %q is provisioned. "+

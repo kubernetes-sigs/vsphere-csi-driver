@@ -721,7 +721,7 @@ func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeI
 // volumeId.
 func ExpandVolumeUtil(ctx context.Context, vCenterManager vsphere.VirtualCenterManager,
 	vCenterHost string, volumeManager cnsvolume.Manager, volumeID string, capacityInMb int64,
-	useAsyncQueryVolume bool, extraParams interface{}) (string, error) {
+	extraParams interface{}) (string, error) {
 	var err error
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CSI driver expanding volume %q to new size %d Mb.", volumeID, capacityInMb)
@@ -744,7 +744,7 @@ func ExpandVolumeUtil(ctx context.Context, vCenterManager vsphere.VirtualCenterM
 	if !isvSphere8AndAbove {
 		// Query Volume to check Volume Size for vSphere version below 8.0
 		expansionRequired, err = isExpansionRequired(ctx, volumeID, capacityInMb,
-			volumeManager, useAsyncQueryVolume)
+			volumeManager)
 		if err != nil {
 			return csifault.CSIInternalFault, err
 		}
@@ -794,7 +794,7 @@ func ListSnapshotsUtil(ctx context.Context, volManager cnsvolume.Manager, volume
 			Names: []string{string(cnstypes.QuerySelectionNameTypeVolumeType)},
 		}
 		// Validate that the volume-id is of block volume type.
-		queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, &querySelection, true)
+		queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, &querySelection)
 		if err != nil {
 			return nil, "", logger.LogNewErrorCodef(log, codes.Internal,
 				"queryVolumeUtil failed with err=%+v", err)
@@ -1022,7 +1022,7 @@ var queryVolumeByIDInternal = func(ctx context.Context, volManager cnsvolume.Man
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
 	}
-	queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, querySelection, true)
+	queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, querySelection)
 	if err != nil {
 		log.Errorf("QueryVolumeUtil failed for volumeID: %s with error %+v", volumeID, err)
 		return nil, err
@@ -1079,7 +1079,7 @@ func getDatastoreInfoObjList(ctx context.Context, vc *vsphere.VirtualCenter,
 // isExpansionRequired verifies if the requested size to expand a volume is
 // greater than the current size.
 func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int64,
-	volumeManager cnsvolume.Manager, useAsyncQueryVolume bool) (bool, error) {
+	volumeManager cnsvolume.Manager) (bool, error) {
 	log := logger.GetLogger(ctx)
 	volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
 	queryFilter := cnstypes.CnsQueryFilter{

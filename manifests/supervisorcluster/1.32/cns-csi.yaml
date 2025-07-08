@@ -553,7 +553,6 @@ data:
   "trigger-csi-fullsync": "false"
   "csi-sv-feature-states-replication": "true"
   "fake-attach": "true"
-  "async-query-volume": "true"
   "improved-csi-idempotency": "true"
   "block-volume-snapshot": "true"
   "sibling-replica-bound-pvc-check": "true"

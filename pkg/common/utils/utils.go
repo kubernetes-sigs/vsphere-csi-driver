@@ -50,31 +50,30 @@ const (
 // query filters, query selection as params. Returns queryResult when query
 // volume succeeds, otherwise returns appropriate errors.
 func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnstypes.CnsQueryFilter,
-	querySelection *cnstypes.CnsQuerySelection, useQueryVolumeAsync bool) (*cnstypes.CnsQueryResult, error) {
+	querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
 	log := logger.GetLogger(ctx)
 	var queryAsyncNotSupported bool
 	var queryResult *cnstypes.CnsQueryResult
 	var err error
-	if useQueryVolumeAsync {
-		// AsyncQueryVolume feature switch is enabled.
-		if queryFilter.Cursor != nil {
-			log.Debugf("Calling QueryVolumeAsync with queryFilter limit: %v and offset: %v "+
-				"for ContainerClusterIds %v", queryFilter.Cursor.Limit,
-				queryFilter.Cursor.Offset, queryFilter.ContainerClusterIds)
-		}
-		queryResult, err = m.QueryVolumeAsync(ctx, queryFilter, querySelection)
-		if err != nil {
-			if err.Error() == cnsvsphere.ErrNotSupported.Error() {
-				log.Warn("QueryVolumeAsync is not supported. Invoking QueryVolume API")
-				queryAsyncNotSupported = true
-			} else { // Return for any other failures.
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"queryVolumeAsync failed for queryFilter cursor: %+v and ContainerClusterIds: %+v "+
-						"Err=%+v", queryFilter.Cursor, queryFilter.ContainerClusterIds, err.Error())
-			}
+
+	if queryFilter.Cursor != nil {
+		log.Debugf("Calling QueryVolumeAsync with queryFilter limit: %v and offset: %v "+
+			"for ContainerClusterIds %v", queryFilter.Cursor.Limit,
+			queryFilter.Cursor.Offset, queryFilter.ContainerClusterIds)
+	}
+	queryResult, err = m.QueryVolumeAsync(ctx, queryFilter, querySelection)
+	if err != nil {
+		if err.Error() == cnsvsphere.ErrNotSupported.Error() {
+			log.Warn("QueryVolumeAsync is not supported. Invoking QueryVolume API")
+			queryAsyncNotSupported = true
+		} else { // Return for any other failures.
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"queryVolumeAsync failed for queryFilter cursor: %+v and ContainerClusterIds: %+v "+
+					"Err=%+v", queryFilter.Cursor, queryFilter.ContainerClusterIds, err.Error())
 		}
 	}
-	if !useQueryVolumeAsync || queryAsyncNotSupported {
+
+	if queryAsyncNotSupported {
 		queryResult, err = m.QueryVolume(ctx, queryFilter)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,

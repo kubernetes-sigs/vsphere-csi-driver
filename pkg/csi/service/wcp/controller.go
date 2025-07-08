@@ -802,8 +802,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				querySelection := cnstypes.CnsQuerySelection{
 					Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
 				}
-				queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection,
-					true)
+				queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection)
 				if err != nil || queryResult == nil || len(queryResult.Volumes) != 1 {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to find the datastore on which volume %q is provisioned. Error: %+v",
@@ -2302,7 +2301,6 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			}
 			faultType, err = common.ExpandVolumeUtil(ctx, c.manager.VcenterManager,
 				c.manager.VcenterConfig.Host, c.manager.VolumeManager, volumeID, volSizeMB,
-				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume),
 				&cnsvolume.ExpandVolumeExtraParams{
 					StorageClassName:                     cnsVolumeInfo.Spec.StorageClassName,
 					StoragePolicyID:                      cnsVolumeInfo.Spec.StoragePolicyID,
@@ -2312,8 +2310,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 				})
 		} else {
 			faultType, err = common.ExpandVolumeUtil(ctx, c.manager.VcenterManager,
-				c.manager.VcenterConfig.Host, c.manager.VolumeManager, volumeID, volSizeMB,
-				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume), nil)
+				c.manager.VcenterConfig.Host, c.manager.VolumeManager, volumeID, volSizeMB, nil)
 		}
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
