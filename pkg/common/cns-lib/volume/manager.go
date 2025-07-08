@@ -158,6 +158,7 @@ type Manager interface {
 type CnsVolumeInfo struct {
 	DatastoreURL string
 	VolumeID     cnstypes.CnsVolumeId
+	Clusters     []vim25types.ManagedObjectReference
 }
 
 type CnsSnapshotInfo struct {

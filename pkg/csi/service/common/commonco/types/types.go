@@ -109,6 +109,9 @@ type ControllerTopologyService interface {
 
 	// GetAZClustersMap returns the zone to clusterMorefs map from the azClustersMap.
 	GetAZClustersMap(ctx context.Context) map[string][]string
+
+	// ZonesWithMultipleClustersExist returns true if zone has more than 1 cluster
+	ZonesWithMultipleClustersExist(ctx context.Context) bool
 }
 
 // NodeTopologyService is an interface which exposes functionality related to

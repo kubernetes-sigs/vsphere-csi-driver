@@ -346,6 +346,11 @@ func (f *FakeTopologyManager) GetAZClustersMap(ctx context.Context) map[string][
 	return nil
 }
 
+func (f *FakeTopologyManager) ZonesWithMultipleClustersExist(ctx context.Context) bool {
+	// This function is not yet implemented
+	return false
+}
+
 var vcsimParamsTopology = unittestcommon.VcsimParams{
 	Datacenters:     2,
 	Clusters:        1,

@@ -304,27 +304,32 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 	volumeID cnstypes.CnsVolumeId, taskResult cnstypes.BaseCnsVolumeOperationResult) (*CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	var datastoreURL string
+	var placementClusters []types.ManagedObjectReference
 	volumeCreateResult := interface{}(taskResult).(*cnstypes.CnsVolumeCreateResult)
 	log.Debugf("volumeCreateResult.PlacementResults :%v", volumeCreateResult.PlacementResults)
 	if volumeCreateResult.PlacementResults != nil {
-		var datastoreMoRef types.ManagedObjectReference
+		var datastoreMoRef *types.ManagedObjectReference
 		for _, placementResult := range volumeCreateResult.PlacementResults {
 			// For the datastore which the volume is provisioned, placementFaults
 			// will not be set.
 			if len(placementResult.PlacementFaults) == 0 {
-				datastoreMoRef = placementResult.Datastore
+				if len(placementResult.Clusters) != 0 {
+					placementClusters = placementResult.Clusters
+				} else {
+					datastoreMoRef = &placementResult.Datastore
+					var dsMo mo.Datastore
+					pc := property.DefaultCollector(virtualCenter.Client.Client)
+					err := pc.RetrieveOne(ctx, *datastoreMoRef, []string{"summary"}, &dsMo)
+					faultType := ""
+					if err != nil {
+						faultType = ExtractFaultTypeFromErr(ctx, err)
+						return nil, faultType, logger.LogNewErrorf(log, "failed to retrieve datastore summary property: %v", err)
+					}
+					datastoreURL = dsMo.Summary.Url
+				}
 				break
 			}
 		}
-		var dsMo mo.Datastore
-		pc := property.DefaultCollector(virtualCenter.Client.Client)
-		err := pc.RetrieveOne(ctx, datastoreMoRef, []string{"summary"}, &dsMo)
-		faultType := ""
-		if err != nil {
-			faultType = ExtractFaultTypeFromErr(ctx, err)
-			return nil, faultType, logger.LogNewErrorf(log, "failed to retrieve datastore summary property: %v", err)
-		}
-		datastoreURL = dsMo.Summary.Url
 	}
 	log.Infof("Volume created successfully. VolumeName: %q, volumeID: %q",
 		volumeName, volumeID.Id)
@@ -333,6 +338,7 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 	return &CnsVolumeInfo{
 		DatastoreURL: datastoreURL,
 		VolumeID:     volumeID,
+		Clusters:     placementClusters,
 	}, "", nil
 }
 

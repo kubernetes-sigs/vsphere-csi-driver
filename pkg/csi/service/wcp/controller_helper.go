@@ -874,3 +874,45 @@ func validateControllerPublishVolumeRequesInWcp(ctx context.Context, req *csi.Co
 	}
 	return nil
 }
+
+// GetAccessibleTopologies returns a list of CSI topology segments based on the clusters where the volume is accessible.
+func GetAccessibleTopologies(volumeClusters []vimtypes.ManagedObjectReference,
+	azClusterMap map[string][]string) []*csi.Topology {
+	zoneSet := make(map[string]struct{})
+	for _, clusterRef := range volumeClusters {
+		for zone, clusters := range azClusterMap {
+			for _, azCluster := range clusters {
+				if azCluster == clusterRef.Value {
+					zoneSet[zone] = struct{}{}
+					break
+				}
+			}
+		}
+	}
+	var topologies []*csi.Topology
+	for zone := range zoneSet {
+		topologies = append(topologies, &csi.Topology{
+			Segments: map[string]string{
+				v1.LabelTopologyZone: zone,
+			},
+		})
+	}
+	return topologies
+}
+
+// GetZonesFromAccessibilityRequirements returns zones from the supplied topologyRequirement received in the
+// CreateVolume Request
+func GetZonesFromAccessibilityRequirements(topologyRequirement *csi.TopologyRequirement) []string {
+	if topologyRequirement == nil {
+		return nil
+	}
+	zoneKey := "topology.kubernetes.io/zone"
+	var zones []string
+	// Process Preferred topologies
+	for _, topology := range topologyRequirement.Preferred {
+		if zone, ok := topology.Segments[zoneKey]; ok {
+			zones = append(zones, zone)
+		}
+	}
+	return zones
+}
