@@ -3043,28 +3043,6 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvcSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Wait for SV PVC to come to bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
-			framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		topologykey := pvs[0].Spec.NodeAffinity.Required.NodeSelectorTerms[0].MatchExpressions[0].Values[0]
-		volumeID := pvs[0].Spec.CSI.VolumeHandle
-
-		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-					"kubernetes", volumeID))
-		}()
-
-		ginkgo.By("Verify SV PV has has required PV node affinity details")
-		_, err = verifyVolumeTopologyForLevel5(pvs[0], allowedTopologyHAMap)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("SVC PV: %s has required PV node affinity details", pvs[0].Name)
-
 		ginkgo.By("Creating VM bootstrap data")
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
 		defer func() {
@@ -3099,6 +3077,27 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		ginkgo.By("Wait for VM to come up and get an IP")
 		vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Wait for SV PVC to come to bound state")
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
+			framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		topologykey := pvs[0].Spec.NodeAffinity.Required.NodeSelectorTerms[0].MatchExpressions[0].Values[0]
+		volumeID := pvs[0].Spec.CSI.VolumeHandle
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+				fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+					"kubernetes", volumeID))
+		}()
+
+		ginkgo.By("Verify SV PV has has required PV node affinity details")
+		_, err = verifyVolumeTopologyForLevel5(pvs[0], allowedTopologyHAMap)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("SVC PV: %s has required PV node affinity details", pvs[0].Name)
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,

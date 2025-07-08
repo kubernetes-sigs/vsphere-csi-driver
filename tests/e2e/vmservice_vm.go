@@ -254,33 +254,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		ginkgo.By("Creating VM bootstrap data")
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-		defer func() {
-			ginkgo.By("Deleting VM bootstrap data")
-			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+
 		ginkgo.By("Creating VM")
 		vm := createVmServiceVmWithPvcs(
 			ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc, staticPvc}, vmi, storageClassName, secretName)
-		defer func() {
-			ginkgo.By("Deleting VM")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
-				Name:      vm.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
-		defer func() {
-			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
-				Name:      vmlbsvc.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		_ = createService4Vm(ctx, vmopC, namespace, vm.Name)
 
 		ginkgo.By("Wait for VM to come up and get an IP")
 		vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
@@ -292,18 +272,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		pv := pvs[0]
 		volHandle := pv.Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-		defer func() {
-			ginkgo.By("Delete PVCs")
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, staticPvc.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By("Waiting for CNS volumes to be deleted")
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(staticPv.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
@@ -347,46 +315,16 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		ginkgo.By("Creating VM bootstrap data")
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-		defer func() {
-			ginkgo.By("Deleting VM bootstrap data")
-			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+
 		ginkgo.By("Creating VMs")
 		vm1 := createVmServiceVmWithPvcs(
 			ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{}, vmi, storageClassName, secretName)
 		vm2 := createVmServiceVmWithPvcs(
 			ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi, storageClassName, secretName)
-		defer func() {
-			ginkgo.By("Deleting VMs")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
-				Name:      vm1.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
-				Name:      vm2.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		vmlbsvc1 := createService4Vm(ctx, vmopC, namespace, vm1.Name)
-		vmlbsvc2 := createService4Vm(ctx, vmopC, namespace, vm2.Name)
-		defer func() {
-			ginkgo.By("Deleting loadbalancing services for ssh for the VMs")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
-				Name:      vmlbsvc1.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
-				Name:      vmlbsvc2.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		_ = createService4Vm(ctx, vmopC, namespace, vm1.Name)
+		_ = createService4Vm(ctx, vmopC, namespace, vm2.Name)
 
 		ginkgo.By("Wait for VMs to come up and get an IP")
 		vmIp1, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm1.Name)
@@ -400,14 +338,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		pv := pvs[0]
 		volHandle := pv.Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-		defer func() {
-			ginkgo.By("Delete PVCs")
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By("Waiting for CNS volumes to be deleted")
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Wait and verify PVC is attached to the VM2")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
@@ -433,11 +363,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		op, err = exec.Command("ls", "-l", testdataFile).Output()
 		fmt.Println(string(op[:]))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			op, err = exec.Command("rm", "-f", testdataFile).Output()
-			fmt.Println(op)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+
 		framework.Logf("Copying test data file to VM")
 		copyFileToVm(vmIp2, testdataFile, volFolder+"/f1")
 
@@ -475,15 +401,11 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		_ = execSshOnVmThroughGatewayVm(vmIp1, []string{"md5sum " + volFolder + "/f1"})
 		framework.Logf("Fetching file from the VM")
 		copyFileFromVm(vmIp1, volFolder+"/f1", vmFileData)
-		defer func() {
-			c := []string{"rm", "-f", vmFileData}
-			op, err = exec.Command(c[0], c[1:]...).Output()
-			framework.Logf("Command: %v, output: %v", c, op)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+
 		framework.Logf("Comparing file fetched from the VM with test data file")
 		c := []string{"md5sum", testdataFile, vmFileData}
 		op, err = exec.Command(c[0], c[1:]...).Output()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Command: %v, output: %v", c, op)
 		lines := strings.Split(string(op[:]), "\n")
 		gomega.Expect(strings.Fields(lines[0])[0]).To(gomega.Equal(strings.Fields(lines[1])[0]))
@@ -542,46 +464,16 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		ginkgo.By("Creating VM bootstrap data")
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-		defer func() {
-			ginkgo.By("Deleting VM bootstrap data")
-			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+
 		ginkgo.By("Creating VMs")
 		vm1 := createVmServiceVmWithPvcs(
 			ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc1}, vmi, storageClassName, secretName)
 		vm2 := createVmServiceVmWithPvcs(
 			ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc2}, vmi, storageClassName, secretName)
-		defer func() {
-			ginkgo.By("Deleting VMs")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
-				Name:      vm1.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
-				Name:      vm2.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		vmlbsvc1 := createService4Vm(ctx, vmopC, namespace, vm1.Name)
-		vmlbsvc2 := createService4Vm(ctx, vmopC, namespace, vm2.Name)
-		defer func() {
-			ginkgo.By("Deleting loadbalancing services for ssh for the VMs")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
-				Name:      vmlbsvc1.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
-				Name:      vmlbsvc2.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		_ = createService4Vm(ctx, vmopC, namespace, vm1.Name)
+		_ = createService4Vm(ctx, vmopC, namespace, vm2.Name)
 
 		ginkgo.By("Wait for VMs to come up and get an IP")
 		vmIp1, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm1.Name)
@@ -591,20 +483,8 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		pvcs := []*v1.PersistentVolumeClaim{pvc1, pvc2}
 		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, pollTimeout)
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			ginkgo.By("Delete PVCs")
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc1.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc2.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By("Waiting for CNS volumes to be deleted")
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[0].Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[1].Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Wait and verify PVCs are attached to respective VMs")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
@@ -745,34 +625,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		ginkgo.By("Creating VM bootstrap data")
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-		defer func() {
-			ginkgo.By("Deleting VM bootstrap data")
-			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating VM")
 		vm := createVmServiceVmWithPvcsWithZone(ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi,
 			storageClassName, secretName, zones[rand.Intn(len(zones))])
-		defer func() {
-			ginkgo.By("Deleting VM")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
-				Name:      vm.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
-		defer func() {
-			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
-				Name:      vmlbsvc.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		_ = createService4Vm(ctx, vmopC, namespace, vm.Name)
 
 		ginkgo.By("Wait for VM to come up and get an IP")
 		vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
@@ -782,16 +641,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volumeID := pvs[0].Spec.CSI.VolumeHandle
-		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-					"kubernetes", volumeID))
-		}()
+		_ = pvs[0].Spec.CSI.VolumeHandle
 
 		ginkgo.By("Verify SV PV has has required PV node affinity details")
 		_, err = verifyVolumeTopologyForLevel5(pvs[0], allowedTopologyHAMap)
@@ -859,35 +709,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		ginkgo.By("Creating VM bootstrap data")
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-		defer func() {
-			ginkgo.By("Deleting VM bootstrap data")
-			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating VM")
 		vm := createVmServiceVmWithPvcsWithZone(ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi,
 			storageClassName, secretName, zones[1]) // wrong zone
-		defer func() {
-			ginkgo.By("Deleting VM")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
-				Name:      vm.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			wait4VmSvcVm2BeDeleted(ctx, vmopC, vm)
-		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
-		defer func() {
-			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
-				Name:      vmlbsvc.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		_ = createService4Vm(ctx, vmopC, namespace, vm.Name)
 
 		framework.Logf("Verifying pvc1 attachment to vm1 failed")
 		err = wait4PvcAttachmentFailure(ctx, vmopC, vm, pvc)
@@ -914,16 +742,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volumeID := pvs[0].Spec.CSI.VolumeHandle
-		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-					"kubernetes", volumeID))
-		}()
+		_ = pvs[0].Spec.CSI.VolumeHandle
 
 		ginkgo.By("Verify PV has required PV node affinity details")
 		_, err = verifyVolumeTopologyForLevel5(pvs[0], allowedTopologyHAMap)
@@ -975,33 +794,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		ginkgo.By("Creating VM bootstrap data")
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-		defer func() {
-			ginkgo.By("Deleting VM bootstrap data")
-			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+
 		ginkgo.By("Creating VM")
 		vm := createVmServiceVmWithPvcs(
 			ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{}, vmi, storageClassName, secretName)
-		defer func() {
-			ginkgo.By("Deleting VM")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
-				Name:      vm.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
-		defer func() {
-			ginkgo.By("Deleting loadbalancing services for ssh for the VMs")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
-				Name:      vmlbsvc.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		_ = createService4Vm(ctx, vmopC, namespace, vm.Name)
 
 		ginkgo.By("Wait for VMs to come up and get an IP")
 		vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
@@ -1013,21 +812,9 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		pv := pvs[0]
 		volHandle := pv.Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-		defer func() {
-			ginkgo.By("Delete PVC")
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By("Waiting for CNS volume to be deleted")
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("create a pod say pod1 with pvc2")
 		pods := createMultiplePods(ctx, client, [][]*v1.PersistentVolumeClaim{{pvc}}, true)
-		defer func() {
-			ginkgo.By("delete pod1")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
-		}()
 
 		ginkgo.By("edit vm spec and try to attach pvc2 to vm1, which should fail")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
@@ -1118,11 +905,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		ginkgo.By("Creating VM bootstrap data")
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-		defer func() {
-			ginkgo.By("Deleting VM bootstrap data")
-			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating VMs 2 and 3")
 		vm2 := createVmServiceVmWithPvcs(
@@ -1132,18 +914,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		vms = append(vms, vm2, vm3)
 
-		defer func() {
-			ginkgo.By("Deleting VMs")
-			for _, vm := range vms {
-				framework.Logf("Deleting VM %s", vm.Name)
-				err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
-					Name:      vm.Name,
-					Namespace: namespace,
-				}})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
-
 		ginkgo.By("Wait for VMs 2 and 3 to come up and get an IP")
 		vmIp3, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm3.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1151,35 +921,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, pollTimeout)
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			ginkgo.By("Delete PVCs")
-			for i := 0; i < 3; i++ {
-				framework.Logf("Deleting pvc %s", pvcs[0].Name)
-				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvcs[i].Name, namespace)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				framework.Logf("Waiting for CNS volume %s to be deleted", pvs[i].Spec.CSI.VolumeHandle)
-				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvs[i].Spec.CSI.VolumeHandle)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh for vm2 and vm3")
 		vmlbsvc2 := createService4Vm(ctx, vmopC, namespace, vm2.Name)
 		vmlbsvc3 := createService4Vm(ctx, vmopC, namespace, vm3.Name)
 		vmlbsvcs = append(vmlbsvcs, vmlbsvc2, vmlbsvc3)
-		defer func() {
-			ginkgo.By("Deleting loadbalancing services for ssh for the VMs")
-			for _, vmlbsvc := range vmlbsvcs {
-				framework.Logf("Deleting loadbalancing service %s", vmlbsvc.Name)
-				err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
-					Name:      vmlbsvc.Name,
-					Namespace: namespace,
-				}})
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
 
 		ginkgo.By("Verify pvc3 is attached to vm3")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm3,
@@ -1195,13 +943,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitVCenterServiceToBeInState(ctx, vsanhealthServiceName, vcAddress, svcStoppedMessage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		defer func() {
-			if isVsanHealthServiceStopped {
-				ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
-				startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
-			}
-		}()
 
 		ginkgo.By("Creating vm1 with pvc1")
 		vm1 := createVmServiceVmWithPvcs(
@@ -1309,11 +1050,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		ginkgo.By("Creating VM bootstrap data")
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-		defer func() {
-			ginkgo.By("Deleting VM bootstrap data")
-			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", spsServiceName))
 		isSPSserviceStopped = true
@@ -1321,24 +1057,10 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitVCenterServiceToBeInState(ctx, spsServiceName, vcAddress, svcStoppedMessage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			if isSPSserviceStopped {
-				ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", spsServiceName))
-				startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSserviceStopped)
-			}
-		}()
 
 		ginkgo.By("Creating VM")
 		vm := createVmServiceVmWithPvcs(
 			ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi, storageClassName, secretName)
-		defer func() {
-			ginkgo.By("Deleting VM")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
-				Name:      vm.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Verifying vm1 is stuck in creation")
 		framework.Logf("sleeping for a min...")
@@ -1351,15 +1073,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSserviceStopped)
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
-		defer func() {
-			ginkgo.By("Deleting loadbalancing services for ssh for the VMs")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
-				Name:      vmlbsvc.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		_ = createService4Vm(ctx, vmopC, namespace, vm.Name)
 
 		ginkgo.By("Wait for VMs to come up and get an IP")
 		vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
@@ -1371,14 +1085,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		pv := pvs[0]
 		volHandle := pv.Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-		defer func() {
-			ginkgo.By("Delete PVC")
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			ginkgo.By("Waiting for CNS volume to be deleted")
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Verify pvc1 is attached to VM1")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
@@ -1472,33 +1178,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		ginkgo.By("Creating VM bootstrap data")
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-		defer func() {
-			ginkgo.By("Deleting VM bootstrap data")
-			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+
 		ginkgo.By("Creating VM")
 		vm := createVmServiceVmWithPvcs(
 			ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi, storageClassName, secretName)
-		defer func() {
-			ginkgo.By("Deleting VM")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
-				Name:      vm.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
-		defer func() {
-			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
-			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
-				Name:      vmlbsvc.Name,
-				Namespace: namespace,
-			}})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
+		_ = createService4Vm(ctx, vmopC, namespace, vm.Name)
 
 		ginkgo.By("Wait for VM to come up and get an IP")
 		vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
