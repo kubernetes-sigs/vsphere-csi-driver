@@ -353,18 +353,17 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 
 func getReleasedVanillaFSS() map[string]struct{} {
 	return map[string]struct{}{
-		common.CSIMigration:                   {},
-		common.OnlineVolumeExtend:             {},
-		common.AsyncQueryVolume:               {},
-		common.BlockVolumeSnapshot:            {},
-		common.CSIWindowsSupport:              {},
-		common.ListVolumes:                    {},
-		common.CnsMgrSuspendCreateVolume:      {},
-		common.TopologyPreferentialDatastores: {},
-		common.MaxPVSCSITargetsPerVM:          {},
-		common.MultiVCenterCSITopology:        {},
-		common.CSIInternalGeneratedClusterID:  {},
-		common.TopologyAwareFileVolume:        {},
+		common.CSIMigration:                  {},
+		common.OnlineVolumeExtend:            {},
+		common.AsyncQueryVolume:              {},
+		common.BlockVolumeSnapshot:           {},
+		common.CSIWindowsSupport:             {},
+		common.ListVolumes:                   {},
+		common.CnsMgrSuspendCreateVolume:     {},
+		common.MaxPVSCSITargetsPerVM:         {},
+		common.MultiVCenterCSITopology:       {},
+		common.CSIInternalGeneratedClusterID: {},
+		common.TopologyAwareFileVolume:       {},
 	}
 }
 
