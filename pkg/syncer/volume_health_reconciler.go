@@ -222,6 +222,7 @@ func (rc *volumeHealthReconciler) tkgUpdatePV(oldObj, newObj interface{}) {
 	if newPv.Spec.CSI != nil && newPv.Spec.CSI.Driver == csitypes.Name &&
 		oldPv.Status.Phase != v1.VolumeBound && newPv.Status.Phase == v1.VolumeBound {
 		// Add to volumeHandleToPVs.
+		log.Infof("tkgUpdatePV: Add PV %s from TKGPVList to update", newPv.Name)
 		rc.volumeHandleToPVs.add(newPv.Spec.CSI.VolumeHandle, newPv.Name)
 
 		// Add SVC PVC to work queue to add volume health annotation to statically
@@ -229,6 +230,12 @@ func (rc *volumeHealthReconciler) tkgUpdatePV(oldObj, newObj interface{}) {
 		objKey := rc.supervisorNamespace + "/" + newPv.Spec.CSI.VolumeHandle
 		log.Infof("tkgUpdatePV: add %s to claim queue", objKey)
 		rc.svcClaimQueue.Add(objKey)
+	} else if (newPv.Spec.CSI != nil) && (newPv.Spec.CSI.Driver == csitypes.Name) &&
+		(newPv.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimRetain) &&
+		(oldPv.Status.Phase == v1.VolumeBound) && (newPv.Status.Phase == v1.VolumeReleased) {
+		// Remove from volumeHandleToPVs.
+		log.Infof("tkgUpdatePV: Remove PV %s from TKGPVList to update", newPv.Name)
+		rc.volumeHandleToPVs.remove(newPv.Spec.CSI.VolumeHandle, newPv.Name)
 	}
 }
 
@@ -355,7 +362,7 @@ func (rc *volumeHealthReconciler) syncPVC(key string) error {
 	if tkgPVList == nil {
 		// If no PV is found, the SV PVC may not be referenced within
 		// this TKG. Do not requeue this request.
-		log.Debugf("Tanzu Kubernetes Grid PV not found for Supervisor PVC %s/%s. Igonoring ...", namespace, name)
+		log.Debugf("Tanzu Kubernetes Grid PV not found for Supervisor PVC %s/%s. Ignoring ...", namespace, name)
 		return nil
 	}
 
