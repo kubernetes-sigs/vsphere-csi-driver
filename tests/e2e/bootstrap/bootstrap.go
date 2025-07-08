@@ -71,7 +71,7 @@ func initTestInputData(testConfig *config.TestInputData) {
 		os.Setenv(constants.KubeconfigEnvVar, kubeconfig)
 	}
 
-	framework.AfterReadingAllFlags(&framework.TestContext)
+	//framework.AfterReadingAllFlags(&framework.TestContext)
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(constants.EnvClusterFlavor))
 
 	setClusterFlavor(testConfig, clusterFlavor)
