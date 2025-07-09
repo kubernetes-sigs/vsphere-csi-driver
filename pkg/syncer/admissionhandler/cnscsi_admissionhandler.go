@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
@@ -30,6 +31,7 @@ const (
 	MutationWebhookPath              = "/mutate"
 	DefaultWebhookPort               = 9883
 	DefaultWebhookMetricsBindAddress = "0"
+	devopsUserLabelKey               = "cns.vmware.com/user-created"
 )
 
 var (
@@ -184,9 +186,14 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 		}
 	} else if req.Kind.Kind == "CnsFileAccessConfig" {
 		if featureFileVolumesWithVmServiceEnabled {
-			admissionResp := validateCnsFileAccessConfig(ctx, h.clientConfig, &req.AdmissionRequest)
-			resp.AdmissionResponse = *admissionResp.DeepCopy()
-
+			switch req.Operation {
+			case admissionv1.Create:
+				admissionResp := validateCreateCnsFileAccessConfig(ctx, h.clientConfig, &req.AdmissionRequest)
+				resp.AdmissionResponse = *admissionResp.DeepCopy()
+			case admissionv1.Delete:
+				admissionResp := validateDeleteCnsFileAccessConfig(ctx, h.clientConfig, &req.AdmissionRequest)
+				resp.AdmissionResponse = *admissionResp.DeepCopy()
+			}
 		}
 	}
 	return
@@ -209,9 +216,55 @@ func (h *CSISupervisorMutationWebhook) Handle(ctx context.Context, req admission
 		case admissionv1.Create:
 			return h.mutateNewPVC(ctx, req)
 		}
+	} else if req.Kind.Kind == "CnsFileAccessConfig" {
+		if featureFileVolumesWithVmServiceEnabled {
+			switch req.Operation {
+			case admissionv1.Create:
+				return h.mutateNewCnsFileAccessConfig(ctx, req)
+			}
+		}
 	}
 
 	return admission.Allowed("")
+}
+
+// mutateNewCnsFileAccessConfig adds devops label on a CnsFileAccessConfig CR
+// if it is being created by a devops user.
+func (h *CSISupervisorMutationWebhook) mutateNewCnsFileAccessConfig(ctx context.Context,
+	req admission.Request) admission.Response {
+	log := logger.GetLogger(ctx)
+
+	newCnsFileAccessConfig := cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
+	if err := json.Unmarshal(req.Object.Raw, &newCnsFileAccessConfig); err != nil {
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+
+	// If CR is created by CSI service account, do not add devops label.
+	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(req.UserInfo.Username)
+	if err != nil {
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+
+	if isPvCSIServiceAccount {
+		log.Infof("Skip mutating CnsFileAccessConfig instance %s for PVCSI service account user",
+			newCnsFileAccessConfig.Name)
+		return admission.Allowed("")
+	}
+
+	if newCnsFileAccessConfig.Labels == nil {
+		newCnsFileAccessConfig.Labels = make(map[string]string)
+	}
+	if _, ok := newCnsFileAccessConfig.Labels[devopsUserLabelKey]; ok {
+		log.Debugf("Devops label already present on instance %s", newCnsFileAccessConfig.Name)
+		return admission.Allowed("")
+	}
+	newCnsFileAccessConfig.Labels[devopsUserLabelKey] = "true"
+	newRawCnsFileAccessConfig, err := json.Marshal(newCnsFileAccessConfig)
+	if err != nil {
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+
+	return admission.PatchResponseFromRaw(req.Object.Raw, newRawCnsFileAccessConfig)
 }
 
 func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req admission.Request) admission.Response {
