@@ -36,6 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -276,6 +278,16 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
 
+			// Remove PVC protection finalizer from PVC
+			err = removeFinalizerFromPVC(ctx, r.client, instance)
+			if err != nil {
+				msg := fmt.Sprintf("failed to remove finalizer from PVC CnsFileAccessConfig "+
+					"instance: %q on namespace: %q. Error: %+v",
+					instance.Name, instance.Namespace, err)
+				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+
 			// Remove finalizer from CnsFileAccessConfig CRD
 			removeFinalizerFromCRDInstance(ctx, instance)
 			err = updateCnsFileAccessConfig(ctx, r.client, instance)
@@ -299,19 +311,43 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 
 	if instance.DeletionTimestamp != nil {
 		log.Infof("CnsFileAccessConfig instance %q has deletion timestamp set", instance.Name)
+		volumeExists := true
 		volumeID, err := cnsoperatorutil.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
 		if err != nil {
-			msg := fmt.Sprintf("Failed to get volumeID from pvcName: %q. Error: %+v", instance.Spec.PvcName, err)
-			log.Error(msg)
-			setInstanceError(ctx, r, instance, msg)
-			return reconcile.Result{RequeueAfter: timeout}, nil
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolumesWithVmService) &&
+				apierrors.IsNotFound(err) {
+				log.Infof("Volume ID for PVC %s in namespace %s not found. No need to configure ACL",
+					instance.Spec.PvcName, instance.Namespace)
+				// It is possible that finalizer from PVC was removed successfully but
+				// finalizer from CnsFileAcessConfig CR was not removed.
+				// If volume does not exist in such a case, reconciler should go ahead and remove
+				// finalizer from the CR instance also instead of erroing out.
+				volumeExists = false
+			} else {
+				msg := fmt.Sprintf("Failed to get volumeID from pvcName: %q. Error: %+v", instance.Spec.PvcName, err)
+				log.Error(msg)
+				setInstanceError(ctx, r, instance, msg)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
 		}
-		err = r.configureNetPermissionsForFileVolume(ctx, volumeID, vm, instance, true)
-		if err != nil {
-			msg := fmt.Sprintf("Failed to configure CnsFileAccessConfig instance with error: %+v", err)
-			log.Error(msg)
-			setInstanceError(ctx, r, instance, msg)
-			return reconcile.Result{RequeueAfter: timeout}, nil
+		if volumeExists {
+			err = r.configureNetPermissionsForFileVolume(ctx, volumeID, vm, instance, true)
+			if err != nil {
+				msg := fmt.Sprintf("Failed to configure CnsFileAccessConfig instance with error: %+v", err)
+				log.Error(msg)
+				setInstanceError(ctx, r, instance, msg)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+
+			// Remove PVC protection finalizer from PVC
+			err = removeFinalizerFromPVC(ctx, r.client, instance)
+			if err != nil {
+				msg := fmt.Sprintf("failed to remove finalizer from PVC CnsFileAccessConfig "+
+					"instance: %q on namespace: %q. Error: %+v",
+					instance.Name, instance.Namespace, err)
+				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
 		}
 		removeFinalizerFromCRDInstance(ctx, instance)
 		err = updateCnsFileAccessConfig(ctx, r.client, instance)
@@ -380,6 +416,16 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	}
+
+	// Add CNS pvc protection finalizer if it does not already exist.
+	err = addPvcFinalizer(ctx, instance, r.client)
+	if err != nil {
+		msg := fmt.Sprintf("failed to add finalizer to PVC %s for instance: %s on namespace: %q. Error: %+v",
+			instance.Spec.PvcName, instance.Name, instance.Namespace, err)
+		recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
 	log.Infof("Reconciling CnsFileAccessConfig with instance: %q from namespace: %q. timeout %q seconds",
 		instance.Name, instance.Namespace, timeout)
 	if !instance.Status.Done {
@@ -456,6 +502,117 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	delete(backOffDuration, request.NamespacedName)
 	backOffDurationMapMutex.Unlock()
 	return reconcile.Result{}, nil
+}
+
+// addPvcFinalizer checks if CnsPvcFinalizer exists on PVC.
+// If it does not exist, it updates the PVC with it.
+func addPvcFinalizer(ctx context.Context,
+	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, client client.Client) error {
+	log := logger.GetLogger(ctx)
+
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolumesWithVmService) {
+		return nil
+	}
+
+	pvc := &v1.PersistentVolumeClaim{}
+	err := client.Get(ctx, types.NamespacedName{Name: instance.Spec.PvcName, Namespace: instance.Namespace}, pvc)
+	if err != nil {
+		return err
+	}
+
+	if controllerutil.ContainsFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
+		// Finalizer already present on PVC
+		return nil
+	}
+
+	if !controllerutil.AddFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
+		return fmt.Errorf("failed to add CNS finalizer to PVC %s in namespace %s", pvc.Name,
+			pvc.Namespace)
+	}
+
+	err = client.Update(ctx, pvc)
+	if err != nil {
+		return fmt.Errorf("failed to add finalizer %s on PVC %s in namespace %s", cnsoperatortypes.CNSPvcFinalizer,
+			instance.Spec.PvcName, instance.Namespace)
+	}
+
+	log.Infof("Successfully added finalizer %s to PVC %s in namespace %s", cnsoperatortypes.CNSPvcFinalizer,
+		pvc.Name, pvc.Namespace)
+
+	return nil
+
+}
+
+// isPvcInUse returns true if there is at least 1 VM which is using the given PVC.
+func isPvcInUse(ctx context.Context, pvcName string,
+	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	cnsFileVolumeClientInstance, err := cnsfilevolumeclient.GetFileVolumeClientInstance(ctx)
+	if err != nil {
+		return true, logger.LogNewErrorf(log, "Failed to get CNSFileVolumeClient instance. Error: %+v", err)
+	}
+
+	// Find out of CnsFileVolumeClient instance exists
+	return cnsFileVolumeClientInstance.CnsFileVolumeClientExistsForPvc(ctx, instance.Namespace+"/"+instance.Spec.PvcName)
+}
+
+// removeFinalizerFromPVC will remove the CNS Finalizer, cns.vmware.com/pvc-protection,
+// from a given PersistentVolumeClaim.
+func removeFinalizerFromPVC(ctx context.Context, client client.Client,
+	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig) error {
+	log := logger.GetLogger(ctx)
+
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolumesWithVmService) {
+		return nil
+	}
+
+	pvcName := instance.Spec.PvcName
+	namespace := instance.Namespace
+	isPvcInUse, err := isPvcInUse(ctx, pvcName, instance)
+	if err != nil {
+		log.Errorf("failed to find if PVC %s is being used any VM or not. Err: %+v", pvcName, err)
+		return err
+	}
+
+	if isPvcInUse {
+		log.Infof("Cannot remove finalizer from PVC %s as it is in use by at least 1 VM.", pvcName)
+		return nil
+	}
+
+	pvc := &v1.PersistentVolumeClaim{}
+	err = client.Get(ctx, types.NamespacedName{Name: pvcName, Namespace: namespace}, pvc)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Debugf("PVC %s not found", pvcName)
+			return nil
+		}
+		return err
+	}
+
+	if !controllerutil.ContainsFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
+		log.Debugf("Finalizer: %q not found on PersistentVolumeClaim: %q on namespace: %q not found. Returning nil",
+			cnsoperatortypes.CNSPvcFinalizer, pvcName, namespace)
+		return nil
+	}
+
+	if !controllerutil.RemoveFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
+		err := fmt.Errorf("failed to remove finalizer %s from PVC %s in namespace %s",
+			cnsoperatortypes.CNSPvcFinalizer, pvcName, pvc.Namespace)
+		log.Errorf("failed to remove finalizer from PVC. Err: %+v", err)
+		return err
+	}
+
+	err = client.Update(ctx, pvc)
+	if err != nil {
+		return fmt.Errorf("failed to remove finalizer %s from PVC %s in namespace %s",
+			cnsoperatortypes.CNSPvcFinalizer, pvcName, pvc.Namespace)
+	}
+
+	log.Infof("Successfully removed finalizer %s from PVC %s in namespace %s", cnsoperatortypes.CNSPvcFinalizer,
+		pvcName, namespace)
+
+	return nil
 }
 
 // removePermissionsForFileVolume helps to remove net permissions for a given file volume.
