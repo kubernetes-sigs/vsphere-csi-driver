@@ -1987,12 +1987,6 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				"validation for CreateSnapshot Request: %+v has failed. Error: %v", *req, err)
 		}
 		volumeID := req.GetSourceVolumeId()
-
-		// Check if the source volume is migrated vSphere volume
-		if strings.Contains(volumeID, ".vmdk") {
-			return nil, logger.LogNewErrorCodef(log, codes.Unimplemented,
-				"cannot snapshot migrated vSphere volume. :%q", volumeID)
-		}
 		volumeType = prometheus.PrometheusBlockVolumeType
 		// Query capacity in MB for block volume snapshot
 		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
@@ -2024,6 +2018,8 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		var cnsVolumeInfo *cnsvolumeinfov1alpha1.CNSVolumeInfo
 		isStorageQuotaM2FSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.StorageQuotaM2)
+		isCSITransactionSupportEnabled := commonco.ContainerOrchestratorUtility.
+			IsFSSEnabled(ctx, common.CSITranSactionSupport)
 		if isStorageQuotaM2FSSEnabled {
 			cnsVolumeInfo, err = volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
 			if err != nil {
@@ -2032,11 +2028,12 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 			}
 			snapshotID, cnsSnapshotInfo, err = common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
 				volumeID, req.Name, &cnsvolume.CreateSnapshotExtraParams{
-					StorageClassName:           cnsVolumeInfo.Spec.StorageClassName,
-					StoragePolicyID:            cnsVolumeInfo.Spec.StoragePolicyID,
-					Namespace:                  cnsVolumeInfo.Spec.Namespace,
-					Capacity:                   cnsVolumeInfo.Spec.Capacity,
-					IsStorageQuotaM2FSSEnabled: isStorageQuotaM2FSSEnabled,
+					StorageClassName:               cnsVolumeInfo.Spec.StorageClassName,
+					StoragePolicyID:                cnsVolumeInfo.Spec.StoragePolicyID,
+					Namespace:                      cnsVolumeInfo.Spec.Namespace,
+					Capacity:                       cnsVolumeInfo.Spec.Capacity,
+					IsStorageQuotaM2FSSEnabled:     isStorageQuotaM2FSSEnabled,
+					IsCSITransactionSupportEnabled: isCSITransactionSupportEnabled,
 				})
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -2089,7 +2086,6 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 
 		volumeSnapshotName := req.Parameters[common.VolumeSnapshotNameKey]
 		volumeSnapshotNamespace := req.Parameters[common.VolumeSnapshotNamespaceKey]
-
 		log.Infof("Attempting to annotate volumesnapshot %s/%s with annotation %s:%s",
 			volumeSnapshotNamespace, volumeSnapshotName, common.VolumeSnapshotInfoKey, snapshotID)
 		annotated, err := commonco.ContainerOrchestratorUtility.AnnotateVolumeSnapshot(ctx, volumeSnapshotName,

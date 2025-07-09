@@ -180,11 +180,12 @@ type CreateVolumeExtraParams struct {
 // CreateSnapshotExtraParams consist of values required by the CreateSnapshot interface and
 // are not present in the CNS CreateSnapshot spec.
 type CreateSnapshotExtraParams struct {
-	StorageClassName           string
-	StoragePolicyID            string
-	Namespace                  string
-	Capacity                   *resource.Quantity
-	IsStorageQuotaM2FSSEnabled bool
+	StorageClassName               string
+	StoragePolicyID                string
+	Namespace                      string
+	Capacity                       *resource.Quantity
+	IsStorageQuotaM2FSSEnabled     bool
+	IsCSITransactionSupportEnabled bool
 }
 
 // DeleteSnapshotExtraParams consist of values required by the DeleteSnapshot interface and
@@ -723,7 +724,7 @@ func (m *defaultManager) createVolumeWithTransaction(ctx context.Context, spec *
 	}
 
 	volumeOperationDetails, finalErr = m.operationStore.GetRequestDetails(ctx, volNameFromInputSpec)
-	if !apierrors.IsNotFound(finalErr) {
+	if finalErr != nil && !apierrors.IsNotFound(finalErr) {
 		return nil, csifault.CSIInternalFault, finalErr
 	}
 	defer func() {
@@ -2597,7 +2598,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 	}()
 
 	if createSnapshotsTask == nil {
-		createSnapshotsTask, err = invokeCNSCreateSnapshot(ctx, m.virtualCenter, volumeID, instanceName)
+		createSnapshotsTask, err = invokeCNSCreateSnapshot(ctx, m.virtualCenter, volumeID, instanceName, "")
 		if err != nil {
 			if m.idempotencyHandlingEnabled {
 				volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
@@ -2777,6 +2778,136 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 	return cnsSnapshotInfo, nil
 }
 
+// createSnapshotWithTransaction is a helper function used to create a snapshot with CSI transaction support.
+// It is invoked when the feature flag "csi-transaction-support" is enabled.
+// This function ensures that no orphaned snapshots are left behind on the vSphere backend
+// in case of failures during the snapshot creation process
+func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volumeID string,
+	snapshotID string, extraParams interface{}) (*CnsSnapshotInfo, string, error) {
+	log := logger.GetLogger(ctx)
+	var (
+		// Reference to the CreateSnapshot task on CNS.
+		createSnapshotsTask *object.Task
+		// Name of the CnsVolumeOperationRequest instance.
+		instanceName = snapshotID + "-" + volumeID
+		// Local instance of CreateSnapshot details that needs to be persisted.
+		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
+		// error
+		err                        error
+		quotaInfo                  *cnsvolumeoperationrequest.QuotaDetails
+		isStorageQuotaM2FSSEnabled bool
+	)
+	if extraParams != nil {
+		createSnapParams, ok := extraParams.(*CreateSnapshotExtraParams)
+		if !ok {
+			return nil, csifault.CSIInternalFault,
+				logger.LogNewErrorf(log, "unrecognised type for CreateSnapshot params: %+v", extraParams)
+		}
+		log.Debugf("Received CreateSnapshot extraParams: %+v", *createSnapParams)
+
+		isStorageQuotaM2FSSEnabled = createSnapParams.IsStorageQuotaM2FSSEnabled
+		if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
+				Reserved:         createSnapParams.Capacity,
+				StoragePolicyId:  createSnapParams.StoragePolicyID,
+				StorageClassName: createSnapParams.StorageClassName,
+				Namespace:        createSnapParams.Namespace,
+			}
+			log.Infof("QuotaInfo during CreateSnapshot call: %+v", *quotaInfo)
+		}
+	}
+	if m.operationStore == nil {
+		return nil, csifault.CSIInternalFault, logger.LogNewError(log, "operation store cannot be nil")
+	}
+	volumeOperationDetails, err = m.operationStore.GetRequestDetails(ctx, instanceName)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return nil, csifault.CSIInternalFault, err
+	}
+	defer func() {
+		// Persist the operation details before returning if the improved idempotency is enabled. Only success or error
+		// needs to be stored as InProgress details are stored when the task is created on CNS.
+		if volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
+			volumeOperationDetails.OperationDetails.TaskStatus != taskInvocationStatusInProgress {
+			taskStatus := volumeOperationDetails.OperationDetails.TaskStatus
+			if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+				if (taskStatus == taskInvocationStatusSuccess || taskStatus == taskInvocationStatusError) &&
+					volumeOperationDetails.QuotaDetails != nil {
+					volumeOperationDetails.QuotaDetails.Reserved = resource.NewQuantity(0,
+						resource.BinarySI)
+					log.Infof("Setting the reserved field for VolumeOperationDetails instance %s to 0",
+						volumeOperationDetails.Name)
+				}
+			}
+			if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
+				log.Warnf("failed to store CreateSnapshot details with error: %v", err)
+			}
+		}
+	}()
+	volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
+		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+		createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusInProgress, "")
+	if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
+		// Don't return if CreateSnapshot details can't be stored.
+		log.Warnf("failed to store CreateSnapshot details with error: %v", err)
+	}
+	createSnapshotsTask, err = invokeCNSCreateSnapshot(ctx, m.virtualCenter, volumeID, instanceName, snapshotID)
+	if err != nil {
+		volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
+			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "", "", "",
+			taskInvocationStatusError, err.Error())
+		faultType := ExtractFaultTypeFromErr(ctx, err)
+		return nil, faultType, logger.LogNewErrorf(log, "failed to create snapshot with error: %v", err)
+	}
+
+	var createSnapshotsTaskInfo *vim25types.TaskInfo
+	var faultType string
+	createSnapshotsTaskInfo, err = m.waitOnTask(ctx, createSnapshotsTask.Reference())
+	if err != nil {
+		if IsNotSupportedFault(ctx, createSnapshotsTaskInfo.Error) {
+			faultType = "vim25:NotSupported"
+			err = fmt.Errorf("failed to create snapshot with fault: %q", faultType)
+		} else {
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+		}
+		volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
+			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "", "", "",
+			taskInvocationStatusError, err.Error())
+		return nil, faultType, logger.LogNewErrorf(log, "Failed to get taskInfo for CreateSnapshots task "+
+			"from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+	}
+	log.Infof("CreateSnapshots: VolumeID: %q, opId: %q", volumeID, createSnapshotsTaskInfo.ActivationId)
+
+	snapshotCreateResult := interface{}(createSnapshotsTaskInfo).(*cnstypes.CnsSnapshotCreateResult)
+	cnsSnapshotInfo := &CnsSnapshotInfo{
+		SnapshotID:                          snapshotCreateResult.Snapshot.SnapshotId.Id,
+		SourceVolumeID:                      snapshotCreateResult.Snapshot.VolumeId.Id,
+		SnapshotDescription:                 snapshotCreateResult.Snapshot.Description,
+		SnapshotLatestOperationCompleteTime: *createSnapshotsTaskInfo.CompleteTime,
+	}
+	if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		log.Infof("For volumeID %q new AggregatedSnapshotSize is %d and SnapshotLatestOperationCompleteTime is %q",
+			volumeID, snapshotCreateResult.AggregatedSnapshotCapacityInMb, *createSnapshotsTaskInfo.CompleteTime)
+		cnsSnapshotInfo.AggregatedSnapshotCapacityInMb = snapshotCreateResult.AggregatedSnapshotCapacityInMb
+		aggregatedSnapshotCapacity := resource.NewQuantity(snapshotCreateResult.AggregatedSnapshotCapacityInMb*MbInBytes,
+			resource.BinarySI)
+		quotaInfo.AggregatedSnapshotSize = aggregatedSnapshotCapacity
+		quotaInfo.SnapshotLatestOperationCompleteTime.Time = *createSnapshotsTaskInfo.CompleteTime
+		log.Infof("Update quotainfo on successful snapshot %q creation for volume %q: %+v",
+			cnsSnapshotInfo.SnapshotID, volumeID, *quotaInfo)
+	}
+	// create the volumeOperationDetails object for persistence
+	volumeOperationDetails = createRequestDetails(
+		instanceName, cnsSnapshotInfo.SourceVolumeID, cnsSnapshotInfo.SnapshotID, 0, quotaInfo,
+		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
+		"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusSuccess, "")
+
+	log.Infof("CreateSnapshot: Snapshot created successfully. VolumeID: %q, SnapshotID: %q, "+
+		"SnapshotCreateTime: %q, opId: %q", cnsSnapshotInfo.SourceVolumeID, cnsSnapshotInfo.SnapshotID,
+		cnsSnapshotInfo.SnapshotLatestOperationCompleteTime, createSnapshotsTaskInfo.ActivationId)
+
+	return cnsSnapshotInfo, "", nil
+}
+
 // The snapshotName parameter denotes the snapshot description required by CNS CreateSnapshot API.
 // This parameter is expected to be filled with the CSI CreateSnapshotRequest Name,
 // which is generated by the CSI snapshotter sidecar.
@@ -2795,8 +2926,30 @@ func (m *defaultManager) CreateSnapshot(
 		if err != nil {
 			return nil, logger.LogNewErrorf(log, "ConnectCns failed with err: %+v", err)
 		}
+		var createSnapParams *CreateSnapshotExtraParams
+		if extraParams != nil {
+			var typeAssertOk bool
+			createSnapParams, typeAssertOk = extraParams.(*CreateSnapshotExtraParams)
+			if !typeAssertOk {
+				return nil, logger.LogNewErrorf(log, "unrecognised type for CreateSnapshot params: %+v", extraParams)
+			}
+		}
+		if createSnapParams != nil && createSnapParams.IsCSITransactionSupportEnabled {
+			var snapcontentPrefix = "snapcontent-"
+			cnssnapshotInfo, fault, err := m.createSnapshotWithTransaction(ctx, volumeID,
+				strings.TrimPrefix(snapshotName, snapcontentPrefix), extraParams)
+			if err != nil {
+				if IsNotSupportedFaultType(ctx, fault) {
+					log.Infof("Creating Snapshot with Transaction is not supported. " +
+						"Re-creating Snapshot without setting Snapshot ID in the spec")
+					return m.createSnapshotWithImprovedIdempotencyCheck(ctx, volumeID, snapshotName, extraParams)
+				}
+			}
+			return cnssnapshotInfo, nil
 
-		return m.createSnapshotWithImprovedIdempotencyCheck(ctx, volumeID, snapshotName, extraParams)
+		} else {
+			return m.createSnapshotWithImprovedIdempotencyCheck(ctx, volumeID, snapshotName, extraParams)
+		}
 	}
 
 	start := time.Now()
