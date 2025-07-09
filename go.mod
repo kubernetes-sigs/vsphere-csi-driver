@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.2
 
 require (
-	github.com/agiledragon/gomonkey/v2 v2.3.1
+	github.com/agiledragon/gomonkey/v2 v2.13.0
 	github.com/akutz/gofsutil v0.1.2
 	github.com/container-storage-interface/spec v1.9.0
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
@@ -25,7 +25,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/vmware-tanzu/vm-operator/api v1.8.7-0.20250509154507-b93e51fc90fa
 	github.com/vmware-tanzu/vm-operator/external/byok v0.0.0-20250509154507-b93e51fc90fa
-	github.com/vmware/govmomi v0.51.0
+	github.com/vmware/govmomi v0.52.0-alpha.0.0.20250624230355-39c6f0f94465
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.36.0
 	golang.org/x/sync v0.14.0

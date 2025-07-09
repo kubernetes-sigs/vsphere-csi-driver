@@ -265,7 +265,7 @@ const (
 	envZonalStoragePolicyName2               = "ZONAL2_STORAGECLASS"
 	volExtensionName                         = "volume.cns.vsphere.vmware.com"
 	snapshotExtensionName                    = "snapshot.cns.vsphere.vmware.com"
-	vmServiceExtensionName                   = "vmservice.cns.vsphere.vmware.com"
+	vmServiceExtensionName                   = "vmware-system-vmop-webhook-service"
 	pvcUsage                                 = "-pvc-usage"
 	snapshotUsage                            = "-snapshot-usage"
 	vmUsage                                  = "-vm-usage"
@@ -344,9 +344,12 @@ const (
 	vc70                  = "vc70"
 	wldi                  = "wldi"
 	vmServiceVm           = "vmServiceVm"
+	vsanDirect            = "vsanDirect"
+	preUpgrade            = "preUpgrade"
 	vcptocsiTest          = "vcptocsiTest"
 	stretchedSvc          = "stretchedSvc"
 	devops                = "devops"
+	vc901                 = "vc901"
 	linkedClone           = "lc"
 )
 
@@ -487,14 +490,24 @@ var (
 
 // For management workload domain isolation
 var (
-	envZonal2StoragePolicyName            = "ZONAL2_STORAGE_POLICY_IMM"
-	envZonal2StoragePolicyNameLateBidning = "ZONAL2_STORAGE_POLICY_WFFC"
-	envZonal1StoragePolicyName            = "ZONAL1_STORAGE_POLICY_IMM"
-	envZonal3StoragePolicyName            = "ZONAL3_STORAGE_POLICY_IMM"
-	topologyDomainIsolation               = "Workload_Management_Isolation"
-	envIsolationSharedStoragePolicyName   = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
-	envSharedZone2Zone4StoragePolicyName  = "SHARED_ZONE2_ZONE4_STORAGE_POLICY_IMM"
-	envSharedZone2Zone4DatastoreUrl       = "SHARED_ZONE2_ZONE4_DATASTORE_URL"
+	envZonal2StoragePolicyName                     = "ZONAL2_STORAGE_POLICY_IMM"
+	envZonal2StoragePolicyNameLateBidning          = "ZONAL2_STORAGE_POLICY_WFFC"
+	envZonal1StoragePolicyName                     = "ZONAL1_STORAGE_POLICY_IMM"
+	envZonal3StoragePolicyName                     = "ZONAL3_STORAGE_POLICY_IMM"
+	topologyDomainIsolation                        = "Workload_Management_Isolation"
+	envIsolationSharedStoragePolicyName            = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
+	envSharedZone2Zone4StoragePolicyName           = "SHARED_ZONE2_ZONE4_STORAGE_POLICY_IMM"
+	envSharedZone2Zone4DatastoreUrl                = "SHARED_ZONE2_ZONE4_DATASTORE_URL"
+	envZonal2DatastoreUrl                          = "ZONAL2_DATASTORE_URL"
+	envZone3DatastoreName                          = "ZONE3_DATASTORE_NAME"
+	envZone2DatastoreName                          = "ZONE2_DATASTORE_NAME"
+	vmMigrationUserName                            = "VM_MIGRATION_USER_NAME"
+	vmMigrationUserPwd                             = "VM_MIGRATION_USER_PWD"
+	envZone2DatastoreUrl                           = "ZONE2_DATASTORE_URL"
+	envIsolationSharedStoragePolicyNameLateBidning = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY_WFFC"
+	envSharedZone1Zone2Zone3StoragePolicyName      = "SHARED_ZONE1_ZONE2_ZONE3_STORAGE_POLICY_IMM"
+	nimbusWorkerIp                                 = "NIMBUS_WORKER_IP"
+	vsanMaxFaultDomainName                         = "VSAN_MAX_FD_NAME"
 )
 
 // For linked clone

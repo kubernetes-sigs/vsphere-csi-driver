@@ -40,12 +40,12 @@ func validatePv(ctx context.Context, req *admissionv1.AdmissionRequest) *admissi
 			log.Errorf("error deserializing PV: %v. skipping validation.", err)
 			allowed = false
 			result = &metav1.Status{
-				Message: fmt.Sprintf("Failed to serialize PV: %+V", err),
+				Message: fmt.Sprintf("Failed to serialize PV: %+v", err),
 			}
 			break
 		}
 
-		if !isFileVolume(pv.Spec.AccessModes) {
+		if !isFileVolume(pv.Spec.AccessModes, *pv.Spec.VolumeMode) {
 			log.Debugf("Not a file volume. Skipping validation.")
 			allowed = true
 			break
@@ -75,10 +75,16 @@ func validatePv(ctx context.Context, req *admissionv1.AdmissionRequest) *admissi
 
 }
 
-func isFileVolume(accessModes []corev1.PersistentVolumeAccessMode) bool {
+func isFileVolume(accessModes []corev1.PersistentVolumeAccessMode, volumeMode corev1.PersistentVolumeMode) bool {
 	for _, accessMode := range accessModes {
 		if accessMode == corev1.ReadWriteMany || accessMode == corev1.ReadOnlyMany {
-			return true
+			if featureIsSharedDiskEnabled {
+				if volumeMode != corev1.PersistentVolumeBlock {
+					return true
+				}
+			} else {
+				return true
+			}
 		}
 	}
 	return false

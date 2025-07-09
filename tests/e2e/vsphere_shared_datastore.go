@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 
 	// Shared datastore should be provisioned successfully.
 	ginkgo.It("Verify dynamic provisioning of PV passes with user specified shared datastore and "+
-		"no storage policy specified in the storage class", func() {
+		"no storage policy specified in the storage class", ginkgo.Label(p0, block, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Invoking Test for user specified Shared Datastore in Storage class for volume provisioning")
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 	// Setting non-shared datastore in the storage class should fail dynamic
 	// volume provisioning.
 	ginkgo.It("Verify dynamic provisioning of PV fails with user specified non-shared datastore and "+
-		"no storage policy specified in the storage class", func() {
+		"no storage policy specified in the storage class", ginkgo.Label(p0, block, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Invoking Test for user specified non-shared Datastore in storage class for volume provisioning")
@@ -155,7 +155,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 	// 10. Delete PVC and SC
 
 	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-supervisor] "+
-		"Verify impact on existing pv pvc when sc recreated with different binding mode", func() {
+		"Verify impact on existing pv pvc when sc recreated with different binding mode", ginkgo.Label(p0,
+		block, wcp, tkg, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Invoking Test to verify impact on existing pv pvc when sc recreated with different binding mode")

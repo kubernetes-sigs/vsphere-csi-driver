@@ -30,6 +30,7 @@ var (
 	testVolumeSnapshotName      = "test-volume-snapshot"
 	testVolumeSnapshotClassName = "test-volume-snapshot-class"
 	testPVName                  = "test-pv"
+	volumeMode                  = corev1.PersistentVolumeFilesystem
 	testPV                      = &corev1.PersistentVolume{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: testPVName,
@@ -53,6 +54,7 @@ var (
 					corev1.ResourceStorage: resource.MustParse("5Gi"),
 				},
 			},
+			VolumeMode: &volumeMode,
 			VolumeName: testPVName,
 		},
 	}

@@ -31,6 +31,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
 
@@ -42,23 +43,27 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 	f := framework.NewDefaultFramework("tkg-domain-isolation")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client                  clientset.Interface
-		namespace               string
-		vcRestSessionId         string
-		allowedTopologies       []v1.TopologySelectorLabelRequirement
-		replicas                int32
-		topologyAffinityDetails map[string][]string
-		topologyCategories      []string
-		labelsMap               map[string]string
-		labels_ns               map[string]string
-		pandoraSyncWaitTime     int
-		snapc                   *snapclient.Clientset
-		err                     error
-		zone2                   string
-		zone3                   string
-		sharedStoragePolicyName string
-		svcNamespace            string
-		guestClusterRestConfig  *restclient.Config
+		client                      clientset.Interface
+		namespace                   string
+		vcRestSessionId             string
+		allowedTopologies           []v1.TopologySelectorLabelRequirement
+		replicas                    int32
+		topologyAffinityDetails     map[string][]string
+		topologyCategories          []string
+		labelsMap                   map[string]string
+		labels_ns                   map[string]string
+		pandoraSyncWaitTime         int
+		snapc                       *snapclient.Clientset
+		err                         error
+		zone2                       string
+		zone3                       string
+		zone4                       string
+		sharedStoragePolicyName     string
+		zonal2StroragePolicyName    string
+		sharedStoragePolicyNameWffc string
+		svcNamespace                string
+		guestClusterRestConfig      *restclient.Config
+		topkeyStartIndex            int
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -100,9 +105,14 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 		//zones used in the test
 		zone2 = topologyAffinityDetails[topologyCategories[0]][1]
 		zone3 = topologyAffinityDetails[topologyCategories[0]][2]
+		zone4 = topologyAffinityDetails[topologyCategories[0]][3]
 
 		// reading shared storage policy
 		sharedStoragePolicyName = GetAndExpectStringEnvVar(envIsolationSharedStoragePolicyName)
+		sharedStoragePolicyNameWffc = GetAndExpectStringEnvVar(envIsolationSharedStoragePolicyNameLateBidning)
+
+		// reading zonal storage policy
+		zonal2StroragePolicyName = GetAndExpectStringEnvVar(envZonal2StoragePolicyName)
 
 		svcNamespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
 
@@ -350,4 +360,218 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
+
+	/*
+		TKG - Testcase-1
+		Create a workload using a zonal policy of zone-1 and Immediate Binding mode
+
+		Test Steps:
+		1. Create a STS with 3 replicas, using the zonal SP which is compatible only with zone-2 with Immediate Binding mode.
+		2. Wait for the StatefulSet PVCs to reach the "Bound" state and the StatefulSet Pods to reach the "Running" state.
+		3. Verify the StatefulSet PVC annotations and the PVs affinity details.
+		4. Verify the StatefulSet Pod's node annotation.
+		5. Perform cleanup by deleting the Pods, Volumes, and Namespace.
+	*/
+
+	ginkgo.It("Statefulset creation with zonal policy", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// statefulset replica count
+		replicas = 3
+
+		ginkgo.By("Read zonal storage policy tagged to wcp namespace")
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonal2StroragePolicyName, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
+		ginkgo.By("Creating statefulset")
+		statefulset := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, true, allowedTopologies,
+			true, true, "", "", storageclass, storageclass.Name)
+		defer func() {
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
+		}()
+
+		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, statefulset, nil, nil, namespace,
+			allowedTopologies)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/*
+		TKG - Testcase-2
+		Create a workload by setting requested allowed topology.
+
+		Test Steps:
+		1. Create a PVC using a shared storage policy and set the requested allowed topology to zone-4 & WFFC binding mode.
+		2. Wait for PVC to reach Bound state.
+		3. Create a new PVC and set the requested allowed topology to zone-3.
+		4. Wait for PVC to reach Bound state.
+		5. Verify PVCs annotation and PV affinity. It should show the requested allowed topology details.
+		6. Create standalone Pods for each created PVC.
+		7. Verify Pod node annotation.
+		8. Perform cleanup by deleting the Pods, Volumes, and Namespace.
+	*/
+
+	ginkgo.It("Workload creation by setting requested allowed topology", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ginkgo.By("Read shared-latebinding storage policy tagged to wcp namespace")
+		spWffc := sharedStoragePolicyNameWffc + "-latebinding"
+		storageclassWffc, err := client.StorageV1().StorageClasses().Get(ctx, spWffc, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyNameWffc, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Creating pvc with requested topology annotation set to zone4")
+		pvclaim1, err := createPvcWithRequestedTopology(ctx, client, namespace, nil, "", storageclassWffc, "", zone4)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Creating another pvc with requested topology annotation set to zone3")
+		pvclaim2, err := createPvcWithRequestedTopology(ctx, client, namespace, nil, "", storageclass, "", zone3)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Wait for PVC to reach Bound state.")
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
+			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create Pod to attach to Pvc-1")
+		pod1, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false,
+			execRWXCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, nil, pod1, nil, namespace,
+			allowedTopologies)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create Pod to attach to Pvc-2")
+		pod2, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false,
+			execRWXCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, nil, pod2, nil, namespace,
+			allowedTopologies)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/*
+		TKG - Testcase-6
+		Create a statefulset with Node Selector Terms.
+
+		Test Steps:
+		1. Create a StatefulSet with 3 replicas, using the storage policy
+		2. Specify node selector term specific to zone-3 for Pod creation.
+		3. Wait for the StatefulSet PVCs to reach the "Bound" state and the StatefulSet Pods to reach the "Running" state.
+		4. Verify the StatefulSet PVC annotations and the PVs affinity details. 5. It should show zone-3 topology
+		6. Verify the StatefulSet Pod's node annotation. All Pods should come up on zone 3
+		7. Perform cleanup by deleting the Pods, Volumes, and Namespace.
+	*/
+
+	ginkgo.It("Create a statefulset with Node Selector Terms.", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// statefulset replica count
+		replicas = 3
+
+		ginkgo.By("Read shared storage policy tagged to wcp namespace")
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
+		framework.Logf("Create StatefulSet with node selector set to zone-2")
+		topValStartIndex := 1
+		topValEndIndex := 2
+		allowedTopologiesZ2 := setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
+			topValEndIndex)
+
+		ginkgo.By("Creating statefulset")
+		statefulset := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, true, allowedTopologiesZ2,
+			false, true, "", "", storageclass, sharedStoragePolicyName)
+		defer func() {
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
+		}()
+
+		// PV will have all 3 zones, but pod will be on zone-2
+		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, statefulset, nil, nil, namespace,
+			allowedTopologies)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	})
+
+	/*
+		TKG - Testcase-7
+		Create a statefulset with Node Selector Terms
+
+		Test Steps:
+		1. Create a StatefulSet with 3 replicas, using the storage policy and configuring WFFC Binding mode.
+		2. Specify node selector term specific to zone-3 for Pod creation.
+		3. Wait for the StatefulSet PVCs to reach the "Bound" state and the StatefulSet Pods to reach the "Running" state.
+		4. Verify the StatefulSet PVC annotations and the PVs affinity details. It should show zone-3 topology
+		5. Verify the StatefulSet Pod's node annotation. All Pods should come up on zone-3
+		6. Perform cleanup by deleting the Pods, Volumes, and Namespace.
+	*/
+	ginkgo.It("Create a statefulset with Node Selector Terms and WFFC binding", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// statefulset replica count
+		replicas = 3
+
+		ginkgo.By("Read shared storage policy tagged to wcp namespace")
+		spWffc := zonal2StroragePolicyName + "-latebinding"
+		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, spWffc, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Creating service")
+		service := CreateService(namespace, client)
+		defer func() {
+			deleteService(namespace, client, service)
+		}()
+
+		framework.Logf("Create StatefulSet with node selector set to zone-2")
+		topValStartIndex := 1
+		topValEndIndex := 2
+		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
+			topValEndIndex)
+
+		ginkgo.By("Creating statefulset")
+		statefulset := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, true, allowedTopologies,
+			false, true, "", "", storageclass, storageclass.Name)
+		defer func() {
+			fss.DeleteAllStatefulSets(ctx, client, namespace)
+		}()
+
+		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, statefulset, nil, nil, namespace,
+			allowedTopologies)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	})
+
 })

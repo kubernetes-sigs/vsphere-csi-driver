@@ -345,8 +345,8 @@ const (
 	// KubeSystemNamespace is the namespace for system resources.
 	KubeSystemNamespace = "kube-system"
 
-	// WCPCapabilityConfigMapName is the name of the configmap where WCP component's FSS values are stored.
-	WCPCapabilityConfigMapName = "wcp-cluster-capabilities"
+	// WCPCapabilitiesCRName is the name of the CR where WCP component's capabilities are stored
+	WCPCapabilitiesCRName = "supervisor-capabilities"
 )
 
 // Supported container orchestrators.
@@ -367,8 +367,6 @@ const (
 	OnlineVolumeExtend = "online-volume-extend"
 	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI.
 	CSIMigration = "csi-migration"
-	// AsyncQueryVolume is feature flag for using async query volume API.
-	AsyncQueryVolume = "async-query-volume"
 	// CSISVFeatureStateReplication is feature flag for SV feature state
 	// replication feature.
 	CSISVFeatureStateReplication = "csi-sv-feature-states-replication"
@@ -436,6 +434,14 @@ const (
 	// SVPVCSnapshotProtectionFinalizer is FSS that controls add/remove
 	// CNS finalizer on supervisor PVC/Snapshots from PVCSI
 	SVPVCSnapshotProtectionFinalizer = "sv-pvc-snapshot-protection-finalizer"
+	// FileVolumesWithVmService is an FSS to support file volumes with VM service VMs.
+	FileVolumesWithVmService = "file-volume-with-vm-service"
+	// SharedDiskFss is an FSS that tells whether shared disks are supported or not
+	SharedDiskFss = "supports_shared_disks"
+	// CSITranSactionSupport is an FSS for transaction support
+	CSITranSactionSupport = "csi-transaction-support"
+	// VolFromSnapshotOnTargetDs enables creation of volumes from snapshots on different datastores
+	VolFromSnapshotOnTargetDs = "vol-from-snapshot-on-target-ds"
 )
 
 var WCPFeatureStates = map[string]struct{}{
@@ -451,4 +457,12 @@ var WCPFeatureStates = map[string]struct{}{
 // it will re-fetch the configmap and update the cached configmap.
 var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	WorkloadDomainIsolation: {},
+}
+
+// WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
+// supervisor cluster. Add entry in this map only for PVCSI feature for which there is any associated Capability
+// on supervisor cluster. If PVCSI feature is enabled, then we need to check if associated Capability is enabled
+// or not on the supervisor cluster to decide if effective value of this FSS is enabled or disabled.
+var WCPFeatureStateAssociatedWithPVCSI = map[string]string{
+	WorkloadDomainIsolationFSS: WorkloadDomainIsolation,
 }

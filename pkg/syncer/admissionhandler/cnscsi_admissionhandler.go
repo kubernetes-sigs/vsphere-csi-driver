@@ -3,6 +3,7 @@ package admissionhandler
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -31,6 +32,13 @@ const (
 	DefaultWebhookMetricsBindAddress = "0"
 )
 
+var (
+	// This client is generated in the kubeadm bootstrap stages
+	// using the kubernetes CA
+	webhookClientCAFile        = "client-ca/ca.crt"
+	webhookClientCertificateCN = "apiserver-webhook-client"
+)
+
 func getWebhookPort() int {
 	portStr, ok := os.LookupEnv("CNSCSI_WEBHOOK_SERVICE_CONTAINER_PORT")
 	if !ok {
@@ -55,28 +63,39 @@ func getMetricsBindAddress() string {
 }
 
 // startCNSCSIWebhookManager starts the webhook server in supervisor cluster
-func startCNSCSIWebhookManager(ctx context.Context) error {
+func startCNSCSIWebhookManager(ctx context.Context, enableWebhookClientCertVerification bool) error {
 	log := logger.GetLogger(ctx)
 
+	var clientCAName string
 	webhookPort := getWebhookPort()
 	metricsBindAddress := getMetricsBindAddress()
 	log.Infof("setting up webhook manager with webhookPort %v and metricsBindAddress %v",
 		webhookPort, metricsBindAddress)
 
+	tlsConfigOpts := []func(*tls.Config){
+		func(t *tls.Config) {
+			// CipherSuites allows us to specify TLS 1.2 cipher suites that have been recommended by the Security team
+			t.CipherSuites = []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384}
+			t.MinVersion = tls.VersionTLS12
+		},
+	}
+	// This client CA is used to verify the client connections being made to the webhook server and
+	// authenticate whether a valid cert is used to contact the server.
+	// Ref: https://github.com/kubernetes-sigs/controller-runtime/blob/main/pkg/webhook/server.go#L220-L235
+	if enableWebhookClientCertVerification {
+		// set the copied file as the client CA
+		clientCAName = webhookClientCAFile
+		tlsConfigOpts = append(tlsConfigOpts, setVerifyPeerCertificate)
+	}
 	mgrOpts := manager.Options{
 		Metrics: metricsserver.Options{
 			BindAddress: metricsBindAddress,
 		},
 		WebhookServer: webhook.NewServer(webhook.Options{
-			Port: webhookPort,
-			TLSOpts: []func(*tls.Config){
-				func(t *tls.Config) {
-					// CipherSuites allows us to specify TLS 1.2 cipher suites that have been recommended by the Security team
-					t.CipherSuites = []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-						tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384}
-					t.MinVersion = tls.VersionTLS12
-				},
-			},
+			Port:         webhookPort,
+			TLSOpts:      tlsConfigOpts,
+			ClientCAName: clientCAName,
 		})}
 
 	if featureGateByokEnabled {
@@ -163,6 +182,12 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 			admissionResp := validatePVC(ctx, &req.AdmissionRequest)
 			resp.AdmissionResponse = *admissionResp.DeepCopy()
 		}
+	} else if req.Kind.Kind == "CnsFileAccessConfig" {
+		if featureFileVolumesWithVmServiceEnabled {
+			admissionResp := validateCnsFileAccessConfig(ctx, h.clientConfig, &req.AdmissionRequest)
+			resp.AdmissionResponse = *admissionResp.DeepCopy()
+
+		}
 	}
 	return
 }
@@ -215,4 +240,19 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 	}
 
 	return admission.PatchResponseFromRaw(req.Object.Raw, newRawPVC)
+}
+
+// setVerifyPeerCertificate func sets VerifyPeerCertificate function to be used to
+// verify webhook client i.e. APIserver certificate during connection to CSI webhook server
+func setVerifyPeerCertificate(cfg *tls.Config) {
+	cfg.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		if len(verifiedChains) == 0 || len(verifiedChains[0]) == 0 {
+			return fmt.Errorf("no verified chains")
+		}
+		cert := verifiedChains[0][0]
+		if cert.Subject.CommonName != webhookClientCertificateCN {
+			return fmt.Errorf("unauthorized client CN: %s", cert.Subject.CommonName)
+		}
+		return nil
+	}
 }

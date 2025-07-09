@@ -35,6 +35,7 @@ import (
 	vmoperatorv1alpha2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -61,6 +62,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -140,7 +142,20 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 		return err
 	}
 
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
+	// If workload-domain-isolation FSS is not enabled on guest cluster, then check the capabilities CR in
+	// supervisor cluster every 2 mins to check if there is a change in Workload_Domain_Isolation_Supported
+	// capability value from false to true. If so, restart the CSI controller container on guest.
+	// NOTE: We can add other capabilities here when similar functionality is required. For
+	// workload-isolation-domain feature we are restarting the container when capability changes dynamically from
+	// false to true, but for other features instead of restarting CSI container, if possible we can implement
+	// some init() function which can initialize required things when capability value changes from false to true.
+	isWorkloadDomainIsolationSupported := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.WorkloadDomainIsolationFSS)
+	if !isWorkloadDomainIsolationSupported {
+		go k8sorchestrator.HandleEnablementOfWLDICapability(ctx, cnstypes.CnsClusterFlavorGuest,
+			config.GC.Endpoint, config.GC.Port)
+	}
+	if isWorkloadDomainIsolationSupported {
 		err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, c.restClientConfig, c.supervisorNamespace)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to listen on zones CR. Error: %v", err)
@@ -674,7 +689,7 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 	for {
-		virtualMachine, err = utils.GetVirtualMachineAllApiVersions(
+		virtualMachine, _, err = utils.GetVirtualMachineAllApiVersions(
 			ctx, vmKey, c.vmOperatorClient)
 		if err != nil {
 			msg := fmt.Sprintf("failed to get VirtualMachines for the node: %q. Error: %+v", req.NodeId, err)
@@ -1054,7 +1069,7 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 	for {
-		virtualMachine, err = utils.GetVirtualMachineAllApiVersions(
+		virtualMachine, _, err = utils.GetVirtualMachineAllApiVersions(
 			ctx, vmKey, c.vmOperatorClient)
 		if err != nil {
 			if errors.IsNotFound(err) {

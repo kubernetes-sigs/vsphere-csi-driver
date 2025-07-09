@@ -846,7 +846,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort))
+					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, framework.PodDeleteTimeout))
 					err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -1103,7 +1103,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort))
+					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, framework.PodDeleteTimeout))
 					err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -1632,7 +1632,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort))
+					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, framework.PodDeleteTimeout))
 					err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -1883,7 +1883,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort))
+					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, framework.PodDeleteTimeout))
 					err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
@@ -2265,7 +2265,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort))
+					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, framework.PodDeleteTimeout))
 					err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}

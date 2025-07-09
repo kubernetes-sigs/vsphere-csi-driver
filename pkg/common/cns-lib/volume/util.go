@@ -284,7 +284,7 @@ func getTaskResultFromTaskInfo(ctx context.Context, taskInfo *types.TaskInfo) (c
 func validateCreateVolumeResponseFault(ctx context.Context, name string,
 	resp *cnstypes.CnsVolumeOperationResult) (*CnsVolumeInfo, error) {
 	log := logger.GetLogger(ctx)
-	fault, ok := resp.Fault.Fault.(cnstypes.CnsAlreadyRegisteredFault)
+	fault, ok := resp.Fault.Fault.(*cnstypes.CnsAlreadyRegisteredFault)
 	if ok {
 		log.Infof("Volume is already registered with CNS. VolumeName: %q, volumeID: %q",
 			name, fault.VolumeId.Id)
@@ -374,11 +374,13 @@ func ExtractFaultTypeFromVolumeResponseResult(ctx context.Context,
 				faultType, fault.Fault, fault, resp)
 			slice := strings.Split(faultType, ".")
 			vimFaultType := csifault.VimFaultPrefix + slice[1]
+			log.Infof("returning fault: %q", vimFaultType)
 			return vimFaultType
 		} else {
 			faultType = reflect.TypeOf(fault).String()
 			log.Infof("Extract fault: %q from resp: %+v",
 				faultType, resp)
+			log.Infof("returning fault: %q", faultType)
 			return faultType
 		}
 	}
@@ -556,4 +558,38 @@ func IsNotFoundFault(ctx context.Context, faultType string) bool {
 	log.Infof("Checking fault type: %q is vim.fault.NotFound", faultType)
 	return faultType == "vim.fault.NotFound"
 
+}
+
+// IsNotSupportedFault returns true if a given fault is NotSupported fault
+func IsNotSupportedFault(ctx context.Context, fault *types.LocalizedMethodFault) bool {
+	log := logger.GetLogger(ctx)
+	if cnsFault, ok := fault.Fault.(*cnstypes.CnsFault); ok {
+		if cause := cnsFault.FaultCause; cause != nil {
+			if innerfault, ok := cause.Fault.(*types.NotSupported); ok {
+				log.Info("observed NotSupported fault")
+				return true
+			} else {
+				log.Infof("observed fault: %T", innerfault)
+				return false
+			}
+		} else {
+			log.Errorf("observed fault with nil cause")
+		}
+	} else {
+		log.Errorf("can not typecast fault to CnsFault")
+	}
+	return false
+}
+
+func IsNotSupportedFaultType(ctx context.Context, faultType string) bool {
+	log := logger.GetLogger(ctx)
+	log.Infof("Checking fault type: %q is vim25:NotSupported", faultType)
+	return faultType == "vim25:NotSupported"
+}
+
+// IsCnsVolumeAlreadyExistsFault returns true if a given faultType value is vim.fault.CnsVolumeAlreadyExistsFault
+func IsCnsVolumeAlreadyExistsFault(ctx context.Context, faultType string) bool {
+	log := logger.GetLogger(ctx)
+	log.Infof("Checking fault type: %q is vim.fault.CnsVolumeAlreadyExistsFault", faultType)
+	return faultType == "vim.fault.CnsVolumeAlreadyExistsFault"
 }

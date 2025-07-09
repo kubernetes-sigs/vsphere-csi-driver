@@ -61,11 +61,13 @@ var (
 	featureGateVolumeHealthEnabled            bool
 	featureGateTopologyAwareFileVolumeEnabled bool
 	featureGateByokEnabled                    bool
+	featureFileVolumesWithVmServiceEnabled    bool
+	featureIsSharedDiskEnabled                bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
 // like cert, key etc. This is required for certificate rotation.
-func watchConfigChange() {
+func watchConfigChange(enableWebhookClientCertVerification bool) {
 	ctx, log := logger.GetNewContextWithLogger()
 	cfg, err := getWebHookConfig(ctx)
 	if err != nil {
@@ -90,7 +92,7 @@ func watchConfigChange() {
 					log.Infof("Restarting webhook server with new config")
 					errChan := make(chan error)
 					go func() {
-						err := restartWebhookServer(ctx)
+						err := restartWebhookServer(ctx, enableWebhookClientCertVerification)
 						if err != nil {
 							errChan <- err
 							return
@@ -121,7 +123,7 @@ func watchConfigChange() {
 }
 
 // StartWebhookServer starts the webhook server.
-func StartWebhookServer(ctx context.Context) error {
+func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification bool) error {
 	log := logger.GetLogger(ctx)
 	cr_log.SetLogger(zapr.NewLogger(log.Desugar()))
 
@@ -146,7 +148,11 @@ func StartWebhookServer(ctx context.Context) error {
 		featureGateVolumeHealthEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeHealth)
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		featureGateByokEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK)
-		if err := startCNSCSIWebhookManager(ctx); err != nil {
+		featureIsSharedDiskEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
+		featureFileVolumesWithVmServiceEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.FileVolumesWithVmService)
+
+		if err := startCNSCSIWebhookManager(ctx, enableWebhookClientCertVerification); err != nil {
 			return fmt.Errorf("unable to run the webhook manager: %w", err)
 		}
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
@@ -206,7 +212,7 @@ func StartWebhookServer(ctx context.Context) error {
 				}
 			}()
 			log.Info("Webhook server started")
-			watchConfigChange()
+			watchConfigChange(enableWebhookClientCertVerification)
 			<-stopCh
 			return nil
 		}
@@ -216,7 +222,7 @@ func StartWebhookServer(ctx context.Context) error {
 
 // restartWebhookServer stops the webhook server and start webhook using
 // updated config.
-func restartWebhookServer(ctx context.Context) error {
+func restartWebhookServer(ctx context.Context, enableWebhookClientCertVerification bool) error {
 	log := logger.GetLogger(ctx)
 	cfg, err := getWebHookConfig(ctx)
 	if err != nil {
@@ -230,7 +236,7 @@ func restartWebhookServer(ctx context.Context) error {
 		return err
 	}
 	log.Info("Restarting webhook server...")
-	return StartWebhookServer(ctx)
+	return StartWebhookServer(ctx, enableWebhookClientCertVerification)
 }
 
 // validationHandler is the handler for webhook http multiplexer to help

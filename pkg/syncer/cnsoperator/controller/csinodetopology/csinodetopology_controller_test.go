@@ -163,7 +163,7 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 				supervisorNamespace: testSupervisorNamespace,
 			}
 
-			backOffDuration = make(map[string]time.Duration)
+			backOffDuration = make(map[types.NamespacedName]time.Duration)
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{

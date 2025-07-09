@@ -29,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -65,7 +66,7 @@ var (
 	// Initialized to 1 second for new instances and for instances whose latest
 	// reconcile operation succeeded.
 	// If the reconcile fails, backoff is incremented exponentially.
-	backOffDuration         map[string]time.Duration
+	backOffDuration         map[types.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
@@ -132,7 +133,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 
-	backOffDuration = make(map[string]time.Duration)
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
 
 	// Watch for changes to primary resource CnsUnregisterVolume.
 	err = c.Watch(source.Kind(
@@ -189,16 +190,16 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 	// Initialize backOffDuration for the instance, if required.
 	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
-	if _, exists := backOffDuration[instance.Name]; !exists {
-		backOffDuration[instance.Name] = time.Second
+	if _, exists := backOffDuration[request.NamespacedName]; !exists {
+		backOffDuration[request.NamespacedName] = time.Second
 	}
-	timeout = backOffDuration[instance.Name]
+	timeout = backOffDuration[request.NamespacedName]
 	backOffDurationMapMutex.Unlock()
 	// If the CnsUnregistereVolume instance is already unregistered, remove the
 	// instance from the queue.
 	if instance.Status.Unregistered {
 		backOffDurationMapMutex.Lock()
-		delete(backOffDuration, instance.Name)
+		delete(backOffDuration, request.NamespacedName)
 		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
@@ -331,7 +332,7 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 	backOffDurationMapMutex.Lock()
-	delete(backOffDuration, instance.Name)
+	delete(backOffDuration, request.NamespacedName)
 	backOffDurationMapMutex.Unlock()
 	log.Info(msg)
 	return reconcile.Result{}, nil
@@ -440,17 +441,21 @@ func recordEvent(ctx context.Context, r *ReconcileCnsUnregisterVolume,
 	instance *cnsunregistervolumev1alpha1.CnsUnregisterVolume, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Event type is %s", eventtype)
+	namespacedName := types.NamespacedName{
+		Name:      instance.Name,
+		Namespace: instance.Namespace,
+	}
 	switch eventtype {
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		backOffDuration[namespacedName] = backOffDuration[namespacedName] * 2
 		r.recorder.Event(instance, v1.EventTypeWarning, "CnsUnregisterVolumeFailed", msg)
 		backOffDurationMapMutex.Unlock()
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = time.Second
+		backOffDuration[namespacedName] = time.Second
 		r.recorder.Event(instance, v1.EventTypeNormal, "CnsUnregisterVolumeSucceeded", msg)
 		backOffDurationMapMutex.Unlock()
 	}

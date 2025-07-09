@@ -150,6 +150,7 @@ apiVersion: v1
 data:
   "trigger-csi-fullsync": "false"
   "pv-to-backingdiskobjectid-mapping": "false"
+  "csi-transaction-support": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
@@ -259,7 +260,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-resizer
-          image: registry.k8s.io/sig-storage/csi-resizer:v1.13.2
+          image: registry.k8s.io/sig-storage/csi-resizer:v1.12.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -282,6 +283,7 @@ spec:
           args:
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
             - "--fss-namespace=$(CSI_NAMESPACE)"
+            - "--enable-profile-server=false"
           imagePullPolicy: "Always"
           env:
             - name: CSI_ENDPOINT
@@ -346,6 +348,7 @@ spec:
             - "--leader-election-retry-period=10s"
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
             - "--fss-namespace=$(CSI_NAMESPACE)"
+            - "--enable-profile-server=false"
           imagePullPolicy: "Always"
           ports:
             - containerPort: 2113

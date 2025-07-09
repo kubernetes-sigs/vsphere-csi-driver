@@ -55,6 +55,7 @@ import (
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
+	wcpcapapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
@@ -219,6 +220,12 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 		err = ccV1beta1.AddToScheme(scheme)
 		if err != nil {
 			log.Errorf("failed to add to scheme for %s with err: %+v", ccV1beta1.GroupVersion.Group, err)
+			return nil, err
+		}
+	case wcpcapapis.GroupName:
+		err = wcpcapapis.AddToScheme(scheme)
+		if err != nil {
+			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err
 		}
 	case vmoperatorv1alpha4.GroupName:

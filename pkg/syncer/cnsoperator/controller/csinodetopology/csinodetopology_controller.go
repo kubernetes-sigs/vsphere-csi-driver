@@ -61,7 +61,7 @@ const defaultMaxWorkerThreadsForCSINodeTopology = 1
 // for new instances and for instances whose latest reconcile operation
 // succeeded. If the reconcile fails, backoff is incremented exponentially.
 var (
-	backOffDuration         map[string]time.Duration
+	backOffDuration         map[types.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
@@ -159,7 +159,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	}
 
 	// Initialize backoff duration map.
-	backOffDuration = make(map[string]time.Duration)
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
 
 	// Predicates are used to determine under which conditions the reconcile
 	// callback will be made for an instance.
@@ -253,10 +253,10 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 	// Initialize backOffDuration for the instance, if required.
 	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
-	if _, exists := backOffDuration[instance.Name]; !exists {
-		backOffDuration[instance.Name] = time.Second
+	if _, exists := backOffDuration[request.NamespacedName]; !exists {
+		backOffDuration[request.NamespacedName] = time.Second
 	}
-	timeout = backOffDuration[instance.Name]
+	timeout = backOffDuration[request.NamespacedName]
 	backOffDurationMapMutex.Unlock()
 
 	// Get NodeVM instance.
@@ -342,7 +342,7 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 
 	// On successful event, remove instance from backOffDuration.
 	backOffDurationMapMutex.Lock()
-	delete(backOffDuration, instance.Name)
+	delete(backOffDuration, request.NamespacedName)
 	backOffDurationMapMutex.Unlock()
 	log.Infof("Successfully updated topology labels for nodeVM %q", instance.Name)
 	return reconcile.Result{}, nil
@@ -385,10 +385,10 @@ func (r *ReconcileCSINodeTopology) reconcileForGuest(ctx context.Context, reques
 	func() {
 		backOffDurationMapMutex.Lock()
 		defer backOffDurationMapMutex.Unlock()
-		if _, exists := backOffDuration[instance.Name]; !exists {
-			backOffDuration[instance.Name] = time.Second
+		if _, exists := backOffDuration[request.NamespacedName]; !exists {
+			backOffDuration[request.NamespacedName] = time.Second
 		}
-		timeout = backOffDuration[instance.Name]
+		timeout = backOffDuration[request.NamespacedName]
 	}()
 
 	// Fetch topology labels for guest worker node backed by vmop VM.
@@ -412,7 +412,7 @@ func (r *ReconcileCSINodeTopology) reconcileForGuest(ctx context.Context, reques
 	func() {
 		backOffDurationMapMutex.Lock()
 		defer backOffDurationMapMutex.Unlock()
-		delete(backOffDuration, instance.Name)
+		delete(backOffDuration, request.NamespacedName)
 	}()
 
 	log.Infof("Successfully updated topology labels for worker %q in %s",
@@ -428,7 +428,7 @@ func getNodeTopologyInfoForGuest(ctx context.Context, instance *csinodetopologyv
 		Name:      instance.Name, // use the nodeName as the VM key
 	}
 	log.Info("fetching virtual machines with all versions")
-	virtualMachine, err := utils.GetVirtualMachineAllApiVersions(
+	virtualMachine, _, err := utils.GetVirtualMachineAllApiVersions(
 		ctx, vmKey, vmOperatorClient)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log,
@@ -452,6 +452,10 @@ func updateCRStatus(ctx context.Context, r *ReconcileCSINodeTopology, instance *
 	status csinodetopologyv1alpha1.CRDStatus, eventMessage string) error {
 	log := logger.GetLogger(ctx)
 
+	namespacedName := types.NamespacedName{
+		Name:      instance.Name,
+		Namespace: instance.Namespace,
+	}
 	instance.Status.Status = status
 	switch status {
 	case csinodetopologyv1alpha1.CSINodeTopologySuccess:
@@ -462,7 +466,7 @@ func updateCRStatus(ctx context.Context, r *ReconcileCSINodeTopology, instance *
 	case csinodetopologyv1alpha1.CSINodeTopologyError:
 		// Increase backoff duration for the instance.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		backOffDuration[namespacedName] = backOffDuration[namespacedName] * 2
 		backOffDurationMapMutex.Unlock()
 
 		// Record an event on the CR.

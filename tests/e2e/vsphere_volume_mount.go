@@ -80,7 +80,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Attach Test", func() {
 	// 21.Delete Storage Class.
 	// 22.Delete storage policy.
 	ginkgo.It("[csi-file-vanilla] Verify Pod can be created with PVC (dynamically provisioned) "+
-		"with access mode ReadWriteMany", func() {
+		"with access mode ReadWriteMany", ginkgo.Label(p0, vanilla, file, core, vc70), func() {
 		createFileVolumeAndMount(f, client, namespace)
 	})
 })

@@ -28,6 +28,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -64,7 +65,7 @@ const (
 // for new instances and for instances whose latest reconcile operation
 // succeeded. If the reconcile fails, backoff is incremented exponentially.
 var (
-	backOffDuration         map[string]time.Duration
+	backOffDuration         map[types.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
@@ -175,7 +176,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 
-	backOffDuration = make(map[string]time.Duration)
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
 
 	// Watch for changes to primary resource CnsFileAccessConfig.
 	err = c.Watch(source.Kind(
@@ -233,14 +234,14 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	// Initialize backOffDuration for the instance, if required.
 	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
-	if _, exists := backOffDuration[instance.Name]; !exists {
-		backOffDuration[instance.Name] = time.Second
+	if _, exists := backOffDuration[request.NamespacedName]; !exists {
+		backOffDuration[request.NamespacedName] = time.Second
 	}
-	timeout = backOffDuration[instance.Name]
+	timeout = backOffDuration[request.NamespacedName]
 	backOffDurationMapMutex.Unlock()
 
 	// Get the virtualmachine instance
-	vm, err := getVirtualMachine(ctx, r.vmOperatorClient, instance.Spec.VMName, instance.Namespace)
+	vm, apiVersion, err := getVirtualMachine(ctx, r.vmOperatorClient, instance.Spec.VMName, instance.Namespace)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v",
 			instance.Spec.VMName, err)
@@ -286,7 +287,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 			}
 			// Cleanup instance entry from backOffDuration map.
 			backOffDurationMapMutex.Lock()
-			delete(backOffDuration, instance.Name)
+			delete(backOffDuration, request.NamespacedName)
 			backOffDurationMapMutex.Unlock()
 			return reconcile.Result{}, nil
 		}
@@ -322,7 +323,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 		}
 		// Cleanup instance entry from backOffDuration map.
 		backOffDurationMapMutex.Lock()
-		delete(backOffDuration, instance.Name)
+		delete(backOffDuration, request.NamespacedName)
 		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
@@ -334,7 +335,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 		log.Infof("CnsFileAccessConfig instance: %q on namespace: %q has status marked as done. Skipping reconcile.",
 			instance.Name, instance.Namespace)
 		backOffDurationMapMutex.Lock()
-		delete(backOffDuration, instance.Name)
+		delete(backOffDuration, request.NamespacedName)
 		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
@@ -370,7 +371,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	}
 	if !vmOwnerRefExists {
 		// Set ownerRef on CnsFileAccessConfig instance (in-memory) to VM instance.
-		setInstanceOwnerRef(instance, instance.Spec.VMName, vm.UID)
+		setInstanceOwnerRef(instance, instance.Spec.VMName, vm.UID, apiVersion)
 		err = updateCnsFileAccessConfig(ctx, r.client, instance)
 		if err != nil {
 			msg := fmt.Sprintf("failed to update CnsFileAccessConfig instance: %q on namespace: %q. Error: %+v",
@@ -452,7 +453,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	}
 
 	backOffDurationMapMutex.Lock()
-	delete(backOffDuration, instance.Name)
+	delete(backOffDuration, request.NamespacedName)
 	backOffDurationMapMutex.Unlock()
 	return reconcile.Result{}, nil
 }
@@ -679,17 +680,21 @@ func recordEvent(ctx context.Context, r *ReconcileCnsFileAccessConfig,
 	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Event type is %s", eventtype)
+	namespacedName := types.NamespacedName{
+		Name:      instance.Name,
+		Namespace: instance.Namespace,
+	}
 	switch eventtype {
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		backOffDuration[namespacedName] = backOffDuration[namespacedName] * 2
 		r.recorder.Event(instance, v1.EventTypeWarning, "CnsFileAccessConfigFailed", msg)
 		backOffDurationMapMutex.Unlock()
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = time.Second
+		backOffDuration[namespacedName] = time.Second
 		r.recorder.Event(instance, v1.EventTypeNormal, "CnsFileAccessConfigSucceeded", msg)
 		backOffDurationMapMutex.Unlock()
 	}

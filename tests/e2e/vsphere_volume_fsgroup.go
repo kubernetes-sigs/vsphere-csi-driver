@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 
 	// Test for Pod creation works when SecurityContext has FSGroup
 	ginkgo.It("Verify Pod Creation works when SecurityContext has "+
-		"FSGroup", ginkgo.Label(p0, vanilla, block, wcp, tkg, core), func() {
+		"FSGroup", ginkgo.Label(p0, vanilla, block, file, wcp, tkg, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

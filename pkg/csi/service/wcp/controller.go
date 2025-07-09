@@ -425,7 +425,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 
 // createBlockVolume creates a block volume based on the CreateVolumeRequest.
 func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolumeRequest,
-	isWorkloadDomainIsolationEnabled bool) (
+	isWorkloadDomainIsolationEnabled bool, clusterMoIds []string) (
 	*csi.CreateVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
 	var (
@@ -488,6 +488,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	topologyRequirement = req.GetAccessibilityRequirements()
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
+	isCSITransactionSupportEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSITranSactionSupport)
+
 	topoSegToDatastoresMap := make(map[string][]*cnsvsphere.DatastoreInfo)
 	if isTKGSHAEnabled {
 		// TKGS-HA feature is enabled
@@ -546,13 +548,13 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
 					"volume provisioning request received without topologyRequirement.")
 			}
-			if len(clusterComputeResourceMoIds) > 1 {
+			if len(clusterMoIds) > 1 {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 					"stretched supervisor cluster does not support creating volumes "+
 						"without zone keys in the topologyRequirement.")
 			}
 			sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc,
-				clusterComputeResourceMoIds[0], true)
+				clusterMoIds[0], true)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed finding candidate datastores to place volume. Error: %v", err)
@@ -621,12 +623,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 
 		if isVdppOnStretchedSVEnabled {
-			datastore, err := cnsvsphere.GetDatastoreInfoByURL(ctx, vc, clusterComputeResourceMoIds, selectedDatastoreURL)
+			datastore, err := cnsvsphere.GetDatastoreInfoByURL(ctx, vc, clusterMoIds, selectedDatastoreURL)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to find the datastore from the selected datastore URL %s. Error: %v", selectedDatastoreURL, err)
 			}
-
 			candidateDatastores = []*cnsvsphere.DatastoreInfo{datastore}
 		}
 	}
@@ -709,11 +710,15 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		CryptoKeyID:             cryptoKeyID,
 	}
 
+	volFromSnapshotOnTargetDs := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.VolFromSnapshotOnTargetDs)
 	createVolumeOpts := common.CreateBlockVolumeOptions{
-		FilterSuspendedDatastores:     filterSuspendedDatastores,
-		UseSupervisorId:               isTKGSHAEnabled,
-		IsVdppOnStretchedSvFssEnabled: isVdppOnStretchedSVEnabled,
-		IsByokEnabled:                 isByokEnabled,
+		FilterSuspendedDatastores:      filterSuspendedDatastores,
+		UseSupervisorId:                isTKGSHAEnabled,
+		IsVdppOnStretchedSvFssEnabled:  isVdppOnStretchedSVEnabled,
+		IsByokEnabled:                  isByokEnabled,
+		IsCSITransactionSupportEnabled: isCSITransactionSupportEnabled,
+		VolFromSnapshotOnTargetDs:      volFromSnapshotOnTargetDs,
 	}
 
 	var (
@@ -729,6 +734,21 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				Namespace:                            req.Parameters[common.AttributePvcNamespace],
 				IsPodVMOnStretchSupervisorFSSEnabled: isPodVMOnStretchSupervisorFSSEnabled,
 			})
+		if err != nil {
+			if cnsvolume.IsNotSupportedFaultType(ctx, faultType) {
+				log.Warnf("NotSupported fault is detected: retrying CreateVolume without VolumeID in spec.")
+				// Disable CSI transaction support for retry
+				createVolumeOpts.IsCSITransactionSupportEnabled = false
+				volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
+					c.manager, &createVolumeSpec, candidateDatastores, createVolumeOpts,
+					&cnsvolume.CreateVolumeExtraParams{
+						VolSizeBytes:                         volSizeBytes,
+						StorageClassName:                     req.Parameters[common.AttributeStorageClassName],
+						Namespace:                            req.Parameters[common.AttributePvcNamespace],
+						IsPodVMOnStretchSupervisorFSSEnabled: isPodVMOnStretchSupervisorFSSEnabled,
+					})
+			}
+		}
 	} else {
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload,
 			c.manager, &createVolumeSpec, candidateDatastores, createVolumeOpts, nil)
@@ -782,8 +802,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				querySelection := cnstypes.CnsQuerySelection{
 					Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
 				}
-				queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection,
-					true)
+				queryResult, err := utils.QueryVolumeUtil(ctx, c.manager.VolumeManager, queryFilter, &querySelection)
 				if err != nil || queryResult == nil || len(queryResult.Volumes) != 1 {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to find the datastore on which volume %q is provisioned. Error: %+v",
@@ -1168,7 +1187,16 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
 		// Later we may need to define different csi faults.
 
-		isBlockRequest := !common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities())
+		var clusterMoIds = make([]string, 0)
+		if isWorkloadDomainIsolationEnabled {
+			for _, clusters := range c.topologyMgr.GetAZClustersMap(ctx) {
+				clusterMoIds = append(clusterMoIds, clusters...)
+			}
+		} else {
+			clusterMoIds = clusterComputeResourceMoIds
+		}
+
+		isBlockRequest := !isFileVolumeRequestInWcp(ctx, req.GetVolumeCapabilities())
 		if isBlockRequest {
 			volumeType = prometheus.PrometheusBlockVolumeType
 		} else {
@@ -1198,7 +1226,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			// FSS Workload_Domain_Isolation_Supported is enabled, where we allow file volume provisioning
 			// with multiple vSphere clusters.
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-				if len(clusterComputeResourceMoIds) > 1 &&
+				if len(clusterMoIds) > 1 &&
 					!isWorkloadDomainIsolationEnabled {
 					return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
 						"file volume provisioning is not supported on a stretched supervisor cluster")
@@ -1206,7 +1234,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 			return c.createFileVolume(ctx, req, isWorkloadDomainIsolationEnabled)
 		}
-		return c.createBlockVolume(ctx, req, isWorkloadDomainIsolationEnabled)
+		return c.createBlockVolume(ctx, req, isWorkloadDomainIsolationEnabled, clusterMoIds)
 	}
 	resp, faultType, err := createVolumeInternal()
 	log.Debugf("createVolumeInternal: returns fault %q", faultType)
@@ -1413,7 +1441,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				log.Infof("Volume attachment failed. Checking if it can be fake attached")
 				var capabilities []*csi.VolumeCapability
 				capabilities = append(capabilities, req.VolumeCapability)
-				if !common.IsFileVolumeRequest(ctx, capabilities) { // Block volume.
+				if !isFileVolumeRequestInWcp(ctx, capabilities) { // Block volume.
 					allowed, err := commonco.ContainerOrchestratorUtility.IsFakeAttachAllowed(ctx,
 						req.VolumeId, c.manager.VolumeManager)
 					if err != nil {
@@ -1755,7 +1783,7 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if err := common.IsValidVolumeCapabilities(ctx, volCaps); err == nil {
+	if err := isValidVolumeCapabilitiesInWcp(ctx, volCaps); err == nil {
 		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
 	}
 	return &csi.ValidateVolumeCapabilitiesResponse{
@@ -1776,6 +1804,19 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		return nil, status.Error(codes.Unimplemented, "list volumes FSS disabled")
 	}
 	controllerListVolumeInternal := func() (*csi.ListVolumesResponse, string, error) {
+		// Get volume ID to VMMap and vmMoidToHostMoid map
+		isWorkloadDomainIsolationEnabled := commonco.ContainerOrchestratorUtility.
+			IsFSSEnabled(ctx, common.WorkloadDomainIsolation)
+
+		var clusterMoIds = make([]string, 0)
+		if isWorkloadDomainIsolationEnabled {
+			for _, clusters := range c.topologyMgr.GetAZClustersMap(ctx) {
+				clusterMoIds = append(clusterMoIds, clusters...)
+			}
+		} else {
+			clusterMoIds = clusterComputeResourceMoIds
+		}
+
 		log.Debugf("ListVolumes called with args %+v, expectedStartingIndex %v", *req, expectedStartingIndex)
 		k8sVolumeIDs := commonco.ContainerOrchestratorUtility.GetAllVolumes()
 
@@ -1810,8 +1851,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 				cnsVolumeIDs = append(cnsVolumeIDs, cnsVolume.VolumeId.Id)
 			}
 
-			// Get volume ID to VMMap and vmMoidToHostMoid map
-			vmMoidToHostMoid, volumeIDToVMMap, err = c.GetVolumeToHostMapping(ctx)
+			vmMoidToHostMoid, volumeIDToVMMap, err = c.GetVolumeToHostMapping(ctx, clusterMoIds)
 			if err != nil {
 				log.Errorf("failed to get VM MoID to Host MoID map, err:%v", err)
 				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "failed to get VM MoID to Host MoID map")
@@ -2261,7 +2301,6 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			}
 			faultType, err = common.ExpandVolumeUtil(ctx, c.manager.VcenterManager,
 				c.manager.VcenterConfig.Host, c.manager.VolumeManager, volumeID, volSizeMB,
-				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume),
 				&cnsvolume.ExpandVolumeExtraParams{
 					StorageClassName:                     cnsVolumeInfo.Spec.StorageClassName,
 					StoragePolicyID:                      cnsVolumeInfo.Spec.StoragePolicyID,
@@ -2271,8 +2310,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 				})
 		} else {
 			faultType, err = common.ExpandVolumeUtil(ctx, c.manager.VcenterManager,
-				c.manager.VcenterConfig.Host, c.manager.VolumeManager, volumeID, volSizeMB,
-				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.AsyncQueryVolume), nil)
+				c.manager.VcenterConfig.Host, c.manager.VolumeManager, volumeID, volSizeMB, nil)
 		}
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,

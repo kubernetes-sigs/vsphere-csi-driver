@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"regexp"
@@ -48,6 +49,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/byokoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/manager"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8scloudoperator"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8soperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/storagepool"
 )
 
@@ -73,6 +75,8 @@ var (
 	printVersion  = flag.Bool("version", false, "Print syncer version and exit")
 	operationMode = flag.String("operation-mode", operationModeMetaDataSync,
 		"specify operation mode METADATA_SYNC or WEBHOOK_SERVER")
+	enableWebhookClientCertVerification = flag.Bool("webhook-client-cert-verification", false,
+		"Enable client cert authenticate of apiserver to CSI webhook")
 
 	supervisorFSSName = flag.String("supervisor-fss-name", "",
 		"Name of the feature state switch configmap in supervisor cluster")
@@ -82,6 +86,7 @@ var (
 	internalFSSNamespace      = flag.String("fss-namespace", "", "Namespace of the feature state switch configmap")
 	periodicSyncIntervalInMin = flag.Duration("storagequota-sync-interval", 30*time.Minute,
 		"Periodic sync interval in Minutes")
+	enableProfileServer = flag.Bool("enable-profile-server", false, "Enable profiling endpoint for the syncer.")
 )
 
 // main for vsphere syncer.
@@ -95,6 +100,16 @@ func main() {
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Version : %s", syncer.Version)
+
+	if *enableProfileServer {
+		go func() {
+			log.Info("Starting the http server to expose profiling metrics..")
+			err := http.ListenAndServe(":9501", nil)
+			if err != nil {
+				log.Fatalf("Unable to start profiling server: %s", err)
+			}
+		}()
+	}
 
 	// Set CO agnostic init params.
 	clusterFlavor, err := config.GetClusterFlavor(ctx)
@@ -128,7 +143,8 @@ func main() {
 
 	if *operationMode == operationModeWebHookServer {
 		log.Infof("Starting container with operation mode: %v", operationModeWebHookServer)
-		if webHookStartError := admissionhandler.StartWebhookServer(ctx); webHookStartError != nil {
+		if webHookStartError := admissionhandler.StartWebhookServer(ctx,
+			*enableWebhookClientCertVerification); webHookStartError != nil {
 			log.Fatalf("failed to start webhook server. err: %v", webHookStartError)
 		}
 	} else if *operationMode == operationModeMetaDataSync {
@@ -380,6 +396,24 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}()
 		}
 
+		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
+			// Start K8s Operator for Supervisor clusters.
+			go func() {
+				defer func() {
+					log.Info("Cleaning up vc sessions K8s operator")
+					if r := recover(); r != nil {
+						cleanupSessions(ctx, r)
+					}
+				}()
+				if err := startK8sOperator(ctx, clusterFlavor); err != nil {
+					log.Errorf("Error initializing K8s Operator. Error: %+v", err)
+					utils.LogoutAllvCenterSessions(ctx)
+					os.Exit(0)
+				}
+			}()
+		}
+
 		syncer.PeriodicSyncIntervalInMin = *periodicSyncIntervalInMin
 		if err := syncer.InitMetadataSyncer(ctx, clusterFlavor, configInfo); err != nil {
 			log.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
@@ -394,6 +428,17 @@ func startByokOperator(ctx context.Context,
 	configInfo *config.ConfigurationInfo) error {
 
 	mgr, err := byokoperator.NewManager(ctx, clusterFlavor, configInfo)
+	if err != nil {
+		return err
+	}
+
+	return mgr.Start(ctx)
+}
+
+func startK8sOperator(ctx context.Context,
+	clusterFlavor cnstypes.CnsClusterFlavor) error {
+
+	mgr, err := k8soperator.NewManager(ctx, clusterFlavor)
 	if err != nil {
 		return err
 	}

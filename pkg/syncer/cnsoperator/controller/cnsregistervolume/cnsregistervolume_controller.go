@@ -69,7 +69,7 @@ var (
 	// Initialized to 1 second for new instances and for instances whose latest
 	// reconcile operation succeeded.
 	// If the reconcile fails, backoff is incremented exponentially.
-	backOffDuration         map[string]time.Duration
+	backOffDuration         map[apitypes.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
 
 	topologyMgr                 commoncotypes.ControllerTopologyService
@@ -161,7 +161,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 
-	backOffDuration = make(map[string]time.Duration)
+	backOffDuration = make(map[apitypes.NamespacedName]time.Duration)
 
 	// Watch for changes to primary resource CnsRegisterVolume.
 	err = c.Watch(source.Kind(
@@ -219,17 +219,17 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// Initialize backOffDuration for the instance, if required.
 	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
-	if _, exists := backOffDuration[instance.Name]; !exists {
-		backOffDuration[instance.Name] = time.Second
+	if _, exists := backOffDuration[request.NamespacedName]; !exists {
+		backOffDuration[request.NamespacedName] = time.Second
 	}
-	timeout = backOffDuration[instance.Name]
+	timeout = backOffDuration[request.NamespacedName]
 	backOffDurationMapMutex.Unlock()
 
 	// If the CnsRegisterVolume instance is already registered, remove the
 	// instance from the queue.
 	if instance.Status.Registered {
 		backOffDurationMapMutex.Lock()
-		delete(backOffDuration, instance.Name)
+		delete(backOffDuration, request.NamespacedName)
 		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
@@ -686,7 +686,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 	backOffDurationMapMutex.Lock()
-	delete(backOffDuration, instance.Name)
+	delete(backOffDuration, request.NamespacedName)
 	backOffDurationMapMutex.Unlock()
 	log.Info(msg)
 	return reconcile.Result{}, nil
@@ -785,17 +785,21 @@ func recordEvent(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Event type is %s", eventtype)
+	namespacedName := apitypes.NamespacedName{
+		Name:      instance.Name,
+		Namespace: instance.Namespace,
+	}
 	switch eventtype {
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
+		backOffDuration[namespacedName] = backOffDuration[namespacedName] * 2
 		r.recorder.Event(instance, v1.EventTypeWarning, "CnsRegisterVolumeFailed", msg)
 		backOffDurationMapMutex.Unlock()
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[instance.Name] = time.Second
+		backOffDuration[namespacedName] = time.Second
 		r.recorder.Event(instance, v1.EventTypeNormal, "CnsRegisterVolumeSucceeded", msg)
 		backOffDurationMapMutex.Unlock()
 	}

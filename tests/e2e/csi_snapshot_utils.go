@@ -700,10 +700,11 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 	}
 	gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
+	var pod *v1.Pod
 	if verifyPodCreation {
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(ctx, client, namespace, nil,
+		pod, err = createPod(ctx, client, namespace, nil,
 			[]*v1.PersistentVolumeClaim{pvclaim2}, false, execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -753,7 +754,7 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 		return pvclaim2, persistentvolumes2, pod
 	}
-	return pvclaim2, persistentvolumes2, nil
+	return pvclaim2, persistentvolumes2, pod
 }
 
 // createPVCAndQueryVolumeInCNS creates PVc with a given storage class on a given namespace

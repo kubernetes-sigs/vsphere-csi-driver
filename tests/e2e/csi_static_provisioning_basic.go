@@ -850,7 +850,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		"FCD", ginkgo.Label(p0, block, wcp, vc70), func() {
 		var err error
 		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
-		var totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter *resource.Quantity
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -865,7 +864,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storageclass.Name, namespace, pvcUsage, volExtensionName)
+					storageclass.Name, namespace, pvcUsage, volExtensionName, false)
 
 		}
 
@@ -892,14 +891,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pv := getPvFromClaim(client, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
-		if isQuotaValidationSupported {
-			totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter =
-				validateQuotaUsageAfterResourceCreation(ctx, restConfig,
-					storageclass.Name, namespace, pvcUsage, volExtensionName,
-					diskSizeInMb, totalQuotaUsedBefore, storagePolicyQuotaBefore,
-					storagePolicyUsageBefore)
-		}
-
 		ginkgo.By("Creating pod")
 		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -916,6 +907,16 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		_, err = e2eVSphere.getVMByUUID(ctx, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		diskSizeInMbstr := convertInt64ToStrMbFormat(diskSizeInMb)
+		if isQuotaValidationSupported {
+			sp_quota_pvc_status, sp_usage_pvc_status := validateQuotaUsageAfterResourceCreation(ctx, restConfig,
+				storageclass.Name, namespace, pvcUsage, volExtensionName,
+				[]string{diskSizeInMbstr}, totalQuotaUsedBefore, storagePolicyQuotaBefore,
+				storagePolicyUsageBefore, false)
+			gomega.Expect(sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
+
+		}
+
 		ginkgo.By("Deleting the pod")
 		err = fpod.DeletePodWithWait(ctx, client, pod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -930,11 +931,16 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		defer func() {
 			testCleanUpUtil(ctx, restConfig, cnsRegisterVolume, namespace, pvc.Name, pv.Name)
 
-			if isQuotaValidationSupported {
-				validateQuotaUsageAfterCleanUp(ctx, restConfig, storageclass.Name, namespace, pvcUsage,
-					volExtensionName, diskSizeInMb, totalQuotaUsedAfter, storagePolicyQuotaAfter,
-					storagePolicyUsageAfter)
-			}
+			//Validates PVC quota in both StoragePolicyQuota and StoragePolicyUsage CR
+			_, _, storagePolicyQuota_afterCleanUp, _, storagePolicyUsage_AfterCleanup, _ :=
+				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, pvcUsage, volExtensionName, false)
+
+			expectEqual(storagePolicyQuota_afterCleanUp, storagePolicyQuotaBefore,
+				"Before and After values of storagePolicy-Quota CR should match")
+			expectEqual(storagePolicyUsage_AfterCleanup, storagePolicyUsageBefore,
+				"Before and After values of storagePolicy-Usage CR should match")
+
 		}()
 
 	})
@@ -963,7 +969,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
-		var totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter *resource.Quantity
 
 		curtime := time.Now().Unix()
 		curtimeinstring := strconv.FormatInt(curtime, 10)
@@ -974,7 +979,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storagePolicyName, namespace, pvcUsage, volExtensionName)
+					storagePolicyName, namespace, pvcUsage, volExtensionName, false)
 		}
 
 		ginkgo.By("Create FCD with valid storage policy.")
@@ -1025,12 +1030,14 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		_, err = e2eVSphere.getVMByUUID(ctx, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		diskSizeInMbstr := convertInt64ToStrMbFormat(diskSizeInMb)
 		if isQuotaValidationSupported {
-			totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter =
-				validateQuotaUsageAfterResourceCreation(ctx, restConfig,
-					storagePolicyName, namespace, pvcUsage, volExtensionName,
-					diskSizeInMb, totalQuotaUsedBefore, storagePolicyQuotaBefore,
-					storagePolicyUsageBefore)
+			sp_quota_pvc_status, sp_usage_pvc_status := validateQuotaUsageAfterResourceCreation(ctx, restConfig,
+				storagePolicyName, namespace, pvcUsage, volExtensionName,
+				[]string{diskSizeInMbstr}, totalQuotaUsedBefore, storagePolicyQuotaBefore,
+				storagePolicyUsageBefore, false)
+			gomega.Expect(sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
+
 		}
 
 		ginkgo.By("Deleting the pod")
@@ -1047,11 +1054,16 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		defer func() {
 			testCleanUpUtil(ctx, restConfig, cnsRegisterVolume, namespace, pvc.Name, pv.Name)
 			if isQuotaValidationSupported {
-				validateQuotaUsageAfterCleanUp(ctx, restConfig, storagePolicyName, namespace, pvcUsage,
-					volExtensionName, diskSizeInMb, totalQuotaUsedAfter, storagePolicyQuotaAfter,
-					storagePolicyUsageAfter)
-			}
+				//Validates PVC quota in both StoragePolicyQuota and StoragePolicyUsage CR
+				_, _, storagePolicyQuota_afterCleanUp, _, storagePolicyUsage_AfterCleanup, _ :=
+					getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+						storagePolicyName, namespace, pvcUsage, volExtensionName, false)
 
+				expectEqual(storagePolicyQuota_afterCleanUp, storagePolicyQuotaBefore,
+					"Before and After values of storagePolicy-Quota CR should match")
+				expectEqual(storagePolicyUsage_AfterCleanup, storagePolicyUsageBefore,
+					"Before and After values of storagePolicy-Usage CR should match")
+			}
 		}()
 	})
 
@@ -2171,9 +2183,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 
 		defer func() {
-			ginkgo.By("Deleting FCD")
-			err := e2eVSphere.deleteFCD(ctx, fcdID, defaultDatastore.Reference())
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !supervisorCluster {
+				ginkgo.By("Deleting FCD")
+				err := e2eVSphere.deleteFCD(ctx, fcdID, defaultDatastore.Reference())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 
 		if vanillaCluster {
@@ -2408,9 +2422,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			masterIP = GetAndExpectStringEnvVar(svcMasterIP)
 		}
 
+		datastoreName, _, err := e2eVSphere.fetchDatastoreNameFromDatastoreUrl(ctx, fcdID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Get vmdk path from volume handle")
 		if vanillaCluster {
-			vmdk = getVmdkPathFromVolumeHandle(sshClientConfig, masterIP, defaultDatastore.Name(), pv.Spec.CSI.VolumeHandle)
+			vmdk = getVmdkPathFromVolumeHandle(sshClientConfig, masterIP, datastoreName, pv.Spec.CSI.VolumeHandle)
 		}
 		esxHost := GetAndExpectStringEnvVar(envEsxHostIP)
 		ginkgo.By("Delete the vmdk file associasted with the above FCD")

@@ -28,10 +28,9 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
-
-	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1434,7 +1433,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storageClassName, namespace, pvcUsage, volExtensionName)
+					storageClassName, namespace, pvcUsage, volExtensionName, false)
 		}
 
 		ginkgo.By("Creating FCD Disk")
@@ -1459,11 +1458,14 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		pv := getPvFromClaim(client, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
+		diskSizeInMbStr := convertInt64ToStrMbFormat(diskSizeInMb)
+
 		if isQuotaValidationSupported {
-			validateQuotaUsageAfterResourceCreation(ctx, restConfig,
+			sp_quota_pvc_status, sp_usage_pvc_status := validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 				storageClassName, namespace, pvcUsage, volExtensionName,
-				diskSizeInMb, totalQuotaUsedBefore, storagePolicyQuotaBefore,
-				storagePolicyUsageBefore)
+				[]string{diskSizeInMbStr}, totalQuotaUsedBefore, storagePolicyQuotaBefore,
+				storagePolicyUsageBefore, false)
+			gomega.Expect(sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
 		}
 
 		ginkgo.By("Creating VM bootstrap data")
@@ -1513,5 +1515,4 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			verifyDataIntegrityOnVmDisk(vmIp, volFolder)
 		}
 	})
-
 })

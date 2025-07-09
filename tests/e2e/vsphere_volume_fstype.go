@@ -78,27 +78,33 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func(
 		}
 	})
 
-	ginkgo.It("[csi-block-vanilla-serialized] CSI - verify fstype - ext3 formatted volume", func() {
+	ginkgo.It("[csi-block-vanilla-serialized] CSI - verify fstype - ext3 formatted volume", ginkgo.Label(p0,
+		vanilla, block, wcp, tkg, core, vc70), func() {
 		invokeTestForFstype(f, client, namespace, ext3FSType, ext3FSType, storagePolicyName, profileID)
 	})
 
-	ginkgo.It("[csi-block-vanilla-parallelized] CSI - verify fstype - default value should be ext4", func() {
+	ginkgo.It("[csi-block-vanilla-parallelized] CSI - verify fstype - default value should be ext4", ginkgo.Label(p0,
+		vanilla, block, wcp, tkg, core, vc70), func() {
 		invokeTestForFstype(f, client, namespace, "", ext4FSType, storagePolicyName, profileID)
 	})
 
-	ginkgo.It("[csi-block-vanilla-parallelized] CSI - verify fstype - xfs formatted volume", func() {
+	ginkgo.It("[csi-block-vanilla-parallelized] CSI - verify fstype - xfs formatted volume", ginkgo.Label(p0,
+		vanilla, block, wcp, tkg, core, vc70), func() {
 		invokeTestForFstype(f, client, namespace, xfsFSType, xfsFSType, storagePolicyName, profileID)
 	})
 
-	ginkgo.It("[csi-block-vanilla-parallelized] CSI - verify invalid fstype", func() {
+	ginkgo.It("[csi-block-vanilla-parallelized] CSI - verify invalid fstype", ginkgo.Label(p1,
+		negative, vanilla, block, wcp, tkg, core, vc70), func() {
 		invokeTestForInvalidFstype(f, client, namespace, invalidFSType, storagePolicyName, profileID)
 	})
 
-	ginkgo.It("[csi-windows] CSI - Windows - verify valid fstype", func() {
+	ginkgo.It("[csi-windows] CSI - Windows - verify valid fstype", ginkgo.Label(p0,
+		vanilla, block, wcp, tkg, core, vc70), func() {
 		invokeTestForFstype(f, client, namespace, ntfsFSType, ntfsFSType, storagePolicyName, profileID)
 	})
 
-	ginkgo.It("[csi-windows] CSI - Windows - verify invalid fstype", func() {
+	ginkgo.It("[csi-windows] CSI - Windows - verify invalid fstype", ginkgo.Label(p1,
+		negative, vanilla, block, wcp, tkg, core, vc70), func() {
 		invokeTestForInvalidFstype(f, client, namespace, invalidNtfsFSType, storagePolicyName, profileID)
 	})
 
@@ -110,7 +116,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func(
 		Cleanup:
 		    1.Delete all the pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-block-vanilla] Verify mounting of volume for RWO PVC with nfs4 fstype", func() {
+	ginkgo.It("[csi-block-vanilla] Verify mounting of volume for RWO PVC with nfs4 fstype", ginkgo.Label(p1,
+		negative, vanilla, block, wcp, tkg, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

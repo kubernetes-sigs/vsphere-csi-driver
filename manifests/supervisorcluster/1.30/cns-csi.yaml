@@ -10,11 +10,8 @@ metadata:
   name: vsphere-csi-controller-role
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "pods", "resourcequotas", "namespaces", "services"]
+    resources: ["nodes", "pods", "configmaps", "resourcequotas", "namespaces", "services"]
     verbs: ["get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["get", "list", "watch", "update"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -98,7 +95,7 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshots" ]
-    verbs: [ "get", "list", "patch", "update" ]
+    verbs: [ "get", "list", "patch", "update", "watch" ]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshotclasses" ]
     verbs: [ "watch", "get", "list" ]
@@ -176,6 +173,28 @@ roleRef:
   kind: ClusterRole
   name: vsphere-admin-csi-role
   apiGroup: rbac.authorization.k8s.io
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cnsfileaccessconfigs-view-role
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+rules:
+- apiGroups: ["cns.vmware.com"]
+  resources: ["cnsfileaccessconfigs"]
+  verbs: ["get", "list", "watch"]
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cnsfileaccessconfigs-admin
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+rules:
+- apiGroups: ["cns.vmware.com"]
+  resources: ["cnsfileaccessconfigs"]
+  verbs: ["get", "list", "watch", "create", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -267,7 +286,7 @@ spec:
       priorityClassName: system-node-critical
       containers:
         - name: csi-provisioner
-          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v5.0.2_vmware.6
+          image: localhost:5000/vmware/csi-provisioner/csi-provisioner:v5.0.2_vmware.7
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -363,6 +382,8 @@ spec:
               name: socket-dir
         - name: vsphere-csi-controller
           image: localhost:5000/vmware/vsphere-csi:<vsphere_csi_ver>
+          args:
+            - "--enable-profile-server=false"
           ports:
             - containerPort: 2112
               name: prometheus
@@ -433,6 +454,8 @@ spec:
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
             - "--storagequota-sync-interval=10m"
+            - "--webhook-client-cert-verification"
+            - "--enable-profile-server=false"
           env:
             - name: CLUSTER_FLAVOR
               value: "WORKLOAD"
@@ -471,6 +494,9 @@ spec:
               readOnly: true
             - mountPath: /etc/vmware/wcp/tls/
               name: host-vmca
+            - mountPath: /tmp/k8s-webhook-server/serving-certs/client-ca
+              name: client-ca
+              readOnly: true
         - name: csi-snapshotter
           image: localhost:5000/vmware.io/csi-snapshotter:v8.2.0_vmware.1
           args:
@@ -502,6 +528,13 @@ spec:
           hostPath:
             path: /etc/vmware/wcp/tls/
             type: Directory
+        - name: client-ca
+          configMap:
+            name: kube-root-ca.crt
+            defaultMode: 420
+            items:
+            - key: "ca.crt"
+              path: "ca.crt"
 ---
 apiVersion: storage.k8s.io/v1
 kind: CSIDriver
@@ -533,6 +566,9 @@ data:
   "workload-domain-isolation": "false"
   "WCP_VMService_BYOK": "false"
   "sv-pvc-snapshot-protection-finalizer": "false"
+  "file-volume-with-vm-service": "false"
+  "csi-transaction-support": "false"
+  "vol-from-snapshot-on-target-ds": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
@@ -625,6 +661,11 @@ webhooks:
         operations:  ["CREATE"]
         resources:   ["volumesnapshots"]
         scope:       "Namespaced"
+      - apiGroups:   ["cns.vmware.com"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE"]
+        resources:   ["cnsfileaccessconfigs"]
+        scope:       "Namespaced"
     sideEffects: None
     admissionReviewVersions: ["v1"]
     failurePolicy: Fail
@@ -671,6 +712,9 @@ rules:
   - apiGroups: ["encryption.vmware.com"]
     resources: ["encryptionclasses"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["cnsfileaccessconfigs"]
+    verbs: ["get", "list"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

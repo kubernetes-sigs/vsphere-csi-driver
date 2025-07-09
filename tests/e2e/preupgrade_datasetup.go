@@ -38,7 +38,8 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 )
 
-var _ = ginkgo.Describe("PreUpgrade datasetup Test", func() {
+var _ = ginkgo.Describe("PreUpgrade datasetup Test", ginkgo.Label(p0, vanilla, block, file,
+	stable, preUpgrade), func() {
 
 	f := framework.NewDefaultFramework("preupgrade-setup")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged

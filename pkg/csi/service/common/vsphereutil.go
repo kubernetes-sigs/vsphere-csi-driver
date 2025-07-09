@@ -58,7 +58,9 @@ type CreateBlockVolumeOptions struct {
 	FilterSuspendedDatastores,
 	UseSupervisorId,
 	IsVdppOnStretchedSvFssEnabled bool
-	IsByokEnabled bool
+	IsByokEnabled                  bool
+	IsCSITransactionSupportEnabled bool
+	VolFromSnapshotOnTargetDs      bool
 }
 
 // CreateBlockVolumeUtil is the helper function to create CNS block volume.
@@ -235,6 +237,15 @@ func CreateBlockVolumeUtil(
 			ContainerClusterArray: containerClusterArray,
 		},
 	}
+
+	if opts.IsCSITransactionSupportEnabled {
+		volumeUID, err := ExtractVolumeIDFromPVName(ctx, spec.Name)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, err
+		}
+		createSpec.VolumeId = &cnstypes.CnsVolumeId{Id: volumeUID}
+	}
+
 	if spec.StoragePolicyID != "" {
 		profileSpec := &vim25types.VirtualMachineDefinedProfileSpec{
 			ProfileId: spec.StoragePolicyID,
@@ -275,42 +286,47 @@ func CreateBlockVolumeUtil(
 			},
 		}
 
+		// If VolFromSnapshotOnTargetDs is not enabled,
 		// select the compatible datastore for the case of create volume from snapshot
-		// step 1: query the datastore of snapshot. By design, snapshot is always located at the same datastore
-		// as the source volume
-		querySelection := cnstypes.CnsQuerySelection{
-			Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
-		}
-		cnsVolume, err := QueryVolumeByID(ctx, manager.VolumeManager, cnsVolumeID, &querySelection)
-		if err != nil {
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
-				"failed to query datastore for the snapshot %s with error %+v",
-				spec.ContentSourceSnapshotID, err)
-		}
-
-		// step 2: validate if the snapshot datastore is compatible with datastore candidates in create spec
-		var compatibleDatastore vim25types.ManagedObjectReference
-		var foundCompatibleDatastore bool = false
-		for _, dsInfo := range datastoreInfoList {
-			if dsInfo.Info.Url == cnsVolume.DatastoreUrl {
-				log.Infof("compatible datastore found, dsURL = %q, dsRef = %v", dsInfo.Info.Url,
-					dsInfo.Datastore.Reference())
-				compatibleDatastore = dsInfo.Datastore.Reference()
-				foundCompatibleDatastore = true
-				break
+		if !opts.VolFromSnapshotOnTargetDs {
+			// step 1: query the datastore of snapshot. By design, snapshot is always located at the same datastore
+			// as the source volume
+			querySelection := cnstypes.CnsQuerySelection{
+				Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
 			}
-		}
-		if !foundCompatibleDatastore {
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
-				"failed to get the compatible datastore for create volume from snapshot %s with error: %+v",
-				spec.ContentSourceSnapshotID, err)
-		}
+			cnsVolume, err := QueryVolumeByID(ctx, manager.VolumeManager, cnsVolumeID, &querySelection)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+					"failed to query datastore for the snapshot %s with error %+v",
+					spec.ContentSourceSnapshotID, err)
+			}
 
-		// overwrite the datatstores field in create spec with the compatible datastore
-		log.Infof("Overwrite the datatstores field in create spec %v with the compatible datastore %v "+
-			"when create volume from snapshot %s", createSpec.Datastores, compatibleDatastore,
-			spec.ContentSourceSnapshotID)
-		createSpec.Datastores = []vim25types.ManagedObjectReference{compatibleDatastore}
+			// step 2: validate if the snapshot datastore is compatible with datastore candidates in create spec
+			var compatibleDatastore vim25types.ManagedObjectReference
+			var foundCompatibleDatastore bool = false
+			for _, dsInfo := range datastoreInfoList {
+				if dsInfo.Info.Url == cnsVolume.DatastoreUrl {
+					log.Infof("compatible datastore found, dsURL = %q, dsRef = %v", dsInfo.Info.Url,
+						dsInfo.Datastore.Reference())
+					compatibleDatastore = dsInfo.Datastore.Reference()
+					foundCompatibleDatastore = true
+					break
+				}
+			}
+			if !foundCompatibleDatastore {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+					"failed to get the compatible datastore for create volume from snapshot %s with error: %+v",
+					spec.ContentSourceSnapshotID, err)
+			}
+
+			// overwrite the datatstores field in create spec with the compatible datastore
+			log.Infof("Overwrite the datatstores field in create spec %v with the compatible datastore %v "+
+				"when create volume from snapshot %s", createSpec.Datastores, compatibleDatastore,
+				spec.ContentSourceSnapshotID)
+			createSpec.Datastores = []vim25types.ManagedObjectReference{compatibleDatastore}
+		} else {
+			log.Infof("VolFromSnapshotOnTargetDs is enabled, skip the compatible datastore check")
+		}
 
 		if opts.IsByokEnabled {
 			// Retrieve the encryption key ID from the source volume
@@ -349,7 +365,7 @@ func CreateBlockVolumeUtil(
 }
 
 // CreateBlockVolumeUtilForMultiVC is the helper function to create CNS block volume when multi-VC FSS is enabled.
-func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{}) (
+func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{}, opts CreateBlockVolumeOptions) (
 	*cnsvolume.CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	params, ok := reqParams.(VanillaCreateBlockVolParamsForMultiVC)
@@ -421,6 +437,18 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 			ContainerClusterArray: containerClusterArray,
 		},
 	}
+
+	if opts.IsCSITransactionSupportEnabled {
+		log.Debugf("Creating volume with Transaction Support")
+		volumeUID, err := ExtractVolumeIDFromPVName(ctx, createSpec.Name)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, err
+		}
+		createSpec.VolumeId = &cnstypes.CnsVolumeId{Id: volumeUID}
+	} else {
+		log.Debugf("Creating volume without Transaction Support")
+	}
+
 	if params.StoragePolicyID != "" {
 		profileSpec := &vim25types.VirtualMachineDefinedProfileSpec{
 			ProfileId: params.StoragePolicyID,
@@ -482,6 +510,23 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 	if err != nil {
 		log.Errorf("failed to create disk %s on vCenter %q with error %+v faultType %q",
 			params.Spec.Name, params.Vcenter.Config.Host, err, faultType)
+		if cnsvolume.IsCnsVolumeAlreadyExistsFault(ctx, faultType) {
+			log.Infof("Observed volume with Id: %q is already Exists. Deleting Volume.", createSpec.VolumeId.Id)
+			_, deleteError := params.VolumeManager.DeleteVolume(ctx, createSpec.VolumeId.Id, true)
+			if deleteError != nil {
+				log.Errorf("failed to delete volume: %q, err :%v", createSpec.VolumeId.Id, err)
+				return nil, faultType, err
+			}
+			log.Infof("Attempt to re-create volume with Id: %q", createSpec.VolumeId.Id)
+			volumeInfo, faultType, err := params.VolumeManager.CreateVolume(ctx, createSpec, nil)
+			if err != nil {
+				log.Errorf("failed to re-create disk %s on vCenter %q with error %+v faultType %q",
+					params.Spec.Name, params.Vcenter.Config.Host, err, faultType)
+				return nil, faultType, err
+			} else {
+				return volumeInfo, "", nil
+			}
+		}
 		return nil, faultType, err
 	}
 	return volumeInfo, "", nil
@@ -676,7 +721,7 @@ func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeI
 // volumeId.
 func ExpandVolumeUtil(ctx context.Context, vCenterManager vsphere.VirtualCenterManager,
 	vCenterHost string, volumeManager cnsvolume.Manager, volumeID string, capacityInMb int64,
-	useAsyncQueryVolume bool, extraParams interface{}) (string, error) {
+	extraParams interface{}) (string, error) {
 	var err error
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CSI driver expanding volume %q to new size %d Mb.", volumeID, capacityInMb)
@@ -699,7 +744,7 @@ func ExpandVolumeUtil(ctx context.Context, vCenterManager vsphere.VirtualCenterM
 	if !isvSphere8AndAbove {
 		// Query Volume to check Volume Size for vSphere version below 8.0
 		expansionRequired, err = isExpansionRequired(ctx, volumeID, capacityInMb,
-			volumeManager, useAsyncQueryVolume)
+			volumeManager)
 		if err != nil {
 			return csifault.CSIInternalFault, err
 		}
@@ -749,7 +794,7 @@ func ListSnapshotsUtil(ctx context.Context, volManager cnsvolume.Manager, volume
 			Names: []string{string(cnstypes.QuerySelectionNameTypeVolumeType)},
 		}
 		// Validate that the volume-id is of block volume type.
-		queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, &querySelection, true)
+		queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, &querySelection)
 		if err != nil {
 			return nil, "", logger.LogNewErrorCodef(log, codes.Internal,
 				"queryVolumeUtil failed with err=%+v", err)
@@ -802,7 +847,7 @@ func QueryVolumeSnapshot(ctx context.Context, volManager cnsvolume.Manager, volI
 	snapshotResult := queryResultEntries[0]
 	if snapshotResult.Error != nil {
 		fault := snapshotResult.Error.Fault
-		if _, ok := fault.(cnstypes.CnsSnapshotNotFoundFault); ok {
+		if _, ok := fault.(*cnstypes.CnsSnapshotNotFoundFault); ok {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"snapshot-id: %s not found for volume-id: %s during QuerySnapshots, err: %+v", snapID, volID, fault)
 		}
@@ -942,7 +987,7 @@ func QueryVolumeSnapshotsByVolumeID(ctx context.Context, volManager cnsvolume.Ma
 			// Currently, CnsVolumeNotFoundFault is the only possible fault when QuerySnapshots is
 			// invoked with only volume-id
 			fault := queryResult.Error.Fault
-			if faultInfo, ok := fault.(cnstypes.CnsVolumeNotFoundFault); ok {
+			if faultInfo, ok := fault.(*cnstypes.CnsVolumeNotFoundFault); ok {
 				faultVolumeId := faultInfo.VolumeId.Id
 				log.Warnf("volume %s was not found during QuerySnapshots, ignore volume..", faultVolumeId)
 				continue
@@ -970,14 +1015,14 @@ func QueryVolumeSnapshotsByVolumeID(ctx context.Context, volManager cnsvolume.Ma
 	return csiSnapshots, nextToken, nil
 }
 
-// QueryVolumeByID is the helper function to query volume by volumeID.
-func QueryVolumeByID(ctx context.Context, volManager cnsvolume.Manager, volumeID string,
+// queryVolumeByIDInternal is the internal implementation that can be overridden for testing
+var queryVolumeByIDInternal = func(ctx context.Context, volManager cnsvolume.Manager, volumeID string,
 	querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
 	log := logger.GetLogger(ctx)
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
 	}
-	queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, querySelection, true)
+	queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, querySelection)
 	if err != nil {
 		log.Errorf("QueryVolumeUtil failed for volumeID: %s with error %+v", volumeID, err)
 		return nil, err
@@ -987,6 +1032,11 @@ func QueryVolumeByID(ctx context.Context, volManager cnsvolume.Manager, volumeID
 		return nil, ErrNotFound
 	}
 	return &queryResult.Volumes[0], nil
+}
+
+func QueryVolumeByID(ctx context.Context, volManager cnsvolume.Manager, volumeID string,
+	querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+	return queryVolumeByIDInternal(ctx, volManager, volumeID, querySelection)
 }
 
 // Helper function to get DatastoreMoRefs.
@@ -1029,7 +1079,7 @@ func getDatastoreInfoObjList(ctx context.Context, vc *vsphere.VirtualCenter,
 // isExpansionRequired verifies if the requested size to expand a volume is
 // greater than the current size.
 func isExpansionRequired(ctx context.Context, volumeID string, requestedSize int64,
-	volumeManager cnsvolume.Manager, useAsyncQueryVolume bool) (bool, error) {
+	volumeManager cnsvolume.Manager) (bool, error) {
 	log := logger.GetLogger(ctx)
 	volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
 	queryFilter := cnstypes.CnsQueryFilter{

@@ -83,7 +83,7 @@ func validateCreateFileReqParam(paramName, value string) bool {
 		paramName == common.AttributeStorageClassName
 }
 
-// ValidateCreateVolumeRequest is the helper function to validate
+// validateWCPCreateVolumeRequest is the helper function to validate
 // CreateVolumeRequest for WCP CSI driver.
 // Function returns error if validation fails otherwise returns nil.
 // TODO: Need to remove AttributeHostLocal after external provisioner stops
@@ -101,7 +101,7 @@ func validateWCPCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRe
 			return status.Error(codes.InvalidArgument, msg)
 		}
 	}
-	return common.ValidateCreateVolumeRequest(ctx, req)
+	return validateCreateVolumeRequestInWcp(ctx, req)
 }
 
 // validateWCPDeleteVolumeRequest is the helper function to validate
@@ -115,7 +115,7 @@ func validateWCPDeleteVolumeRequest(ctx context.Context, req *csi.DeleteVolumeRe
 // ControllerPublishVolumeRequest for WCP CSI driver. Function returns error if
 // validation fails otherwise returns nil.
 func validateWCPControllerPublishVolumeRequest(ctx context.Context, req *csi.ControllerPublishVolumeRequest) error {
-	return common.ValidateControllerPublishVolumeRequest(ctx, req)
+	return validateControllerPublishVolumeRequesInWcp(ctx, req)
 }
 
 // validateWCPControllerUnpublishVolumeRequest is the helper function to
@@ -131,7 +131,7 @@ func validateWCPControllerUnpublishVolumeRequest(ctx context.Context, req *csi.C
 func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest,
 	manager *common.Manager, isOnlineExpansionEnabled bool) error {
 	log := logger.GetLogger(ctx)
-	if err := common.ValidateControllerExpandVolumeRequest(ctx, req); err != nil {
+	if err := validateControllerExpandVolumeRequestInWcp(ctx, req); err != nil {
 		return err
 	}
 
@@ -543,7 +543,9 @@ func checkTopologyKeysFromAccessibilityReqs(topologyRequirement *csi.TopologyReq
 
 // GetVolumeToHostMapping returns a map containing VM MoID to host MoID and VolumeID
 // and VM MoID. This map is constructed by fetching all virtual machines belonging to each host.
-func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]string, map[string]string, error) {
+// Look up for VMs will be performed in the supplied list of clusterComputeResourceMoIds
+func (c *controller) GetVolumeToHostMapping(ctx context.Context,
+	clusterComputeResourceMoIds []string) (map[string]string, map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	vmMoIDToHostMoID := make(map[string]string)
 	volumeIDVMMap := make(map[string]string)
@@ -555,29 +557,30 @@ func (c *controller) GetVolumeToHostMapping(ctx context.Context) (map[string]str
 		return nil, nil, fmt.Errorf("failed to get vCenter from Manager, err: %v", err)
 	}
 
-	// Get all the hosts belonging to the cluster
-	hostSystems, err := vc.GetHostsByCluster(ctx, c.manager.CnsConfig.Global.ClusterID)
-	if err != nil {
-		log.Errorf("failed to get hosts for cluster %v, err:%v", c.manager.CnsConfig.Global.ClusterID, err)
-		return nil, nil, fmt.Errorf("failed to get hosts for cluster %v, err:%v", c.manager.CnsConfig.Global.ClusterID, err)
-	}
-
-	// Get all the virtual machines belonging to all the hosts
-	vms, err := vc.GetAllVirtualMachines(ctx, hostSystems)
-	if err != nil {
-		log.Errorf("failed to get VM MoID err: %v", err)
-		return nil, nil, fmt.Errorf("failed to get VM MoID err: %v", err)
-	}
-
 	var vmRefs []vimtypes.ManagedObjectReference
-	var vmMoList []mo.VirtualMachine
-
-	for _, vm := range vms {
-		vmRefs = append(vmRefs, vm.Reference())
+	for _, clusterMoId := range clusterComputeResourceMoIds {
+		// Get all the hosts belonging to the cluster
+		hostSystems, err := vc.GetHostsByCluster(ctx, clusterMoId)
+		if err != nil {
+			errMsg := fmt.Sprintf("failed to get hosts for cluster %s: %v", clusterMoId, err)
+			log.Error(errMsg)
+			return nil, nil, fmt.Errorf("%s", errMsg)
+		}
+		// Get all the virtual machines belonging to all the hosts
+		vms, err := vc.GetAllVirtualMachines(ctx, hostSystems)
+		if err != nil {
+			errMsg := fmt.Sprintf("failed to get VMs from cluster %s: %v", clusterMoId, err)
+			log.Error(errMsg)
+			return nil, nil, fmt.Errorf("%s", errMsg)
+		}
+		for _, vm := range vms {
+			vmRefs = append(vmRefs, vm.Reference())
+		}
 	}
 	properties := []string{"runtime.host", "config.hardware"}
 	pc := property.DefaultCollector(vc.Client.Client)
 	// Obtain host MoID and virtual disk ID
+	var vmMoList []mo.VirtualMachine
 	err = pc.Retrieve(ctx, vmRefs, properties, &vmMoList)
 	if err != nil {
 		log.Errorf("Error while retrieving host properties, err: %v", err)
@@ -682,4 +685,192 @@ func getVolumeIDToVMMap(ctx context.Context, volumeIDs []string, vmMoidToHostMoi
 		response.Entries = append(response.Entries, entry)
 	}
 	return response, nil
+}
+
+// IsFileVolumeRequest checks whether the request is to create a CNS file volume.
+func isFileVolumeRequestInWcp(ctx context.Context, capabilities []*csi.VolumeCapability) bool {
+	for _, capability := range capabilities {
+		if capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY ||
+			capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER ||
+			capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER {
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) {
+				if _, ok := capability.GetAccessType().(*csi.VolumeCapability_Block); !ok {
+					return true
+				}
+			} else {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// IsSharedRawBlockRequest returns true if the given volume has Block capability and
+// can be accessed by multiple nodes.
+func isSharedRawBlockRequest(ctx context.Context, capabilities []*csi.VolumeCapability) bool {
+	for _, capability := range capabilities {
+		if capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY ||
+			capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER ||
+			capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER {
+			if _, ok := capability.GetAccessType().(*csi.VolumeCapability_Block); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isValidVolumeCapabilities helps validate the given volume capabilities
+// based on volume type.
+func isValidVolumeCapabilitiesInWcp(ctx context.Context, volCaps []*csi.VolumeCapability) error {
+	// File volume
+	if isFileVolumeRequestInWcp(ctx, volCaps) {
+		return validateVolumeCapabilitiesInWcp(ctx, volCaps, common.MultiNodeVolumeCaps, common.FileVolumeType)
+	}
+
+	// Raw block volume
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) &&
+		isSharedRawBlockRequest(ctx, volCaps) {
+		return validateVolumeCapabilitiesInWcp(ctx, volCaps, common.MultiNodeVolumeCaps, common.BlockVolumeType)
+	}
+
+	// Block volume
+	return validateVolumeCapabilitiesInWcp(ctx, volCaps, common.BlockVolumeCaps, common.BlockVolumeType)
+}
+
+// validateVolumeCapabilitiesInWcp validates the access mode in given volume
+// capabilities in validAccessModes for WCP cluster.
+func validateVolumeCapabilitiesInWcp(ctx context.Context, volCaps []*csi.VolumeCapability,
+	validAccessModes []csi.VolumeCapability_AccessMode, volumeType string) error {
+
+	log := logger.GetLogger(ctx)
+	isSharedDiskEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
+
+	// Validate if all capabilities of the volume are supported.
+	for _, volCap := range volCaps {
+		found := false
+		for _, validAccessMode := range validAccessModes {
+			if volCap.AccessMode.GetMode() == validAccessMode.GetMode() {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("%s access mode is not supported for %q volumes",
+				csi.VolumeCapability_AccessMode_Mode_name[int32(volCap.AccessMode.GetMode())], volumeType)
+		}
+
+		if isSharedDiskEnabled && volumeType == common.BlockVolumeType {
+			if volCap.GetBlock() != nil {
+				log.Debugf("Raw Block volume. FsType should be empty")
+				// For raw bloack volume, fsType should be empty
+				if volCap.GetMount() == nil {
+					return nil
+				}
+				if volCap.GetMount() != nil && volCap.GetMount().FsType != "" {
+					return fmt.Errorf("raw block volume mode is not supported with fsType %s",
+						volCap.GetMount().FsType)
+				}
+				return nil
+			}
+		}
+
+		if volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER {
+			// For ReadWriteOnce access mode we only support following filesystems:
+			// ext3, ext4, xfs for Linux and ntfs for Windows.
+			if volCap.GetMount() != nil && !(volCap.GetMount().FsType == common.Ext4FsType ||
+				volCap.GetMount().FsType == common.Ext3FsType || volCap.GetMount().FsType == common.XFSType ||
+				strings.ToLower(volCap.GetMount().FsType) == common.NTFSFsType || volCap.GetMount().FsType == "") {
+				return fmt.Errorf("fstype %s not supported for ReadWriteOnce volume creation",
+					volCap.GetMount().FsType)
+			}
+		} else if volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY ||
+			volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER ||
+			volCap.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER {
+			// For ReadWriteMany or ReadOnlyMany access modes we only support nfs or nfs4 filesystem.
+			// external-provisioner sets default fstype as ext4 when none is specified in StorageClass,
+			// but we overwrite it to nfs4 while mounting the volume.
+			if volCap.GetMount() != nil && !(volCap.GetMount().FsType == common.NfsV4FsType ||
+				volCap.GetMount().FsType == common.NfsFsType || volCap.GetMount().FsType == common.Ext4FsType ||
+				volCap.GetMount().FsType == "") {
+				return fmt.Errorf("fstype %s not supported for ReadWriteMany or ReadOnlyMany volume creation",
+					volCap.GetMount().FsType)
+			} else if !isSharedDiskEnabled && volCap.GetBlock() != nil {
+				// Raw Block volumes are not supported with ReadWriteMany or ReadOnlyMany access modes,
+				return fmt.Errorf("block volume mode is not supported for ReadWriteMany or ReadOnlyMany " +
+					"volume creation")
+			}
+		}
+	}
+	return nil
+}
+
+// validateCreateVolumeRequestInWcp is the helper function to validate
+// CreateVolumeRequest for all block controllers.
+// Function returns error if validation fails otherwise returns nil.
+func validateCreateVolumeRequestInWcp(ctx context.Context, req *csi.CreateVolumeRequest) error {
+	log := logger.GetLogger(ctx)
+	// Volume Name.
+	volName := req.GetName()
+	if len(volName) == 0 {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume name is a required parameter")
+	}
+	// Validate Volume Capabilities.
+	volCaps := req.GetVolumeCapabilities()
+	if len(volCaps) == 0 {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume capabilities not provided")
+	}
+	if err := isValidVolumeCapabilitiesInWcp(ctx, volCaps); err != nil {
+		return logger.LogNewErrorCodef(log, codes.InvalidArgument, "volume capability not supported. Err: %+v", err)
+	}
+	return nil
+}
+
+// validateControllerExpandVolumeRequest is the helper function to validate
+// ControllerExpandVolumeRequest for all block controllers.
+// Function returns error if validation fails otherwise returns nil.
+func validateControllerExpandVolumeRequestInWcp(ctx context.Context, req *csi.ControllerExpandVolumeRequest) error {
+	log := logger.GetLogger(ctx)
+	// Check for required parameters.
+	if len(req.GetVolumeId()) == 0 {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume id is a required parameter")
+	} else if req.GetCapacityRange() == nil {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "capacity range is a required parameter")
+	} else if req.GetCapacityRange().GetRequiredBytes() < 0 || req.GetCapacityRange().GetLimitBytes() < 0 {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "capacity ranges values cannot be negative")
+	}
+	// Validate Volume Capabilities.
+	volCaps := req.GetVolumeCapability()
+	if volCaps == nil {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume capabilities is a required parameter")
+	}
+
+	if isFileVolumeRequestInWcp(ctx, []*csi.VolumeCapability{volCaps}) {
+		return logger.LogNewErrorCode(log, codes.Unimplemented,
+			"volume expansion is only supported for block volume type")
+	}
+
+	return nil
+}
+
+// validateControllerPublishVolumeRequestInWcp is the helper function to validate
+// ControllerPublishVolumeRequest for all block controllers.
+// Function returns error if validation fails otherwise returns nil.
+func validateControllerPublishVolumeRequesInWcp(ctx context.Context, req *csi.ControllerPublishVolumeRequest) error {
+	log := logger.GetLogger(ctx)
+	// Check for required parameters.
+	if len(req.VolumeId) == 0 {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume ID is a required parameter")
+	} else if len(req.NodeId) == 0 {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "node ID is a required parameter")
+	}
+	volCap := req.GetVolumeCapability()
+	if volCap == nil {
+		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume capability not provided")
+	}
+	caps := []*csi.VolumeCapability{volCap}
+	if err := isValidVolumeCapabilitiesInWcp(ctx, caps); err != nil {
+		return logger.LogNewErrorCodef(log, codes.InvalidArgument, "volume capability not supported. Err: %+v", err)
+	}
+	return nil
 }

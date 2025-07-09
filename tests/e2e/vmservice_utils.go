@@ -22,10 +22,12 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand"
 	"net/http"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,11 +37,10 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
-
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	vmopv3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	vmopv3common "github.com/vmware-tanzu/vm-operator/api/v1alpha3/common"
+	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,9 +48,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
+
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 )
 
@@ -87,6 +90,8 @@ func createTestWcpNs(
         },
         "supervisor": "%s"
     }`, namespace, storagePolicyId, vmClass, contentLibId, supervisorId)
+
+	fmt.Println(reqBody)
 
 	_, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, nsCreationUrl, reqBody)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
@@ -425,6 +430,7 @@ func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespa
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	vols := []vmopv1.VirtualMachineVolume{}
 	vmName := fmt.Sprintf("csi-test-vm-%d", r.Intn(10000))
+
 	for _, pvc := range pvcs {
 		vols = append(vols, vmopv1.VirtualMachineVolume{
 			Name: pvc.Name,
@@ -433,6 +439,7 @@ func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespa
 			},
 		})
 	}
+
 	vm := vmopv1.VirtualMachine{
 		ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: namespace},
 		Spec: vmopv1.VirtualMachineSpec{
@@ -1256,8 +1263,10 @@ and verifying the attached volumes.
 func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
 	cnsopC ctlrclient.Client, namespace string,
 	pvclaims []*v1.PersistentVolumeClaim, vmClass string,
-	storageClassName string) (string, *vmopv1.VirtualMachine, *vmopv1.VirtualMachineService, error) {
-
+	storageClassName string, createBootstrapSecret bool) (string, *vmopv1.VirtualMachine,
+	*vmopv1.VirtualMachineService, error) {
+	var err error
+	var secretName string
 	/*Fetch the VM image name from the environment variable. This image is used for
 	creating the VirtualMachineInstance */
 	vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
@@ -1267,7 +1276,9 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 
 	/* Create a bootstrap secret for the VirtualMachineService VM. This secret contains
 	credentials or configuration data needed by the VM. */
-	secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
+	if createBootstrapSecret {
+		secretName = createBootstrapSecretForVmsvcVms(ctx, client, namespace)
+	}
 
 	var vm *vmopv1.VirtualMachine
 	//Create the Virtual Machine with PVC
@@ -1283,7 +1294,7 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 	vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
 
 	// Wait for the VM to get an IP address.
-	vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+	_, err = waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("failed to get VM IP: %w", err)
 	}
@@ -1298,18 +1309,8 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 		return "", nil, nil, fmt.Errorf("PVCs not attached to VM: %w", err)
 	}
 
-	// After the VM has been created and the PVCs are attached, fetch the current state of the VM.
-	vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("failed to get VM info: %w", err)
-	}
-
-	/* Verify that the attached volumes are accessible and validate data integrity. The function iterates through each
-	volume of the VM, verifies that the PVC is accessible, and checks the data integrity on each attached disk */
-	for i, vol := range vm.Status.Volumes {
-		volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-		verifyDataIntegrityOnVmDisk(vmIp, volFolder)
-	}
+	vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info before returning
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return secretName, vm, vmlbsvc, nil
 }
@@ -1397,4 +1398,70 @@ func verifyVmServiceVMNodeLocation(vm *vmopv1.VirtualMachine, nodeList *v1.NodeL
 		}
 	}
 	return false, fmt.Errorf("VM: %s is not running on any node with matching IP", vm.Name)
+}
+
+// getVmsvcVmDetailedOutput  gets the detailed status output of the vm
+func getVmsvcVmDetailedOutput(ctx context.Context, c ctlrclient.Client, namespace string, name string) string {
+	vm, _ := getVmsvcVM(ctx, c, namespace, name)
+	// Command to write data and sync it
+	cmd := []string{"get", "vm", vm.Name, "-o", "yaml"}
+	output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
+	framework.Logf("StatusCode of addContentLibToNamespace : %s", output)
+
+	return output
+}
+
+// getVMStorageData returs the vmDiskUsage of the vm
+func getVMStorageData(ctx context.Context, c ctlrclient.Client, namespace string, vmName string) string {
+	yamlOutput := getVmsvcVmDetailedOutput(ctx, c, namespace, vmName)
+
+	// Regex to match the line with "total: <value>"
+	re := regexp.MustCompile(`(?i)total:\s*([^\s]+)`)
+	matches := re.FindStringSubmatch(yamlOutput)
+	framework.Logf("matches : %s", matches)
+	if len(matches) < 2 {
+		log.Fatal("Total value not found")
+	}
+
+	vmDiskUsage := matches[1]
+	fmt.Println("Extracted vmDiskUsage:", vmDiskUsage)
+
+	return vmDiskUsage
+}
+
+// getVmImages: get's all the images assigned to the given namespace
+func getVmImages(ctx context.Context, namespace string) string {
+	// Command to write data and sync it
+	cmd := []string{"get", "vmi"}
+	output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
+	framework.Logf("StatusCode of addContentLibToNamespace : %s", output)
+
+	return output
+}
+
+// Waits for vm images to get listed in namespace
+func pollWaitForVMImageToSync(ctx context.Context, namespace string, expectedImage string, Poll,
+	timeout time.Duration) error {
+
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+		listOfVmImages := getVmImages(ctx, namespace)
+		// Split output into lines and search for the expected image
+		lines := strings.Split(listOfVmImages, "\n")
+		found := false
+		for _, line := range lines {
+			if strings.Contains(line, expectedImage) {
+				found = true
+				framework.Logf("Found : %t, Image: %s\n", found, expectedImage)
+				break
+			}
+		}
+		if !found {
+			continue
+		} else {
+			return nil
+		}
+
+	}
+	return fmt.Errorf("failed to load vm-image timed out after %v", timeout)
+
 }

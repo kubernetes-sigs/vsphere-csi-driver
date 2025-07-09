@@ -21,11 +21,9 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -40,6 +38,7 @@ import (
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 /*
@@ -96,7 +95,7 @@ func verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx context.Context, client
 		for _, volumespec := range pod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				svPvcName := volumespec.PersistentVolumeClaim.ClaimName
-				pv := getPvFromClaim(client, statefulset.Namespace, svPvcName)
+				pv := getPvFromClaim(client, namespace, svPvcName)
 
 				// Get SVC PVC
 				svcPVC, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, svPvcName, metav1.GetOptions{})
@@ -181,6 +180,26 @@ func checkPvcTopologyAnnotationOnSvc(svcPVC *v1.PersistentVolumeClaim,
 						return fmt.Errorf("couldn't find key: %s in allowed categories %v", category[1], categories)
 					}
 				}
+			}
+		}
+	} else if requestedTopoString, y := annotationsMap[tkgHARequestedAnnotationKey]; y {
+		// When PVC created with requested topology annotation,
+		// check for required topology values.
+		availabilityTopo := strings.Split(requestedTopoString, ",")
+		for _, avlTopo := range availabilityTopo {
+			requestedTopology := strings.Split(avlTopo, ":")
+			topoKey := strings.Split(requestedTopology[0], "{")[1]
+			topoVal := strings.Split(requestedTopology[1], "}")[0]
+			category := strings.SplitAfter(topoKey, "/")[1]
+			categoryKey := strings.Split(category, `"`)[0]
+			if isValuePresentInTheList(categories, categoryKey) {
+				if isValuePresentInTheList(allowedTopologies[topoKey], topoVal) {
+					return fmt.Errorf("couldn't find allowed accessible topology: %v on svc pvc: %s"+
+						"instead found: %v", allowedTopologies[topoKey], svcPVC.Name, topoVal)
+				}
+			} else {
+				return fmt.Errorf("couldn't find key: %s on allowed categories %v",
+					category, categories)
 			}
 		}
 	} else {
@@ -306,61 +325,6 @@ func markZoneForRemovalFromNs(namespace string, zone string, vcRestSessionId str
 }
 
 /*
-This function creates a wcp namespace in a vSphere supervisor Cluster, associating it
-with multiple storage policies and zones.
-It constructs an API request and sends it to the vSphere REST API.
-*/
-func createtWcpNsWithZonesAndPolicies(
-	vcRestSessionId string, storagePolicyId []string,
-	supervisorId string, zoneNames []string,
-	vmClass string, contentLibId string) (string, int, error) {
-
-	r := rand.New(rand.NewSource(time.Now().Unix()))
-	namespace := fmt.Sprintf("csi-vmsvcns-%v", r.Intn(10000))
-	initailUrl := createInitialNsApiCallUrl()
-	nsCreationUrl := initailUrl + "v2"
-
-	var storageSpecs []map[string]string
-	for _, policyId := range storagePolicyId {
-		storageSpecs = append(storageSpecs, map[string]string{"policy": policyId})
-	}
-
-	var zones []map[string]string
-	for _, zone := range zoneNames {
-		zones = append(zones, map[string]string{"name": zone})
-	}
-
-	// Create request body struct
-	requestBody := map[string]interface{}{
-		"namespace":     namespace,
-		"storage_specs": storageSpecs,
-		"supervisor":    supervisorId,
-		"zones":         zones,
-	}
-
-	// Add vm_service_spec only if vmClass and contentLibId are provided
-	if vmClass != "" && contentLibId != "" {
-		requestBody["vm_service_spec"] = map[string]interface{}{
-			"vm_classes":        []string{vmClass},
-			"content_libraries": []string{contentLibId},
-		}
-	}
-
-	reqBodyBytes, err := json.Marshal(requestBody)
-	if err != nil {
-		return "", 500, fmt.Errorf("error marshalling request body: %w", err)
-	}
-
-	reqBody := string(reqBodyBytes)
-	fmt.Println(reqBody)
-
-	// Make the API request
-	_, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, nsCreationUrl, reqBody)
-
-	return namespace, statusCode, nil
-}
-
-/*
 This function generates a PVC specification with requested topology annotation.
 It ensures that the PVC is created in a specific zone
 */
@@ -479,4 +443,96 @@ func verifyVmServiceVmAnnotationAffinity(vm *vmopv1.VirtualMachine, allowedTopol
 	}
 
 	return nil
+}
+
+// Verifies volume accessibility and data integrity on a given VM by checking each attached volume from within the VM.
+func verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx context.Context, vm *vmopv1.VirtualMachine,
+	vmopC ctlrclient.Client, namespace string) error {
+	// get vm ip address
+	vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get VM IP: %w", err)
+	}
+
+	// refresh vm info
+	vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	/* Verify that the attached volumes are accessible and validate data integrity. The function iterates through each
+	volume of the VM, verifies that the PVC is accessible, and checks the data integrity on each attached disk */
+	for i, vol := range vm.Status.Volumes {
+		volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+		verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+	}
+	return nil
+}
+
+// Removes zones from the input map that are not listed in zonesToStay
+func passZonesToStayInMap(allowedTopologyMap map[string][]string,
+	zonesToStay ...string) map[string][]string {
+	zoneSet := make(map[string]struct{}, len(zonesToStay))
+	for _, z := range zonesToStay {
+		zoneSet[z] = struct{}{}
+	}
+
+	for key, zones := range allowedTopologyMap {
+		filtered := make([]string, 0, len(zones))
+		for _, zone := range zones {
+			if _, keep := zoneSet[zone]; keep {
+				filtered = append(filtered, zone)
+			}
+		}
+		if len(filtered) > 0 {
+			allowedTopologyMap[key] = filtered
+		} else {
+			delete(allowedTopologyMap, key)
+		}
+	}
+	return allowedTopologyMap
+}
+
+// Power off hosts from given zone.
+// clusterDown: If True , Powering off all hosts in cluster and ignoring numberOfHost param
+// clusterDown: if False, then considering numberOfHost to power of the hosts
+func powerOffHostsFromZone(ctx context.Context, zone string, clusterDown bool, numberOfHost int) []string {
+	var hostIpsToPowerOff []string
+	clusterName := getClusterNameFromZone(ctx, zone)
+	//Get all hosts of given zone cluster
+	nodes := getHostsByClusterName(ctx, clusterComputeResource, clusterName)
+	gomega.Expect(len(nodes) > 0).To(gomega.BeTrue())
+	for i, node := range nodes {
+		host := node.Common.InventoryPath
+		hostIpString := strings.Split(host, "/")
+		hostIp := hostIpString[len(hostIpString)-1]
+		hostIpsToPowerOff = append(hostIpsToPowerOff, hostIp)
+		if !clusterDown {
+			if i+1 == numberOfHost {
+				break
+			}
+		}
+	}
+	// Power off Host
+	powerOffHostParallel(ctx, hostIpsToPowerOff)
+	return hostIpsToPowerOff
+}
+
+// Power off hosts from given fault domain.
+// fdDown: If True , Powering off all hosts in fault domain and ignoring numberOfHost param
+// fdDown: if False, then considering numberOfHost to power of the hosts
+func powerOffHostsFromFaultDomain(ctx context.Context, fdName string, fdMap map[string]string, fdDown bool,
+	numberOfHost int) []string {
+	var hostIpsToPowerOff []string
+	for hostIp, site := range fdMap {
+		if strings.Contains(site, fdName) {
+			hostIpsToPowerOff = append(hostIpsToPowerOff, hostIp)
+			if !fdDown {
+				if len(hostIpsToPowerOff) == numberOfHost {
+					break
+				}
+			}
+		}
+	}
+	// Power off Host
+	powerOffHostParallel(ctx, hostIpsToPowerOff)
+	return hostIpsToPowerOff
 }
