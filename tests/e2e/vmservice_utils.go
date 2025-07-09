@@ -1463,5 +1463,4 @@ func pollWaitForVMImageToSync(ctx context.Context, namespace string, expectedIma
 
 	}
 	return fmt.Errorf("failed to load vm-image timed out after %v", timeout)
-
 }
