@@ -103,14 +103,14 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 	*/
 
 	ginkgo.It("Create a linked clone (PVC) from a snapshot", ginkgo.Label(
-		p0, linkedClone, vc90u1), func() {
+		p0, linkedClone, vc901), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		// Get the storage quota used before LC creation
 		totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ :=
 			getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-				storageclass.Name, namespace, pvcUsage, volExtensionName)
+				storageclass.Name, namespace, pvcUsage, volExtensionName, false)
 
 		// create linked clone PVC and verify its bound
 		linkdeClonePvc := createAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass)
@@ -121,19 +121,26 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		// List volume
 		validateLcInListVolume(ctx, f.ClientSet, linkdeClonePvc, namespace)
 
-		totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter := validateQuotaUsageAfterResourceCreation(ctx, restConfig,
+		diskSizeInMbStr := convertInt64ToStrMbFormat(diskSizeInMb)
+		sp_quota_pvc_status, sp_usage_pvc_status := validateQuotaUsageAfterResourceCreation(ctx, restConfig,
 			storageclass.Name, namespace, pvcUsage, volExtensionName,
-			diskSizeInMb, totalQuotaUsedBefore, storagePolicyQuotaBefore,
-			storagePolicyUsageBefore)
+			[]string{diskSizeInMbStr}, totalQuotaUsedBefore, storagePolicyQuotaBefore,
+			storagePolicyUsageBefore, false)
+		gomega.Expect(sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
 
 		// Delete linked clone
 		err := fpv.DeletePersistentVolumeClaim(ctx, client, linkdeClonePvc.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// TODO update the delete list
 
+		// get the quota post LC deletion
+		totalQuotaUsedAfter, _, storagePolicyQuotaAfter, _, storagePolicyUsageAfter, _ :=
+			getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+				storageclass.Name, namespace, pvcUsage, volExtensionName, false)
+
 		validateQuotaUsageAfterCleanUp(ctx, restConfig, storageclass.Name, namespace, pvcUsage,
-			volExtensionName, diskSizeInMb, totalQuotaUsedAfter, storagePolicyQuotaAfter,
-			storagePolicyUsageAfter)
+			volExtensionName, diskSizeInMbStr, totalQuotaUsedAfter, storagePolicyQuotaAfter,
+			storagePolicyUsageAfter, false)
 
 		// TODO volume usability
 
