@@ -36,9 +36,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/dynamic"
+	api "k8s.io/kubernetes/pkg/apis/core"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -66,8 +67,9 @@ func validateCreateBlockReqParam(paramName, value string) bool {
 }
 
 const (
-	spTypePrefix = "cns.vmware.com/"
-	spTypeKey    = spTypePrefix + "StoragePoolType"
+	spTypePrefix          = "cns.vmware.com/"
+	spTypeKey             = spTypePrefix + "StoragePoolType"
+	vmwareSystemVMUUIDAnn = "vmware-system-vm-uuid"
 )
 
 // validateCreateFileReqParam is a helper function used to validate the parameter
@@ -280,37 +282,6 @@ func GetsvMotionPlanFromK8sCloudOperatorService(ctx context.Context,
 
 	log.Infof("Got storage vMotion plan: %v from K8sCloudOperator gRPC service", res.SvMotionPlan)
 	return res.SvMotionPlan, nil
-}
-
-// getVMUUIDFromK8sCloudOperatorService gets the vmuuid from K8sCloudOperator
-// gRPC service.
-func getVMUUIDFromK8sCloudOperatorService(ctx context.Context, volumeID string, nodeName string) (string, error) {
-	log := logger.GetLogger(ctx)
-	conn, err := getK8sCloudOperatorClientConnection(ctx)
-	if err != nil {
-		log.Errorf("Failed to establish the connection to k8s cloud operator service "+
-			"when processing attach for volumeID: %s. Error: %+v", volumeID, err)
-		return "", err
-	}
-	defer conn.Close()
-
-	// Create a client stub for k8s cloud operator gRPC service.
-	client := k8scloudoperator.NewK8SCloudOperatorClient(conn)
-
-	// Call GetPodVMUUIDAnnotation method on the client stub.
-	res, err := client.GetPodVMUUIDAnnotation(ctx,
-		&k8scloudoperator.PodListenerRequest{
-			VolumeID: volumeID,
-			NodeName: nodeName,
-		})
-	if err != nil {
-		msg := fmt.Sprintf("Failed to get the pod vmuuid annotation from the k8s cloud operator service. Error: %+v", err)
-		log.Error(msg)
-		return "", err
-	}
-
-	log.Infof("Got vmuuid: %s annotation from K8sCloudOperator gRPC service", res.VmuuidAnnotation)
-	return res.VmuuidAnnotation, nil
 }
 
 // getHostMOIDFromK8sCloudOperatorService gets the host-moid from
@@ -873,4 +844,59 @@ func validateControllerPublishVolumeRequesInWcp(ctx context.Context, req *csi.Co
 		return logger.LogNewErrorCodef(log, codes.InvalidArgument, "volume capability not supported. Err: %+v", err)
 	}
 	return nil
+}
+
+var newK8sClient = k8s.NewClient
+
+// getPodVMUUID returns the UUID of the VM(running on the node) on which the pod that is trying to
+// use the volume is scheduled.
+func getPodVMUUID(ctx context.Context, volumeID, nodeName string) (string, error) {
+	log := logger.GetLogger(ctx)
+	// get the PVC using the cache in the orchestrator
+	pvcName, pvcNamespace, ok := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(volumeID)
+	if !ok {
+		return "", logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get PVC name from volumeID %q", volumeID)
+	}
+
+	log.Infof("found pvc %q in namespace %q for CSI volume %q", pvcName, pvcNamespace, volumeID)
+	c, err := newK8sClient(ctx)
+	if err != nil {
+		return "", logger.LogNewErrorCode(log, codes.Internal, "failed to create kubernetes client")
+	}
+
+	// --field-selector spec.nodeName=<nodeName>,status.phase=Pending
+	list, err := c.CoreV1().Pods(pvcNamespace).List(ctx, metav1.ListOptions{
+		FieldSelector: fields.AndSelectors(
+			fields.SelectorFromSet(fields.Set{"spec.nodeName": nodeName}),
+			fields.SelectorFromSet(fields.Set{"status.phase": string(api.PodPending)}),
+		).String(),
+	})
+	if err != nil {
+		return "", logger.LogNewErrorCodef(log, codes.Internal,
+			"listing pods in the namespace %q failed with err %s", pvcNamespace, err)
+	}
+
+	for _, pod := range list.Items {
+		log.Debugf("Checking pod %q in namespace %q for PVC %q", pod.Name, pod.Namespace, pvcName)
+		for _, volume := range pod.Spec.Volumes {
+			if volume.VolumeSource.PersistentVolumeClaim == nil ||
+				volume.VolumeSource.PersistentVolumeClaim.ClaimName != pvcName {
+				continue
+			}
+
+			log.Infof("found pod %s in namespace %s using PVC %s running on node %s",
+				pod.Name, pod.Namespace, pvcName, nodeName)
+			if val, ok := pod.Annotations[vmwareSystemVMUUIDAnn]; ok {
+				log.Infof("%s annotation with value %s found on pod %s", vmwareSystemVMUUIDAnn, val, pod.Name)
+				return val, nil
+			} else {
+				return "", logger.LogNewErrorCodef(log, codes.NotFound,
+					"%q annotation not found on pod %q", vmwareSystemVMUUIDAnn, pod.Name)
+			}
+		}
+	}
+
+	return "", logger.LogNewErrorCodef(log, codes.NotFound,
+		"failed to find pod for pvc %q in the namespace %q", pvcName, pvcNamespace)
 }

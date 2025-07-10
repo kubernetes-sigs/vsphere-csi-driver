@@ -1387,29 +1387,31 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		volumeType = prometheus.PrometheusBlockVolumeType
 		volumeAttachment, err := commonco.ContainerOrchestratorUtility.GetVolumeAttachment(ctx, req.VolumeId, req.NodeId)
 		if err != nil {
-			log.Warnf("failed to retrieve volumeAttachment from API server Err: %v", err)
-		} else {
-			if volumeAttachment != nil && volumeAttachment.Status.Attached {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"volumeAttachment %v already has the attached status as true. "+
-						"Assuming the attach volume is due to incorrect force sync Attach from CSI Attacher",
-					volumeAttachment)
-			}
+			return nil, csifault.CSINotFoundFault, logger.LogNewErrorCodef(log, codes.NotFound,
+				"failed to retrieve volumeAttachment for volumeID: %s on node: %s. Error: %+v",
+				req.VolumeId, req.NodeId, err)
 		}
 
-		vmuuid, err := getVMUUIDFromK8sCloudOperatorService(ctx, req.VolumeId, req.NodeId)
+		if volumeAttachment != nil && volumeAttachment.Status.Attached {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"volumeAttachment %v already has the attached status as true. "+
+					"Assuming the attach volume is due to incorrect force sync Attach from CSI Attacher",
+				volumeAttachment)
+		}
+
+		vmuuid, err := getPodVMUUID(ctx, req.VolumeId, req.NodeId)
 		if err != nil {
 			if e, ok := status.FromError(err); ok {
 				switch e.Code() {
 				case codes.NotFound:
 					return nil, csifault.CSIVmUuidNotFoundFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"failed to find the pod vmuuid annotation from the k8sCloudOperator service "+
+						"failed to find the pod vmuuid annotation "+
 							"when processing attach for volumeID: %s on node: %s. Error: %+v",
 						req.VolumeId, req.NodeId, err)
 				}
 			}
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get the pod vmuuid annotation from the k8sCloudOperator service "+
+				"failed to get the pod vmuuid annotation "+
 					"when processing attach for volumeID: %s on node: %s. Error: %+v",
 				req.VolumeId, req.NodeId, err)
 		}

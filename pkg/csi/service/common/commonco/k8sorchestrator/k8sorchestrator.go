@@ -23,6 +23,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1867,7 +1868,14 @@ func (c *K8sOrchestrator) GetPVNameFromCSIVolumeID(volumeID string) (string, boo
 	return c.volumeIDToNameMap.get(volumeID)
 }
 
-// GetPVCNameFromCSIVolumeID retrieves the pvc name from volumeID using volumeIDToPvcMap.
-func (c *K8sOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (string, bool) {
-	return c.volumeIDToPvcMap.get(volumeID)
+// GetPVCNameFromCSIVolumeID returns `pvc name` and `pvc namespace` for the given volumeID using volumeIDToPvcMap.
+func (c *K8sOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (
+	pvcName string, pvcNamespace string, exists bool) {
+	namespacedName, ok := c.volumeIDToPvcMap.get(volumeID)
+	if !ok {
+		return
+	}
+
+	parts := strings.Split(namespacedName, "/")
+	return parts[1], parts[0], true
 }
