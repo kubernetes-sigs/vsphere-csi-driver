@@ -46,8 +46,7 @@ var (
 	enableProfileServer  = flag.Bool("enable-profile-server", false, "Enable profiling endpoint for the controller.")
 )
 
-// main is ignored when this package is built as a go plug-in.
-func main() {
+func init() {
 	flag.Parse()
 	if *printVersion {
 		fmt.Printf("%s\n", service.Version)
@@ -55,6 +54,10 @@ func main() {
 	}
 	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
 	logger.SetLoggerLevel(logType)
+}
+
+// main is ignored when this package is built as a go plug-in.
+func main() {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Version : %s", service.Version)
 
