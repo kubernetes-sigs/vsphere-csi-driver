@@ -678,3 +678,12 @@ func GetLatestCRDVersion(ctx context.Context, crdName string) (string, error) {
 	log.Error(err)
 	return "", err
 }
+
+// PatchFinalizers updates only the finalizers of the object without modifying other fields
+// or incrementing the resource version.
+func PatchFinalizers(ctx context.Context, c client.Client, obj client.Object, finalizers []string) error {
+	original := obj.DeepCopyObject().(client.Object)
+	obj.SetFinalizers(finalizers)
+	patch := client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})
+	return c.Patch(ctx, obj, patch)
+}
