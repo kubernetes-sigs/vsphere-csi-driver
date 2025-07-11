@@ -792,7 +792,7 @@ func updateSVPVC(ctx context.Context, client client.Client,
 func isVmCrPresent(ctx context.Context, vmOperatorClient client.Client,
 	vmuuid string, namespace string) (*vmoperatorv1alpha4.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
-	vmList, err := utils.GetVirtualMachineListAllApiVersions(ctx, namespace, vmOperatorClient)
+	vmList, err := utils.ListVirtualMachines(ctx, vmOperatorClient, namespace)
 	if err != nil {
 		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
 		log.Error(msg)

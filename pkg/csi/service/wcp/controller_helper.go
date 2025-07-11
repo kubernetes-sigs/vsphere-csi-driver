@@ -167,7 +167,7 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 			return logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to get client for group %s with error: %+v", vmoperatorv1alpha4.GroupName, err)
 		}
-		vmList, err := utils.GetVirtualMachineListAllApiVersions(ctx, "", vmOperatorClient)
+		vmList, err := utils.ListVirtualMachines(ctx, vmOperatorClient, "")
 		if err != nil {
 			return logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to list virtualmachines with error: %+v", err)
