@@ -438,14 +438,18 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		pvcNamespace         string
 		topologyRequirement  *csi.TopologyRequirement
 		// accessibleNodes will be used to populate volumeAccessTopology.
-		accessibleNodes      []string
-		sharedDatastores     []*cnsvsphere.DatastoreInfo
-		vsanDirectDatastores []*cnsvsphere.DatastoreInfo
-		hostnameLabelPresent bool
-		zoneLabelPresent     bool
-		err                  error
+		accessibleNodes           []string
+		sharedDatastores          []*cnsvsphere.DatastoreInfo
+		vsanDirectDatastores      []*cnsvsphere.DatastoreInfo
+		hostnameLabelPresent      bool
+		zoneLabelPresent          bool
+		err                       error
+		isLinkedCloneRequest      bool
+		linkedCloneSupportEnabled bool
 	)
 	isVdppOnStretchedSVEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VdppOnStretchedSupervisor)
+	linkedCloneSupportEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport)
+
 	// Support case insensitive parameters.
 	for paramName := range req.Parameters {
 		param := strings.ToLower(paramName)
@@ -473,6 +477,16 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			pvcName = req.Parameters[paramName]
 		case common.AttributePvcNamespace:
 			pvcNamespace = req.Parameters[paramName]
+		case common.AttributeIsLinkedCloneKey:
+			isLinkedCloneRequest, err = strconv.ParseBool(req.Parameters[paramName])
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to determine if it is a linked clone request. Error: %+v", err)
+			}
+			if isLinkedCloneRequest && !linkedCloneSupportEnabled {
+				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
+					"linked clone volumes is not supported. Request: %+v", req)
+			}
 		}
 	}
 
@@ -708,6 +722,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		VsanDatastoreURL:        selectedDatastoreURL,
 		ContentSourceSnapshotID: contentSourceSnapshotID,
 		CryptoKeyID:             cryptoKeyID,
+		IsLinkedCloneRequest:    isLinkedCloneRequest,
 	}
 
 	volFromSnapshotOnTargetDs := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
@@ -761,6 +776,31 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	// CreateVolume response.
 	attributes := make(map[string]string)
 	attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
+
+	if isLinkedCloneRequest {
+		// Add a linked clone attribute to PV to be able to determine the volume is a LinkedClone even if the PVC
+		// is deleted.
+		// Add volumesnapshot-namespace/volumesnapshot-name in the PV volume attributes which will be
+		// used during volume deletion
+		// Example: output of PV:
+		//   csi:
+		//    driver: csi.vsphere.vmware.com
+		//    fsType: ext4
+		//    volumeAttributes:
+		//      linked-clone-source-uid: x6096ff7-d531-4265-a520-5154aed53sj8
+		//      storage.kubernetes.io/csiProvisionerIdentity: 1751094937636-5379-csi.vsphere.vmware.com
+		//      type: vSphere CNS Block Volume
+		//    volumeHandle: d5096ff7-d531-4265-a520-5154aed538c3
+		volumeSnapshotUID, err := commonco.ContainerOrchestratorUtility.GetLinkedCloneVolumeSnapshotSourceUUID(ctx,
+			pvcName, pvcNamespace)
+		if err != nil {
+			msg := fmt.Sprintf("failed to get linked clone name: %s on namespace: %s source volumesnapshot. "+
+				"Error: %+v", pvcName, pvcNamespace, err)
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, msg)
+		}
+		attributes[common.VolumeContextAttributeLinkedCloneVolumeSnapshotSourceUID] = volumeSnapshotUID
+	}
+
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      volumeInfo.VolumeID.Id,
@@ -891,7 +931,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				// Create CNSVolumeInfo CR for the volume ID.
 				capacity := resource.NewQuantity(volSizeBytes, resource.BinarySI)
 				err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeInfo.VolumeID.Id, pvcNamespace,
-					storagePolicyID, scName, vc.Config.Host, capacity)
+					storagePolicyID, scName, vc.Config.Host, capacity, isLinkedCloneRequest)
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to store volumeID %q pvcNamespace %q StoragePolicyID %q StorageClassName %q "+
@@ -909,6 +949,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					"in the CreateVolume request parameters", volumeInfo.VolumeID.Id)
 		}
 	}
+
 	return resp, "", nil
 }
 
@@ -918,16 +959,20 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	*csi.CreateVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
 	var (
-		storagePolicyID      string
-		storageTopologyType  string
-		topologyRequirement  *csi.TopologyRequirement
-		candidateDatastores  []*cnsvsphere.DatastoreInfo
-		hostnameLabelPresent bool
-		zoneLabelPresent     bool
-		err                  error
-		volumeInfo           *cnsvolume.CnsVolumeInfo
-		faultType            string
+		storagePolicyID           string
+		storageTopologyType       string
+		topologyRequirement       *csi.TopologyRequirement
+		candidateDatastores       []*cnsvsphere.DatastoreInfo
+		hostnameLabelPresent      bool
+		zoneLabelPresent          bool
+		err                       error
+		volumeInfo                *cnsvolume.CnsVolumeInfo
+		faultType                 string
+		isLinkedCloneRequest      bool
+		linkedCloneSupportEnabled bool
 	)
+
+	linkedCloneSupportEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport)
 	topologyRequirement = req.AccessibilityRequirements
 	// Volume Size - Default is 10 GiB.
 	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
@@ -940,6 +985,17 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		param := strings.ToLower(paramName)
 		if param == common.AttributeStoragePolicyID {
 			storagePolicyID = req.Parameters[paramName]
+		}
+		if param == common.AttributeIsLinkedClone {
+			isLinkedCloneRequest, err = strconv.ParseBool(req.Parameters[paramName])
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to determine if it is a linked clone request. Error: %+v", err)
+			}
+			if isLinkedCloneRequest && !linkedCloneSupportEnabled {
+				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
+					"linked clone volumes is not supported. Request: %+v", req)
+			}
 		}
 	}
 
@@ -2044,7 +2100,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to create snapshot on volume %q with error: %v", volumeID, err)
 			}
-			cnsVolumeInfo, err := volumeInfoService.GetVolumeInfoForVolumeID(ctx, cnsSnapshotInfo.SourceVolumeID)
+			cnsVolumeInfo, err = volumeInfoService.GetVolumeInfoForVolumeID(ctx, cnsSnapshotInfo.SourceVolumeID)
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", cnsVolumeInfo.Spec.VolumeID, err)

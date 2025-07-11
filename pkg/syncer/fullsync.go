@@ -752,6 +752,7 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 				}
 			} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
 				IsPodVMOnStretchSupervisorFSSEnabled {
+				isLinkedCloneVolume := false
 				pv := volumeIdTok8sPVMap[volumeID]
 				// claimref will be nil when volume is static provisioned or any available/released pv
 				// which are not claimed by pvc. added a check to handle such cases.
@@ -766,10 +767,14 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 							pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name, err)
 						continue
 					}
+					if IsLinkedCloneSupportFSSEnabled && metav1.HasAnnotation(pvc.ObjectMeta, common.AnnKeyLinkedClone) {
+						isLinkedCloneVolume = true
+					}
 					pvcCapacity := pvc.Status.Capacity[v1.ResourceStorage]
 					if pvc.Spec.StorageClassName != nil {
 						err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, pvc.Namespace,
-							scNameToPolicyIdMap[*pvc.Spec.StorageClassName], *pvc.Spec.StorageClassName, vc, &pvcCapacity)
+							scNameToPolicyIdMap[*pvc.Spec.StorageClassName], *pvc.Spec.StorageClassName, vc,
+							&pvcCapacity, isLinkedCloneVolume)
 						if err != nil {
 							log.Warnf("FullSync for VC %s: failed to create VolumeInfo CR for volume %s."+
 								"Error: %+v", vc, volumeID, err)

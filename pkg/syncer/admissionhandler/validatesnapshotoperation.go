@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -55,6 +58,19 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 		}
 	} else if req.Kind.Kind == "VolumeSnapshot" {
 		vs := snap.VolumeSnapshot{}
+		// Handle VolumeSnapshot deletion with Linked Clone support.
+		if req.Operation == admissionv1.Delete {
+			if !featureIsLinkedCloneSupportEnabled {
+				return admission.Allowed("")
+			}
+			if err := json.Unmarshal(req.OldObject.Raw, &vs); err != nil {
+				reason := "error deserializing volume snapshot"
+				log.Warn(reason)
+				return admission.Denied(reason)
+			}
+			log.Debugf("Validating VolumeSnapshot LinkedClone count: %s/%s", vs.Namespace, vs.Name)
+			return checkIfLinkedClonesExist(ctx, vs)
+		}
 		log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
 		if err := json.Unmarshal(req.Object.Raw, &vs); err != nil {
 			reason := "error deserializing volume snapshot"
@@ -87,5 +103,63 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 		}
 	}
 	log.Debugf("validateSnapshotOperationGuestRequest completed for the request %v", req)
+	return admission.Allowed("")
+}
+
+func validateSnapshotOperationSupervisorRequest(ctx context.Context,
+	req *admissionv1.AdmissionRequest) admission.Response {
+	log := logger.GetLogger(ctx)
+	log.Debugf("validateSnapshotOperationSupervisorRequest called with the request %v", req)
+
+	if req.Kind.Kind == "VolumeSnapshot" {
+		if !featureIsLinkedCloneSupportEnabled {
+			return admission.Allowed("")
+		}
+
+		// Only apply Linked Clone validation for delete operations.
+		if featureIsLinkedCloneSupportEnabled && req.Operation == admissionv1.Delete {
+			vs := snap.VolumeSnapshot{}
+			log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
+			if err := json.Unmarshal(req.OldObject.Raw, &vs); err != nil {
+				reason := "error deserializing volume snapshot"
+				log.Warn(reason)
+				return admission.Denied(reason)
+			}
+			log.Debugf("Validating VolumeSnapshot LinkedClone count:%s/%s", vs.Namespace, vs.Name)
+			return checkIfLinkedClonesExist(ctx, vs)
+		}
+	}
+	log.Debugf("validateSnapshotOperationSupervisorRequest completed for the request %v", req)
+	return admission.Allowed("")
+}
+
+// checkIfLinkedClonesExist checks if there are any LinkedClone volumes created out of the
+// VolumeSnapshot
+func checkIfLinkedClonesExist(ctx context.Context, vs snap.VolumeSnapshot) admission.Response {
+	k8sClient, err := k8s.NewClient(ctx)
+	if err != nil {
+		return admission.Denied("failed to get k8s client. Error: " + err.Error())
+	}
+	vsUID := string(vs.UID)
+	// List all the PV with the VolumeSnapshot label.
+	// If the label is present on the PV it indicates that a LinkedClone was created from this
+	// specific volumesnapshot.
+	labelSelector := labels.SelectorFromSet(map[string]string{
+		common.VolumeContextAttributeLinkedCloneVolumeSnapshotSourceUID: vsUID,
+	})
+	pvList, err := k8sClient.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector.String(),
+	})
+	if err != nil {
+		errMsg := fmt.Sprintf("error when checking if there are linkedclones created from volume snapshot, "+
+			"failed to list PVs with error: %v", err)
+		return admission.Denied(errMsg)
+	}
+
+	if len(pvList.Items) != 0 {
+		errMsg := fmt.Sprintf("deleting volumesnapshot from which linked clones are created is not allowed. "+
+			"There are %d linked clones created from this volumesnapshot", len(pvList.Items))
+		return admission.Denied(errMsg)
+	}
 	return admission.Allowed("")
 }

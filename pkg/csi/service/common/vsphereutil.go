@@ -284,11 +284,13 @@ func CreateBlockVolumeUtil(
 			SnapshotId: cnstypes.CnsSnapshotId{
 				Id: cnsSnapshotID,
 			},
+			LinkedClone: spec.IsLinkedCloneRequest,
 		}
 
 		// If VolFromSnapshotOnTargetDs is not enabled,
 		// select the compatible datastore for the case of create volume from snapshot
-		if !opts.VolFromSnapshotOnTargetDs {
+		// If it's a LinkedClone, then choose the same datastore as the source volume.
+		if spec.IsLinkedCloneRequest || !opts.VolFromSnapshotOnTargetDs {
 			// step 1: query the datastore of snapshot. By design, snapshot is always located at the same datastore
 			// as the source volume
 			querySelection := cnstypes.CnsQuerySelection{

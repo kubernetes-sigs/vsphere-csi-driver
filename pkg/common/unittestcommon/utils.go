@@ -26,6 +26,8 @@ import (
 	"strings"
 	"sync"
 
+	v1 "k8s.io/api/core/v1"
+
 	"github.com/vmware/govmomi/simulator"
 	"github.com/vmware/govmomi/simulator/vpx"
 	"google.golang.org/grpc/codes"
@@ -377,6 +379,32 @@ func (c *FakeK8SOrchestrator) StartZonesInformer(ctx context.Context, restClient
 // GetZonesForNamespace fetches the zones associated with a namespace when
 // WorkloadDomainIsolation is supported in supervisor.
 func (c *FakeK8SOrchestrator) GetZonesForNamespace(ns string) map[string]struct{} {
+	return nil
+}
+
+func (c *FakeK8SOrchestrator) IsLinkedCloneRequest(ctx context.Context, pvcName string,
+	pvcNamespace string) (bool, error) {
+	return false, nil
+}
+
+func (c *FakeK8SOrchestrator) GetLinkedCloneVolumeSnapshotSourceUUID(ctx context.Context, pvcName string,
+	pvcNamespace string) (string, error) {
+	return "", nil
+}
+
+func (c *FakeK8SOrchestrator) PreLinkedCloneCreateAction(ctx context.Context, pvcNamespace string,
+	pvcName string) error {
+	return nil
+}
+
+func (c *FakeK8SOrchestrator) GetVolumeSnapshotPVCSource(ctx context.Context, volumeSnapshotNamespace string,
+	volumeSnapshotName string) (*v1.PersistentVolumeClaim, error) {
+
+	return nil, nil
+}
+
+func (c *FakeK8SOrchestrator) UpdatePersistentVolumeLabel(ctx context.Context, pvName string,
+	key string, value string) error {
 	return nil
 }
 

@@ -63,6 +63,7 @@ var (
 	featureGateByokEnabled                    bool
 	featureFileVolumesWithVmServiceEnabled    bool
 	featureIsSharedDiskEnabled                bool
+	featureIsLinkedCloneSupportEnabled        bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
@@ -151,11 +152,14 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 		featureIsSharedDiskEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
 		featureFileVolumesWithVmServiceEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.FileVolumesWithVmService)
+		featureIsLinkedCloneSupportEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport)
 
-		if err := startCNSCSIWebhookManager(ctx, enableWebhookClientCertVerification); err != nil {
+		if err := startCNSCSIWebhookManager(ctx, enableWebhookClientCertVerification,
+			containerOrchestratorUtility); err != nil {
 			return fmt.Errorf("unable to run the webhook manager: %w", err)
 		}
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		featureIsLinkedCloneSupportEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport)
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		startPVCSIWebhookManager(ctx)
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
@@ -171,6 +175,8 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		featureGateTopologyAwareFileVolumeEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.TopologyAwareFileVolume)
+		featureFileVolumesWithVmServiceEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.FileVolumesWithVmService)
 
 		if featureGateCsiMigrationEnabled || featureGateBlockVolumeSnapshotEnabled {
 			certs, err := tls.LoadX509KeyPair(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile)

@@ -578,7 +578,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			capacityInBytes := capacityInMb * common.MbInBytes
 			capacity := resource.NewQuantity(capacityInBytes, resource.BinarySI)
 			err = r.volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, instance.Namespace,
-				volume.StoragePolicyId, storageClassName, vc.Config.Host, capacity)
+				volume.StoragePolicyId, storageClassName, vc.Config.Host, capacity, false)
 			if err != nil {
 				log.Errorf("failed to store volumeID %q namespace %s StoragePolicyID %q StorageClassName %q and vCenter %q "+
 					"in CNSVolumeInfo CR. Error: %+v", volumeID, instance.Namespace, volume.StoragePolicyId,

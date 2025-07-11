@@ -82,6 +82,7 @@ var (
 
 type controller struct {
 	supervisorClient            clientset.Interface
+	guestClient                 clientset.Interface
 	supervisorSnapshotterClient snapshotterClientSet.Interface
 	restClientConfig            *rest.Config
 	vmOperatorClient            client.Client
@@ -117,7 +118,11 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 		log.Errorf("failed to create supervisorClient. Error: %+v", err)
 		return err
 	}
-
+	c.guestClient, err = k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("failed to create guestClient. Error: %+v", err)
+		return err
+	}
 	c.supervisorSnapshotterClient, err = k8s.NewSupervisorSnapshotClient(ctx, c.restClientConfig)
 	if err != nil {
 		log.Errorf("failed to create supervisorSnapshotterClient. Error: %+v", err)
@@ -243,6 +248,11 @@ func (c *controller) ReloadConfiguration() error {
 			log.Errorf("failed to create supervisorClient. Error: %+v", err)
 			return err
 		}
+		c.guestClient, err = k8s.NewClient(ctx)
+		if err != nil {
+			log.Errorf("failed to create guestClient. Error: %+v", err)
+			return err
+		}
 		c.supervisorSnapshotterClient, err = k8s.NewSupervisorSnapshotClient(ctx, c.restClientConfig)
 		if err != nil {
 			log.Errorf("failed to create supervisorSnapshotterClient. Error: %+v", err)
@@ -281,6 +291,11 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	createVolumeInternal := func() (
 		*csi.CreateVolumeResponse, string, error) {
 
+		var (
+			pvcName              string
+			pvcNamespace         string
+			isLinkedCloneRequest bool
+		)
 		log.Infof("CreateVolume: called with args %+v", *req)
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
@@ -329,6 +344,37 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			if paramName == common.AttributeSupervisorStorageClass {
 				supervisorStorageClass = req.Parameters[param]
 			}
+			if paramName == common.AttributePvcName {
+				pvcName = req.Parameters[param]
+			}
+			if paramName == common.AttributePvcNamespace {
+				pvcNamespace = req.Parameters[param]
+			}
+		}
+
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport) {
+			// Check if this is a LinkedClone request
+			isLinkedCloneRequest, err = commonco.ContainerOrchestratorUtility.IsLinkedCloneRequest(ctx, pvcName, pvcNamespace)
+			if err != nil {
+				msg := fmt.Sprintf("failed to check if pvc with name: %s on namespace: %s in guest is a linked clone "+
+					"request. Error: %+v", pvcName, pvcNamespace, err)
+				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			}
+
+			if isFileVolumeRequest && isLinkedCloneRequest {
+				msg := "cannot create a linked clone volume for a file volume"
+				return nil, csifault.CSIInternalFault, status.Error(codes.FailedPrecondition, msg)
+			}
+
+			if isLinkedCloneRequest {
+				// fallback to the mutating webhook to add the linked clone label
+				err = commonco.ContainerOrchestratorUtility.PreLinkedCloneCreateAction(ctx, pvcName, pvcNamespace)
+				if err != nil {
+					msg := fmt.Sprintf("failed to add linked clone label on pvc %s/%s in guest. Error: %+v",
+						pvcNamespace, pvcName, err)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				}
+			}
 		}
 		accessMode := req.GetVolumeCapabilities()[0].GetAccessMode().GetMode()
 		pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
@@ -342,6 +388,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				labels[key] = c.tanzukubernetesClusterUID
 				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 					req.AccessibilityRequirements != nil &&
+					!isLinkedCloneRequest && // the cns-csi mutation webhook in supervisor will automatically set it.
 					(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) ||
 						!isFileVolumeRequest) {
 					// Generate volume topology requirement annotation.
@@ -360,9 +407,13 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 					common.SVPVCSnapshotProtectionFinalizer) {
 					finalizers = append(finalizers, cnsoperatortypes.CNSVolumeFinalizer)
 				}
+
+				if isLinkedCloneRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport) {
+					labels[common.LinkedClonePVCLabel] = "true"
+				}
 				claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace,
-					diskSize, supervisorStorageClass, getAccessMode(accessMode), annotations, labels,
-					finalizers, volumeSnapshotName)
+					diskSize, supervisorStorageClass, getAccessMode(accessMode), annotations, labels, finalizers,
+					volumeSnapshotName, isLinkedCloneRequest)
 				log.Debugf("PVC claim spec is %+v", spew.Sdump(claim))
 				pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Create(
 					ctx, claim, metav1.CreateOptions{})
@@ -418,6 +469,19 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
 		} else {
 			attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
+		}
+
+		if isLinkedCloneRequest {
+			// Add a linked clone attribute to PV to be able to determine the volume is a LinkedClone even if the PVC
+			// is deleted.
+			volumeSnapshotUID, err := commonco.ContainerOrchestratorUtility.
+				GetLinkedCloneVolumeSnapshotSourceUUID(ctx, pvcName, pvcNamespace)
+			if err != nil {
+				msg := fmt.Sprintf("failed to get linked clone name: %s on namespace: %s source volumesnapshot. "+
+					"Error: %+v", pvcName, pvcNamespace, err)
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, msg)
+			}
+			attributes[common.VolumeContextAttributeLinkedCloneVolumeSnapshotSourceUID] = volumeSnapshotUID
 		}
 
 		resp := &csi.CreateVolumeResponse{
@@ -584,7 +648,6 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
-
 		log.Infof("DeleteVolume: Volume deleted successfully. VolumeID: %q", req.VolumeId)
 		return &csi.DeleteVolumeResponse{}, "", nil
 	}
