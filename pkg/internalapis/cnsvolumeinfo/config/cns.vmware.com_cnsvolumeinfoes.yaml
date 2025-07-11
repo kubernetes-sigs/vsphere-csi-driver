@@ -79,6 +79,11 @@ spec:
                     This is used to ordering concurrent snapshots on same volume.
                   format: date-time
                   type: string
+                attachedVms:
+                  description: List of attached VM UUIDs to the volume
+                  items:
+                    types: string
+                  type: array
               required:
                 - vCenterServer
                 - volumeID

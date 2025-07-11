@@ -59,6 +59,9 @@ type CNSVolumeInfoSpec struct {
 	// Associated time stamp of the create or delete snapshot task completion.
 	// This is used to ordering concurrent snapshots on same volume.
 	SnapshotLatestOperationCompleteTime metav1.Time `json:"snapshotlatestoperationcompletetime"`
+
+	// List of attached VM UUIDs to the volume
+	AttachedVms []string `json:"AttachedVms,omitempty"`
 }
 
 //+kubebuilder:object:root=true
