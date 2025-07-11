@@ -25,19 +25,23 @@ import (
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	v1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/cnsvolumeattachment"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 var (
-	GetVMFromVcenter = cnsoperatorutil.GetVMFromVcenter
+	GetVMFromVcenter       = cnsoperatorutil.GetVMFromVcenter
+	removePvcFinalizerFunc = removePvcFinalizer
+	addPvcFinalizerFunc    = addPvcFinalizer
 )
 
 // removeFinalizerFromCRDInstance will remove the CNS Finalizer, cns.vmware.com,
@@ -278,9 +282,7 @@ func getPvcsInSpec(instance *v1alpha1.CnsNodeVmBatchAttachment) (map[string]stri
 		}
 		pvcsInSpec[volume.PersistentVolumeClaim.ClaimName] = volumeId
 	}
-
 	return pvcsInSpec, nil
-
 }
 
 // listAttachedFcdsForVM returns list of FCDs (present in the K8s cluster)
@@ -504,4 +506,86 @@ func getVolumesToDetachFromVM(ctx context.Context, client client.Client,
 
 	return volumesToDetach, nil
 
+}
+
+// addPvcFinalizer adds the given VM to the PVC's attached lists and then adds finalzier on the PVC.
+func addPvcFinalizer(ctx context.Context, client client.Client,
+	pvcName string, namespace string, vmInstanceUUID string,
+	cnsVolumeAttachmentInstance cnsvolumeattachment.CnsVolumeAttachment) error {
+	log := logger.GetLogger(ctx)
+
+	// Get PVC object from informer cache
+	pvc, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, namespace)
+	if err != nil {
+		log.Errorf("failed to get PVC object for PVC %s. Err: %s", pvcName, err)
+		return err
+	}
+
+	// Add VM to the list of attached VMs for the given PVC.
+	err = cnsVolumeAttachmentInstance.AddVmToAttachedList(ctx, namespace+"/"+pvcName, vmInstanceUUID)
+	if err != nil {
+		log.Errorf("failed to add VM %s to list of attached VMs for PVC %s in namespace %s", vmInstanceUUID,
+			pvcName, namespace)
+		return err
+	}
+
+	// If finalizer already exists, there is nothing to be done.
+	if controllerutil.ContainsFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
+		// Finalizer already present on PVC
+		return nil
+	}
+
+	return k8s.PatchFinalizers(ctx, client, pvc,
+		append(pvc.Finalizers, cnsoperatortypes.CNSPvcFinalizer))
+}
+
+// removePvcFinalizer removed the given VM from the PVC's list of attached VMs
+// and then remmoves finalizer from the PVC if it was the last attached VM for the PVC.
+func removePvcFinalizer(ctx context.Context, client client.Client,
+	pvcName string, namespace string, vmInstanceUUID string,
+	cnsVolumeAttachmentInstance cnsvolumeattachment.CnsVolumeAttachment) error {
+	log := logger.GetLogger(ctx)
+
+	// Get PVC object from informer cache
+	pvc, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, namespace)
+	if err != nil {
+		log.Errorf("failed to get PVC object for PVC %s. Err: %s", pvcName, err)
+		return err
+	}
+
+	volumeName := namespace + "/" + pvcName
+
+	// Remove the VM from list of attached VMs for this PVC.
+	// If it was the last attached VM, isLastAttachedVm will be true.
+	err, isLastAttachedVm := cnsVolumeAttachmentInstance.RemoveVmFromAttachedList(ctx,
+		volumeName, vmInstanceUUID)
+	if err != nil {
+		log.Errorf("failed to remove VM %s from attached list for PVC %s", vmInstanceUUID, pvcName)
+		return err
+	}
+	if !isLastAttachedVm {
+		// If it is not the last attached VM, do not remove finalizer from the PVC.
+		return nil
+	}
+
+	log.Infof("VM %s was the last attached VM for the PVC %s. Finalzier %s can be safely removed fromt the PVC",
+		vmInstanceUUID, pvcName, namespace)
+
+	if !controllerutil.ContainsFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
+		// Finalizer not present on PVC, nothing to be done here.
+		return nil
+	}
+
+	// Remove finalizer from the PVC if it was the last attached VM.
+	finalizersOnPvc := pvc.Finalizers
+	for i, finalizer := range pvc.Finalizers {
+		if finalizer == cnsoperatortypes.CNSFinalizer {
+			log.Infof("Removing %s finalizer from PVC: %s on namespace: %s",
+				cnsoperatortypes.CNSFinalizer, pvcName, namespace)
+			finalizersOnPvc = append(pvc.Finalizers[:i], pvc.Finalizers[i+1:]...)
+			break
+		}
+	}
+
+	return k8s.PatchFinalizers(ctx, client, pvc, finalizersOnPvc)
 }
