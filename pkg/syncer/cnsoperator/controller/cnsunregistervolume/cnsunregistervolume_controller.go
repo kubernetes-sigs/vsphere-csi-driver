@@ -379,7 +379,7 @@ func validateVolumeNotInUse(ctx context.Context, volumeID string, pvcName string
 		return err
 	}
 
-	vmList, err := utils.GetVirtualMachineListAllApiVersions(ctx, pvcNamespace, vmOperatorClient)
+	vmList, err := utils.ListVirtualMachines(ctx, vmOperatorClient, pvcNamespace)
 	if err != nil {
 		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
 		log.Error(msg)
