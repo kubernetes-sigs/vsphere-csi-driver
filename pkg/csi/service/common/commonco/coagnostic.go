@@ -94,8 +94,8 @@ type COCommonInterface interface {
 	// GetPVNameFromCSIVolumeID retrieves the pv name from the volumeID.
 	// This method will not return pv name in case of in-tree migrated volumes
 	GetPVNameFromCSIVolumeID(volumeID string) (string, bool)
-	// GetPVCNameFromCSIVolumeID returns PV claim name for the volume ID
-	GetPVCNameFromCSIVolumeID(volumeID string) (string, bool)
+	// GetPVCNameFromCSIVolumeID returns `pvc name` and `pvc namespace` for the given volumeID using volumeIDToPvcMap.
+	GetPVCNameFromCSIVolumeID(volumeID string) (string, string, bool)
 	// InitializeCSINodes creates CSINode instances for each K8s node with the appropriate topology keys.
 	InitializeCSINodes(ctx context.Context) error
 	// StartZonesInformer starts a dynamic informer which listens on Zones CR in

@@ -19,7 +19,6 @@ package cnsunregistervolume
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -217,12 +216,9 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 	pvName, pvfound := commonco.ContainerOrchestratorUtility.GetPVNameFromCSIVolumeID(instance.Spec.VolumeID)
 	if pvfound {
 		log.Infof("found PV: %q for the volumd Id: %q", pvName, instance.Spec.VolumeID)
-		pvcNamewithNamespace, pvcfound := commonco.ContainerOrchestratorUtility.
+		pvcName, pvcNamespace, pvcFound := commonco.ContainerOrchestratorUtility.
 			GetPVCNameFromCSIVolumeID(instance.Spec.VolumeID)
-		if pvcfound {
-			parts := strings.Split(pvcNamewithNamespace, "/")
-			pvcNamespace = parts[0]
-			pvcName = parts[1]
+		if pvcFound {
 			log.Infof("found PVC: %q in the namespace:%q for the volumd Id: %q", pvcName, pvcNamespace,
 				instance.Spec.VolumeID)
 		} else {

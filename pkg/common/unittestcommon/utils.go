@@ -23,6 +23,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/vmware/govmomi/simulator"
@@ -350,9 +351,15 @@ func (c *FakeK8SOrchestrator) GetPVNameFromCSIVolumeID(volumeID string) (string,
 	return "", false
 }
 
-// GetPVCNameFromCSIVolumeID retrieves the pvc name from volumeID.
-func (c *FakeK8SOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (string, bool) {
-	return "", false
+// GetPVCNameFromCSIVolumeID returns `pvc name` and `pvc namespace` for the given volumeID using volumeIDToPvcMap.
+func (c *FakeK8SOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (string, string, bool) {
+	if strings.Contains(volumeID, "invalid") {
+		// Simulate a case where the volumeID is invalid and does not correspond to any PVC.
+		return "", "", false
+	}
+
+	// Simulate a case where the volumeID corresponds to a PVC.
+	return "mock-pvc", "mock-namespace", true
 }
 
 // InitializeCSINodes creates CSINode instances for each K8s node with the appropriate topology keys.
