@@ -339,9 +339,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			}
 			volumeID, faulttype, err := getVolumeID(internalCtx, r.client, instance.Spec.VolumeName, instance.Namespace)
 			if err != nil {
-				msg := fmt.Sprintf("failed to get volumeID from volumeName: %q for CnsNodeVmAttachment "+
-					"request with name: %q on namespace: %q. Error: %+v",
-					instance.Spec.VolumeName, request.Name, request.Namespace, err)
+				msg := fmt.Sprintf("Failed to get volumeID. Error: %s", err)
 				instance.Status.Error = err.Error()
 				err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
 				if err != nil {
@@ -350,42 +348,17 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 			}
-			cnsFinalizerExists := false
-			// Check if finalizer already exists.
-			for _, finalizer := range instance.Finalizers {
-				if finalizer == cnsoperatortypes.CNSFinalizer {
-					cnsFinalizerExists = true
-					break
-				}
-			}
-			// Update finalizer and attachmentMetadata together in CnsNodeVMAttachment.
-			if !cnsFinalizerExists {
-				// Add finalizer.
-				instance.Finalizers = append(instance.Finalizers, cnsoperatortypes.CNSFinalizer)
-				// Add the CNS volume ID in the attachment metadata. This is used later
-				// to detach the CNS volume on deletion of CnsNodeVMAttachment instance.
-				// Note that the supervisor PVC can be deleted due to following:
-				// 1. Bug in external provisioner(https://github.com/kubernetes/kubernetes/issues/84226)
-				//    where DeleteVolume could be invoked in pvcsi before ControllerUnpublishVolume.
-				//    This causes supervisor PVC to be deleted.
-				// 2. Supervisor namespace user deletes PVC used by a guest cluster.
-				// 3. Supervisor namespace is deleted
-				// Basically, we cannot rely on the existence of PVC in supervisor
-				// cluster for detaching the volume from guest cluster VM. So, the
-				// logic stores the CNS volume ID in attachmentMetadata itself which
-				// is used during detach.
-				attachmentMetadata := make(map[string]string)
-				attachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeID] = volumeID
-				instance.Status.AttachmentMetadata = attachmentMetadata
-				err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
-				if err != nil {
-					msg := fmt.Sprintf("failed to update CnsNodeVmAttachment instance: %q on namespace: %q. Error: %+v",
-						request.Name, request.Namespace, err)
-					recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
-					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
-				}
+
+			err = addCNSFinalizer(internalCtx, r.client, instance)
+			if err != nil {
+				msg := fmt.Sprintf("failed to patch finalizers on CnsNodeVmAttachment instance: %q on namespace: %q. Error: %s",
+					request.Name, request.Namespace, err)
+				log.Errorf(msg)
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
+				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
 			}
 
+			log.Debugf("instance after the patch: %s", instance)
 			log.Infof("vSphere CSI driver is attaching volume: %q to nodevm: %+v for "+
 				"CnsNodeVmAttachment request with name: %q on namespace: %q",
 				volumeID, nodeVM, request.Name, request.Namespace)
@@ -395,19 +368,6 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				log.Errorf("failed to attach disk: %q to nodevm: %+v for CnsNodeVmAttachment "+
 					"request with name: %q on namespace: %q. Err: %+v",
 					volumeID, nodeVM, request.Name, request.Namespace, attachErr)
-			}
-
-			if !cnsFinalizerExists {
-				// Read the CnsNodeVMAttachment instance again because the instance
-				// is already modified.
-				err = r.client.Get(internalCtx, request.NamespacedName, instance)
-				if err != nil {
-					msg := fmt.Sprintf("Error reading the CnsNodeVmAttachment with name: %q on namespace: %q. Err: %+v",
-						request.Name, request.Namespace, err)
-					// Error reading the object - requeue the request.
-					recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
-					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
-				}
 			}
 
 			pvc := &v1.PersistentVolumeClaim{}
@@ -445,8 +405,22 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				// Update CnsNodeVMAttachment instance with attach error message.
 				instance.Status.Error = attachErr.Error()
 			} else {
+				// Add the CNS volume ID in the attachment metadata. This is used later
+				// to detach the CNS volume on deletion of CnsNodeVMAttachment instance.
+				// Note that the supervisor PVC can be deleted due to following:
+				// 1. Bug in external provisioner(https://github.com/kubernetes/kubernetes/issues/84226)
+				//    where DeleteVolume could be invoked in pvcsi before ControllerUnpublishVolume.
+				//    This causes supervisor PVC to be deleted.
+				// 2. Supervisor namespace user deletes PVC used by a guest cluster.
+				// 3. Supervisor namespace is deleted
+				// Basically, we cannot rely on the existence of PVC in supervisor
+				// cluster for detaching the volume from guest cluster VM. So, the
+				// logic stores the CNS volume ID in attachmentMetadata itself which
+				// is used during detach.
 				// Update CnsNodeVMAttachment instance with attached status set to true
 				// and attachment metadata.
+				instance.Status.AttachmentMetadata = make(map[string]string)
+				instance.Status.AttachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeID] = volumeID
 				instance.Status.AttachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeFirstClassDiskUUID] = diskUUID
 				instance.Status.Attached = true
 				// Clear the error message.
@@ -839,19 +813,28 @@ func getVolumeID(ctx context.Context, client client.Client, pvcName string,
 	pvc := &v1.PersistentVolumeClaim{}
 	err := client.Get(ctx, k8stypes.NamespacedName{Name: pvcName, Namespace: namespace}, pvc)
 	if err != nil {
-		log.Errorf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
+		log.Errorf("failed to get PVC with volumename: %q on namespace: %q. Err: %s",
 			pvcName, namespace, err)
 		return "", csifault.CSIApiServerOperationFault, err
+	}
+
+	// Check if PVC is bound to a PV.
+	if pvc.Spec.VolumeName == "" || pvc.Status.Phase != v1.ClaimBound {
+		err := fmt.Errorf("PVC with name: %q in namespace: %q is not bound to a PV. "+
+			"PV: %q, Status: %q", pvcName, namespace, pvc.Spec.VolumeName, pvc.Status.Phase)
+		log.Warn(err.Error())
+		return "", csifault.CSIPvNotFoundInPvcSpecFault, err
 	}
 
 	// Get PV by name.
 	pv := &v1.PersistentVolume{}
 	err = client.Get(ctx, k8stypes.NamespacedName{Name: pvc.Spec.VolumeName, Namespace: ""}, pv)
 	if err != nil {
-		log.Errorf("failed to get PV with name: %q for PVC: %q. Err: %+v",
+		log.Errorf("failed to get PV with name: %q for PVC: %q. Err: %s",
 			pvc.Spec.VolumeName, pvcName, err)
 		return "", csifault.CSIPvNotFoundInPvcSpecFault, err
 	}
+
 	return pv.Spec.CSI.VolumeHandle, "", nil
 }
 
@@ -957,4 +940,17 @@ func recordEvent(ctx context.Context, r *ReconcileCnsNodeVMAttachment,
 		r.recorder.Event(instance, v1.EventTypeNormal, "NodeVMAttachSucceeded", msg)
 		log.Info(msg)
 	}
+}
+
+func addCNSFinalizer(ctx context.Context, c client.Client,
+	instance *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment) error {
+	// TODO: we can use the AddFinalizer function from the k8s library
+	for _, finalizer := range instance.Finalizers {
+		if finalizer == cnsoperatortypes.CNSFinalizer {
+			// already exists. No patch needed.
+			return nil
+		}
+	}
+
+	return k8s.PatchFinalizers(ctx, c, instance, append(instance.Finalizers, cnsoperatortypes.CNSFinalizer))
 }
