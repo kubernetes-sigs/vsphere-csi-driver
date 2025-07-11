@@ -563,6 +563,7 @@ data:
   "WCP_VMService_BYOK": "false"
   "file-volume-with-vm-service": "false"
   "csi-transaction-support": "false"
+  "linked-clone-support": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
@@ -646,7 +647,7 @@ webhooks:
         path: "/validate"
     rules:
       - apiGroups:   [""]
-        apiVersions: ["v1", "v1beta1"]
+        apiVersions: ["v1"]
         operations:  ["CREATE", "UPDATE", "DELETE"]
         resources:   ["persistentvolumeclaims"]
         scope: "Namespaced"
@@ -654,6 +655,10 @@ webhooks:
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "DELETE"]
         resources:   ["cnsfileaccessconfigs"]
+      - apiGroups:   ["snapshot.storage.k8s.io"]
+        apiVersions: ["v1"]
+        operations:  ["CREATE", "DELETE"]
+        resources:   ["volumesnapshots"]
         scope:       "Namespaced"
     sideEffects: None
     admissionReviewVersions: ["v1"]

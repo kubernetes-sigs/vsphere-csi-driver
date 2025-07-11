@@ -572,6 +572,7 @@ data:
   "file-volume-with-vm-service": "false"
   "csi-transaction-support": "false"
   "vol-from-snapshot-on-target-ds": "false"
+  "linked-clone-support": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
@@ -661,7 +662,7 @@ webhooks:
         scope: "Namespaced"
       - apiGroups:   ["snapshot.storage.k8s.io"]
         apiVersions: ["v1"]
-        operations:  ["CREATE"]
+        operations:  ["CREATE", "DELETE"]
         resources:   ["volumesnapshots"]
         scope:       "Namespaced"
       - apiGroups:   ["cns.vmware.com"]
@@ -690,8 +691,8 @@ webhooks:
         path: "/mutate"
     rules:
       - apiGroups: [""]
-        apiVersions: ["v1", "v1beta1"]
-        operations: ["CREATE", "UPDATE"]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
         resources: ["persistentvolumeclaims"]
         scope: "Namespaced"
       - apiGroups:   ["cns.vmware.com"]
