@@ -411,6 +411,7 @@ spec:
             - "--leader-election-lease-duration=120s"
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
+            - "--extra-create-metadata"
           env:
             - name: ADDRESS
               value: /csi/csi.sock

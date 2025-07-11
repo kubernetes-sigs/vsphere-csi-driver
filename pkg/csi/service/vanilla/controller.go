@@ -1013,10 +1013,10 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 			}
 		}
 	}
-
 	// Check if requested volume size and source snapshot size matches.
 	volumeSource := req.GetVolumeContentSource()
 	var contentSourceSnapshotID, snapshotDatastoreURL string
+	var vCenterWithTransactionSupport bool
 	if volumeSource != nil {
 		sourceSnapshot := volumeSource.GetSnapshot()
 		if sourceSnapshot == nil {
@@ -1046,6 +1046,14 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
 				"VC %q does not support snapshot operations", vCenterHost)
 		}
+
+		vCenterWithTransactionSupport, err = c.managers.VcenterManager.IsCnsTransactionSupported(ctx, vCenterHost)
+		if err != nil {
+			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to check if cns transaction APIs are supported on VC %q due to error: %v",
+				vCenterHost, err)
+		}
+
 		// Query capacity in MB and datastore url for block volume snapshot.
 		volumeIds := []cnstypes.CnsVolumeId{{Id: cnsVolumeID}}
 		cnsVolumeDetailsMap, err := utils.QueryVolumeDetailsUtil(ctx, volumeManager, volumeIds)
@@ -1108,6 +1116,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 		break
 	}
 
+	isTransactionAPIsSupported := vCenterWithTransactionSupport && isCSITransactionSupportEnabled
 	volumeOperationDetails, err := operationStore.GetRequestDetails(ctx, req.Name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -1117,7 +1126,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 				"error occurred while getting CreateVolume task details for block volume %q. Error: %+v",
 				req.Name, err)
 		}
-	} else if !isCSITransactionSupportEnabled && volumeOperationDetails.OperationDetails != nil {
+	} else if !isTransactionAPIsSupported && volumeOperationDetails.OperationDetails != nil {
 		if volumeOperationDetails.OperationDetails.TaskStatus ==
 			cnsvolumeoperationrequest.TaskInvocationStatusSuccess &&
 			volumeOperationDetails.VolumeID != "" {
@@ -1145,7 +1154,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 				},
 			}
 			volTaskAlreadyRegistered = true
-		} else if !isCSITransactionSupportEnabled && cnsvolume.IsTaskPending(volumeOperationDetails) {
+		} else if !isTransactionAPIsSupported && cnsvolume.IsTaskPending(volumeOperationDetails) {
 			// If task is already created in CNS for this volume but task is in progress,
 			// we need to monitor the task to check if volume creation is complete or not.
 			log.Infof("Volume with name %s has CreateVolume task %s pending on VC %q.",
@@ -1339,7 +1348,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 						ClusterFlavor:        cnstypes.CnsClusterFlavorVanilla,
 					},
 					common.CreateBlockVolumeOptions{
-						IsCSITransactionSupportEnabled: isCSITransactionSupportEnabled,
+						IsCSITransactionSupportEnabled: isTransactionAPIsSupported,
 					})
 				if err != nil {
 					if cnsvolume.IsNotSupportedFaultType(ctx, faultType) {
@@ -1424,7 +1433,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 					ClusterFlavor:        cnstypes.CnsClusterFlavorVanilla,
 				},
 				common.CreateBlockVolumeOptions{
-					IsCSITransactionSupportEnabled: isCSITransactionSupportEnabled,
+					IsCSITransactionSupportEnabled: isTransactionAPIsSupported,
 				})
 			if err != nil {
 				if cnsvolume.IsNotSupportedFaultType(ctx, faultType) {
@@ -3115,7 +3124,17 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// sign. That is, a string of "<UUID>+<UUID>". Because, all other CNS snapshot APIs still require both
 		// VolumeID and SnapshotID as the input, while corresponding snapshot APIs in upstream CSI require SnapshotID.
 		// So, we need to bridge the gap in vSphere CSI driver and return a combined SnapshotID to CSI Snapshotter.
-		snapshotID, cnsSnapshotInfo, err := common.CreateSnapshotUtil(ctx, volumeManager, volumeID, req.Name, nil)
+
+		vCenterWithTransactionSupport, err := vCenterManager.IsCnsTransactionSupported(ctx, vCenterHost)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to check if cns transaction APIs are supported on VC %q due to error: %v",
+				vCenterHost, err)
+		}
+		snapshotID, cnsSnapshotInfo, err := common.CreateSnapshotUtil(ctx, volumeManager,
+			volumeID, req.Name, &cnsvolume.CreateSnapshotExtraParams{
+				IsCSITransactionSupportEnabled: isCSITransactionSupportEnabled && vCenterWithTransactionSupport,
+			})
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create snapshot on volume %q with error: %v", volumeID, err)
