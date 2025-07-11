@@ -23,10 +23,11 @@ import "github.com/container-storage-interface/spec/csi.proto";
 // Interface exported by the server
 service K8sCloudOperator {
    /*
-   * GetPodVMUUIDAnnotation gets the PV by querying the API server refering to the volumeID in the request.
+   * Deprecated: Do not use. This method is deprecated and will be removed in future versions.
+   * GetPodVMUUIDAnnotation gets the PV by querying the API server referring to the volumeID in the request.
    * Retrieves the PVC name and Namespace from the PV spec.
    *
-   * It then gets the vmuuid annotation from the pod satisfying the below conditions
+   * It then gets the VM UUID from the annotations from the pod satisfying the below conditions
    * 1. Pod Scheduled on node with name "nodeName"
    * 2. Pod is in pending state in the same namespace as pvc specified using "pvcNamespace"
    * 3. Pod has a volume with name "pvcName" associated with it
