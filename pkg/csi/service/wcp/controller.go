@@ -545,6 +545,30 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 			// Initiate TKGs HA workflow when the topology requirement contains zone labels only.
 			log.Infof("Topology aware environment detected with requirement: %+v", topologyRequirement)
+
+			// if volume is created from snapshot, get the datastore accessible topology from the snapshot
+			if req.GetVolumeContentSource() != nil {
+				snapshotID := ""
+				if req.GetVolumeContentSource().GetSnapshot() != nil {
+					snapshotID = req.GetVolumeContentSource().GetSnapshot().GetSnapshotId()
+				}
+				log.Infof("Volume %s is created from snapshot %s, get the datastore accessible topology from the snapshot",
+					req.Name, snapshotID)
+				datastoreAccessibleTopology, err := c.getDatastoreAccessibleTopologyForSnapshot(ctx,
+					req.GetVolumeContentSource().GetSnapshot().GetSnapshotId(), storageTopologyType,
+					topologyRequirement, topoSegToDatastoresMap)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get datastore accessible topology. Error: %v", err)
+				}
+				topologyRequirement = &csi.TopologyRequirement{
+					Preferred: datastoreAccessibleTopology,
+					Requisite: datastoreAccessibleTopology,
+				}
+				log.Infof("Replaced with topologyRequirement %+v for creating volume %s from snapshot %s",
+					topologyRequirement, req.Name, snapshotID)
+			}
+
 			sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
 				commoncotypes.WCPTopologyFetchDSParams{
 					TopologyRequirement:    topologyRequirement,
@@ -951,6 +975,80 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 
 	return resp, "", nil
+}
+
+func (c *controller) getDatastoreAccessibleTopologyForSnapshot(ctx context.Context, contentSourceSnapshotID string,
+	storageTopologyType string, topologyRequirement *csi.TopologyRequirement,
+	topoSegToDatastoresMap map[string][]*cnsvsphere.DatastoreInfo) ([]*csi.Topology, error) {
+	log := logger.GetLogger(ctx)
+
+	log.Debugf("getDatastoreAccessibleTopologyForSnapshot: contentSourceSnapshotID: %s, storageTopologyType: %s, "+
+		"topologyRequirement %+v, topoSegToDatastoresMap %+v",
+		contentSourceSnapshotID, storageTopologyType, topologyRequirement, topoSegToDatastoresMap)
+
+	vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, c.manager.VcenterConfig.Host)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get vCenter. Error: %+v", err)
+	}
+
+	if c.topologyMgr == nil {
+		return nil, logger.LogNewErrorCode(log, codes.Internal,
+			"topology manager not initialized.")
+	}
+
+	// Query the datastore of snapshot. By design, snapshot is always located at the same datastore
+	// as the source volume
+	querySelection := cnstypes.CnsQuerySelection{
+		Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
+	}
+
+	// Parse contentSourceSnapshotID into CNS VolumeID and CNS SnapshotID using "+" as the delimiter
+	cnsVolumeID, _, err := common.ParseCSISnapshotID(contentSourceSnapshotID)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to parse snapshot id. Error: %+v", err)
+	}
+	cnsVolumeInfo, err := common.QueryVolumeByID(ctx, c.manager.VolumeManager, cnsVolumeID, &querySelection)
+	if err != nil {
+		return nil, logger.LogNewErrorf(log,
+			"failed to query datastore for the volume %s with error %+v",
+			cnsVolumeID, err)
+	}
+
+	selectedDatastore := cnsVolumeInfo.DatastoreUrl
+	log.Debugf("getDatastoreAccessibleTopologyForSnapshot: selectedDatastore: %s", selectedDatastore)
+
+	if selectedDatastore == "" {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get datastore for volume %q. Error: %+v",
+			cnsVolumeID, err)
+	}
+
+	// Calculate accessible topology for the provisioned volume.
+	datastoreAccessibleTopologySegments, err := c.topologyMgr.GetTopologyInfoFromNodes(ctx,
+		commoncotypes.WCPRetrieveTopologyInfoParams{
+			DatastoreURL:           selectedDatastore,
+			StorageTopologyType:    storageTopologyType,
+			TopologyRequirement:    topologyRequirement,
+			Vc:                     vc,
+			TopoSegToDatastoresMap: topoSegToDatastoresMap})
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to find accessible topologies for volume %q. Error: %+v",
+			cnsVolumeID, err)
+	}
+
+	// Convert []map[string]string to []*csi.Topology
+	var datastoreAccessibleTopology []*csi.Topology
+	for _, topoSegments := range datastoreAccessibleTopologySegments {
+		volumeTopology := &csi.Topology{
+			Segments: topoSegments,
+		}
+		datastoreAccessibleTopology = append(datastoreAccessibleTopology, volumeTopology)
+	}
+	log.Infof("getDatastoreAccessibleTopologyForSnapshot: returning topology %+v", datastoreAccessibleTopology)
+	return datastoreAccessibleTopology, nil
 }
 
 // createFileVolume creates a file volume based on the CreateVolumeRequest.
