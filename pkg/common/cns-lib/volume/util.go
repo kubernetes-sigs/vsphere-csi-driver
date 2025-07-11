@@ -390,7 +390,7 @@ func ExtractFaultTypeFromVolumeResponseResult(ctx context.Context,
 
 // invokeCNSCreateSnapshot invokes CreateSnapshot operation for that volume on CNS.
 func invokeCNSCreateSnapshot(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter,
-	volumeID string, snapshotName string) (*object.Task, error) {
+	volumeID string, snapshotName string, snapshotID string) (*object.Task, error) {
 	log := logger.GetLogger(ctx)
 	var cnsSnapshotCreateSpecList []cnstypes.CnsSnapshotCreateSpec
 	cnsSnapshotCreateSpec := cnstypes.CnsSnapshotCreateSpec{
@@ -398,6 +398,9 @@ func invokeCNSCreateSnapshot(ctx context.Context, virtualCenter *cnsvsphere.Virt
 			Id: volumeID,
 		},
 		Description: snapshotName,
+	}
+	if snapshotID != "" {
+		cnsSnapshotCreateSpec.SnapshotId = &cnstypes.CnsSnapshotId{Id: snapshotID}
 	}
 	cnsSnapshotCreateSpecList = append(cnsSnapshotCreateSpecList, cnsSnapshotCreateSpec)
 

@@ -58,6 +58,9 @@ type VirtualCenterManager interface {
 	// IsCnsSnapshotSupported checks if cns volume snapshot is supported
 	// or not on the vCenter Host.
 	IsCnsSnapshotSupported(ctx context.Context, host string) (bool, error)
+	// IsCnsTransactionSupported checks if cns transaction is supported
+	// or not on the vCenter Host.
+	IsCnsTransactionSupported(ctx context.Context, host string) (bool, error)
 }
 
 var (
@@ -208,5 +211,28 @@ func (m *defaultVirtualCenterManager) IsCnsSnapshotSupported(ctx context.Context
 		return true, nil
 	}
 	log.Infof("CNS Snapshot features are not supported on vCenter version %q", vcVersion)
+	return false, nil
+}
+
+// IsCnsTransactionSupported checks if cns transaction is supported or not.
+func (m *defaultVirtualCenterManager) IsCnsTransactionSupported(ctx context.Context, host string) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	// Get VC instance.
+	vcenter, err := m.GetVirtualCenter(ctx, host)
+	if err != nil {
+		log.Errorf("Failed to get vCenter. Err: %v", err)
+		return false, err
+	}
+	vcVersion := vcenter.Client.ServiceContent.About.Version
+	isvSphereVersion91orAbove, err := IsvSphereVersion91orAbove(ctx, vcenter.Client.ServiceContent.About)
+	if err != nil {
+		return false, logger.LogNewErrorf(log, "Error while checking the vSphere Version %q , Err= %+v",
+			vcVersion, err)
+	}
+	if isvSphereVersion91orAbove {
+		return true, nil
+	}
+	log.Infof("CNS Transaction feature is not supported on vCenter version %q", vcVersion)
 	return false, nil
 }

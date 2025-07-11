@@ -26,6 +26,9 @@ const (
 	// VSphere80u3Version is a 3 digit value to indicate the minimum vSphere
 	// version to ensure calling supported 8.0u3 APIs
 	VSphere80u3Version int = 803
+	// VSphere91VersionInt is a 3 digit value to indicate the minimum vSphere
+	// version to ensure calling supported 9.1.0 APIs
+	VSphere91VersionInt = 910
 )
 
 var (
@@ -480,6 +483,29 @@ func IsvSphereVersion80U3orAbove(ctx context.Context, aboutInfo types.AboutInfo)
 		}
 	}
 	// For all other versions.
+	return false, nil
+}
+
+// IsvSphereVersion91orAbove checks if specified version is 9.1 or higher
+// The method takes aboutInfo{} as input which contains details about
+// VC version, build number and so on.
+// If the version is 9.1 higher, the method returns true, else returns false
+// along with appropriate errors during failure cases
+func IsvSphereVersion91orAbove(ctx context.Context, aboutInfo types.AboutInfo) (bool, error) {
+	log := logger.GetLogger(ctx)
+	items := strings.Split(aboutInfo.Version, ".")
+	version := strings.Join(items[:], "")
+	if len(version) >= 3 {
+		vSphereVersionInt, err := strconv.Atoi(version[0:3])
+		if err != nil {
+			return false, logger.LogNewErrorf(log, "error while converting version %q to integer, err %+v", version, err)
+		}
+		// Check if the current vSphere version is 9.1.0 or higher
+		if vSphereVersionInt >= VSphere91VersionInt {
+			return true, nil
+		}
+	}
+	// For all other versions
 	return false, nil
 }
 
