@@ -180,11 +180,10 @@ type CreateVolumeExtraParams struct {
 // CreateSnapshotExtraParams consist of values required by the CreateSnapshot interface and
 // are not present in the CNS CreateSnapshot spec.
 type CreateSnapshotExtraParams struct {
-	StorageClassName           string
-	StoragePolicyID            string
-	Namespace                  string
-	Capacity                   *resource.Quantity
-	IsStorageQuotaM2FSSEnabled bool
+	StorageClassName string
+	StoragePolicyID  string
+	Namespace        string
+	Capacity         *resource.Quantity
 }
 
 // DeleteSnapshotExtraParams consist of values required by the DeleteSnapshot interface and
@@ -2487,9 +2486,8 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		// Local instance of CreateSnapshot details that needs to be persisted.
 		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
 		// error
-		err                        error
-		quotaInfo                  *cnsvolumeoperationrequest.QuotaDetails
-		isStorageQuotaM2FSSEnabled bool
+		err       error
+		quotaInfo *cnsvolumeoperationrequest.QuotaDetails
 	)
 	if extraParams != nil {
 		createSnapParams, ok := extraParams.(*CreateSnapshotExtraParams)
@@ -2498,8 +2496,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		}
 		log.Debugf("Received CreateSnapshot extraParams: %+v", *createSnapParams)
 
-		isStorageQuotaM2FSSEnabled = createSnapParams.IsStorageQuotaM2FSSEnabled
-		if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
 				Reserved:         createSnapParams.Capacity,
 				StoragePolicyId:  createSnapParams.StoragePolicyID,
@@ -2581,7 +2578,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 			volumeOperationDetails != nil && volumeOperationDetails.OperationDetails != nil &&
 			volumeOperationDetails.OperationDetails.TaskStatus != taskInvocationStatusInProgress {
 			taskStatus := volumeOperationDetails.OperationDetails.TaskStatus
-			if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 				if (taskStatus == taskInvocationStatusSuccess || taskStatus == taskInvocationStatusError) &&
 					volumeOperationDetails.QuotaDetails != nil {
 					volumeOperationDetails.QuotaDetails.Reserved = resource.NewQuantity(0,
@@ -2652,7 +2649,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 					SnapshotDescription:                 snapshotName,
 					SnapshotLatestOperationCompleteTime: queriedCnsSnapshot.CreateTime,
 				}
-				if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+				if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 					log.Infof("get aggregated Snapshot Capacity for volume with volumeID %q", volumeID)
 					aggregatedSnapshotCapacityInMb, err := m.getAggregatedSnapshotSize(ctx, volumeID)
 					if err != nil {
@@ -2751,7 +2748,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		SnapshotDescription:                 snapshotCreateResult.Snapshot.Description,
 		SnapshotLatestOperationCompleteTime: *createSnapshotsTaskInfo.CompleteTime,
 	}
-	if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+	if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		log.Infof("For volumeID %q new AggregatedSnapshotSize is %d and SnapshotLatestOperationCompleteTime is %q",
 			volumeID, snapshotCreateResult.AggregatedSnapshotCapacityInMb, *createSnapshotsTaskInfo.CompleteTime)
 		cnsSnapshotInfo.AggregatedSnapshotCapacityInMb = snapshotCreateResult.AggregatedSnapshotCapacityInMb
