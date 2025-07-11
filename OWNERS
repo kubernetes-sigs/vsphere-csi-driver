@@ -2,26 +2,22 @@
 
 reviewers:
 - divyenpatel
-- SandeepPissay
 - xing-yang
 - chethanv28
 - deepakkinni
 - shalini-b
 - gnufied
-- gohilankit
-- adikul30
 - akankshapanse
+- kolluria
 
 approvers:
 - divyenpatel
-- SandeepPissay
 - xing-yang
 - chethanv28
 - deepakkinni
 - shalini-b
-- gohilankit
-- adikul30
 - akankshapanse
+- kolluria
 
 emeritus_approvers:
 - codenrhoden
@@ -29,3 +25,6 @@ emeritus_approvers:
 - dvonthenen
 - frapposelli
 - BaluDontu
+- gohilankit
+- adikul30
+- SandeepPissay
