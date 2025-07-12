@@ -124,7 +124,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	configInfo := &cnsconfig.ConfigurationInfo{}
 	configInfo.Cfg = csiConfig
 
-	virtualCenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+	virtualCenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, cnsVCenterConfig, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,9 +154,12 @@ func TestSyncerWorkflows(t *testing.T) {
 	}
 
 	// Initialize metadata syncer object.
-	metadataSyncer = &metadataSyncInformer{}
+	metadataSyncer = &metadataSyncInformer{
+		volumeManagers: make(map[string]cnsvolumes.Manager),
+	}
 	metadataSyncer.configInfo = configInfo
 	metadataSyncer.volumeManager = volumeManager
+	metadataSyncer.volumeManagers[virtualCenter.Config.Host] = volumeManager
 	metadataSyncer.host = virtualCenter.Config.Host
 	volumeOperationsLock = make(map[string]*sync.Mutex)
 	volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}

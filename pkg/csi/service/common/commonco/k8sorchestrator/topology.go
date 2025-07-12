@@ -109,10 +109,6 @@ var (
 	preferredDatastoresMap = make(map[string][]string)
 	// preferredDatastoresMapInstanceLock guards the preferredDatastoresMap from read-write overlaps.
 	preferredDatastoresMapInstanceLock = &sync.RWMutex{}
-	// isMultiVCSupportEnabled is set to true only when the MultiVCenterCSITopology FSS
-	// is enabled. isMultivCenterCluster is set to true only when the MultiVCenterCSITopology FSS
-	// is enabled and the K8s cluster involves multiple VCs.
-	isMultiVCSupportEnabled bool
 	// isPodVMOnStretchedSupervisorEnabled is set to true only when the podvm-on-stretched-supervisor FSS
 	// is enabled
 	isPodVMOnStretchedSupervisorEnabled bool
@@ -203,9 +199,6 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 					return nil, err
 				}
 
-				// Set isMultivCenterCluster if the K8s cluster is a multi-VC cluster.
-				isMultiVCSupportEnabled = c.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
-
 				// Create a cache of topology tags -> VC -> associated MoRefs in that VC to ease volume provisioning.
 				err = common.DiscoverTagEntities(ctx)
 				if err != nil {
@@ -236,11 +229,7 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 						for ; true; <-ticker.C {
 							ctx, log := logger.GetNewContextWithLogger()
 							log.Infof("Refreshing preferred datastores information...")
-							if isMultiVCSupportEnabled {
-								err = common.RefreshPreferentialDatastoresForMultiVCenter(ctx)
-							} else {
-								err = refreshPreferentialDatastores(ctx)
-							}
+							err = common.RefreshPreferentialDatastoresForMultiVCenter(ctx)
 							if err != nil {
 								log.Errorf("failed to refresh preferential datastores in cluster. Error: %v", err)
 								os.Exit(1)
@@ -565,11 +554,7 @@ func topoCRAdded(obj interface{}) {
 			nodeTopoObj.Name, nodeTopoObj.Status.Status)
 		return
 	}
-	if isMultiVCSupportEnabled {
-		common.AddNodeToDomainNodeMapNew(ctx, nodeTopoObj)
-	} else {
-		addNodeToDomainNodeMap(ctx, nodeTopoObj)
-	}
+	common.AddNodeToDomainNodeMapNew(ctx, nodeTopoObj)
 }
 
 // topoCRUpdated checks if the CSINodeTopology instance Status is set to Success
@@ -616,19 +601,11 @@ func topoCRUpdated(oldObj interface{}, newObj interface{}) {
 		log.Warnf("topoCRUpdated: %q instance with name %q has been updated after the Status was set to "+
 			"Success. Old object - %+v. New object - %+v", csinodetopology.CRDSingular, oldNodeTopoObj.Name,
 			oldNodeTopoObj, newNodeTopoObj)
-		if isMultiVCSupportEnabled {
-			common.RemoveNodeFromDomainNodeMapNew(ctx, oldNodeTopoObj)
-		} else {
-			removeNodeFromDomainNodeMap(ctx, oldNodeTopoObj)
-		}
+		common.RemoveNodeFromDomainNodeMapNew(ctx, oldNodeTopoObj)
 	}
 	// Add the node name to the domainNodeMap if the Status is set to Success.
 	if newNodeTopoObj.Status.Status == csinodetopologyv1alpha1.CSINodeTopologySuccess {
-		if isMultiVCSupportEnabled {
-			common.AddNodeToDomainNodeMapNew(ctx, newNodeTopoObj)
-		} else {
-			addNodeToDomainNodeMap(ctx, newNodeTopoObj)
-		}
+		common.AddNodeToDomainNodeMapNew(ctx, newNodeTopoObj)
 	}
 }
 
@@ -657,11 +634,7 @@ func topoCRDeleted(obj interface{}) {
 	}
 	// Delete node name from domainNodeMap if the status of the CR was set to Success.
 	if nodeTopoObj.Status.Status == csinodetopologyv1alpha1.CSINodeTopologySuccess {
-		if isMultiVCSupportEnabled {
-			common.RemoveNodeFromDomainNodeMapNew(ctx, nodeTopoObj)
-		} else {
-			removeNodeFromDomainNodeMap(ctx, nodeTopoObj)
-		}
+		common.RemoveNodeFromDomainNodeMapNew(ctx, nodeTopoObj)
 	} else {
 		log.Infof("topoCRDeleted: %q instance with name %q and status %q deleted.", csinodetopology.CRDSingular,
 			nodeTopoObj.Name, nodeTopoObj.Status.Status)
