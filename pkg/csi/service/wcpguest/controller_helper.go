@@ -99,12 +99,6 @@ func validateGuestClusterCreateVolumeRequest(ctx context.Context, req *csi.Creat
 				"Volume parameter %s is not a valid GC CSI parameter", param)
 		}
 	}
-
-	// Fail file volume creation if file volume feature gate is disabled
-	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) &&
-		common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
-		return logger.LogNewErrorCode(log, codes.InvalidArgument, "File volume provisioning is not supported.")
-	}
 	return common.ValidateCreateVolumeRequest(ctx, req)
 }
 
