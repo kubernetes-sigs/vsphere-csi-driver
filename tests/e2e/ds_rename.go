@@ -825,6 +825,14 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		close(pvcChan)
 		close(podChan)
 
+		framework.Logf("newPvcList: %v", newPvcList)
+		framework.Logf("newPodList: %v", newPodList)
+
+		for i := range newPodList {
+			framework.Logf("pvcclaimList: %v", pvclaimsList[i].Name)
+			framework.Logf("podName:%v", newPodList[i].Name)
+		}
+
 		defer func() {
 			framework.Logf("Renaming datastore back to original name")
 			e2eVSphere.renameDs(ctx, datastoreName, &dsRef)
@@ -846,6 +854,9 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		ginkgo.By("wait for pvcs to be bound")
 		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, newPvcList, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		framework.Logf("wait for 5 mins")
+		time.Sleep(5 * time.Minute)
 
 		ginkgo.By("verify that volumes are accessible for all the pods")
 		verifyVolMountsInPods(ctx, client, newPodList, pvclaims2d)
