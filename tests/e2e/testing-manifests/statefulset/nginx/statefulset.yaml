@@ -27,7 +27,7 @@ spec:
       name: www
     spec:
       accessModes: [ "ReadWriteOnce" ]
-      storageClassName: nginx-sc
+      storageClassName: shared-ds-policy
       resources:
         requests:
           storage: 1Gi
