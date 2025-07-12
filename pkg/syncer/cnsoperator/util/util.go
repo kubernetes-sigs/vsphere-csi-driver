@@ -18,7 +18,9 @@ package util
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,6 +33,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -87,6 +90,44 @@ func GetVolumeID(ctx context.Context, client client.Client, pvcName string, name
 		return "", err
 	}
 	return pv.Spec.CSI.VolumeHandle, nil
+}
+
+// GetVolumeIDPvcMappingInNamespace scans through all PVs in the namespace and
+// returns PVC to volumeID and volumeI to PVC mapping.
+func GetVolumeIDPvcMappingInNamespace(ctx context.Context,
+	namespace string) (map[string]string, map[string]string, error) {
+	log := logger.GetLogger(ctx)
+
+	volumeIdToPvc := make(map[string]string)
+	pvcToVolumeId := make(map[string]string)
+
+	k8sclient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("failed to get k8sclient with error: %v", err)
+		return volumeIdToPvc, pvcToVolumeId, err
+	}
+
+	pvcList, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("failed to list PersistentVolumes with error %v.", err)
+		return volumeIdToPvc, pvcToVolumeId, err
+	}
+
+	for _, pvc := range pvcList.Items {
+		pv, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvc.Spec.VolumeName, metav1.GetOptions{})
+		if err != nil {
+			log.Errorf("failed to get PersistentVolume for PVC %s. Error %s.", pvc.Name, err)
+			return volumeIdToPvc, pvcToVolumeId, err
+		}
+		volumeIdToPvc[pv.Spec.CSI.VolumeHandle] = pv.Spec.ClaimRef.Name
+		pvcToVolumeId[pv.Spec.ClaimRef.Name] = pv.Spec.CSI.VolumeHandle
+	}
+
+	log.Debugf("volumeIdToPvc map %+v", volumeIdToPvc)
+	log.Debugf("pvcToVolumeId map %+v", pvcToVolumeId)
+
+	return volumeIdToPvc, pvcToVolumeId, nil
+
 }
 
 // GetTKGVMIP finds the external facing IP address of a TKG VM object from a
@@ -208,4 +249,23 @@ func GetNetworkProvider(ctx context.Context) (string, error) {
 
 	return "", fmt.Errorf("could not find network provider field in configmap %q in namespace %q",
 		wcpNetworkConfigMap, kubeSystemNamespace)
+}
+
+// GetVCDatacenterFromConfig returns datacenter registered for each vCenter
+func GetVCDatacentersFromConfig(cfg *config.Config) (map[string][]string, error) {
+	var err error
+	vcdcMap := make(map[string][]string)
+	for key, value := range cfg.VirtualCenter {
+		dcList := strings.Split(value.Datacenters, ",")
+		for _, dc := range dcList {
+			dcMoID := strings.TrimSpace(dc)
+			if dcMoID != "" {
+				vcdcMap[key] = append(vcdcMap[key], dcMoID)
+			}
+		}
+	}
+	if len(vcdcMap) == 0 {
+		err = errors.New("unable get vCenter datacenters from vsphere config")
+	}
+	return vcdcMap, err
 }
