@@ -561,7 +561,6 @@ data:
   "sibling-replica-bound-pvc-check": "true"
   "tkgs-ha": "true"
   "list-volumes": "true"
-  "cnsmgr-suspend-create-volume": "true"
   "storage-quota-m2": "true"
   "vdpp-on-stretched-supervisor": "true"
   "cns-unregister-volume": "false"
