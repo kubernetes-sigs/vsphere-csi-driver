@@ -45,6 +45,9 @@ type BatchAttach struct {
 	UnitNumber    int64
 }
 
+type BatchAttachTaskResult struct {
+}
+
 func validateManager(ctx context.Context, m *defaultManager) error {
 	log := logger.GetLogger(ctx)
 	if m.virtualCenter == nil {

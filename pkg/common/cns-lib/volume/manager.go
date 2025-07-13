@@ -1086,7 +1086,42 @@ func (m *defaultManager) BatchAttachVolume(ctx context.Context,
 		}
 		// Get the taskInfo.
 
-		var taskInfo *vim25types.TaskInfo
+		taskInfo, err := task.WaitForResultEx(ctx)
+		if err != nil {
+			return "", faultType, err
+		}
+		results := taskInfo.Result.(cnstypes.CnsVolumeOperationBatchResult)
+		taskresult := make([]BatchAttachTaskResult, 0)
+		for _, result := range results.VolumeResults {
+			currVolumeOperationResult := result.GetCnsVolumeOperationResult()
+			fault := currVolumeOperationResult.Fault
+			currVolumeId := currVolumeOperationResult.VolumeId.Id
+			if fault != nil {
+				faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, currVolumeOperationResult)
+				_, isResourceInUseFault := currVolumeOperationResult.Fault.Fault.(*vim25types.ResourceInUse)
+				if isResourceInUseFault {
+					log.Infof("observed ResourceInUse fault while attaching volume: %q with vm: %q",
+						currVolumeId, vm.String())
+					// Check if volume is already attached to the requested node.
+					diskUUID, err := IsDiskAttached(ctx, vm, currVolumeId, checkNVMeController)
+					if err != nil {
+						return "", faultType, err
+					}
+					if diskUUID != "" {
+						return diskUUID, "", nil
+					}
+				}
+				return "", faultType, logger.LogNewErrorf(log, "failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
+					currVolumeId, vm.String(), spew.Sdump(currVolumeOperationResult.Fault), taskInfo.ActivationId)
+			}
+			diskUUID := interface{}(currVolumeOperationResult).(*cnstypes.CnsVolumeAttachResult).DiskUUID
+			log.Infof("AttachVolume: Volume attached successfully. volumeID: %q, opId: %q, vm: %q, diskUUID: %q",
+				currVolumeId, taskInfo.ActivationId, vm.String(), diskUUID)
+			log.Errorf("Fault: %+v encountered while relocating volume %v", fault, currVolumeId)
+			// Only update that volume
+
+		}
+		/*var taskInfo *vim25types.TaskInfo
 		taskInfo, err = m.waitOnTask(ctx, task.Reference())
 
 		if err != nil || taskInfo == nil {
@@ -1114,7 +1149,7 @@ func (m *defaultManager) BatchAttachVolume(ctx context.Context,
 			return "", csifault.CSITaskResultEmptyFault,
 				logger.LogNewErrorf(log, "taskResult is empty for AttachVolume task: %q, opId: %q",
 					taskInfo.Task.Value, taskInfo.ActivationId)
-		}
+		}*/
 		return "", "", nil
 	}
 	/*
