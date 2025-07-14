@@ -5122,6 +5122,27 @@ func verifyPodLocationLevel5(pod *v1.Pod, nodeList *v1.NodeList,
 	return true, nil
 }
 
+/* This util will fetch list of nodes from  a particular zone*/
+func fetchAllNodesOfSpecificZone(nodeList *v1.NodeList,
+	allowedTopologiesMap map[string][]string) *v1.NodeList {
+
+	// Create a new NodeList to hold the matching nodes
+	filteredNodes := &v1.NodeList{}
+
+	for _, node := range nodeList.Items {
+		for labelKey, allowedValues := range allowedTopologiesMap {
+			if nodeValue, ok := node.Labels[labelKey]; ok {
+				if isValuePresentInTheList(allowedValues, nodeValue) {
+					filteredNodes.Items = append(filteredNodes.Items, node)
+					break
+				}
+			}
+		}
+	}
+
+	return filteredNodes
+}
+
 // udpate updates a statefulset, and it is only used within rest.go
 func updateSts(c clientset.Interface, ns, name string, update func(ss *appsv1.StatefulSet)) *appsv1.StatefulSet {
 	for i := 0; i < 3; i++ {
