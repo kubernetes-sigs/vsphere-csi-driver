@@ -155,8 +155,9 @@ type Manager interface {
 	// BatchAttachVolume attaches a volume to a virtual machine given the spec.
 	// When AttachVolume failed, the second return value (faultType) and third return value(error) need to be set, and
 	// should not be nil.
-	BatchAttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine,
-		volumeID []BatchAttach, checkNVMeController bool) (string, string, error)
+	BatchAttachVolume(ctx context.Context,
+		vm *cnsvsphere.VirtualMachine, volumeIDs []BatchAttach,
+		checkNVMeController bool) ([]BatchAttachTaskResult, string, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -1043,24 +1044,73 @@ func ensureOperationContextHasATimeout(ctx context.Context) (context.Context, co
 	return context.WithCancel(ctx)
 }
 
+func analyseTaskResult(ctx context.Context, result cnstypes.BaseCnsVolumeOperationResult,
+	vm *cnsvsphere.VirtualMachine, checkNVMeController bool, activationId string) BatchAttachTaskResult {
+	log := logger.GetLogger(ctx)
+
+	currVolumeOperationResult := result.GetCnsVolumeOperationResult()
+	currVolumeId := currVolumeOperationResult.VolumeId.Id
+	currentBatchAttachResult := BatchAttachTaskResult{VolumeId: currVolumeId}
+	fault := currVolumeOperationResult.Fault
+	if fault != nil {
+		faultType := ExtractFaultTypeFromVolumeResponseResult(ctx, currVolumeOperationResult)
+		currentBatchAttachResult.FaultType = faultType
+		_, isResourceInUseFault := currVolumeOperationResult.Fault.Fault.(*vim25types.ResourceInUse)
+		if isResourceInUseFault {
+			log.Infof("observed ResourceInUse fault while attaching volume: %q with vm: %q",
+				currVolumeId, vm.String())
+			// Check if volume is already attached to the requested node.
+			diskUUID, err := IsDiskAttached(ctx, vm, currVolumeId, checkNVMeController)
+			if err != nil {
+				currentBatchAttachResult.Error = err
+				return currentBatchAttachResult
+			}
+			if diskUUID != "" {
+				currentBatchAttachResult.DiskUUID = diskUUID
+				return currentBatchAttachResult
+			}
+			msg := fmt.Sprintf("failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
+				currVolumeId, vm.String(), spew.Sdump(currVolumeOperationResult.Fault), activationId)
+			currentBatchAttachResult.Error = errors.New(msg)
+			return currentBatchAttachResult
+		}
+		msg := fmt.Sprintf("failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
+			currVolumeId, vm.String(), spew.Sdump(currVolumeOperationResult.Fault), activationId)
+		currentBatchAttachResult.Error = errors.New(msg)
+		return currentBatchAttachResult
+	}
+
+	diskUUID := interface{}(currVolumeOperationResult).(*cnstypes.CnsVolumeAttachResult).DiskUUID
+	log.Infof("AttachVolume: Volume attached successfully. volumeID: %q, opId: %q, vm: %q, diskUUID: %q",
+		currVolumeId, activationId, vm.String(), diskUUID)
+	log.Errorf("Fault: %+v encountered while relocating volume %v", fault, currVolumeId)
+	currentBatchAttachResult.DiskUUID = diskUUID
+	currentBatchAttachResult.Error = nil
+
+	return currentBatchAttachResult
+}
+
 func (m *defaultManager) BatchAttachVolume(ctx context.Context,
-	vm *cnsvsphere.VirtualMachine, volumeIDs []BatchAttach, checkNVMeController bool) (string, string, error) {
+	vm *cnsvsphere.VirtualMachine, volumeIDs []BatchAttach,
+	checkNVMeController bool) ([]BatchAttachTaskResult, string, error) {
 	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
 	defer cancelFunc()
-	internalAttachVolume := func() (string, string, error) {
+	internalBatchAttachVolume := func() ([]BatchAttachTaskResult, string, error) {
 		log := logger.GetLogger(ctx)
 		var faultType string
+		batchAttachResult := make([]BatchAttachTaskResult, 0)
+
 		err := validateManager(ctx, m)
 		if err != nil {
 			faultType = ExtractFaultTypeFromErr(ctx, err)
-			return "", faultType, err
+			return batchAttachResult, faultType, err
 		}
 		// Set up the VC connection.
 		err = m.virtualCenter.ConnectCns(ctx)
 		if err != nil {
 			log.Errorf("ConnectCns failed with err: %+v", err)
 			faultType = ExtractFaultTypeFromErr(ctx, err)
-			return "", faultType, err
+			return batchAttachResult, faultType, err
 		}
 		// Construct the CNS AttachSpec list.
 		var cnsAttachSpecList []cnstypes.CnsVolumeAttachDetachSpec
@@ -1082,112 +1132,50 @@ func (m *defaultManager) BatchAttachVolume(ctx context.Context,
 		if err != nil {
 			log.Errorf("CNS AttachVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			faultType = ExtractFaultTypeFromErr(ctx, err)
-			return "", faultType, err
+			return batchAttachResult, faultType, err
 		}
 		// Get the taskInfo.
 
 		taskInfo, err := task.WaitForResultEx(ctx)
 		if err != nil {
-			return "", faultType, err
+			return batchAttachResult, faultType, err
 		}
 		results := taskInfo.Result.(cnstypes.CnsVolumeOperationBatchResult)
-		taskresult := make([]BatchAttachTaskResult, 0)
+
+		volumesThatFailedToAttach := make([]string, 0)
 		for _, result := range results.VolumeResults {
-			currVolumeOperationResult := result.GetCnsVolumeOperationResult()
-			fault := currVolumeOperationResult.Fault
-			currVolumeId := currVolumeOperationResult.VolumeId.Id
-			if fault != nil {
-				faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, currVolumeOperationResult)
-				_, isResourceInUseFault := currVolumeOperationResult.Fault.Fault.(*vim25types.ResourceInUse)
-				if isResourceInUseFault {
-					log.Infof("observed ResourceInUse fault while attaching volume: %q with vm: %q",
-						currVolumeId, vm.String())
-					// Check if volume is already attached to the requested node.
-					diskUUID, err := IsDiskAttached(ctx, vm, currVolumeId, checkNVMeController)
-					if err != nil {
-						return "", faultType, err
-					}
-					if diskUUID != "" {
-						return diskUUID, "", nil
-					}
-				}
-				return "", faultType, logger.LogNewErrorf(log, "failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
-					currVolumeId, vm.String(), spew.Sdump(currVolumeOperationResult.Fault), taskInfo.ActivationId)
+			currentBatchAttachResult := analyseTaskResult(ctx, result, vm, checkNVMeController, taskInfo.ActivationId)
+			if currentBatchAttachResult.Error != nil {
+				volumesThatFailedToAttach = append(volumesThatFailedToAttach, currentBatchAttachResult.VolumeId)
 			}
-			diskUUID := interface{}(currVolumeOperationResult).(*cnstypes.CnsVolumeAttachResult).DiskUUID
-			log.Infof("AttachVolume: Volume attached successfully. volumeID: %q, opId: %q, vm: %q, diskUUID: %q",
-				currVolumeId, taskInfo.ActivationId, vm.String(), diskUUID)
-			log.Errorf("Fault: %+v encountered while relocating volume %v", fault, currVolumeId)
-			// Only update that volume
-
-		}
-		/*var taskInfo *vim25types.TaskInfo
-		taskInfo, err = m.waitOnTask(ctx, task.Reference())
-
-		if err != nil || taskInfo == nil {
-			log.Errorf("failed to get taskInfo for AttachVolume task from vCenter %q with err: %v",
-				m.virtualCenter.Config.Host, err)
-			if err != nil {
-				faultType = ExtractFaultTypeFromErr(ctx, err)
-			} else {
-				faultType = csifault.CSITaskInfoEmptyFault
-			}
-			return "", faultType, err
-		}
-		volumeID := "temp"
-		log.Infof("AttachVolume: volumeID: %q, vm: %q, opId: %q", volumeID, vm.String(), taskInfo.ActivationId)
-		// Get the taskResult
-		taskResult, err := cns.GetTaskResult(ctx, taskInfo)
-		if err != nil {
-			faultType = ExtractFaultTypeFromErr(ctx, err)
-			log.Errorf("unable to find AttachVolume result from vCenter %q with taskID %s and attachResults %v",
-				m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResult)
-			return "", faultType, err
+			batchAttachResult = append(batchAttachResult, currentBatchAttachResult)
 		}
 
-		if taskResult == nil {
-			return "", csifault.CSITaskResultEmptyFault,
-				logger.LogNewErrorf(log, "taskResult is empty for AttachVolume task: %q, opId: %q",
-					taskInfo.Task.Value, taskInfo.ActivationId)
-		}*/
-		return "", "", nil
+		var overallError error
+		var errMsg string
+		if len(volumesThatFailedToAttach) != 0 {
+			errMsg = strings.Join(volumesThatFailedToAttach, ",")
+			overallError = errors.New(errMsg)
+			return batchAttachResult, csifault.CSIBatchAttachFault, overallError
+		}
+		return batchAttachResult, "", nil
 	}
-	/*
-		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
-		if volumeOperationRes.Fault != nil {
-			faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
-			_, isResourceInUseFault := volumeOperationRes.Fault.Fault.(*vim25types.ResourceInUse)
-			if isResourceInUseFault {
-				log.Infof("observed ResourceInUse fault while attaching volume: %q with vm: %q", volumeID, vm.String())
-				// Check if volume is already attached to the requested node.
-				diskUUID, err := IsDiskAttached(ctx, vm, volumeID, checkNVMeController)
-				if err != nil {
-					return "", faultType, err
-				}
-				if diskUUID != "" {
-					return diskUUID, "", nil
-				}
-			}
-			return "", faultType, logger.LogNewErrorf(log, "failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
-				volumeID, vm.String(), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
-		}
-		diskUUID := interface{}(taskResult).(*cnstypes.CnsVolumeAttachResult).DiskUUID
-		log.Infof("AttachVolume: Volume attached successfully. volumeID: %q, opId: %q, vm: %q, diskUUID: %q",
-			volumeID, taskInfo.ActivationId, vm.String(), diskUUID)
-		return diskUUID, "", nil
-	}*/
-	start := time.Now()
-	resp, faultType, err := internalAttachVolume()
+
 	log := logger.GetLogger(ctx)
-	log.Debugf("internalAttachVolume: returns fault %q for volume %q", faultType, "temp")
+	start := time.Now()
+	batchAttachResult, faultType, err := internalBatchAttachVolume()
 	if err != nil {
-		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsAttachVolumeOpType,
+		log.Errorf("CNS BatchAttachVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+
+	}
+	if err != nil {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsBatchAttachVolumeOpType,
 			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
 	} else {
-		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsAttachVolumeOpType,
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsBatchAttachVolumeOpType,
 			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
-	return resp, faultType, err
+	return batchAttachResult, faultType, err
 }
 
 // AttachVolume attaches a volume to a virtual machine given the spec.

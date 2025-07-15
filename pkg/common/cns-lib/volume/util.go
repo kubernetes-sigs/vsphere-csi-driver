@@ -46,6 +46,10 @@ type BatchAttach struct {
 }
 
 type BatchAttachTaskResult struct {
+	Error    error
+	DiskUUID string
+	VolumeId string
+	FaultType string
 }
 
 func validateManager(ctx context.Context, m *defaultManager) error {
