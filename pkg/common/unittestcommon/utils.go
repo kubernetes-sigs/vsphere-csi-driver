@@ -74,7 +74,6 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"cnsmgr-suspend-create-volume":      "true",
 				"topology-preferential-datastores":  "true",
 				"max-pvscsi-targets-per-vm":         "true",
-				"multi-vcenter-csi-topology":        "true",
 				"listview-tasks":                    "true",
 				"storage-quota-m2":                  "false",
 				"workload-domain-isolation":         "true",

@@ -84,7 +84,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return nil
 	}
 
-	if coCommonInterface.IsFSSEnabled(ctx, common.MultiVCenterCSITopology) && len(configInfo.Cfg.VirtualCenter) > 1 {
+	if len(configInfo.Cfg.VirtualCenter) > 1 {
 		log.Infof("Not initializing the TriggerCsiFullSync Controller as it is a multi VC deployment.")
 		return nil
 	}
