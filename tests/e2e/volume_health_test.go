@@ -57,6 +57,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		isVsanHealthServiceStopped bool
 		isSPSServiceStopped        bool
 		csiNamespace               string
+		vsphereTKGSystemNamespace  string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -70,6 +71,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
+		vsphereTKGSystemNamespace = GetAndExpectStringEnvVar(envVsphereTKGSystemNamespace)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
@@ -1289,14 +1291,14 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas
 
-		bringDownTKGController(svClient)
-		bringDownCsiController(gcClient)
+		bringDownTKGController(svClient, vsphereTKGSystemNamespace)
+		bringDownCsiController(gcClient, vsphereTKGSystemNamespace)
 		isControllerUP = false
 
 		defer func() {
 			if !isControllerUP {
-				bringUpTKGController(svClient, tkgReplicaCount)
-				bringUpCsiController(gcClient, csiReplicaCount)
+				bringUpTKGController(svClient, tkgReplicaCount, vsphereTKGSystemNamespace)
+				bringUpCsiController(gcClient, csiReplicaCount, vsphereTKGSystemNamespace)
 			}
 		}()
 
@@ -1313,8 +1315,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(svPVC.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		ginkgo.By("Bring up csi-controller pod in GC")
-		bringUpTKGController(svClient, tkgReplicaCount)
-		bringUpCsiController(gcClient, csiReplicaCount)
+		bringUpTKGController(svClient, tkgReplicaCount, vsphereTKGSystemNamespace)
+		bringUpCsiController(gcClient, csiReplicaCount, vsphereTKGSystemNamespace)
 		isControllerUP = true
 
 		ginkgo.By("Verify health status of GC PVC after GC csi is up")
@@ -2123,7 +2125,6 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			gcClient, err = createKubernetesClientFromConfig(k8senv)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-
 		tkgReplicaDeployment, err := svcClient.AppsV1().Deployments(vsphereTKGSystemNamespace).Get(ctx,
 			vsphereControllerManager, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2140,8 +2141,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			err := waitForHostToBeUp(hostIP)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if !isControllerUP {
-				bringUpTKGController(svcClient, tkgReplicaCount)
-				bringUpCsiController(gcClient, csiReplicaCount)
+				bringUpTKGController(svcClient, tkgReplicaCount, vsphereTKGSystemNamespace)
+				bringUpCsiController(gcClient, csiReplicaCount, vsphereTKGSystemNamespace)
 			}
 			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2160,8 +2161,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(pvclaim.Annotations[volumeHealthAnnotation]).Should(gomega.BeEquivalentTo(healthStatusAccessible))
 
 		ginkgo.By("Bring down csi-controller pod in GC")
-		bringDownTKGController(svcClient)
-		bringDownCsiController(gcClient)
+		bringDownTKGController(svcClient, vsphereTKGSystemNamespace)
+		bringDownCsiController(gcClient, vsphereTKGSystemNamespace)
 		isControllerUP = false
 
 		// Get SV PVC before PSOD.
@@ -2181,8 +2182,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Bring up csi-controller pod in GC")
-		bringUpTKGController(svcClient, tkgReplicaCount)
-		bringUpCsiController(gcClient, csiReplicaCount)
+		bringUpTKGController(svcClient, tkgReplicaCount, vsphereTKGSystemNamespace)
+		bringUpCsiController(gcClient, csiReplicaCount, vsphereTKGSystemNamespace)
 		isControllerUP = true
 
 		ginkgo.By("Verify health status of GC PVC after GC csi is up")

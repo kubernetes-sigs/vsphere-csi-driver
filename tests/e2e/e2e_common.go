@@ -229,7 +229,7 @@ const (
 	vsphereCloudProviderConfiguration         = "vsphere-cloud-provider.conf"
 	vsphereControllerManager                  = "vmware-system-tkg-controller-manager"
 	vSphereCSIConf                            = "csi-vsphere.conf"
-	vsphereTKGSystemNamespace                 = "svc-tkg-domain-c10"
+	envVsphereTKGSystemNamespace              = "VSPHERE_TKG_SYSTEM_NAMESPACE"
 	waitTimeForCNSNodeVMAttachmentReconciler  = 30 * time.Second
 	wcpServiceName                            = "wcp"
 	vmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant
@@ -349,6 +349,7 @@ const (
 	stretchedSvc          = "stretchedSvc"
 	devops                = "devops"
 	vc901                 = "vc901"
+	multiGc               = "multiGc"
 )
 
 // The following variables are required to know cluster type to run common e2e
