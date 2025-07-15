@@ -117,7 +117,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		// Replace second element with pod.Name.
 		if windowsEnv {
-			cmd = []string{"exec", "", "--namespace=" + namespace, "powershell.exe", "cat", "/mnt/volume1/fstype.txt"}
+			cmd = []string{"exec", "", "--namespace=" + namespace, "--", "powershell.exe", "cat", "/mnt/volume1/fstype.txt"}
 		} else {
 			cmd = []string{"exec", "", "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
 		}
