@@ -254,7 +254,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					volumeID := pv.Spec.CSI.VolumeHandle
 					if guestCluster {
 						volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -287,7 +287,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 				gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
-						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						volumeID := pv.Spec.CSI.VolumeHandle
 						if guestCluster {
 							volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -309,7 +309,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					volumeID := pv.Spec.CSI.VolumeHandle
 					if guestCluster {
 						volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -343,7 +343,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					volumeID := pv.Spec.CSI.VolumeHandle
 					if guestCluster {
 						volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)

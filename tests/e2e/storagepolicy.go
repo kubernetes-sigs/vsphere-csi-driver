@@ -59,8 +59,9 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 	f := framework.NewDefaultFramework("e2e-spbm-policy")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client    clientset.Interface
-		namespace string
+		client      clientset.Interface
+		namespace   string
+		adminClient clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -68,7 +69,24 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 		bootstrap()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		var nodeList *v1.NodeList
+		var err error
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+
+		if !supervisorCluster {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
+		} else {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, adminClient)
+		}
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -103,10 +121,8 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 			scParameters[scParamStoragePolicyName] = storagePolicyNameForSharedDatastores
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
-			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyNameForSharedDatastores)
-			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storagePolicyNameForSharedDatastores)
+			//createResourceQuota(client, namespace, rqLimit, storagePolicyNameForSharedDatastores)
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyNameForSharedDatastores
@@ -131,25 +147,11 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 			scParameters[scParamStoragePolicyName] = storagePolicyNameForNonSharedDatastores
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
-			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyNameForNonSharedDatastores)
-			scParameters[scParamStoragePolicyID] = profileID
-
-			storageclass, err := client.StorageV1().StorageClasses().Get(ctx,
+			_, err := client.StorageV1().StorageClasses().Get(ctx,
 				storagePolicyNameForNonSharedDatastores, metav1.GetOptions{})
 			if !apierrors.IsNotFound(err) {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			} else {
-				storageclass, err = createStorageClass(client, scParameters, nil,
-					"", "", true, storagePolicyNameForNonSharedDatastores)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
-
-			// create resource quota
-			restClientConfig := getRestConfigClient()
-			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyNameForNonSharedDatastores, namespace, rqLimit)
-
-			pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", storageclass, nil, accessMode)
-			_, _ = fpv.CreatePVC(ctx, client, namespace, pvcspec)
 
 		} else {
 			scParameters[svStorageClassName] = storagePolicyNameForNonSharedDatastores
@@ -291,7 +293,7 @@ func verifyStoragePolicyBasedVolumeProvisioning(f *framework.Framework, client c
 		pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+	pv := getPvFromClaim(client, nil, pvclaim.Namespace, pvclaim.Name)
 	volumeID := pv.Spec.CSI.VolumeHandle
 	ginkgo.By("Verifying if volume is provisioned using specified storage policy")
 	if guestCluster {
@@ -376,11 +378,13 @@ func invokeInvalidPolicyTestNeg(client clientset.Interface, namespace string, sc
 		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 			namespace, nil, scParameters, "", nil, "", false, "", storagePolicyName)
 	}
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to create a StorageClass. Error: %v", err))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("failed to create/get a StorageClass. Error: %v", err))
 
 	defer func() {
-		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if !supervisorCluster {
+			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 	}()
 	defer func() {

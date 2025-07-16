@@ -254,7 +254,7 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		}()
 
 		ginkgo.By("Bring down 1 ESXi host each in VC2 and VC3 multivc setup")

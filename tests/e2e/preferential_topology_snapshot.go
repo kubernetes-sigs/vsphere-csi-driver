@@ -1001,7 +1001,7 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		pvclaim3, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 			pvc3.ClaimName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv3 := getPvFromClaim(client, statefulset.Namespace, pvc3.ClaimName)
+		pv3 := getPvFromClaim(client, nil, statefulset.Namespace, pvc3.ClaimName)
 		volHandle3 := pv3.Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle3).NotTo(gomega.BeEmpty())
 		// Verify the attached volume match the one in CNS cache

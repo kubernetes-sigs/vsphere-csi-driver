@@ -66,6 +66,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		isSPSserviceStopped        bool
 		isQuotaValidationSupported bool
 		defaultDatastore           *object.Datastore
+		adminClient                clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -73,6 +74,17 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		defer cancel()
 		client = f.ClientSet
 		var err error
+
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		topologyFeature := os.Getenv(topologyFeature)
 		if topologyFeature != topologyTkgHaName {
 			nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
@@ -239,7 +251,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
 		staticPvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		staticPv := getPvFromClaim(client, namespace, pvcName)
+		staticPv := getPvFromClaim(client, adminClient, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, staticPvc, staticPv, fcdID)
 
 		ginkgo.By("Create a storageclass")
@@ -1021,7 +1033,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		pods := createMultiplePods(ctx, client, [][]*v1.PersistentVolumeClaim{{pvc}}, true)
 		defer func() {
 			ginkgo.By("delete pod1")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 		}()
 
 		ginkgo.By("edit vm spec and try to attach pvc2 to vm1, which should fail")
@@ -1037,7 +1049,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("delete pod1")
-		deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 
 		ginkgo.By("retry to attach pvc2 to vm1 and verify it is accessible from vm1")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
@@ -1455,7 +1467,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, adminClient, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		diskSizeInMbStr := convertInt64ToStrMbFormat(diskSizeInMb)

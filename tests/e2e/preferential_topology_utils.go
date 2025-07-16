@@ -303,7 +303,7 @@ func verifyVolumeProvisioningForStatefulSet(ctx context.Context,
 		for _, volumespec := range sspod.Spec.Volumes {
 			var isPreferred bool
 			if volumespec.PersistentVolumeClaim != nil {
-				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 				if !multivc {
 					isPreferred = e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, dsUrls)
 					if isPreferred {
@@ -353,7 +353,7 @@ func verifyVolumeProvisioningForStandalonePods(client clientset.Interface, pod *
 	}
 	for _, volumespec := range pod.Spec.Volumes {
 		if volumespec.PersistentVolumeClaim != nil {
-			pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+			pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 			if !multivc {
 				isPreferred := e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle, dsUrls)
 				if isPreferred {

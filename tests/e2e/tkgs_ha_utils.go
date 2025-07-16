@@ -196,7 +196,7 @@ func verifyVolumeProvisioningWithServiceDown(serviceName string, namespace strin
 		pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, claim := range pvcs.Items {
-			pv := getPvFromClaim(client, namespace, claim.Name)
+			pv := getPvFromClaim(client, nil, namespace, claim.Name)
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -467,7 +467,7 @@ func verifyVolumeMetadataOnStatefulsets(client clientset.Interface, ctx context.
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				pvcName := volumespec.PersistentVolumeClaim.ClaimName
-				pv := getPvFromClaim(client, statefulset.Namespace, pvcName)
+				pv := getPvFromClaim(client, nil, statefulset.Namespace, pvcName)
 				pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 					pvcName, metav1.GetOptions{})
 				gomega.Expect(pvclaim).NotTo(gomega.BeNil())
@@ -516,7 +516,7 @@ func verifyVolumeMetadataOnStatefulsets(client clientset.Interface, ctx context.
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				pvcName := volumespec.PersistentVolumeClaim.ClaimName
-				pv := getPvFromClaim(client, statefulset.Namespace, pvcName)
+				pv := getPvFromClaim(client, nil, statefulset.Namespace, pvcName)
 				pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 					pvcName, metav1.GetOptions{})
 				gomega.Expect(pvclaim).NotTo(gomega.BeNil())
@@ -569,7 +569,7 @@ func verifyVolumeMetadataOnDeployments(ctx context.Context,
 		for _, volumespec := range depPod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				pvcName := volumespec.PersistentVolumeClaim.ClaimName
-				pv := getPvFromClaim(client, namespace, pvcName)
+				pv := getPvFromClaim(client, nil, namespace, pvcName)
 				pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 					pvcName, metav1.GetOptions{})
 				gomega.Expect(pvclaim).NotTo(gomega.BeNil())
@@ -912,7 +912,7 @@ func verifyStsVolumeMetadata(client clientset.Interface, ctx context.Context, na
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				pvcName := volumespec.PersistentVolumeClaim.ClaimName
-				pv := getPvFromClaim(client, statefulset.Namespace, pvcName)
+				pv := getPvFromClaim(client, nil, statefulset.Namespace, pvcName)
 				pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 					pvcName, metav1.GetOptions{})
 				gomega.Expect(pvclaim).NotTo(gomega.BeNil())

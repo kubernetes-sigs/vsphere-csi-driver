@@ -822,7 +822,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				gomega.Expect(pvc).NotTo(gomega.BeEmpty())
 
 				// Get PV details
-				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 
 				// create Pod for each PVC
 				ginkgo.By("Creating Pod")
@@ -843,7 +843,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				// cleanup code for deleting PVC
 				ginkgo.By("Deleting PVC's and PV's")
 				for i := 0; i < len(pvclaimsList); i++ {
-					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+					pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, framework.PodDeleteTimeout))
@@ -861,7 +861,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				// Verify volume is detached from the node
 				ginkgo.By("Verify volume is detached from the node")
 				for i := 0; i < len(pvclaimsList); i++ {
-					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+					pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
 						pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1029,7 +1029,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				"where CSi-Resizer is running ")
 			for i := 0; i < len(pvclaimsList); i++ {
 				// Get PV details
-				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 
 				currentPvcSize := pvclaimsList[i].Spec.Resources.Requests[v1.ResourceStorage]
 				newSize := currentPvcSize.DeepCopy()
@@ -1079,7 +1079,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			for i := 0; i < len(pvclaimsList); i++ {
 				var pvclaims []*v1.PersistentVolumeClaim
 				// Get PV details
-				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 
 				// create Pod for each PVC
 				ginkgo.By("Creating Pod")
@@ -1100,7 +1100,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				// cleanup code for deleting PVC
 				ginkgo.By("Deleting PVC's and PV's")
 				for i := 0; i < len(pvclaimsList); i++ {
-					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+					pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, framework.PodDeleteTimeout))
@@ -1118,7 +1118,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				// Verify volume is detached from the node
 				ginkgo.By("Verify volume is detached from the node")
 				for i := 0; i < len(pvclaimsList); i++ {
-					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+					pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
 						pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1263,7 +1263,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				// cleanup code for deleting PVC
 				ginkgo.By("Deleting PVC")
 				for i := 0; i < len(pvclaimsList); i++ {
-					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+					pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll,
@@ -1603,7 +1603,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				gomega.Expect(pvc).NotTo(gomega.BeEmpty())
 
 				// Get PV details
-				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 
 				// create Pod for each PVC
 				ginkgo.By("Creating Pod")
@@ -1629,7 +1629,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				// cleanup code for deleting PVC
 				ginkgo.By("Deleting PVC's and PV's")
 				for i := 0; i < len(pvclaimsList); i++ {
-					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+					pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, framework.PodDeleteTimeout))
@@ -1647,7 +1647,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				// Verify volume is detached from the node
 				ginkgo.By("Verify volume is detached from the node")
 				for i := 0; i < len(pvclaimsList); i++ {
-					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+					pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
 						pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1859,7 +1859,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				gomega.Expect(pvc).NotTo(gomega.BeEmpty())
 
 				// Get PV details
-				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 
 				// create Pod for each PVC
 				ginkgo.By("Creating Pod")
@@ -1880,7 +1880,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				// cleanup code for deleting PVC
 				ginkgo.By("Deleting PVC's and PV's")
 				for i := 0; i < len(pvclaimsList); i++ {
-					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+					pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, framework.PodDeleteTimeout))
@@ -1898,7 +1898,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				// Verify volume is detached from the node
 				ginkgo.By("Verify volume is detached from the node")
 				for i := 0; i < len(pvclaimsList); i++ {
-					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+					pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
 						pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2059,7 +2059,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			ginkgo.By("Waiting for all claims to be in bound state")
 			_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			dynamicPv := getPvFromClaim(client, dynamicPvc.Namespace, dynamicPvc.Name)
+			dynamicPv := getPvFromClaim(client, nil, dynamicPvc.Namespace, dynamicPvc.Name)
 			pvclaimsList = append(pvclaimsList, dynamicPvc)
 
 			ginkgo.By("Creating Pod from dynamic PVC")
@@ -2092,7 +2092,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 			// Verify volume is detached from the node
 			ginkgo.By("Verify volume is detached from the node")
 			for i := 0; i < len(pvclaimsList); i++ {
-				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 				isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client,
 					pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2262,7 +2262,7 @@ var _ = ginkgo.Describe("[topology-multireplica] Topology-MultiReplica",
 				// cleanup code for deleting PVC
 				ginkgo.By("Deleting PVC's and PV's")
 				for i := 0; i < len(pvclaimsList); i++ {
-					pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+					pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 					err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, framework.PodDeleteTimeout))

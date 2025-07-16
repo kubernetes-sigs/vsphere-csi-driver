@@ -206,7 +206,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(clientNewGc, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(clientNewGc, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 					pvclaim, err := clientNewGc.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 						volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
@@ -289,7 +289,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(clientNewGc, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(clientNewGc, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 					pvcNameInSV := persistentvolume.Spec.CSI.VolumeHandle
 					gomega.Expect(pvcNameInSV).NotTo(gomega.BeEmpty())
@@ -340,7 +340,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(clientNewGc, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(clientNewGc, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 					pvcNameInSV := persistentvolume.Spec.CSI.VolumeHandle
 					gomega.Expect(pvcNameInSV).NotTo(gomega.BeEmpty())

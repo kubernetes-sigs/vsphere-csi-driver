@@ -308,7 +308,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		podCount = 0
 		for podCount < volumeOpsScale {
 			pvclaim = pvclaims[podCount]
-			pv := getPvFromClaim(client, namespace, pvclaim.Name)
+			pv := getPvFromClaim(client, nil, namespace, pvclaim.Name)
 
 			volumeID := pv.Spec.CSI.VolumeHandle
 			if vanillaCluster {

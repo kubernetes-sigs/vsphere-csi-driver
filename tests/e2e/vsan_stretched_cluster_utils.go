@@ -668,7 +668,7 @@ func checkVmStorageCompliance(storagePolicy string) bool {
 
 // createStsDeployment creates statfulset and deployment in a namespace and returns
 // statefulset, deployment and volumes of statfulset created
-func createStsDeployment(ctx context.Context, client clientset.Interface, namespace string,
+func createStsDeployment(ctx context.Context, client clientset.Interface, adminClient clientset.Interface, namespace string,
 	sc *storagev1.StorageClass, isDeploymentRequired bool, modifyStsSpec bool,
 	stsReplica int32, stsName string, depReplicaCount int32,
 	accessMode v1.PersistentVolumeAccessMode) (*appsv1.StatefulSet, *appsv1.Deployment, []string) {
@@ -709,7 +709,7 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
-				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 				volumesBeforeScaleDown = append(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)
 				// Verify the attached volume match the one in CNS cache
 				if !multivc {
@@ -892,8 +892,9 @@ func volumeLifecycleActions(ctx context.Context, client clientset.Interface, nam
 // scaleDownStsAndVerifyPodMetadata scales down replica of a statefulset if required
 // and verifies count of sts replica and  if its vSphere volumes match those in CNS cache
 func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interface,
-	namespace string, statefulset *appsv1.StatefulSet, ssPodsBeforeScaleDown *v1.PodList,
-	replicas int32, isScaleDownRequired bool, verifyCnsVolumes bool) {
+	adminClient clientset.Interface, namespace string, statefulset *appsv1.StatefulSet,
+	ssPodsBeforeScaleDown *v1.PodList, replicas int32, isScaleDownRequired bool,
+	verifyCnsVolumes bool) {
 	if isScaleDownRequired {
 		framework.Logf("Scaling down statefulset: %v to number of Replica: %v",
 			statefulset.Name, replicas)
@@ -919,7 +920,7 @@ func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Inte
 				gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
-						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						if vanillaCluster {
 							isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(
 								client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
@@ -963,7 +964,7 @@ func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Inte
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					if guestCluster {
 						volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 						gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
@@ -992,7 +993,7 @@ func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Inte
 // scaleUpStsAndVerifyPodMetadata scales up replica of a statefulset if required
 // and verifies count of sts replica and if its vSphere volumes are attached to node VMs
 func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interface,
-	namespace string, statefulset *appsv1.StatefulSet,
+	adminClient clientset.Interface, namespace string, statefulset *appsv1.StatefulSet,
 	replicas int32, isScaleUpRequired bool, verifyCnsVolumes bool) {
 	if isScaleUpRequired {
 		framework.Logf("Scaling up statefulset: %v to number of Replica: %v",
@@ -1022,7 +1023,7 @@ func scaleUpStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interf
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					framework.Logf("Verify volume: %s is attached to the node: %s",
 						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
 					var vmUUID, volHandle string

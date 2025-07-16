@@ -601,7 +601,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+		pv := getPvFromClaim(client, nil, pvclaim.Namespace, pvclaim.Name)
 		volumeID := pv.Spec.CSI.VolumeHandle
 		// svcPVCName refers to PVC Name in the supervisor cluster.
 		svcPVCName := volumeID
@@ -710,7 +710,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pv := getPvFromClaim(svcClient, pvclaim.Namespace, pvclaim.Name)
+		pv := getPvFromClaim(svcClient, nil, pvclaim.Namespace, pvclaim.Name)
 		volumeID := pv.Spec.CSI.VolumeHandle
 
 		// Creating label for PV.
@@ -796,7 +796,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, nil, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
@@ -888,7 +888,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, nil, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
@@ -1011,7 +1011,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
 		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, nil, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
@@ -1178,7 +1178,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC")
 		pvc1, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv1 := getPvFromClaim(client, namespace, pvcName)
+		pv1 := getPvFromClaim(client, nil, namespace, pvcName)
 
 		ginkgo.By("Create CnsregisteVolume with already used FCD")
 		pvcName2 := pvcName + "duplicatefcd"
@@ -1208,7 +1208,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify newly created PV, PVC")
 		pvc2, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName2, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv2 := getPvFromClaim(client, namespace, pvcName2)
+		pv2 := getPvFromClaim(client, nil, namespace, pvcName2)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc2, pv2, fcdID2)
 
 		defer func() {
@@ -1282,7 +1282,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC")
 		pvc1, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv1 := getPvFromClaim(client, namespace, pvcName)
+		pv1 := getPvFromClaim(client, nil, namespace, pvcName)
 
 		ginkgo.By("Create CnsregisteVolume with already created PVC")
 		cnsRegisterVolume = getCNSRegisterVolumeSpec(ctx, namespace, fcdID2, "", pvcName, v1.ReadWriteOnce)
@@ -1310,7 +1310,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC")
 		pvc2, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, updatedpvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv2 := getPvFromClaim(client, namespace, updatedpvcName)
+		pv2 := getPvFromClaim(client, nil, namespace, updatedpvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc2, pv2, fcdID2)
 
 		defer func() {
@@ -1399,7 +1399,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, nil, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		defer func() {
@@ -1479,7 +1479,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, nil, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		defer func() {
@@ -1815,7 +1815,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 		svcPVC, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, svpvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+		svcPV := getPvFromClaim(svcClient, nil, svNamespace, svpvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
 		// TODO: add volume health check after PVC creation.
 
@@ -1941,7 +1941,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,
 			pvc1.Namespace, pvc1.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv1 := getPvFromClaim(client, namespaceToDelete, pvc1.Name)
+		pv1 := getPvFromClaim(client, nil, namespaceToDelete, pvc1.Name)
 
 		ginkgo.By("Create CNS register volume with above created FCD")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespaceToDelete, fcdID, "", pvcName, v1.ReadWriteOnce)
@@ -1958,7 +1958,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvc2, err := client.CoreV1().PersistentVolumeClaims(namespaceToDelete).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Statically created PVC :%s", pvc2.Name)
-		pv2 := getPvFromClaim(client, namespaceToDelete, pvcName)
+		pv2 := getPvFromClaim(client, nil, namespaceToDelete, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc2, pv2, fcdID)
 
 		ginkgo.By("Creating pod")
@@ -2041,7 +2041,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 			pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			pv := getPvFromClaim(client, namespace, pvcName)
+			pv := getPvFromClaim(client, nil, namespace, pvcName)
 			pvName := pvc.Spec.VolumeName
 			// pvName will be like static-pv-<volumeID> This volumeID Should be same as in PV volumeHandle
 			volumeID := strings.ReplaceAll(pvName, "static-pv-", "")
@@ -2226,7 +2226,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
 			pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			pv = getPvFromClaim(client, namespace, pvcName)
+			pv = getPvFromClaim(client, nil, namespace, pvcName)
 			verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 		}
 
@@ -2407,7 +2407,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
 			pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			pv = getPvFromClaim(client, namespace, pvcName)
+			pv = getPvFromClaim(client, nil, namespace, pvcName)
 			verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 		}
 

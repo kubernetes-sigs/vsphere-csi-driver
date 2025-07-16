@@ -197,7 +197,7 @@ var _ = ginkgo.Describe("PreUpgrade datasetup Test", ginkgo.Label(p0, vanilla, b
 			podCount = 0
 			for podCount < 3 {
 				pvclaim = pvclaims[podCount]
-				pv := getPvFromClaim(client, namespace.Name, pvclaim.Name)
+				pv := getPvFromClaim(client, nil, namespace.Name, pvclaim.Name)
 
 				volumeID := pv.Spec.CSI.VolumeHandle
 				if vanillaCluster {

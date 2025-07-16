@@ -137,7 +137,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 			[]*v1.PersistentVolumeClaim{pvclaim}, 2*framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
-		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+		pv := getPvFromClaim(client, nil, pvclaim.Namespace, pvclaim.Name)
 		volumeID := pv.Spec.CSI.VolumeHandle
 
 		ginkgo.By("Creating pod to attach PV to the node")
@@ -214,7 +214,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 			[]*v1.PersistentVolumeClaim{pvclaim2}, 2*framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc2).NotTo(gomega.BeEmpty())
-		pv2 := getPvFromClaim(client, pvclaim2.Namespace, pvclaim2.Name)
+		pv2 := getPvFromClaim(client, nil, pvclaim2.Namespace, pvclaim2.Name)
 		volumeID2 := pv2.Spec.CSI.VolumeHandle
 
 		ginkgo.By("Creating pod to attach PV2 to the node")
@@ -343,7 +343,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 			[]*v1.PersistentVolumeClaim{pvclaim}, 2*framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
-		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+		pv := getPvFromClaim(client, nil, pvclaim.Namespace, pvclaim.Name)
 		volumeID := pv.Spec.CSI.VolumeHandle
 
 		defer func() {
