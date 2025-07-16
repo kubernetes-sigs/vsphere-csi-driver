@@ -399,7 +399,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		}
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil, nil, "",
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil, nil, "",
 			allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -639,7 +639,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
@@ -940,7 +940,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		}
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil, nil, "",
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil, nil, "",
 			allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -1042,7 +1042,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 		}
 
 		ginkgo.By("Try to create a PVC verify that it is stuck in pending state")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil, nil, "",
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil, nil, "",
 			allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {

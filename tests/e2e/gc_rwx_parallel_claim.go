@@ -40,10 +40,22 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 		storagePolicyName string
 		svcClient         clientset.Interface
 		svcNamespace      string
+		adminClient       clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
+		var err error
+		if supervisorCluster || guestCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		storagePolicyName =
 			GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		bootstrap()
@@ -119,12 +131,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 		}()
 
 		framework.Logf("Waiting for claims %s to be in bound state", pvclaims[0].Name)
-		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaims[0]},
+		_, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, []*v1.PersistentVolumeClaim{pvclaims[0]},
 			healthStatusWaitTime)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		framework.Logf("Waiting for claims %s to be in bound state", pvclaims[1].Name)
-		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaims[1]},
+		_, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, []*v1.PersistentVolumeClaim{pvclaims[1]},
 			healthStatusWaitTime)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 	})

@@ -156,7 +156,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With S
 		// Create Storage class and PVC
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q, storage policy %q and fstype %q",
 			accessMode, storagePolicyNameForNonSharedDatastores, nfs4FSType))
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, "", nil, "", false, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -198,7 +198,7 @@ func testHelperForCreateFileVolumeWithNoDatastoreURLInSCWithStoragePolicy(f *fra
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
 
-	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {

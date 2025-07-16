@@ -44,6 +44,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", ginkgo.Label(p
 		scParameters      map[string]string
 		storagePolicyName string
 		volHealthCheck    bool
+		adminClient       clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -51,6 +52,17 @@ var _ = ginkgo.Describe("File Volume Test with security context", ginkgo.Label(p
 		// TODO: Read value from command line
 		volHealthCheck = false
 		namespace = getNamespaceToRunTests(f)
+		var err error
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
@@ -115,7 +127,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", ginkgo.Label(p
 		scParameters[svStorageClassName] = storagePolicyName
 
 		ginkgo.By("Creating a Storage class and PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -125,7 +137,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", ginkgo.Label(p
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -315,7 +327,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", ginkgo.Label(p
 		scParameters[svStorageClassName] = storagePolicyName
 
 		ginkgo.By("Creating a Storage class and PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -325,7 +337,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", ginkgo.Label(p
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -495,7 +507,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", ginkgo.Label(p
 		scParameters[svStorageClassName] = storagePolicyName
 
 		ginkgo.By("Creating a Storage class and PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 			namespace, nil, scParameters, "1Ti", nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -563,7 +575,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", ginkgo.Label(p
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 

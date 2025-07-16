@@ -59,6 +59,7 @@ var _ bool = ginkgo.Describe("[podvm-domain-isolation-vsan-max] PodVM-WLDI-Vsan-
 		uncordon                bool
 		filteredNodes           *v1.NodeList
 		dh                      drain.Helper
+		adminClient             clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -69,12 +70,27 @@ var _ bool = ginkgo.Describe("[podvm-domain-isolation-vsan-max] PodVM-WLDI-Vsan-
 		client = f.ClientSet
 		bootstrap()
 
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+
 		// reading vc session id
 		if vcRestSessionId == "" {
 			vcRestSessionId = createVcSession4RestApis(ctx)
 		}
 
-		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		if vanillaCluster {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
+		} else {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, adminClient)
+		}
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -100,7 +116,7 @@ var _ bool = ginkgo.Describe("[podvm-domain-isolation-vsan-max] PodVM-WLDI-Vsan-
 
 		dh = drain.Helper{
 			Ctx:                 ctx,
-			Client:              client,
+			Client:              adminClient,
 			Force:               true,
 			IgnoreAllDaemonSets: true,
 			Out:                 ginkgo.GinkgoWriter,
@@ -187,7 +203,7 @@ var _ bool = ginkgo.Describe("[podvm-domain-isolation-vsan-max] PodVM-WLDI-Vsan-
 		}
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
@@ -204,7 +220,7 @@ var _ bool = ginkgo.Describe("[podvm-domain-isolation-vsan-max] PodVM-WLDI-Vsan-
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node, %s", vmUUID))
 
 		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
-		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, nil, pod, nil, namespace,
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, adminClient, nil, pod, nil, namespace,
 			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

@@ -59,6 +59,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		serviceName            string
 		pandoraSyncWaitTime    int
 		storagePolicyName      string
+		adminClient            clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -66,6 +67,17 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		client = f.ClientSet
+		var err error
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		namespace = getNamespaceToRunTests(f)
 		scParameters = make(map[string]string)
 		isServiceStopped = false
@@ -191,7 +203,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 
 		ginkgo.By("Create storage class and PVC")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -257,7 +269,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		"hostd goes down", ginkgo.Label(p1, block, vanilla, tkg, snapshot, disruptive, negative, vc90), func() {
 
 		serviceName = hostdServiceName
-		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
+		snapshotOperationWhileServiceDown(serviceName, namespace, adminClient, client, snapc, datastoreURL,
 			csiNamespace, fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 
@@ -265,7 +277,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		"restarts", ginkgo.Label(p1, block, vanilla, tkg, snapshot, disruptive, negative, vc90), func() {
 
 		serviceName = "CSI"
-		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
+		snapshotOperationWhileServiceDown(serviceName, namespace, adminClient, client, snapc, datastoreURL,
 			csiNamespace, fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 
@@ -273,7 +285,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		"goes down", ginkgo.Label(p1, block, vanilla, tkg, snapshot, disruptive, vc90), func() {
 
 		serviceName = vpxdServiceName
-		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
+		snapshotOperationWhileServiceDown(serviceName, namespace, adminClient, client, snapc, datastoreURL,
 			csiNamespace, fullSyncWaitTime, isServiceStopped, false, csiReplicas, pandoraSyncWaitTime)
 	})
 
@@ -281,7 +293,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		"down", ginkgo.Label(p1, block, vanilla, tkg, snapshot, disruptive, negative, vc90), func() {
 
 		serviceName = vsanhealthServiceName
-		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
+		snapshotOperationWhileServiceDown(serviceName, namespace, adminClient, client, snapc, datastoreURL,
 			csiNamespace, fullSyncWaitTime, isServiceStopped, false, csiReplicas, pandoraSyncWaitTime)
 	})
 
@@ -289,7 +301,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		"goes down", ginkgo.Label(p1, block, vanilla, tkg, snapshot, disruptive, negative, vc90), func() {
 
 		serviceName = spsServiceName
-		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
+		snapshotOperationWhileServiceDown(serviceName, namespace, adminClient, client, snapc, datastoreURL,
 			csiNamespace, fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 
@@ -297,13 +309,13 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		tkg, snapshot, disruptive, newTest, negative, vc90), func() {
 
 		serviceName = "WCP CSI"
-		snapshotOperationWhileServiceDown(serviceName, namespace, client, snapc, datastoreURL,
+		snapshotOperationWhileServiceDown(serviceName, namespace, adminClient, client, snapc, datastoreURL,
 			csiNamespace, fullSyncWaitTime, isServiceStopped, true, svcCsiReplicas, pandoraSyncWaitTime)
 	})
 })
 
 // snapshotOperationWhileServiceDown creates the volumesnapshot while the services is down
-func snapshotOperationWhileServiceDown(serviceName string, namespace string,
+func snapshotOperationWhileServiceDown(serviceName string, namespace string, adminClient clientset.Interface,
 	client clientset.Interface, snapc *snapclient.Clientset, datastoreURL string, csiNamespace string,
 	fullSyncWaitTime int, isServiceStopped bool, isSnapshotCreated bool, csiReplicas int32, pandoraSyncWaitTime int) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -321,7 +333,7 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 	if vanillaCluster {
 		ginkgo.By("Create storage class")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, "")
+		storageclass, err = createStorageClass(client, nil, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -337,7 +349,7 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		scParameters[svStorageClassName] = storagePolicyName
 		ginkgo.By("Create storage class")
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, "")
+		storageclass, err = createStorageClass(client, adminClient, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -346,7 +358,7 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 	}
 
 	ginkgo.By("Create PVC")
-	pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
+	pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, nil, namespace, nil, "",
 		diskSize, storageclass, true)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle

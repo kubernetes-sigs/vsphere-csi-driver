@@ -208,7 +208,7 @@ var _ = ginkgo.Describe("[multivc-multireplica] MultiVc-MultiReplica", func() {
 		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")

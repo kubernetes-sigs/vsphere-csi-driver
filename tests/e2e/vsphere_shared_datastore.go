@@ -61,15 +61,32 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		sharedDatastoreURL    string
 		nonSharedDatastoreURL string
 		storagePolicyName     string
+		adminClient           clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
+		var err error
+		var nodeList *v1.NodeList
+		if supervisorCluster || guestCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		scParameters = make(map[string]string)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		if vanillaCluster {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		} else {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, adminClient)
+		}
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -95,7 +112,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		sharedDatastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		scParameters[scParamDatastoreURL] = sharedDatastoreURL
 		storageclass, pvclaim, err := createPVCAndStorageClass(ctx,
-			client, namespace, nil, scParameters, "", nil, "", false, "")
+			client, nil, namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -120,7 +137,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		nonSharedDatastoreURL = GetAndExpectStringEnvVar(envNonSharedStorageClassDatastoreURL)
 		scParameters[scParamDatastoreURL] = nonSharedDatastoreURL
 		storageclass, pvclaim, err := createPVCAndStorageClass(ctx,
-			client, namespace, nil, scParameters, "", nil, "", false, "")
+			client, nil, namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -170,24 +187,26 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		ginkgo.By("Creating Storage Class and PVC")
 		if guestCluster {
 			scParameters[svStorageClassName] = storagePolicyName
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 				namespace, nil, scParameters, diskSize, nil, "", false, "")
 		} else if supervisorCluster {
 			namespace = getNamespaceToRunTests(f)
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 				namespace, nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		} else if vanillaCluster {
 			scParameters[scParamFsType] = ext4FSType
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 				namespace, nil, scParameters, "", nil, "", false, "")
 		}
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if vanillaCluster {
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
@@ -202,7 +221,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvclaim)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pv := persistentvolumes[0]
 		volHandle := pv.Spec.CSI.VolumeHandle
@@ -256,12 +275,16 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 
 		// Delete SC with Immediate Binding Mode
 		ginkgo.By("Delete SC created with Immediate Binding Mode")
-		err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+		if vanillaCluster {
+			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+		} else {
+			err = adminClient.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Create SC with same name but with WaitForFirstConusmer Binding Mode
 		ginkgo.By("Recreate SC with same name but with WaitForFirstConusmer Binding Mode")
-		storageclass, err = createStorageClass(client, scParameters, nil, "",
+		storageclass, err = createStorageClass(client, adminClient, scParameters, nil, "",
 			storagev1.VolumeBindingWaitForFirstConsumer, false, storageclass.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("storageclass name :%s", storageclass.GetName())
@@ -270,9 +293,9 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 				/* Cannot Update SC binding mode from WaitForFirstConsumer to Immediate
 				because it is an immutable field */
 				// If Supervisor Cluster, delete SC and recreate again with Immediate Binding Mode
-				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+				err := adminClient.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				_, err = createStorageClass(client, scParameters, nil, "",
+				_, err = createStorageClass(client, adminClient, scParameters, nil, "",
 					storagev1.VolumeBindingImmediate, false, storageclass.Name)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}

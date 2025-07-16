@@ -71,6 +71,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		pandoraSyncWaitTime        int
 		dsRef                      types.ManagedObjectReference
 		labelsMap                  map[string]string
+		adminClient                clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -80,13 +81,24 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		// client connection
 		client = f.ClientSet
 		bootstrap()
+		var err error
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 
 		// fetch the testbed type for executing testcases
 		topologyFeature := os.Getenv(topologyFeature)
 
 		// fetching nodes and reading storage policy name
 		if topologyFeature != topologyTkgHaName && topologyFeature != podVMOnStretchedSupervisor {
-			nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+			nodeList, err := fnodes.GetReadySchedulableNodes(ctx, adminClient)
 			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 			if !(len(nodeList.Items) > 0) {
 				framework.Failf("Unable to find ready and schedulable Node")
@@ -213,7 +225,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
-		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
@@ -356,7 +368,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, adminClient, namespace, pvcName)
 		volHandle := pv.Spec.CSI.VolumeHandle
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
@@ -473,7 +485,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
-		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
@@ -560,7 +572,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Create a volume from a snapshot")
-		pvc2, pv2, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass, volumeSnapshot, diskSize, false)
+		pvc2, pv2, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass, volumeSnapshot, diskSize, false)
 		volHandle2 := pv2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 		defer func() {
@@ -650,7 +662,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
-		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
@@ -759,12 +771,12 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Create a volume from a snapshot")
-		pvc2, pv2, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass, volumeSnapshot1, diskSize, false)
+		pvc2, pv2, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass, volumeSnapshot1, diskSize, false)
 		volHandle2 := pv2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
 		ginkgo.By("Create a volume from a snapshot")
-		pvc3, pv3, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass, volumeSnapshot2, diskSize, false)
+		pvc3, pv3, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass, volumeSnapshot2, diskSize, false)
 		volHandle3 := pv3[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle3).NotTo(gomega.BeEmpty())
 
@@ -858,7 +870,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
-		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
@@ -945,7 +957,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Create a volume from a snapshot")
-		pvc2, pv2, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass, volumeSnapshot1, diskSize, false)
+		pvc2, pv2, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass, volumeSnapshot1, diskSize, false)
 		volHandle2 := pv2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 		defer func() {
@@ -970,7 +982,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvc2, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvc2, client, adminClient, totalResizeWaitPeriod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle2))
@@ -1101,7 +1113,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC1")
-		pvc1, pvs1, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvc1, pvs1, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle1 := pvs1[0].Spec.CSI.VolumeHandle
@@ -1114,7 +1126,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Create PVC2")
-		pvc2, pvs2, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvc2, pvs2, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle2 := pvs2[0].Spec.CSI.VolumeHandle
@@ -1276,7 +1288,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Create restorevol1 from snapshot1")
-		restorepvc1, restorepv1, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		restorepvc1, restorepv1, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumeSnapshot1, diskSize, false)
 		restorevolHandle1 := restorepv1[0].Spec.CSI.VolumeHandle
 		gomega.Expect(restorevolHandle1).NotTo(gomega.BeEmpty())
@@ -1289,7 +1301,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Create restorevol2 from snapshot2")
-		restorepvc2, restorepv2, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		restorepvc2, restorepv2, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumeSnapshot2, diskSize, false)
 		restorevolHandle2 := restorepv2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(restorevolHandle2).NotTo(gomega.BeEmpty())
@@ -1410,7 +1422,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
-		pvclaim, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
@@ -1533,7 +1545,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("delete pod")
-		deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pod}, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, []*v1.Pod{pod}, true)
 
 		ginkgo.By("retry to attach pvc2 to vm1 and verify it is accessible from vm1")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
@@ -1549,7 +1561,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}
 
 		ginkgo.By("Create volume using the snapshot")
-		pvclaim2, pvs2, pod2 := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		pvclaim2, pvs2, pod2 := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumeSnapshot, diskSize, true)
 		volHandle2 := pvs2[0].Spec.CSI.VolumeHandle
 		defer func() {
@@ -1612,7 +1624,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
-		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
@@ -1732,7 +1744,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create a volume from a snapshot")
-		pvc2, pv2, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass, volumeSnapshot, diskSize, false)
+		pvc2, pv2, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass, volumeSnapshot, diskSize, false)
 		volHandle2 := pv2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 		defer func() {
@@ -1835,7 +1847,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
-		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
@@ -1902,7 +1914,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Create volume-1 from snapshot-1")
-		pvc1, pv1, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		pvc1, pv1, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumesnapshots[0], diskSize, false)
 		volHandle1 := pv1[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle1).NotTo(gomega.BeEmpty())
@@ -1914,7 +1926,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Create volume-2 from snapshot-2")
-		pvc2, pv2, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		pvc2, pv2, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumesnapshots[1], diskSize, false)
 		volHandle2 := pv2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle1).NotTo(gomega.BeEmpty())
@@ -1926,7 +1938,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Create volume-3 from snapshot-3")
-		pvc3, pv3, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		pvc3, pv3, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumesnapshots[2], diskSize, false)
 		volHandle3 := pv3[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle3).NotTo(gomega.BeEmpty())
@@ -2080,7 +2092,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC-1")
-		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
@@ -2194,7 +2206,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Create volume from snapshot")
-		restorepvc, restorepv, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		restorepvc, restorepv, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumeSnapshot1, diskSize, false)
 		restoreVolHandle := restorepv[0].Spec.CSI.VolumeHandle
 		gomega.Expect(restoreVolHandle).NotTo(gomega.BeEmpty())
@@ -2326,7 +2338,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC1")
-		pvc1, pvs1, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvc1, pvs1, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle1 := pvs1[0].Spec.CSI.VolumeHandle
@@ -2339,7 +2351,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Create PVC2")
-		pvc2, pvs2, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvc2, pvs2, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle2 := pvs2[0].Spec.CSI.VolumeHandle
@@ -2478,7 +2490,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Create restorevol1 from snapshot1")
-		restorepvc1, restorepv1, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		restorepvc1, restorepv1, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumeSnapshot1, diskSize, false)
 		restorevolHandle1 := restorepv1[0].Spec.CSI.VolumeHandle
 		gomega.Expect(restorevolHandle1).NotTo(gomega.BeEmpty())
@@ -2490,7 +2502,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Create restorevol2 from snapshot2")
-		restorepvc2, restorepv2, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		restorepvc2, restorepv2, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumeSnapshot2, diskSize, false)
 		restorevolHandle2 := restorepv2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(restorevolHandle2).NotTo(gomega.BeEmpty())
@@ -2610,7 +2622,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
-		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvc, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
@@ -2753,7 +2765,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Restore volume from latest snapshot")
-		restorepvc, restorepv, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		restorepvc, restorepv, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumeSnapshot3, diskSize, false)
 		restorevolHandle := restorepv[0].Spec.CSI.VolumeHandle
 		gomega.Expect(restorevolHandle).NotTo(gomega.BeEmpty())
@@ -2878,7 +2890,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait for SV PVC to come to bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*v1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		topologykey := pvs[0].Spec.NodeAffinity.Required.NodeSelectorTerms[0].MatchExpressions[0].Values[0]
@@ -2972,7 +2984,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Restore volume from snapshot")
-		restorepvc, restorepv, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		restorepvc, restorepv, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumeSnapshot, diskSize, false)
 		restorevolHandle := restorepv[0].Spec.CSI.VolumeHandle
 		gomega.Expect(restorevolHandle).NotTo(gomega.BeEmpty())
@@ -3101,7 +3113,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait for SV PVC to come to bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*v1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		topologykey := pvs[0].Spec.NodeAffinity.Required.NodeSelectorTerms[0].MatchExpressions[0].Values[0]
@@ -3195,7 +3207,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Restore volume from snapshot-1")
-		restorepvc1, restorepv1, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		restorepvc1, restorepv1, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumeSnapshot1, diskSize, false)
 		restorevolHandle1 := restorepv1[0].Spec.CSI.VolumeHandle
 		gomega.Expect(restorevolHandle1).NotTo(gomega.BeEmpty())
@@ -3274,7 +3286,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		}()
 
 		ginkgo.By("Restore volume from snapshot-2")
-		restorepvc2, restorepv2, _ := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		restorepvc2, restorepv2, _ := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumeSnapshot2, diskSize, false)
 		restorevolHandle2 := restorepv2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(restorevolHandle2).NotTo(gomega.BeEmpty())

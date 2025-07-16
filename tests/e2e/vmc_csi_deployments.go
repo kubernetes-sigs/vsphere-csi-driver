@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("[vmc-gc] Deploy, Update and Scale Deployments", func() 
 		scParameters[svStorageClassName] = storagePolicyName
 
 		ginkgo.By("Creating StorageClass for Deployment")
-		sc, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, diskSize, nil, "", false, "")
+		sc, pvclaim, err = createPVCAndStorageClass(ctx, client, nil, namespace, nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {

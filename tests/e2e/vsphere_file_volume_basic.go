@@ -178,7 +178,7 @@ func testHelperForCreateFileVolumeWithNoDatastoreURLInSC(f *framework.Framework,
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
 
-	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
@@ -251,7 +251,7 @@ func testHelperForCreateFileVolumeWithDatastoreURLInSC(f *framework.Framework, c
 	if datastoreURL != "" {
 		scParameters[scParamDatastoreURL] = datastoreURL
 	}
-	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
@@ -337,7 +337,7 @@ func testHelperForCreateFileVolumeWithoutValidVSANDatastoreURLInSC(f *framework.
 	if datastoreURL != "" {
 		scParameters[scParamDatastoreURL] = datastoreURL
 	}
-	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
@@ -376,7 +376,7 @@ func testHelperForCreateFileVolumeFailWhenFileServiceIsDisabled(f *framework.Fra
 	if datastoreURL != "" {
 		scParameters[scParamDatastoreURL] = datastoreURL
 	}
-	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {

@@ -266,7 +266,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 
 		defer func() {
 			for i := 0; i < len(pvclaims); i++ {
-				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
@@ -362,7 +362,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			for i := 0; i < len(pvclaimsNew); i++ {
-				pv := getPvFromClaim(client, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsNew[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
@@ -492,7 +492,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			for i := 0; i < len(pvclaims); i++ {
-				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
@@ -508,7 +508,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			depl = append(depl, deploymentList...)
 
-			pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+			pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 
 			ginkgo.By("Verify volume metadata for deployment pod, pvc and pv")
 			err = waitAndVerifyCnsVolumeMetadata(ctx, pv.Spec.CSI.VolumeHandle, pvclaims[i], pv, &pods.Items[0])
@@ -545,7 +545,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 
 		defer func() {
 			for i := 0; i < len(pvclaimsNew); i++ {
-				pv := getPvFromClaim(client, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsNew[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
@@ -619,7 +619,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			for i := 0; i < len(pvclaimsNewSet); i++ {
-				pv := getPvFromClaim(client, pvclaimsNewSet[i].Namespace, pvclaimsNewSet[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsNewSet[i].Namespace, pvclaimsNewSet[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsNewSet[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
@@ -715,7 +715,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			for i := 0; i < len(pvclaims); i++ {
-				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
@@ -782,7 +782,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-disruptive] RWX-Topology-NoHciMesh-
 		}()
 		defer func() {
 			for i := 0; i < len(pvclaimsNew); i++ {
-				pv := getPvFromClaim(client, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsNew[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)

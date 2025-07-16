@@ -234,7 +234,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 
 		defer func() {
 			for i := 0; i < len(pvclaims); i++ {
-				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
@@ -306,7 +306,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 
 		defer func() {
 			for i := 0; i < len(pvclaimsNew); i++ {
-				pv := getPvFromClaim(client, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsNew[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
@@ -459,7 +459,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 
 		defer func() {
 			for i := 0; i < len(pvclaims); i++ {
-				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
@@ -531,7 +531,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 
 		defer func() {
 			for i := 0; i < len(pvclaimsNew); i++ {
-				pv := getPvFromClaim(client, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsNew[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
@@ -721,7 +721,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 
 		defer func() {
 			for i := 0; i < len(pvclaims); i++ {
-				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
@@ -843,7 +843,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 
 		defer func() {
 			for i := 0; i < len(pvclaimsNew); i++ {
-				pv := getPvFromClaim(client, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsNew[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
@@ -872,7 +872,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 
 		ginkgo.By("Updating labels for PVC and PV")
 		for i := 0; i < len(pvclaims); i++ {
-			pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+			pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 			framework.Logf("Updating labels %+v for pvc %s in namespace %s", labels, pvclaims[i].Name,
 				pvclaims[i].Namespace)
 			pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaims[i].Name, metav1.GetOptions{})
@@ -956,7 +956,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+			pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 
 			ginkgo.By("Verify volume metadata for deployment pod, pvc and pv")
 			err = waitAndVerifyCnsVolumeMetadata(ctx, pv.Spec.CSI.VolumeHandle, pvclaims[i], pv, &pods.Items[i])
@@ -970,7 +970,7 @@ var _ = ginkgo.Describe("[rwx-multivc-operationstorm] RWX-MultiVc-OperationStorm
 				true, labelsMap, pvclaims[i], nil, execRWXCommandPod, nginxImage, true, depl[i], 0)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+			pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 
 			ginkgo.By("Verify volume metadata for deployment pod, pvc and pv")
 			err = waitAndVerifyCnsVolumeMetadata(ctx, pv.Spec.CSI.VolumeHandle, pvclaims[i], pv, &pods.Items[i])

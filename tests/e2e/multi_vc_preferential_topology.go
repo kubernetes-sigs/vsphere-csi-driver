@@ -272,7 +272,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
@@ -443,7 +443,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", sc, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 			deleteService(namespace, client, service)
 		}()
 
@@ -546,7 +546,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		ginkgo.By("Create StorageClass and PVC")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil,
 			nil, diskSize, allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -693,7 +693,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		ginkgo.By("Create StorageClass and PVC")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil,
 			nil, diskSize, allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {

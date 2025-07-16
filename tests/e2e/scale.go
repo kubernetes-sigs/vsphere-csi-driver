@@ -125,14 +125,13 @@ var _ = ginkgo.Describe("Scale Test", func() {
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimitScaleTest, storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Create Storage class and PVC
 		ginkgo.By("Creating Storage Class with allowVolumeExpansion = true")
 
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, storagePolicyName)
+		storageclass, err = createStorageClass(client, nil, scParameters, nil, "", "", true, storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))

@@ -584,12 +584,16 @@ func getVSphereStorageClassSpec(scName string, scParameters map[string]string,
 }
 
 // getPvFromClaim returns PersistentVolume for requested claim.
-func getPvFromClaim(client clientset.Interface, namespace string, claimName string) *v1.PersistentVolume {
+func getPvFromClaim(client clientset.Interface, adminClient clientset.Interface, namespace string, claimName string) *v1.PersistentVolume {
+
+	if !supervisorCluster || adminClient == nil {
+		adminClient = client
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, claimName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	pv, err := client.CoreV1().PersistentVolumes().Get(ctx, pvclaim.Spec.VolumeName, metav1.GetOptions{})
+	pv, err := adminClient.CoreV1().PersistentVolumes().Get(ctx, pvclaim.Spec.VolumeName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return pv
 }
@@ -798,7 +802,7 @@ func getPersistentVolumeClaimSpecWithoutStorageClass(namespace string, ds string
 
 // createPVCAndStorageClass helps creates a storage class with specified name,
 // storageclass parameters and PVC using storage class.
-func createPVCAndStorageClass(ctx context.Context, client clientset.Interface, pvcnamespace string,
+func createPVCAndStorageClass(ctx context.Context, client clientset.Interface, adminClient clientset.Interface, pvcnamespace string,
 	pvclaimlabels map[string]string, scParameters map[string]string, ds string,
 	allowedTopologies []v1.TopologySelectorLabelRequirement, bindingMode storagev1.VolumeBindingMode,
 	allowVolumeExpansion bool, accessMode v1.PersistentVolumeAccessMode,
@@ -807,7 +811,7 @@ func createPVCAndStorageClass(ctx context.Context, client clientset.Interface, p
 	if len(names) > 0 {
 		scName = names[0]
 	}
-	storageclass, err := createStorageClass(client, scParameters,
+	storageclass, err := createStorageClass(client, adminClient, scParameters,
 		allowedTopologies, "", bindingMode, allowVolumeExpansion, scName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -819,7 +823,7 @@ func createPVCAndStorageClass(ctx context.Context, client clientset.Interface, p
 
 // createStorageClass helps creates a storage class with specified name,
 // storageclass parameters.
-func createStorageClass(client clientset.Interface, scParameters map[string]string,
+func createStorageClass(client clientset.Interface, adminClient clientset.Interface, scParameters map[string]string,
 	allowedTopologies []v1.TopologySelectorLabelRequirement,
 	scReclaimPolicy v1.PersistentVolumeReclaimPolicy, bindingMode storagev1.VolumeBindingMode,
 	allowVolumeExpansion bool, scName string) (*storagev1.StorageClass, error) {
@@ -829,6 +833,9 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 	var err error
 	isStorageClassPresent := false
 	p := map[string]string{}
+	if vanillaCluster || adminClient == nil {
+		adminClient = client
+	}
 
 	if scParameters == nil && os.Getenv(envHciMountRemoteDs) == "true" {
 		p[scParamStoragePolicyName] = os.Getenv(envStoragePolicyNameForHCIRemoteDatastores)
@@ -839,7 +846,7 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 		scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
 
 	if supervisorCluster {
-		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+		storageclass, err = adminClient.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -850,7 +857,7 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 	}
 
 	if !isStorageClassPresent {
-		storageclass, err = client.StorageV1().StorageClasses().Create(ctx, getVSphereStorageClassSpec(scName,
+		storageclass, err = adminClient.StorageV1().StorageClasses().Create(ctx, getVSphereStorageClassSpec(scName,
 			scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion), metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
 	}
@@ -2536,7 +2543,7 @@ func getVolumeIDFromSupervisorCluster(pvcName string) string {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-	svcPV := getPvFromClaim(svcClient, svNamespace, pvcName)
+	svcPV := getPvFromClaim(svcClient, nil, svNamespace, pvcName)
 	volumeHandle := svcPV.Spec.CSI.VolumeHandle
 	ginkgo.By(fmt.Sprintf("Found volume in Supervisor cluster with VolumeID: %s", volumeHandle))
 
@@ -2552,7 +2559,7 @@ func getPvFromSupervisorCluster(pvcName string) *v1.PersistentVolume {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-	svcPV := getPvFromClaim(svcClient, svNamespace, pvcName)
+	svcPV := getPvFromClaim(svcClient, nil, svNamespace, pvcName)
 	return svcPV
 }
 
@@ -4840,7 +4847,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsets(ctx context.Context,
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
-				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 				// verify pv node affinity details
 				pvRegion, pvZone, err = verifyVolumeTopology(pv, zoneValues, regionValues)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -5038,7 +5045,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				// get pv details
-				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 
 				// verify pv node affinity details as specified on SC
 				ginkgo.By("Verifying PV node affinity details")
@@ -5233,7 +5240,7 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 			if apierrors.IsNotFound(err) {
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
-						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						if !multivc {
 							isDiskDetached, detachErr := e2eVSphere.waitForVolumeDetachedFromNode(
 								client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
@@ -5271,14 +5278,14 @@ func scaleDownStatefulSetPod(ctx context.Context, client clientset.Interface,
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				if !multivc {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					if err != nil {
 						return err
 					}
 				} else {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					err := verifyVolumeMetadataInCNSForMultiVC(&multiVCe2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					if err != nil {
@@ -5349,7 +5356,7 @@ func scaleUpStatefulSetPod(ctx context.Context, client clientset.Interface,
 		}
 		for _, volumespec := range pod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
-				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 				ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 					pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
 				var vmUUID string
@@ -5546,7 +5553,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForDeploymentSetsLevel5(ctx context.Co
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				// get pv details
-				pv := getPvFromClaim(client, deployment.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				pv := getPvFromClaim(client, nil, deployment.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 
 				// verify pv node affinity details as specified on SC
 				ginkgo.By("Verifying PV node affinity details")
@@ -5623,7 +5630,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx context.Con
 	for _, volumespec := range pod.Spec.Volumes {
 		if volumespec.PersistentVolumeClaim != nil {
 			// get pv details
-			pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+			pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 			if pv == nil {
 				return fmt.Errorf("failed to get PV for claim: %s", volumespec.PersistentVolumeClaim.ClaimName)
 			}
@@ -6033,13 +6040,19 @@ func ExecInStsPodsInNs(c clientset.Interface, ss *appsv1.StatefulSet, cmd string
 This method is used to delete the CSI Controller Pod
 */
 func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
-	client clientset.Interface, csi_controller_pod string) error {
+	client clientset.Interface, adminClient clientset.Interface, csi_controller_pod string) error {
 	ignoreLabels := make(map[string]string)
 	csiPods, err := fpod.GetPodsInNamespace(ctx, client, csiSystemNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	num_csi_pods := len(csiPods)
+	var testClient clientset.Interface
 	// Collecting and dumping csi pod logs before deleting them
-	collectPodLogs(ctx, client, csiSystemNamespace)
+	if vanillaCluster {
+		testClient = client
+	} else {
+		testClient = adminClient
+	}
+	collectPodLogs(ctx, testClient, csiSystemNamespace)
 	for _, csiPod := range csiPods {
 		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) && csiPod.Name == csi_controller_pod {
 			framework.Logf("Deleting the pod: %s", csiPod.Name)
@@ -6322,7 +6335,7 @@ func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service strin
 }
 
 // assignPolicyToWcpNamespace assigns a set of storage policies to a wcp namespace
-func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
+func assignPolicyToWcpNamespace(client clientset.Interface, svAdminClient clientset.Interface, ctx context.Context,
 	namespace string, policyNames []string, resourceQuotaLimit string) {
 	var err error
 	sessionId := createVcSession4RestApis(ctx)
@@ -6360,11 +6373,11 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			"couldn't execute command: %v due to err %v", curlCmd, err)
 	}
-	gomega.Expect(result.Stdout).To(gomega.Equal("204"))
+	gomega.Expect(result.Stdout).To(gomega.Equal(status_code_success))
 
 	// wait for sc to get created in SVC
 	for _, policyName := range policyNames {
-		err = waitForScToGetCreated(client, ctx, policyName)
+		err = waitForScToGetCreated(svAdminClient, ctx, policyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
@@ -6659,7 +6672,7 @@ func cleaupStatefulset(client clientset.Interface, ctx context.Context, namespac
 	pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	for _, claim := range pvcs.Items {
-		pv := getPvFromClaim(client, namespace, claim.Name)
+		pv := getPvFromClaim(client, nil, namespace, claim.Name)
 		err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -7861,7 +7874,7 @@ func createStaticVolumeOnSvc(ctx context.Context, client clientset.Interface, na
 			fmt.Errorf("failed to get PVC '%s' from namespace '%s': %v", pvcName, namespace, err)
 	}
 
-	pv := getPvFromClaim(client, namespace, pvcName)
+	pv := getPvFromClaim(client, nil, namespace, pvcName)
 	if pv == nil {
 		return fcdID, defaultDatastore, pvc, nil,
 			fmt.Errorf("failed to retrieve PV for PVC '%s' in namespace '%s'", pvcName, namespace)
@@ -7988,8 +8001,11 @@ func convertGiStrToMibInt64(size resource.Quantity) int64 {
 // Returns restConfig,  storageclass and profileId
 // This is used in staticProvisioning for presetup.
 func staticProvisioningPreSetUpUtil(ctx context.Context, f *framework.Framework,
-	c clientset.Interface, storagePolicyName string) (*rest.Config, *storagev1.StorageClass, string) {
+	c clientset.Interface, adminClient clientset.Interface, storagePolicyName string) (*rest.Config, *storagev1.StorageClass, string) {
 	namespace := getNamespaceToRunTests(f)
+	if vanillaCluster {
+		adminClient = c
+	}
 	// Get a config to talk to the apiserver
 	k8senv := GetAndExpectStringEnvVar("KUBECONFIG")
 	restConfig, err := clientcmd.BuildConfigFromFlags("", k8senv)
@@ -8007,10 +8023,10 @@ func staticProvisioningPreSetUpUtil(ctx context.Context, f *framework.Framework,
 		}
 	}
 
-	storageclass, err := createStorageClass(c, scParameters, nil, "", "", true, storagePolicyName)
+	storageclass, err := createStorageClass(c, adminClient, scParameters, nil, "", "", true, storagePolicyName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By(fmt.Sprintf("storageclass Name: %s", storageclass.GetName()))
-	storageclass, err = c.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+	storageclass, err = adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("create resource quota")
@@ -8163,4 +8179,28 @@ func genrateRandomString(length int) (string, error) {
 	}
 	generatedString = fmt.Sprintf("%x", b)[2 : length+2]
 	return generatedString, err
+}
+
+// WaitForPVClaimBoundPhase waits until all pvcs phase set to bound
+func WaitForPVClaimBoundPhase(ctx context.Context, client clientset.Interface, adminClient clientset.Interface,
+	pvclaims []*v1.PersistentVolumeClaim, timeout time.Duration) ([]*v1.PersistentVolume, error) {
+	persistentvolumes := make([]*v1.PersistentVolume, len(pvclaims))
+
+	for index, claim := range pvclaims {
+		err := fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client, claim.Namespace, claim.Name, framework.Poll, timeout)
+		if err != nil {
+			return persistentvolumes, err
+		}
+		// Get new copy of the claim
+		claim, err = client.CoreV1().PersistentVolumeClaims(claim.Namespace).Get(ctx, claim.Name, metav1.GetOptions{})
+		if err != nil {
+			return persistentvolumes, fmt.Errorf("PVC Get API error: %w", err)
+		}
+		// Get the bounded PV
+		persistentvolumes[index], err = adminClient.CoreV1().PersistentVolumes().Get(ctx, claim.Spec.VolumeName, metav1.GetOptions{})
+		if err != nil {
+			return persistentvolumes, fmt.Errorf("PV Get API error: %w", err)
+		}
+	}
+	return persistentvolumes, nil
 }

@@ -96,7 +96,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -106,7 +106,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
 
 		ginkgo.By("Verify if volume is provisioned in specified zone and region")
-		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+		pv := getPvFromClaim(client, nil, pvclaim.Namespace, pvclaim.Name)
 		if allowedTopologies == nil {
 			zoneValues = allZones
 			regionValues = allRegions
@@ -140,7 +140,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 		allowedTopologies []v1.TopologySelectorLabelRequirement, expectedErrMsg string) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, "", allowedTopologies, "", false, "")
 		defer func() {
 			err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))

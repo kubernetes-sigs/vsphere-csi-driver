@@ -70,11 +70,23 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		labels_ns                  map[string]string
 		isVcRebooted               bool
 		isQuotaValidationSupported bool
+		adminClient                clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
 		bootstrap()
+		var err error
+		if supervisorCluster || guestCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		scParameters = make(map[string]string)
 		topologyHaMap := GetAndExpectStringEnvVar(topologyHaMap)
 		_, categories = createTopologyMapLevel5(topologyHaMap)
@@ -96,7 +108,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		framework.Logf("zonal policy: %s and zonal wffc policy: %s", zonalPolicy, zonalWffcPolicy)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, adminClient)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -227,7 +239,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait for GC PVC to come to bound state")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim},
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*v1.PersistentVolumeClaim{pvclaim},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -326,7 +338,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}()
 
 		ginkgo.By("Restore PVC using dynamic snapshot")
-		pvclaim3, persistentVolumes3, pod2 := verifyVolumeRestoreOperation(ctx, client,
+		pvclaim3, persistentVolumes3, pod2 := verifyVolumeRestoreOperation(ctx, client, adminClient,
 			namespace, storageclass, volumeSnapshot, diskSize, true)
 		volHandle3 := persistentVolumes3[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -451,7 +463,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -511,7 +523,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait for GC PVC to come to bound state")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim},
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*v1.PersistentVolumeClaim{pvclaim},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -662,7 +674,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait for GC PVC to come to bound state")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim},
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*v1.PersistentVolumeClaim{pvclaim},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -794,7 +806,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait for GC PVC to come to bound state")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim},
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*v1.PersistentVolumeClaim{pvclaim},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -852,7 +864,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		ginkgo.By("Verify pod gets scheduled on appropriate nodes preset in the availability zone")
 		verifyAnnotationsAndNodeAffinity(allowedTopologyHAMap, categories, pod, nodeList, svcPVC, pv, svcPVCName)
 
-		verifyOfflineVolumeExpansionOnGc(ctx, client, pvclaim, svcPVCName, namespace, volHandle, pod, pv, f)
+		verifyOfflineVolumeExpansionOnGc(ctx, client, adminClient, pvclaim, svcPVCName, namespace, volHandle, pod, pv, f)
 
 		diskSizeInMbStr := convertInt64ToStrMbFormat(diskSizeInMb)
 
@@ -1078,7 +1090,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}()
 
 		ginkgo.By("Restore PVC using dynamic volume snapshot")
-		pvclaim3, persistentVolumes3, pod2 := verifyVolumeRestoreOperation(ctx, client,
+		pvclaim3, persistentVolumes3, pod2 := verifyVolumeRestoreOperation(ctx, client, adminClient,
 			namespace, storageclass, volumeSnapshot, diskSize, true)
 		volHandle3 := persistentVolumes3[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -1192,7 +1204,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -1217,7 +1229,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		pvc := pvcs.Items[0]
 		pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvclaim.Name)
+		pv := getPvFromClaim(client, nil, namespace, pvclaim.Name)
 		volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
@@ -1280,7 +1292,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}()
 
 		ginkgo.By("Restore PVC using pre-provisioned snapshot")
-		pvclaim3, persistentVolumes3, pod2 := verifyVolumeRestoreOperation(ctx, client,
+		pvclaim3, persistentVolumes3, pod2 := verifyVolumeRestoreOperation(ctx, client, adminClient,
 			namespace, storageclass, staticSnapshot, "1Gi", true)
 		volHandle3 := persistentVolumes3[0].Spec.CSI.VolumeHandle
 		if guestCluster {
@@ -1386,7 +1398,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 				pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				for _, claim := range pvcs.Items {
-					pv := getPvFromClaim(client, namespace, claim.Name)
+					pv := getPvFromClaim(client, nil, namespace, claim.Name)
 					err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -1472,7 +1484,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			pvclaims = append(pvclaims, pvclaim)
 
 			ginkgo.By("Expect the pvc to provision volume successfully")
-			pv, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+			pv, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaims, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			volHandle := getVolumeIDFromSupervisorCluster(pv[0].Spec.CSI.VolumeHandle)
 			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
@@ -1499,7 +1511,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 				pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				for _, claim := range pvcs.Items {
-					pv := getPvFromClaim(client, namespace, claim.Name)
+					pv := getPvFromClaim(client, nil, namespace, claim.Name)
 					err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -1578,7 +1590,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			}()
 
 			ginkgo.By("Restore PVC using pre-provisioned snapshot")
-			pvclaim3, persistentVolumes3, pod2 := verifyVolumeRestoreOperation(ctx, client,
+			pvclaim3, persistentVolumes3, pod2 := verifyVolumeRestoreOperation(ctx, client, adminClient,
 				namespace, storageclass, staticSnapshot, diskSize, true)
 			volHandle3 := persistentVolumes3[0].Spec.CSI.VolumeHandle
 			if guestCluster {
@@ -1689,7 +1701,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -1799,7 +1811,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -1912,7 +1924,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -1950,7 +1962,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
 						pvcName := volumespec.PersistentVolumeClaim.ClaimName
-						pv := getPvFromClaim(client, statefulset.Namespace, pvcName)
+						pv := getPvFromClaim(client, nil, statefulset.Namespace, pvcName)
 						pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 							pvcName, metav1.GetOptions{})
 						gomega.Expect(pvclaim).NotTo(gomega.BeNil())
@@ -2009,7 +2021,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
 						pvcName := volumespec.PersistentVolumeClaim.ClaimName
-						pv := getPvFromClaim(client, statefulset.Namespace, pvcName)
+						pv := getPvFromClaim(client, nil, statefulset.Namespace, pvcName)
 						pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 							pvcName, metav1.GetOptions{})
 						gomega.Expect(pvclaim).NotTo(gomega.BeNil())
@@ -2102,13 +2114,13 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}
 
 		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale, nil)
-		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
+		_, err = WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			pvclaimsList, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			for _, pvclaim := range pvclaimsList {
-				pv := getPvFromClaim(client, namespace, pvclaim.Name)
+				pv := getPvFromClaim(client, nil, namespace, pvclaim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2126,7 +2138,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		ginkgo.By("Wait for GC PVCs to come to bound state and create POD for each PVC")
 		for _, pvc := range pvclaimsList {
-			pv := getPvFromClaim(client, namespace, pvc.Name)
+			pv := getPvFromClaim(client, nil, namespace, pvc.Name)
 			volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 			svcPVCName := pv.Spec.CSI.VolumeHandle
@@ -2192,7 +2204,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if i == 1 {
 				ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Attacher is running")
-				err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, csiControllerPod)
+				err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, adminClient, csiControllerPod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -2214,7 +2226,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		ginkgo.By("Expanding pvc when vsan-health service on vcenter host is started")
 		for i := 0; i < len(pvclaimsList); i++ {
 			pvclaim := pvclaimsList[i]
-			pv := getPvFromClaim(client, namespace, pvclaimsList[i].Name)
+			pv := getPvFromClaim(client, nil, namespace, pvclaimsList[i].Name)
 			volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 			svcPVCName := pv.Spec.CSI.VolumeHandle
@@ -2303,13 +2315,13 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			}
 
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale, nil)
-			_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
+			_, err = WaitForPVClaimBoundPhase(ctx, client, adminClient,
 				pvclaimsList, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			defer func() {
 				for _, pvclaim := range pvclaimsList {
-					pv := getPvFromClaim(client, namespace, pvclaim.Name)
+					pv := getPvFromClaim(client, nil, namespace, pvclaim.Name)
 					err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2327,7 +2339,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 			ginkgo.By("Wait for GC PVCs to come to bound state and create POD for each PVC")
 			for _, pvc := range pvclaimsList {
-				pv := getPvFromClaim(client, namespace, pvc.Name)
+				pv := getPvFromClaim(client, nil, namespace, pvc.Name)
 				volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 				svcPVCName := pv.Spec.CSI.VolumeHandle
@@ -2356,16 +2368,16 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			// Expanding pvc when vsan-health service on vcenter host is down
 			ginkgo.By("Expanding pvc and deleting pod where csi-resizer leader is present")
 			for i := 0; i < len(pvclaimsList); i++ {
-				pv := getPvFromClaim(client, namespace, pvclaimsList[i].Name)
+				pv := getPvFromClaim(client, nil, namespace, pvclaimsList[i].Name)
 				volHandle := getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 				svcPVCName := pv.Spec.CSI.VolumeHandle
-				verifyOfflineVolumeExpansionOnGc(ctx, client, pvclaimsList[i],
+				verifyOfflineVolumeExpansionOnGc(ctx, client, adminClient, pvclaimsList[i],
 					svcPVCName, namespace, volHandle, podList[i], pv, f)
 
 				if i == 4 {
 					ginkgo.By("Delete elected leader Csi-Controller-Pod where CSi-Attacher is running")
-					err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, csiControllerPod)
+					err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, adminClient, csiControllerPod)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				}
 			}
@@ -2445,7 +2457,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Wait for SV PVC to come to bound state")
-			svcPv, err := fpv.WaitForPVClaimBoundPhase(ctx, svClient, []*v1.PersistentVolumeClaim{svPvclaim},
+			svcPv, err := WaitForPVClaimBoundPhase(ctx, svClient, adminClient, []*v1.PersistentVolumeClaim{svPvclaim},
 				framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2530,7 +2542,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Wait for GC PVC to come to bound state")
-			persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaim},
+			persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*v1.PersistentVolumeClaim{pvclaim},
 				framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2759,7 +2771,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			if i == 2 {
 				/* Delete elected leader CSi-Controller-Pod where CSI-Attacher is running */
 				ginkgo.By("Delete elected leader CSi-Controller-Pod where CSI-Provisioner is running")
-				err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, csiControllerPod)
+				err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, adminClient, csiControllerPod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -2784,7 +2796,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -2853,13 +2865,13 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}
 
 		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale, nil)
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			pvclaimsList, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			for _, pvclaim := range pvclaimsList {
-				pv := getPvFromClaim(client, namespace, pvclaim.Name)
+				pv := getPvFromClaim(client, nil, namespace, pvclaim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -2918,7 +2930,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 			if i == 4 {
 				ginkgo.By("Delete elected leader CSi-Controller-Pod where vsphere-syncer is running")
-				err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, csiControllerPod)
+				err = deleteCsiControllerPodWhereLeaderIsRunning(ctx, client, adminClient, csiControllerPod)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				/* Get newly elected current leader Csi-Controller-Pod where CSI Syncer is running" +
@@ -3217,7 +3229,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}
 
 		ginkgo.By("Expect all pvcs to provision volume successfully")
-		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		_, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		labelsMap := make(map[string]string)
@@ -3252,7 +3264,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -3268,7 +3280,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}()
 
 		framework.Logf("After the VC reboot, Wait for all the PVC's to reach bound state")
-		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		_, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("After the VC reboot, Verify all the pre-created deployment pod's, its status and metadata")
@@ -3317,7 +3329,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}
 
 		ginkgo.By("Wait for GC PVC to come to bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvcs,
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -3361,7 +3373,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 
 		ginkgo.By("Triggering offline volume expansion on PVCs")
 		for i := range pods {
-			verifyOfflineVolumeExpansionOnGc(ctx, client, pvcs[i], svcPVCNames[i], namespace,
+			verifyOfflineVolumeExpansionOnGc(ctx, client, adminClient, pvcs[i], svcPVCNames[i], namespace,
 				volumeHandles[i], pods[i], pvs[i], f)
 		}
 	})
@@ -3438,7 +3450,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		gcClusterID := strings.Replace(svcPVCName, pvcUID, "", -1)
 
 		framework.Logf("gcClusterId %q", gcClusterID)
-		pv := getPvFromClaim(svClient, svPvclaim.Namespace, svPvclaim.Name)
+		pv := getPvFromClaim(svClient, nil, svPvclaim.Namespace, svPvclaim.Name)
 		pvUID := string(pv.UID)
 		framework.Logf("PV uuid %q", pvUID)
 
@@ -3571,7 +3583,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		_, err = fpv.WaitForPVClaimBoundPhase(ctx, clientNewGc, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pvNewGC := getPvFromClaim(clientNewGc, pvcNew.Namespace, pvcNew.Name)
+		pvNewGC := getPvFromClaim(clientNewGc, nil, pvcNew.Namespace, pvcNew.Name)
 		volumeIDNewGC := pvNewGC.Spec.CSI.VolumeHandle
 		svcNewPVCName := volumeIDNewGC
 		volumeIDNewGC = getVolumeIDFromSupervisorCluster(svcNewPVCName)

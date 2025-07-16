@@ -52,6 +52,7 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation-vsan-max] TKG-WLDI-Vsan-Max"
 		sharedStoragePolicyNameWffc string
 		nodeList                    *v1.NodeList
 		err                         error
+		adminClient                 clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -66,6 +67,17 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation-vsan-max] TKG-WLDI-Vsan-Max"
 		// reading vc session id
 		if vcRestSessionId == "" {
 			vcRestSessionId = createVcSession4RestApis(ctx)
+		}
+
+		if supervisorCluster || guestCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}
 
 		// fetching tkg node list
@@ -191,11 +203,11 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation-vsan-max] TKG-WLDI-Vsan-Max"
 		statefulsetRwo := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, true, allowedTopologies,
 			true, true, "", "", storageclass, storageclass.Name)
 		defer func() {
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, adminClient, namespace)
 		}()
 
 		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
-		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, statefulsetRwo, nil, nil, namespace,
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, adminClient, statefulsetRwo, nil, nil, namespace,
 			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -203,11 +215,11 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation-vsan-max] TKG-WLDI-Vsan-Max"
 		statefulsetRwm := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, true, allowedTopologies,
 			true, true, "", v1.ReadWriteMany, storageclass, storageclass.Name)
 		defer func() {
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, adminClient, namespace)
 		}()
 
 		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
-		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, statefulsetRwm, nil, nil, namespace,
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, adminClient, statefulsetRwm, nil, nil, namespace,
 			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -317,11 +329,11 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation-vsan-max] TKG-WLDI-Vsan-Max"
 		statefulsetRwo := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, true, allowedTopologies,
 			true, true, "", "", storageclass, storageclass.Name)
 		defer func() {
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, adminClient, namespace)
 		}()
 
 		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
-		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, statefulsetRwo, nil, nil, namespace,
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, adminClient, statefulsetRwo, nil, nil, namespace,
 			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -330,7 +342,7 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation-vsan-max] TKG-WLDI-Vsan-Max"
 			true, true, "", v1.ReadWriteMany, storageclass, storageclass.Name)
 
 		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
-		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, statefulsetRwm, nil, nil, namespace,
+		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, adminClient, statefulsetRwm, nil, nil, namespace,
 			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

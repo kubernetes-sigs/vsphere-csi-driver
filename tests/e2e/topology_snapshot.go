@@ -153,7 +153,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology-Snapshot", func() {
 		scParameters["storagepolicyname"] = storagePolicyName
 
 		ginkgo.By("Create StorageClass and PVC")
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil, namespace, nil,
 			scParameters, diskSize, allowedTopologyForSC, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -339,7 +339,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology-Snapshot", func() {
 			topologyLength, leafNode, leafNodeTag1, leafNodeTag2)
 
 		scParameters["datastoreurl"] = sharedDataStoreUrlBetweenClusters
-		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC,
+		storageclass, err := createStorageClass(client, nil, scParameters, allowedTopologyForSC,
 			"", "", false, "nginx-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -387,7 +387,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology-Snapshot", func() {
 			pvc3.ClaimName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pv3 := getPvFromClaim(client, statefulset.Namespace, pvc3.ClaimName)
+		pv3 := getPvFromClaim(client, nil, statefulset.Namespace, pvc3.ClaimName)
 		volHandle3 := pv3.Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle3).NotTo(gomega.BeEmpty())
 

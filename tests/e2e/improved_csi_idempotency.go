@@ -58,18 +58,35 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		serviceName       string
 		csiReplicaCount   int32
 		deployment        *appsv1.Deployment
+		adminClient       clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
 		bootstrap()
 		client = f.ClientSet
+		var err error
+		var nodeList *v1.NodeList
+		if supervisorCluster || guestCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		namespace = getNamespaceToRunTests(f)
 		scParameters = make(map[string]string)
 		isServiceStopped = false
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		if vanillaCluster {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
+		} else {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, adminClient)
+		}
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 
 		if !(len(nodeList.Items) > 0) {
@@ -113,7 +130,13 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			c = remoteC
 		}
-		deployment, err = c.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		var testClient clientset.Interface
+		if vanillaCluster {
+			testClient = client
+		} else {
+			testClient = adminClient
+		}
+		deployment, err = testClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount = *deployment.Spec.Replicas
@@ -180,7 +203,7 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla][csi-guest] [csi-supervisor] "+
 		"Reduce external provisioner timeout and create volumes - idempotency", ginkgo.Label(p0, disruptive, block,
 		file, windows, wcp, tkg, vanilla, vc70), func() {
-		createVolumesByReducingProvisionerTime(namespace, client, storagePolicyName, scParameters,
+		createVolumesByReducingProvisionerTime(namespace, client, adminClient, storagePolicyName, scParameters,
 			volumeOpsScale, shortProvisionerTimeout, c)
 	})
 
@@ -207,7 +230,7 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		"create volume when hostd service goes down - idempotency", ginkgo.Label(p0, disruptive, block, file, windows,
 		wcp, tkg, vanilla, vc70), func() {
 		serviceName = hostdServiceName
-		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
+		createVolumeWithServiceDown(serviceName, namespace, client, adminClient, storagePolicyName,
 			scParameters, volumeOpsScale, isServiceStopped, c)
 	})
 
@@ -225,7 +248,7 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		"create volume when CNS goes down - idempotency", ginkgo.Label(p0, disruptive, block, file, windows, wcp, tkg,
 		vanilla, vc70), func() {
 		serviceName = vsanhealthServiceName
-		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
+		createVolumeWithServiceDown(serviceName, namespace, client, adminClient, storagePolicyName,
 			scParameters, volumeOpsScale, isServiceStopped, c)
 	})
 
@@ -243,7 +266,7 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		"create volume when VPXD goes down - idempotency", ginkgo.Label(p0, disruptive, block, file, windows, wcp, tkg,
 		vanilla, vc70), func() {
 		serviceName = vpxdServiceName
-		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
+		createVolumeWithServiceDown(serviceName, namespace, client, adminClient, storagePolicyName,
 			scParameters, volumeOpsScale, isServiceStopped, c)
 	})
 
@@ -261,7 +284,7 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		"create volume when SPS goes down - idempotency", ginkgo.Label(p0, block, file, windows, wcp, tkg,
 		vanilla, vc80), func() {
 		serviceName = spsServiceName
-		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
+		createVolumeWithServiceDown(serviceName, namespace, client, adminClient, storagePolicyName,
 			scParameters, volumeOpsScale, isServiceStopped, c)
 	})
 
@@ -278,7 +301,7 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		"create volume when CSI restarts - idempotency", ginkgo.Label(p0, disruptive, block, file, windows, wcp, tkg,
 		vanilla, vc70), func() {
 		serviceName = "CSI"
-		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
+		createVolumeWithServiceDown(serviceName, namespace, client, adminClient, storagePolicyName,
 			scParameters, volumeOpsScale, isServiceStopped, c)
 	})
 
@@ -296,7 +319,7 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		"extend volume when csi restarts - idempotency", ginkgo.Label(p0, disruptive, block, file, windows, wcp, tkg,
 		vanilla, vc70), func() {
 		serviceName = "CSI"
-		extendVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName, scParameters,
+		extendVolumeWithServiceDown(serviceName, namespace, client, adminClient, storagePolicyName, scParameters,
 			volumeOpsScale, true, isServiceStopped, c)
 	})
 
@@ -315,7 +338,7 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		"extend volume when CNS goes down - idempotency", ginkgo.Label(p0, disruptive, block, file, windows, wcp, tkg,
 		vanilla, vc70), func() {
 		serviceName = vsanhealthServiceName
-		extendVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName, scParameters,
+		extendVolumeWithServiceDown(serviceName, namespace, client, adminClient, storagePolicyName, scParameters,
 			volumeOpsScale, true, isServiceStopped, c)
 	})
 
@@ -332,14 +355,14 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 	ginkgo.It("[csi-supervisor] create volume when storage-quota-weebhook goes down", ginkgo.Label(p0, disruptive,
 		wcp), func() {
 		serviceName = storageQuotaWebhookPrefix
-		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
+		createVolumeWithServiceDown(serviceName, namespace, client, adminClient, storagePolicyName,
 			scParameters, volumeOpsScale, isServiceStopped, c)
 	})
 
 })
 
 // createVolumesByReducingProvisionerTime creates the volumes by reducing the provisioner timeout
-func createVolumesByReducingProvisionerTime(namespace string, client clientset.Interface, storagePolicyName string,
+func createVolumesByReducingProvisionerTime(namespace string, client clientset.Interface, adminClient clientset.Interface, storagePolicyName string,
 	scParameters map[string]string, volumeOpsScale int, customProvisionerTimeout string, c clientset.Interface) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -350,7 +373,7 @@ func createVolumesByReducingProvisionerTime(namespace string, client clientset.I
 	var pvclaims []*v1.PersistentVolumeClaim
 	var err error
 	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
-
+	var testClient clientset.Interface
 	// Decide which test setup is available to run
 	if vanillaCluster {
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
@@ -366,7 +389,7 @@ func createVolumesByReducingProvisionerTime(namespace string, client clientset.I
 		val = string(val[1:3])
 		curtimestring := strconv.FormatInt(curtime, 10)
 		scName := "idempotency" + curtimestring + val
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, scName)
+		storageclass, err = createStorageClass(client, nil, scParameters, nil, "", "", false, scName)
 	} else if supervisorCluster {
 		ginkgo.By("CNS_TEST: Running for WCP setup")
 		thickProvPolicy := os.Getenv(envStoragePolicyNameWithThickProvision)
@@ -376,15 +399,13 @@ func createVolumesByReducingProvisionerTime(namespace string, client clientset.I
 		profileID := e2eVSphere.GetSpbmPolicyID(thickProvPolicy)
 		scParameters[scParamStoragePolicyID] = profileID
 		// create resource quota
-		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, thickProvPolicy)
+		storageclass, err = createStorageClass(client, adminClient, scParameters, nil, "", "", false, thickProvPolicy)
 	} else {
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		thickProvPolicy := os.Getenv(envStoragePolicyNameWithThickProvision)
 		if thickProvPolicy == "" {
 			ginkgo.Skip(envStoragePolicyNameWithThickProvision + " env variable not set")
 		}
-		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		scParameters[svStorageClassName] = thickProvPolicy
 		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, thickProvPolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
@@ -400,9 +421,13 @@ func createVolumesByReducingProvisionerTime(namespace string, client clientset.I
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}()
-
+	if vanillaCluster {
+		testClient = client
+	} else {
+		testClient = adminClient
+	}
 	// TODO: Stop printing csi logs on the console
-	collectPodLogs(ctx, c, csiSystemNamespace)
+	collectPodLogs(ctx, testClient, csiSystemNamespace)
 
 	// This assumes the tkg-controller-manager's auto sync is disabled
 	ginkgo.By(fmt.Sprintf("Reducing Provisioner time interval to %s Sec for the test...", customProvisionerTimeout))
@@ -454,7 +479,7 @@ func createVolumesByReducingProvisionerTime(namespace string, client clientset.I
 
 // createVolumeWithServiceDown creates the volumes and immediately stops the services and wait for
 // the service to be up again and validates the volumes are bound
-func createVolumeWithServiceDown(serviceName string, namespace string, client clientset.Interface,
+func createVolumeWithServiceDown(serviceName string, namespace string, client clientset.Interface, adminClient clientset.Interface,
 	storagePolicyName string, scParameters map[string]string, volumeOpsScale int, isServiceStopped bool,
 	c clientset.Interface) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -482,7 +507,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		val = string(val[1:3])
 		curtimestring := strconv.FormatInt(curtime, 10)
 		scName := "idempotency" + curtimestring + val
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, scName)
+		storageclass, err = createStorageClass(client, nil, scParameters, nil, "", "", false, scName)
 	} else if supervisorCluster {
 		ginkgo.By("CNS_TEST: Running for WCP setup")
 		thickProvPolicy := os.Getenv(envStoragePolicyNameWithThickProvision)
@@ -492,17 +517,15 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		profileID := e2eVSphere.GetSpbmPolicyID(thickProvPolicy)
 		scParameters[scParamStoragePolicyID] = profileID
 		// create resource quota
-		//createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		restConfig = getRestConfigClient()
 		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, thickProvPolicy)
+		storageclass, err = createStorageClass(client, adminClient, scParameters, nil, "", "", false, thickProvPolicy)
 	} else {
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		thickProvPolicy := os.Getenv(envStoragePolicyNameWithThickProvision)
 		if thickProvPolicy == "" {
 			ginkgo.Skip(envStoragePolicyNameWithThickProvision + " env variable not set")
 		}
-		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		scParameters[svStorageClassName] = thickProvPolicy
 		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, thickProvPolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
@@ -549,9 +572,14 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas
-
+		var testClient clientset.Interface
+		if vanillaCluster {
+			testClient = client
+		} else {
+			testClient = adminClient
+		}
 		ginkgo.By("Stopping CSI driver")
-		isServiceStopped, err = stopCSIPods(ctx, c, csiSystemNamespace)
+		isServiceStopped, err = stopCSIPods(ctx, testClient, csiSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -616,7 +644,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		csiReplicaCount := *deployment.Spec.Replicas
 
 		ginkgo.By("Stopping webhook driver")
-		isServiceStopped, err = stopStorageQuotaWebhookPodInKubeSystem(ctx, c, kubeSystemNamespace)
+		isServiceStopped, err = stopStorageQuotaWebhookPodInKubeSystem(ctx, adminClient, kubeSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -680,7 +708,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 	bootstrap()
 
 	ginkgo.By("Waiting for all claims to be in bound state")
-	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims,
+	persistentvolumes, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaims,
 		2*framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -692,8 +720,13 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		}
 		ginkgo.By("Verify PVs, volumes are deleted from CNS")
 		for _, pv := range persistentvolumes {
-			err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
-				framework.PodDeleteTimeout)
+			if vanillaCluster {
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
+					framework.PodDeleteTimeout)
+			} else {
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, adminClient, pv.Name, framework.Poll,
+					framework.PodDeleteTimeout)
+			}
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			volumeID := pv.Spec.CSI.VolumeHandle
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
@@ -718,7 +751,7 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 // extendVolumeWithServiceDown extends the volumes and immediately stops the service and wait for
 // the service to be up again and validates the volumes are bound
-func extendVolumeWithServiceDown(serviceName string, namespace string, client clientset.Interface,
+func extendVolumeWithServiceDown(serviceName string, namespace string, client clientset.Interface, adminClient clientset.Interface,
 	storagePolicyName string, scParameters map[string]string, volumeOpsScale int, extendVolume bool,
 	isServiceStopped bool, c clientset.Interface) {
 
@@ -747,7 +780,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		val = string(val[1:3])
 		curtimestring := strconv.FormatInt(curtime, 10)
 		scName := "idempotency" + curtimestring + val
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, scName)
+		storageclass, err = createStorageClass(client, nil, scParameters, nil, "", "", true, scName)
 	} else if supervisorCluster {
 		ginkgo.By("CNS_TEST: Running for WCP setup")
 		thickProvPolicy := os.Getenv(envStoragePolicyNameWithThickProvision)
@@ -759,7 +792,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		// create resource quota
 		restConfig = getRestConfigClient()
 		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
-		storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, thickProvPolicy)
+		storageclass, err = createStorageClass(client, adminClient, scParameters, nil, "", "", true, thickProvPolicy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	} else {
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -767,20 +800,19 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		if thickProvPolicy == "" {
 			ginkgo.Skip(envStoragePolicyNameWithThickProvision + " env variable not set")
 		}
-		createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		scParameters[svStorageClassName] = thickProvPolicy
 		if windowsEnv {
 			scParameters[scParamFsType] = ntfsFSType
 		} else {
 			scParameters[scParamFsType] = ext4FSType
 		}
-		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, thickProvPolicy, metav1.GetOptions{})
+		storageclass, err = adminClient.StorageV1().StorageClasses().Get(ctx, thickProvPolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		var allowExpansion = true
 		storageclass.AllowVolumeExpansion = &allowExpansion
-		storageclass, err = client.StorageV1().StorageClasses().Update(ctx, storageclass, metav1.UpdateOptions{})
+		storageclass, err = adminClient.StorageV1().StorageClasses().Update(ctx, storageclass, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -812,7 +844,7 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 	}
 
 	ginkgo.By("Waiting for all claims to be in bound state")
-	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims,
+	persistentvolumes, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaims,
 		2*framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -824,8 +856,13 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 		}
 		ginkgo.By("Verify PVs, volumes are deleted from CNS")
 		for _, pv := range persistentvolumes {
-			err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
-				framework.PodDeleteTimeout)
+			if vanillaCluster {
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
+					framework.PodDeleteTimeout)
+			} else {
+				err = fpv.WaitForPersistentVolumeDeleted(ctx, adminClient, pv.Name, framework.Poll,
+					framework.PodDeleteTimeout)
+			}
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			volumeID := pv.Spec.CSI.VolumeHandle
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
@@ -874,13 +911,19 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 	if serviceName == "CSI" {
 		// Get CSI Controller's replica count from the setup
-		deployment, err := c.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
+		var testClient clientset.Interface
+		if vanillaCluster {
+			testClient = client
+		} else {
+			testClient = adminClient
+		}
+		deployment, err := testClient.AppsV1().Deployments(csiSystemNamespace).Get(ctx,
 			vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas
 
 		ginkgo.By("Stopping CSI driver")
-		isServiceStopped, err = stopCSIPods(ctx, c, csiSystemNamespace)
+		isServiceStopped, err = stopCSIPods(ctx, testClient, csiSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {

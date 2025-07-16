@@ -128,7 +128,7 @@ var _ = ginkgo.Describe("Delete TKG", func() {
 		ginkgo.By("Creating Storage Class")
 
 		scParameters[svStorageClassName] = storagePolicyName
-		storageclass, err := createStorageClass(clientNewGc, scParameters, nil, "", "", false, "")
+		storageclass, err := createStorageClass(clientNewGc, nil, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvclaim, err := createPVC(ctx, clientNewGc, namespaceNewGC, nil, "", storageclass, "")

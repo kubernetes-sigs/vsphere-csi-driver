@@ -170,7 +170,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", ginkg
 			ginkgo.By(fmt.Sprintf("Deleting pod: %s", pod.Name))
 			volhandles := []string{}
 			for _, vol := range pod.Spec.Volumes {
-				pv := getPvFromClaim(client, namespace, vol.PersistentVolumeClaim.ClaimName)
+				pv := getPvFromClaim(client, nil, namespace, vol.PersistentVolumeClaim.ClaimName)
 				volhandles = append(volhandles, pv.Spec.CSI.VolumeHandle)
 
 			}
@@ -758,7 +758,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", ginkg
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 		for _, pod := range ssPodsBeforeScaleDown.Items {
-			pvs, pvcs := getPvcPvFromPod(ctx, client, namespace, &pod)
+			pvs, pvcs := getPvcPvFromPod(ctx, client, nil, namespace, &pod)
 			vcpPvcsPreMig = append(vcpPvcsPreMig, pvcs...)
 			vcpPvsPreMig = append(vcpPvsPreMig, pvs...)
 		}
@@ -814,7 +814,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", ginkg
 			"Number of Pods in the statefulset should match with number of replicas")
 
 		pod := ssPodsAfterScaleUp.Items[3]
-		pvs, pvcs := getPvcPvFromPod(ctx, client, namespace, &pod)
+		pvs, pvcs := getPvcPvFromPod(ctx, client, nil, namespace, &pod)
 		vcpPvcsPostMig = append(vcpPvcsPostMig, pvcs...)
 		vcpPvsPostMig = append(vcpPvsPostMig, pvs...)
 
@@ -1525,7 +1525,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", ginkg
 				fmt.Sprintf("Number of Pods in the statefulset(%v) should match with number of replicas(%v)",
 					len(ssPods.Items), int(replicas)))
 			for _, pod := range ssPods.Items {
-				pvs, pvcs := getPvcPvFromPod(ctx, client, ns.Name, &pod)
+				pvs, pvcs := getPvcPvFromPod(ctx, client, nil, ns.Name, &pod)
 				vcpPvcsPreMig = append(vcpPvcsPreMig, pvcs...)
 				vcpPvsPreMig = append(vcpPvsPreMig, pvs...)
 			}
@@ -1569,7 +1569,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", ginkg
 				fmt.Sprintf("Number of Pods in the statefulset(%v) should match with number of replicas(%v)",
 					len(ssPods.Items), int(replicas)))
 			for _, pod := range ssPods.Items {
-				pvs, pvcs := getPvcPvFromPod(ctx, client, ns.Name, &pod)
+				pvs, pvcs := getPvcPvFromPod(ctx, client, nil, ns.Name, &pod)
 				vcpPvcsPostMig = append(vcpPvcsPostMig, pvcs...)
 				vcpPvsPostMig = append(vcpPvsPostMig, pvs...)
 			}
@@ -1975,7 +1975,7 @@ func verifyCnsVolumeMetadataAndCnsVSphereVolumeMigrationCrdForPvcs(ctx context.C
 		framework.Logf("Checking PVC %v", pvc.Name)
 		vpath := getvSphereVolumePathFromClaim(ctx, client, pvc.Namespace, pvc.Name)
 		framework.Logf("Processing PVC: %s", pvc.Name)
-		pv := getPvFromClaim(client, pvc.Namespace, pvc.Name)
+		pv := getPvFromClaim(client, nil, pvc.Namespace, pvc.Name)
 		crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pod := getPodTryingToUsePvc(ctx, client, pvc.Namespace, pvc.Name)
@@ -2100,7 +2100,7 @@ func deletePodAndWaitForVolsToDetach(ctx context.Context, client clientset.Inter
 			continue
 		}
 		framework.Logf("vol info:\n%s", spew.Sdump(vol))
-		pv := getPvFromClaim(client, pod.Namespace, vol.PersistentVolumeClaim.ClaimName)
+		pv := getPvFromClaim(client, nil, pod.Namespace, vol.PersistentVolumeClaim.ClaimName)
 		volhandles = append(volhandles, getVolHandle4Pv(ctx, client, pv))
 	}
 	err = fpod.DeletePodWithWait(ctx, client, pod)
@@ -2115,7 +2115,7 @@ func deletePodAndWaitForVolsToDetach(ctx context.Context, client clientset.Inter
 }
 
 // getPvcsPvsFromPod returns pvcs and pvs inturn used by the pod
-func getPvcPvFromPod(ctx context.Context, c clientset.Interface,
+func getPvcPvFromPod(ctx context.Context, c clientset.Interface, adminClient clientset.Interface,
 	namespace string, pod *v1.Pod) ([]*v1.PersistentVolume, []*v1.PersistentVolumeClaim) {
 	vols := pod.Spec.Volumes
 	var pvcs []*v1.PersistentVolumeClaim
@@ -2131,7 +2131,7 @@ func getPvcPvFromPod(ctx context.Context, c clientset.Interface,
 		pvc, err := c.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvcs = append(pvcs, pvc)
-		pv := getPvFromClaim(c, namespace, pvcName)
+		pv := getPvFromClaim(c, adminClient, namespace, pvcName)
 		pvs = append(pvs, pv)
 	}
 	return pvs, pvcs

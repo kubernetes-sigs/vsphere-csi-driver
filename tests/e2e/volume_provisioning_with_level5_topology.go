@@ -435,7 +435,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 		scParameters := make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		scParameters["storagepolicyname"] = storagePolicyName
-		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC, "",
+		storageclass, err := createStorageClass(client, nil, scParameters, allowedTopologyForSC, "",
 			"", false, "nginx-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -540,7 +540,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 		shared between those labels. */
 		scParameters := make(map[string]string)
 		scParameters["datastoreurl"] = sharedDataStoreUrlBetweenClusters
-		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC,
+		storageclass, err := createStorageClass(client, nil, scParameters, allowedTopologyForSC,
 			"", "", false, "nginx-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -647,7 +647,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 		scParameters["storagepolicyname"] = storagePolicyName
 
 		ginkgo.By("Create StorageClass and PVC for Deployment")
-		sc, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil,
+		sc, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil,
 			scParameters, diskSize, allowedTopologyForSC, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -723,7 +723,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 			topologyLength)[4:]
 
 		// Create SC with WFC BindingMode with allowed topology details.
-		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
+		storageclass, err := createStorageClass(client, nil, nil, allowedTopologyForSC, "",
 			bindingMode, false, "nginx-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -794,7 +794,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 
 		/* Create SC with Immediate BindingMode and allowed topology set to
 		invalid topology label in any one level */
-		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "", "", false, "")
+		storageclass, err := createStorageClass(client, nil, nil, allowedTopologyForSC, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
@@ -852,7 +852,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 		scParameters := make(map[string]string)
 		DataStoreUrlSpecificToCluster := GetAndExpectStringEnvVar(datastoreUrlSpecificToCluster)
 		scParameters["datastoreurl"] = DataStoreUrlSpecificToCluster
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil,
 			scParameters, "", allowedTopologyForSC, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -940,7 +940,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 			topologyLength, leafNode, leafNodeTag0)[4:]
 
 		// Create SC with Immediate BindingMode with single level topology detail
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil,
 			nil, "", allowedTopologyForSC, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -1030,7 +1030,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 			topologyLength, leafNode, leafNodeTag1)
 
 		// Create SC with Immediate BindingMode and allowed topology set to 5 levels
-		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "", "", false, "")
+		storageclass, err := createStorageClass(client, nil, nil, allowedTopologyForSC, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
@@ -1174,7 +1174,7 @@ var _ = ginkgo.Describe("[topology-positive] Topology-Positive", func() {
 		// Create SC with Immediate BindingMode and allowed topology set to 5 levels
 		scParameters := make(map[string]string)
 		scParameters["datastoreurl"] = datastoreURL
-		storageclass, err := createStorageClass(client, scParameters, allowedTopologyForSC, "", "",
+		storageclass, err := createStorageClass(client, nil, scParameters, allowedTopologyForSC, "", "",
 			false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {

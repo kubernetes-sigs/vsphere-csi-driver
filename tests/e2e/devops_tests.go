@@ -85,7 +85,7 @@ var _ = ginkgo.Describe("dev-ops-user-tests", func() {
 
 		// Load standard storage class
 		standardStoragePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		standardStorageClass, err = createStorageClass(client,
+		standardStorageClass, err = createStorageClass(client, nil,
 			map[string]string{
 				scParamStoragePolicyID: e2eVSphere.GetSpbmPolicyID(standardStoragePolicyName),
 			},
@@ -96,7 +96,7 @@ var _ = ginkgo.Describe("dev-ops-user-tests", func() {
 
 		// Load encrypted storage class
 		encryptedStoragePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameWithEncryption)
-		encryptedStorageClass, err = createStorageClass(client,
+		encryptedStorageClass, err = createStorageClass(client, nil,
 			map[string]string{
 				scParamStoragePolicyID: e2eVSphere.GetSpbmPolicyID(encryptedStoragePolicyName),
 			},

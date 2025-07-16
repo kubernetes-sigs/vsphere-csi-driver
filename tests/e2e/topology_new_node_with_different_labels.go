@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 		_, _, allowedTopologies = topologyParameterForStorageClass(topologyNonExistingRegionZone)
 
 		// Create Storage Class and PVC
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, nil, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 		regionValues, zoneValues, allowedTopologies := topologyParameterForStorageClass(topologyInvalidTagValidCat)
 
 		// Create Storage Class and PVC
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -165,7 +165,7 @@ var _ = ginkgo.Describe("[csi-topology-for-new-node] Topology-Provisioning-For-N
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
 
 		ginkgo.By("Verify if volume is provisioned in specified region")
-		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+		pv := getPvFromClaim(client, nil, pvclaim.Namespace, pvclaim.Name)
 		pvRegion, pvZone, err = verifyVolumeTopology(pv, zoneValues, regionValues)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

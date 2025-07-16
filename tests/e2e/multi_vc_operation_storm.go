@@ -198,7 +198,7 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 		var powerOffHostsLists []string
 
 		ginkgo.By("Create SC with default value and without specifying any allowed topology details")
-		storageclass, err := createStorageClass(client, nil, nil, "", "", false, "nginx-sc")
+		storageclass, err := createStorageClass(client, nil, nil, nil, "", "", false, "nginx-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -254,7 +254,7 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		}()
 
 		ginkgo.By("Bring down 1 ESXi host each in VC2 and VC3 multivc setup")

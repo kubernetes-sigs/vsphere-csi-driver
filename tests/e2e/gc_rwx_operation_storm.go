@@ -50,6 +50,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", ginkgo
 		podArray          []*v1.Pod
 		scParameters      map[string]string
 		storagePolicyName string
+		adminClient       clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -58,6 +59,17 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", ginkgo
 		volHealthCheck = false
 		volumeOpsScale = 5
 		namespace = getNamespaceToRunTests(f)
+		var err error
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		svcClient, svNamespace := getSvcClientAndNamespace()
@@ -117,7 +129,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", ginkgo
 		scParameters[svStorageClassName] = storagePolicyName
 
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -127,7 +139,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", ginkgo
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -380,7 +392,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", ginkgo
 
 		for index, claim := range pvclaims {
 			framework.Logf("Waiting for all claims %s to be in bound state - PVC number %d", claim.Name, index)
-			pv, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{claim},
+			pv, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*v1.PersistentVolumeClaim{claim},
 				framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			persistentvolumes[index] = pv[0]

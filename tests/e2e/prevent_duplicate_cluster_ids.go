@@ -169,7 +169,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		if rwxAccessMode {
 			scParameters[scParamFsType] = nfs4FSType
 		}
-		sc, err := createStorageClass(client, scParameters, nil, "", "", false, "")
+		sc, err := createStorageClass(client, nil, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete Storage Class")
@@ -187,7 +187,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			accessMode = v1.ReadWriteMany
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
-		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
+		statefulset, deployment, _ := createStsDeployment(ctx, client, nil, namespace, sc, true,
 			false, 3, "", 1, accessMode)
 		replicas := *(statefulset.Spec.Replicas)
 
@@ -196,7 +196,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -212,7 +212,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}()
 
 		// Scale up replicas of statefulset and verify CNS entries for volumes
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset,
 			replicas+2, true, true)
 		verifyVolumeMetadataOnDeployments(ctx, client, deployment, namespace, nil, nil,
 			nil, "")
@@ -328,7 +328,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		if rwxAccessMode {
 			scParameters[scParamFsType] = nfs4FSType
 		}
-		sc, err := createStorageClass(client, scParameters, nil, "", "", false, "")
+		sc, err := createStorageClass(client, nil, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete Storage Class")
@@ -346,7 +346,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			accessMode = v1.ReadWriteMany
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
-		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
+		statefulset, deployment, _ := createStsDeployment(ctx, client, nil, namespace, sc, true,
 			false, 3, "", 1, accessMode)
 		replicas := *(statefulset.Spec.Replicas)
 
@@ -355,7 +355,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -426,7 +426,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Scale up replicas of statefulset and verify CNS entries for volumes")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset,
 			replicas+2, true, true)
 		verifyVolumeMetadataOnDeployments(ctx, client, deployment, namespace, nil, nil,
 			nil, "")
@@ -487,7 +487,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		if rwxAccessMode {
 			scParameters[scParamFsType] = nfs4FSType
 		}
-		sc, err := createStorageClass(client, scParameters, nil, "", "", false, "")
+		sc, err := createStorageClass(client, nil, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete Storage Class")
@@ -505,7 +505,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			accessMode = v1.ReadWriteMany
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
-		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
+		statefulset, deployment, _ := createStsDeployment(ctx, client, nil, namespace, sc, true,
 			false, 0, "", 1, accessMode)
 		replicas := *(statefulset.Spec.Replicas)
 
@@ -514,7 +514,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -541,7 +541,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 
 		ginkgo.By("Scale up replicas of statefulset and verify CNS entries for volumes")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset,
 			replicas+2, true, true)
 		verifyVolumeMetadataOnDeployments(ctx, client, deployment, namespace, nil, nil,
 			nil, "")
@@ -604,7 +604,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			scParameters[scParamFsType] = nfs4FSType
 			accessMode = v1.ReadWriteMany
 		}
-		sc, pvclaim, err := createPVCAndStorageClass(ctx, client,
+		sc, pvclaim, err := createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, diskSize, nil, "", false, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -631,7 +631,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -673,7 +673,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		ginkgo.By("Verify cluster id configmap is not auto generated by csi driver")
 		verifyClusterIdConfigMapGeneration(client, ctx, csiNamespace, false)
 
-		sc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		sc, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, diskSize, nil, "",
 			false, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -741,7 +741,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		if rwxAccessMode {
 			scParameters[scParamFsType] = nfs4FSType
 		}
-		sc, err := createStorageClass(client, scParameters, nil, "", "", false, "")
+		sc, err := createStorageClass(client, nil, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete Storage Class")
@@ -759,7 +759,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			accessMode = v1.ReadWriteMany
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
-		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
+		statefulset, deployment, _ := createStsDeployment(ctx, client, nil, namespace, sc, true,
 			false, 3, "", 1, accessMode)
 		replicas := *(statefulset.Spec.Replicas)
 
@@ -768,7 +768,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -789,7 +789,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 
 		ginkgo.By("Scale up replicas of statefulset and verify CNS entries for volumes")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset,
 			replicas+2, true, true)
 		verifyVolumeMetadataOnDeployments(ctx, client, deployment, namespace, nil, nil,
 			nil, "")
@@ -848,7 +848,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		if rwxAccessMode {
 			scParameters[scParamFsType] = nfs4FSType
 		}
-		sc, err := createStorageClass(client, scParameters, nil, "", "", false, "")
+		sc, err := createStorageClass(client, nil, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete Storage Class")
@@ -866,7 +866,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			accessMode = v1.ReadWriteMany
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
-		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
+		statefulset, deployment, _ := createStsDeployment(ctx, client, nil, namespace, sc, true,
 			false, 3, "", 1, accessMode)
 		replicas := *(statefulset.Spec.Replicas)
 
@@ -875,7 +875,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -941,7 +941,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 
 		ginkgo.By("Scale up replicas of statefulset and verify CNS entries for volumes")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset,
 			replicas+2, true, true)
 		verifyVolumeMetadataOnDeployments(ctx, client, deployment, namespace, nil, nil,
 			nil, "")

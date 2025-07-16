@@ -133,7 +133,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 
 		ginkgo.By("Create storageclass and PVC from that storageclass")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -262,7 +262,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 
 		ginkgo.By("Create Storageclass and a PVC from storageclass created")
 		scParameters[scParamStoragePolicyName] = policyName
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvcs = append(pvcs, pvclaim)
@@ -424,7 +424,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 
 		ginkgo.By("Create Storageclass and a PVC from storageclass created")
 		scParameters[scParamStoragePolicyName] = policyName
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvcs = append(pvcs, pvclaim)
@@ -559,7 +559,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 
 		framework.Logf("CNS_TEST: Running for vanilla k8s setup")
 		scParameters[scParamStoragePolicyName] = policyName
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, pvc10g, nil, "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -598,7 +598,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 		pods := createMultiplePods(ctx, client, pvclaims2d, true)
 		defer func() {
 			ginkgo.By("Delete the pod created")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, nil, pods, true)
 		}()
 
 		ginkgo.By("Verify if VolumeID is created on the given datastores")
@@ -698,10 +698,10 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 		e2eVSphere.verifyVolumeCompliance(volumeID, true)
 
 		ginkgo.By("Delete the pod created")
-		deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, nil, pods, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podsNew := createMultiplePods(ctx, client, pvclaims2d, true)
-		deletePodsAndWaitForVolsToDetach(ctx, client, podsNew, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, nil, podsNew, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -782,7 +782,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 
 		framework.Logf("CNS_TEST: Running for vanilla k8s setup")
 		scParameters[scParamStoragePolicyName] = policyName
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, pvc10g, nil, "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -821,7 +821,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 		pods := createMultiplePods(ctx, client, pvclaims2d, true)
 		defer func() {
 			ginkgo.By("Delete the pod created")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, nil, pods, true)
 		}()
 
 		ginkgo.By("Verify if VolumeID is created on the given datastores")
@@ -912,10 +912,10 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 		e2eVSphere.verifyVolumeCompliance(volumeID, true)
 
 		ginkgo.By("Delete the pod created")
-		deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, nil, pods, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podsNew := createMultiplePods(ctx, client, pvclaims2d, true)
-		deletePodsAndWaitForVolsToDetach(ctx, client, podsNew, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, nil, podsNew, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -997,7 +997,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 
 		framework.Logf("CNS_TEST: Running for vanilla k8s setup")
 		scParameters[scParamStoragePolicyName] = policyName
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, pvc10g, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1037,7 +1037,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 		pods := createMultiplePods(ctx, client, pvclaims2d, true)
 		defer func() {
 			ginkgo.By("Delete the pod created")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, nil, pods, true)
 		}()
 
 		ginkgo.By("Verify if VolumeID is created on the given datastores")
@@ -1099,7 +1099,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
 			labels, pvclaim.Name, namespace))
-		pv := getPvFromClaim(client, namespace, pvclaim.Name)
+		pv := getPvFromClaim(client, nil, namespace, pvclaim.Name)
 		err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
 			string(cnstypes.CnsKubernetesEntityTypePVC), pvclaim.Name, pvclaim.Namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1119,10 +1119,10 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 		e2eVSphere.verifyVolumeCompliance(volumeID, true)
 
 		ginkgo.By("Delete the pod created")
-		deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, nil, pods, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podsNew := createMultiplePods(ctx, client, pvclaims2d, true)
-		deletePodsAndWaitForVolsToDetach(ctx, client, podsNew, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, nil, podsNew, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
@@ -1206,7 +1206,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 
 		framework.Logf("CNS_TEST: Running for vanilla k8s setup")
 		scParameters[scParamStoragePolicyName] = policyName
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, pvc10g, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvcs = append(pvcs, pvclaim)
@@ -1249,7 +1249,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 		pods := createMultiplePods(ctx, client, pvclaims2d, true)
 		defer func() {
 			ginkgo.By("Delete the pod created")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, nil, pods, true)
 		}()
 
 		ginkgo.By("Verify if VolumeID is created on the given datastores")
@@ -1378,10 +1378,10 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 		e2eVSphere.verifyVolumeCompliance(volumeID, true)
 
 		ginkgo.By("Delete the pod created")
-		deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, nil, pods, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podsNew := createMultiplePods(ctx, client, pvclaims2d, true)
-		deletePodsAndWaitForVolsToDetach(ctx, client, podsNew, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, nil, podsNew, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})

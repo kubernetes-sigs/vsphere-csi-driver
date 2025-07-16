@@ -92,7 +92,7 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume snapshot enc
 
 		// Load standard storage class
 		standardStoragePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
-		standardStorageClass, err = createStorageClass(client,
+		standardStorageClass, err = createStorageClass(client, nil,
 			map[string]string{
 				scParamStoragePolicyID: e2eVSphere.GetSpbmPolicyID(standardStoragePolicyName),
 			},
@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume snapshot enc
 
 		// Load encrypted storage class
 		encryptedStoragePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameWithEncryption)
-		encryptedStorageClass, err = createStorageClass(client,
+		encryptedStorageClass, err = createStorageClass(client, nil,
 			map[string]string{
 				scParamStoragePolicyID: e2eVSphere.GetSpbmPolicyID(encryptedStoragePolicyName),
 			},

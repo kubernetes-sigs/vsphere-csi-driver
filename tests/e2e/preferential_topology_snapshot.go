@@ -259,7 +259,7 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		ginkgo.By("Create StorageClass and PVC")
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil, namespace, nil,
 			nil, diskSize, allowedTopologyForRack1, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -383,7 +383,7 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		ginkgo.By("Create StorageClass and PVC")
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil, namespace, nil,
 			nil, diskSize, allowedTopologyForRack2, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -575,7 +575,7 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		ginkgo.By("Creating Storage Class")
-		storageclass, err = createStorageClass(client, nil, allowedTopologies, "", "", false, "")
+		storageclass, err = createStorageClass(client, nil, nil, allowedTopologies, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			ginkgo.By("Delete Storage Class")
@@ -947,7 +947,7 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		ginkgo.By("Create storage class")
-		storageclass, err := createStorageClass(client, nil, allowedTopologyForRack3,
+		storageclass, err := createStorageClass(client, nil, nil, allowedTopologyForRack3,
 			"", "", false, "nginx-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -1001,7 +1001,7 @@ var _ = ginkgo.Describe("[preferential-snapshot] Preferential-Topology-Snapshot"
 		pvclaim3, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 			pvc3.ClaimName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv3 := getPvFromClaim(client, statefulset.Namespace, pvc3.ClaimName)
+		pv3 := getPvFromClaim(client, nil, statefulset.Namespace, pvc3.ClaimName)
 		volHandle3 := pv3.Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle3).NotTo(gomega.BeEmpty())
 		// Verify the attached volume match the one in CNS cache

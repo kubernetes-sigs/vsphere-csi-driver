@@ -116,7 +116,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		storageclass, pvc, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvc, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, "", nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {

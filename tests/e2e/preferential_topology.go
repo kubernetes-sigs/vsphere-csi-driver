@@ -322,7 +322,7 @@ var _ = ginkgo.Describe("[preferential-positive] Preferential-Topology-Positive"
 		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		ginkgo.By("Creating Storage class and standalone PVC")
-		storageclass1, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil, nil, "",
+		storageclass1, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil, nil, "",
 			allowedTopologyForRack1, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -1901,7 +1901,7 @@ var _ = ginkgo.Describe("[preferential-positive] Preferential-Topology-Positive"
 		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		ginkgo.By("Create storage class and PVC")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, "2000Gi", allowedTopologyForRack2, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -1977,7 +1977,7 @@ var _ = ginkgo.Describe("[preferential-positive] Preferential-Topology-Positive"
 		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		ginkgo.By("Creating Storage class and standalone PVC")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "",
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil, scParameters, "",
 			allowedTopologyForRack2, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -2233,7 +2233,7 @@ var _ = ginkgo.Describe("[preferential-positive] Preferential-Topology-Positive"
 		}()
 
 		ginkgo.By("Creating Storage class and standalone PVC")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil, nil, "",
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil, nil, "",
 			allowedTopologyForRack2, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -2353,7 +2353,7 @@ var _ = ginkgo.Describe("[preferential-positive] Preferential-Topology-Positive"
 		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		ginkgo.By("Creating Storage class and standalone PVC")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "",
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil, scParameters, "",
 			allowedTopologyForRack2, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -2450,7 +2450,7 @@ var _ = ginkgo.Describe("[preferential-positive] Preferential-Topology-Positive"
 		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		ginkgo.By("Create storage class and PVC")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, "", allowedTopologyForRack1, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -2520,7 +2520,7 @@ var _ = ginkgo.Describe("[preferential-positive] Preferential-Topology-Positive"
 		time.Sleep(preferredDatastoreTimeOutInterval)
 
 		ginkgo.By("Create Storage class and pvc-1")
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil, nil, "",
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil, nil, "",
 			allowedTopologyForRack2, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {

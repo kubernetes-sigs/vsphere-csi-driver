@@ -34,6 +34,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/types"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -76,6 +77,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		snapc                  *snapclient.Clientset
 		restConfig             *restclient.Config
 		guestClusterRestConfig *restclient.Config
+		adminClient            clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -84,7 +86,23 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		namespace = getNamespaceToRunTests(f)
 		client = f.ClientSet
 		bootstrap()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		var err error
+		var nodeList *v1.NodeList
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+		if vanillaCluster {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		} else {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, adminClient)
+		}
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -232,7 +250,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		replicas := *(statefulset.Spec.Replicas)
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, adminClient, namespace)
 		}()
 
 		// Waiting for pods status to be Ready
@@ -254,7 +272,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					volumeID := pv.Spec.CSI.VolumeHandle
 					if guestCluster {
 						volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -287,7 +305,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 				gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
-						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						volumeID := pv.Spec.CSI.VolumeHandle
 						if guestCluster {
 							volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -309,7 +327,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					volumeID := pv.Spec.CSI.VolumeHandle
 					if guestCluster {
 						volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -343,7 +361,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					volumeID := pv.Spec.CSI.VolumeHandle
 					if guestCluster {
 						volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -411,7 +429,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
 		}
-		sc, err := createStorageClass(client, scParameters, nil, "", "", false, "")
+		sc, err := createStorageClass(client, nil, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -425,7 +443,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*corev1.PersistentVolumeClaim{pvc},
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*corev1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -709,7 +727,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			scParameters[svStorageClassName] = storagePolicyName
 		}
 		scParameters[scParamFsType] = ext4FSType
-		sc, err := createStorageClass(client, scParameters, nil, "", "", true, "")
+		sc, err := createStorageClass(client, adminClient, scParameters, nil, "", "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -723,7 +741,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*corev1.PersistentVolumeClaim{pvc},
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*corev1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -881,7 +899,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
 		}
-		sc, err := createStorageClass(client, scParameters, nil, "", "", true, "")
+		sc, err := createStorageClass(client, adminClient, scParameters, nil, "", "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -898,7 +916,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		var pvclaims []*corev1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvc)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pv := pvs[0]
 		volumeID := pv.Spec.CSI.VolumeHandle
@@ -996,7 +1014,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		}
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvc, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvc, client, adminClient, totalResizeWaitPeriod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if guestCluster {
@@ -1113,7 +1131,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		}
 
 		ginkgo.By("Create storage class")
-		sc, err := createStorageClass(client, scParameters, nil, "", "", false, "")
+		sc, err := createStorageClass(client, adminClient, scParameters, nil, "", "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -1127,7 +1145,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 
 		ginkgo.By("Expect source volume claim to provision volume successfully")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*corev1.PersistentVolumeClaim{pvc1},
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*corev1.PersistentVolumeClaim{pvc1},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volumeID := pvs[0].Spec.CSI.VolumeHandle
@@ -1238,7 +1256,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		restoredPvc, err := fpv.CreatePVC(ctx, client, namespace, restorePvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		restoredPvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		restoredPvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*corev1.PersistentVolumeClaim{restoredPvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

@@ -262,7 +262,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 			setResourceQuota(svcClient, svNamespace, rqLimit)
 		}
 		if guestCluster {
-			storageclass, err = createStorageClass(client, scParameters, nil, "", "", true, "")
+			storageclass, err = createStorageClass(client, nil, scParameters, nil, "", "", true, "")
 		} else {
 			scSpec := getVSphereStorageClassSpec(storagePolicyName, scParameters, nil, "", "", false)
 			storageclass, err = client.StorageV1().StorageClasses().Create(ctx, scSpec, metav1.CreateOptions{})
@@ -308,7 +308,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		podCount = 0
 		for podCount < volumeOpsScale {
 			pvclaim = pvclaims[podCount]
-			pv := getPvFromClaim(client, namespace, pvclaim.Name)
+			pv := getPvFromClaim(client, nil, namespace, pvclaim.Name)
 
 			volumeID := pv.Spec.CSI.VolumeHandle
 			if vanillaCluster {

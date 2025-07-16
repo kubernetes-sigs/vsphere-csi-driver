@@ -258,7 +258,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 			"before and after migration")
 		for _, pvc := range append(vcpPvcsPreMig, vcpPvcsPostMig...) {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
-			pv := getPvFromClaim(client, namespace, pvc.Name)
+			pv := getPvFromClaim(client, nil, namespace, pvc.Name)
 			framework.Logf("Processing PVC: %q", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -346,7 +346,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		ginkgo.By("Verify CnsVSphereVolumeMigration crds and CNS volume metadata for all volumes created before migration")
 		for _, pvc := range vcpPvcsPreMig {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
-			pv := getPvFromClaim(client, namespace, pvc.Name)
+			pv := getPvFromClaim(client, nil, namespace, pvc.Name)
 			framework.Logf("Processing PVC: %q", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -529,7 +529,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		for _, pvc := range vcpPvcsPostMig {
 			vpath = getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
 			framework.Logf("Processing PVC: %q", pvc.Name)
-			pv := getPvFromClaim(client, namespace, pvc.Name)
+			pv := getPvFromClaim(client, nil, namespace, pvc.Name)
 			var found bool
 			found, crd = getCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(found).To(gomega.BeTrue())
@@ -611,7 +611,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create CSI SC SC2")
-		csiSC, err := createStorageClass(client, nil, nil, v1.PersistentVolumeReclaimDelete,
+		csiSC, err := createStorageClass(client, nil, nil, nil, v1.PersistentVolumeReclaimDelete,
 			storagev1.VolumeBindingImmediate, true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

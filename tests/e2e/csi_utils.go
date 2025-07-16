@@ -67,10 +67,13 @@ func waitForControllerDeletion(ctx context.Context, client clientset.Interface, 
 }
 
 // mapK8sMasterNodeWithIPs returns master node name and IP from K8S testbed
-func mapK8sMasterNodeWithIPs(client clientset.Interface, nodeNameIPMap map[string]string) error {
+func mapK8sMasterNodeWithIPs(client clientset.Interface, adminClient clientset.Interface, nodeNameIPMap map[string]string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{LabelSelector: "node-role.kubernetes.io/master"})
+	if vanillaCluster || adminClient == nil {
+		adminClient = client
+	}
+	nodes, err := adminClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{LabelSelector: "node-role.kubernetes.io/master"})
 	if err != nil {
 		return err
 	}
