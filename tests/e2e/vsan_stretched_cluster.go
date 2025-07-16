@@ -82,6 +82,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		sc                         *storagev1.StorageClass
 		accessMode                 v1.PersistentVolumeAccessMode
 		err                        error
+		adminClient                clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -91,6 +92,16 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		runningAsDevopsUser := GetorIgnoreStringEnvVar("IS_DEVOPS_USER")
+		adminClient, client = initializeClusterClientsByUserRoles(client)
+		if guestCluster && runningAsDevopsUser == "yes" {
+
+			saName := namespace + "sa"
+			client, err = createScopedClient(ctx, client, namespace, saName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		readVcEsxIpsViaTestbedInfoJson(GetAndExpectStringEnvVar(envTestbedInfoJsonPath))
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
@@ -99,7 +110,11 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		isVsanHealthServiceStopped = false
 
 		initialiseFdsVar(ctx)
-		err = waitForAllNodes2BeReady(ctx, client)
+		if !supervisorCluster {
+			err = waitForAllNodes2BeReady(ctx, client)
+		} else {
+			err = waitForAllNodes2BeReady(ctx, adminClient)
+		}
 		framework.ExpectNoError(err, "cluster not completely healthy")
 
 		// TODO: verify csi pods are up
@@ -115,7 +130,11 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			}
 		}
 
-		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		if !supervisorCluster {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
+		} else {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, adminClient)
+		}
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -184,21 +203,20 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		} else {
 			accessMode = v1.ReadWriteOnce
 		}
-
-		if rwxAccessMode {
-			accessMode = v1.ReadWriteMany
-		} else {
-			accessMode = v1.ReadWriteOnce
-		}
 	})
 
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var err error
 		if !guestCluster {
 			wait4AllK8sNodesToBeUp(nodeList)
 		}
-		err := waitForAllNodes2BeReady(ctx, client)
+		if !supervisorCluster {
+			err = waitForAllNodes2BeReady(ctx, client)
+		} else {
+			err = waitForAllNodes2BeReady(ctx, adminClient)
+		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		scaleDownNDeleteStsDeploymentsInNamespace(ctx, client, namespace)
@@ -207,15 +225,16 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		scs, err := client.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
-		if !apierrors.IsNotFound(err) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
+
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
 		if vanillaCluster {
+			scs, err := client.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 			for _, sc := range scs.Items {
 				err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 				if !apierrors.IsNotFound(err) {
@@ -346,8 +365,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		if vanillaCluster {
 			wait4AllK8sNodesToBeUp(nodeList)
 		}
-		if guestCluster || vanillaCluster {
+		if vanillaCluster {
 			err = waitForAllNodes2BeReady(ctx, client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		if guestCluster {
+			err = waitForAllNodes2BeReady(ctx, adminClient)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -404,7 +427,11 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		ginkgo.By("Wait for k8s cluster to be healthy")
 		// wait for the VMs to move back
-		err = waitForAllNodes2BeReady(ctx, client)
+		if vanillaCluster {
+			err = waitForAllNodes2BeReady(ctx, client)
+		} else {
+
+		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if supervisorCluster {
@@ -555,8 +582,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			if vanillaCluster {
 				wait4AllK8sNodesToBeUp(nodeList)
 			}
-			if vanillaCluster && guestCluster {
+
+			if vanillaCluster {
 				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if guestCluster {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -907,8 +939,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			if vanillaCluster {
 				wait4AllK8sNodesToBeUp(nodeList)
 			}
-			if vanillaCluster && guestCluster {
+
+			if vanillaCluster {
 				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if guestCluster {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -964,8 +1001,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				fds.hostsDown = nil
 			}
 
-			err = waitForAllNodes2BeReady(ctx, client)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if vanillaCluster {
+				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 		})
 
@@ -1080,8 +1122,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			if vanillaCluster {
 				wait4AllK8sNodesToBeUp(nodeList)
 			}
-			if guestCluster || vanillaCluster {
+			if vanillaCluster {
 				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if guestCluster {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			time.Sleep(pollTimeout * 2)
@@ -1113,8 +1159,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			ginkgo.By("Bring up the primary site")
 			siteNetworkFailure(true, true)
 
-			err = waitForAllNodes2BeReady(ctx, client)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if vanillaCluster {
+				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			if supervisorCluster {
 
@@ -1224,8 +1275,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			if vanillaCluster {
 				wait4AllK8sNodesToBeUp(nodeList)
 			}
-			if vanillaCluster || guestCluster {
+			if vanillaCluster {
 				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if guestCluster {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -1267,8 +1322,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 			ginkgo.By("Wait for k8s cluster to be healthy")
 			// wait for the VMs to move back
-			err = waitForAllNodes2BeReady(ctx, client)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if vanillaCluster {
+				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 		})
 
@@ -1516,8 +1576,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			if vanillaCluster {
 				wait4AllK8sNodesToBeUp(nodeList)
 			}
-			if vanillaCluster || guestCluster {
+			if vanillaCluster {
 				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if guestCluster {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -2187,9 +2251,11 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 			if vanillaCluster {
 				wait4AllK8sNodesToBeUp(nodeList)
-			}
-			if vanillaCluster || guestCluster {
 				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if guestCluster {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -2237,8 +2303,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				fds.hostsDown = nil
 			}
 
-			err = waitForAllNodes2BeReady(ctx, client)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if vanillaCluster {
+				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			if supervisorCluster {
 				ginkgo.By("Performing scaledown operation on statefulset when site is down")
@@ -2377,9 +2448,11 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			ginkgo.By("Wait for k8s cluster to be healthy")
 			if vanillaCluster {
 				wait4AllK8sNodesToBeUp(nodeList)
-			}
-			if vanillaCluster || guestCluster {
 				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if guestCluster {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			time.Sleep(2 * pollTimeout)
@@ -2452,8 +2525,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 			ginkgo.By("Wait for k8s cluster to be healthy")
 			// wait for the VMs to move back
-			err = waitForAllNodes2BeReady(ctx, client)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if vanillaCluster {
+				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			ginkgo.By("Verifying volume lifecycle actions works fine")
 			volumeLifecycleActions(ctx, client, namespace, sc, accessMode)
@@ -2571,9 +2649,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 			if vanillaCluster {
 				wait4AllK8sNodesToBeUp(nodeList)
-			}
-			if vanillaCluster || guestCluster {
+
 				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if guestCluster {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -2633,8 +2714,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				toggleWitnessPowerState(ctx, false)
 			}
 
-			err = waitForAllNodes2BeReady(ctx, client)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if vanillaCluster {
+				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			ginkgo.By("Verifying volume lifecycle actions works fine")
 			volumeLifecycleActions(ctx, client, namespace, sc, "")
@@ -3291,9 +3377,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			ginkgo.By("Wait for k8s cluster to be healthy")
 			if vanillaCluster {
 				wait4AllK8sNodesToBeUp(nodeList)
+
+				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
-			if vanillaCluster || guestCluster {
-				err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
+			if guestCluster {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
@@ -3346,8 +3435,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 			ginkgo.By("Wait for k8s cluster to be healthy")
 			// wait for the VMs to move back
-			err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if vanillaCluster {
+				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		})
 
 	/*
@@ -4396,9 +4490,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			ginkgo.By("Wait for k8s cluster to be healthy")
 			if vanillaCluster {
 				wait4AllK8sNodesToBeUp(nodeList)
+
+				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
-			if vanillaCluster || guestCluster {
-				err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
+			if guestCluster {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			time.Sleep(pollTimeout * 2)
@@ -4464,8 +4561,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 			ginkgo.By("Wait for k8s cluster to be healthy")
 			// wait for the VMs to move back
-			err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if vanillaCluster {
+				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 		})
 
@@ -4934,9 +5036,12 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 			if vanillaCluster {
 				wait4AllK8sNodesToBeUp(nodeList)
-			}
-			if vanillaCluster || guestCluster {
+
 				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if guestCluster {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			time.Sleep(pollTimeout * 2)
@@ -4997,8 +5102,13 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 				fds.hostsDown = nil
 			}
 
-			err = waitForAllNodes2BeReady(ctx, client)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if vanillaCluster {
+				err = waitForAllNodes2BeReady(ctx, client)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			} else {
+				err = waitForAllNodes2BeReady(ctx, adminClient)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			if supervisorCluster {
 

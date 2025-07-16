@@ -50,6 +50,7 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", ginkgo.Label(
 		volHealthCheck = true
 		isVsanHealthServiceStopped = false
 		namespace = getNamespaceToRunTests(f)
+
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
@@ -116,7 +117,7 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", ginkgo.Label(
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -253,7 +254,7 @@ var _ = ginkgo.Describe("File Volume Test volume health plumbing", ginkgo.Label(
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
