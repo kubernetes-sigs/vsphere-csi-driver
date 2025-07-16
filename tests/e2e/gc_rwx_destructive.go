@@ -60,6 +60,8 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, rqLimit)
 		bootstrap()
+		var err error
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)

@@ -125,7 +125,6 @@ var _ = ginkgo.Describe("Scale Test", func() {
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimitScaleTest, storagePolicyName)
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
