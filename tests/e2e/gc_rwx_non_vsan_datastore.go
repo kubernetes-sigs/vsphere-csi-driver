@@ -39,6 +39,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Non-VSAN datas
 		namespace                string
 		scParameters             map[string]string
 		nonVsanStoragePolicyName string
+		adminClient              clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -47,8 +48,18 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Non-VSAN datas
 		scParameters = make(map[string]string)
 		nonVsanStoragePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForNonSharedDatastores)
 		bootstrap()
+		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		runningAsDevopsUser := GetorIgnoreStringEnvVar("IS_DEVOPS_USER")
+		adminClient, client = initializeClusterClientsByUserRoles(client)
+		if guestCluster && runningAsDevopsUser == "yes" {
+
+			saName := namespace + "sa"
+			client, err = createScopedClient(ctx, client, namespace, saName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -86,7 +97,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Non-VSAN datas
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -122,7 +133,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Non-VSAN datas
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 

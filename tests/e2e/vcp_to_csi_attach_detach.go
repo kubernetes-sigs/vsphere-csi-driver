@@ -1085,6 +1085,7 @@ func verifyVolMountsInPods(ctx context.Context, client clientset.Interface, pods
 
 	var exists bool
 	var vmUUID string
+
 	for i, pod := range pods {
 		// Waiting for pod to be running.
 		err := fpod.WaitForPodNameRunningInNamespace(ctx, client, pod.Name, pod.Namespace)
