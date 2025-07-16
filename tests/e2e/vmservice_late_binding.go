@@ -64,6 +64,7 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 		expected_pvcQuotaInMbStr string
 		storageclass             *storagev1.StorageClass
 		expected_vmQuotaStr      string
+		userName                 string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -101,7 +102,7 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 		// Create SVC namespace and assign storage policy and vmContent Library
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
 			[]string{storageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
-			nil, vmClass, contentLibId)
+			nil, vmClass, contentLibId, userName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 

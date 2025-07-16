@@ -3,7 +3,6 @@ package admissionhandler
 import (
 	"context"
 	"crypto/tls"
-	_ "crypto/tls/fipsonly"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"

@@ -330,6 +330,7 @@ func verifyOnlineVolumeExpansionOnGc(client clientset.Interface, namespace strin
 func verifyOfflineVolumeExpansionOnGc(ctx context.Context, client clientset.Interface,
 	pvclaim *v1.PersistentVolumeClaim, svcPVCName string, namespace string, volHandle string,
 	pod *v1.Pod, pv *v1.PersistentVolume, f *framework.Framework) {
+	var err error
 	ginkgo.By("Check filesystem size for mount point /mnt/volume1 before expansion")
 	originalFsSize, err := getFileSystemSizeForOsType(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

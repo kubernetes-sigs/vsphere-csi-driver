@@ -191,7 +191,7 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation-vsan-max] TKG-WLDI-Vsan-Max"
 		statefulsetRwo := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, true, allowedTopologies,
 			true, true, "", "", storageclass, storageclass.Name)
 		defer func() {
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
 		}()
 
 		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
@@ -203,7 +203,7 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation-vsan-max] TKG-WLDI-Vsan-Max"
 		statefulsetRwm := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, true, allowedTopologies,
 			true, true, "", v1.ReadWriteMany, storageclass, storageclass.Name)
 		defer func() {
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
 		}()
 
 		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
@@ -317,7 +317,7 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation-vsan-max] TKG-WLDI-Vsan-Max"
 		statefulsetRwo := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, true, allowedTopologies,
 			true, true, "", "", storageclass, storageclass.Name)
 		defer func() {
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
 		}()
 
 		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")

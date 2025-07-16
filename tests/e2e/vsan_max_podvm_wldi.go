@@ -58,6 +58,8 @@ var _ bool = ginkgo.Describe("[podvm-domain-isolation-vsan-max] PodVM-WLDI-Vsan-
 		uncordon                bool
 		filteredNodes           *v1.NodeList
 		dh                      drain.Helper
+		adminClient             clientset.Interface
+		userName                string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -67,6 +69,9 @@ var _ bool = ginkgo.Describe("[podvm-domain-isolation-vsan-max] PodVM-WLDI-Vsan-
 		// making vc connection
 		client = f.ClientSet
 		bootstrap()
+
+		var err error
+		adminClient, client = initializeClusterClientsByUserRoles(client)
 
 		// reading vc session id
 		if vcRestSessionId == "" {
@@ -99,7 +104,7 @@ var _ bool = ginkgo.Describe("[podvm-domain-isolation-vsan-max] PodVM-WLDI-Vsan-
 
 		dh = drain.Helper{
 			Ctx:                 ctx,
-			Client:              client,
+			Client:              adminClient,
 			Force:               true,
 			IgnoreAllDaemonSets: true,
 			Out:                 ginkgo.GinkgoWriter,
@@ -171,7 +176,7 @@ var _ bool = ginkgo.Describe("[podvm-domain-isolation-vsan-max] PodVM-WLDI-Vsan-
 			topValEndIndex)
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
 			[]string{storageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
-			[]string{zone1, zone2}, "", "")
+			[]string{zone1, zone2}, "", "", userName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {

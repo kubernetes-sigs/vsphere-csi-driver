@@ -8109,7 +8109,7 @@ It constructs an API request and sends it to the vSphere REST API.
 func createtWcpNsWithZonesAndPolicies(
 	vcRestSessionId string, storagePolicyId []string,
 	supervisorId string, zoneNames []string,
-	vmClass string, contentLibId string) (string, int, error) {
+	vmClass string, contentLibId string, userName string) (string, int, error) {
 
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 	namespace := fmt.Sprintf("csi-vmsvcns-%v", r.Intn(10000))
@@ -8139,6 +8139,15 @@ func createtWcpNsWithZonesAndPolicies(
 		requestBody["vm_service_spec"] = map[string]interface{}{
 			"vm_classes":        []string{vmClass},
 			"content_libraries": []string{contentLibId},
+		}
+	}
+
+	if userName != "" {
+		requestBody["access_list"] = map[string]interface{}{
+			"domain":       "vsphere.local",
+			"role":         "OWNER",
+			"subject":      userName,
+			"subject_type": "USER",
 		}
 	}
 

@@ -672,6 +672,7 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 	sc *storagev1.StorageClass, isDeploymentRequired bool, modifyStsSpec bool,
 	stsReplica int32, stsName string, depReplicaCount int32,
 	accessMode v1.PersistentVolumeAccessMode) (*appsv1.StatefulSet, *appsv1.Deployment, []string) {
+	var err error
 	var pvclaims []*v1.PersistentVolumeClaim
 	if accessMode == "" {
 		// If accessMode is not specified, set the default accessMode.
@@ -745,7 +746,7 @@ func createStsDeployment(ctx context.Context, client clientset.Interface, namesp
 		pvclaim, err := createPVC(ctx, client, namespace, nil, diskSize, sc, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaims = append(pvclaims, pvclaim)
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
@@ -892,8 +893,9 @@ func volumeLifecycleActions(ctx context.Context, client clientset.Interface, nam
 // scaleDownStsAndVerifyPodMetadata scales down replica of a statefulset if required
 // and verifies count of sts replica and  if its vSphere volumes match those in CNS cache
 func scaleDownStsAndVerifyPodMetadata(ctx context.Context, client clientset.Interface,
-	namespace string, statefulset *appsv1.StatefulSet, ssPodsBeforeScaleDown *v1.PodList,
-	replicas int32, isScaleDownRequired bool, verifyCnsVolumes bool) {
+	namespace string, statefulset *appsv1.StatefulSet,
+	ssPodsBeforeScaleDown *v1.PodList, replicas int32, isScaleDownRequired bool,
+	verifyCnsVolumes bool) {
 	if isScaleDownRequired {
 		framework.Logf("Scaling down statefulset: %v to number of Replica: %v",
 			statefulset.Name, replicas)

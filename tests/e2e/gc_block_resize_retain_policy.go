@@ -69,12 +69,14 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] Volume Expansion Tests with reclaim
 		restConfig          *restclient.Config
 		deleteFCDRequired   bool
 		labels_ns           map[string]string
+		adminClient         clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		client = f.ClientSet
+
 		namespace = f.Namespace.Name
 		f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 		labels_ns = map[string]string{}
@@ -82,6 +84,15 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] Volume Expansion Tests with reclaim
 		labels_ns["e2e-framework"] = f.BaseName
 
 		bootstrap()
+		runningAsDevopsUser := GetorIgnoreStringEnvVar("IS_DEVOPS_USER")
+		adminClient, client = initializeClusterClientsByUserRoles(client)
+		if guestCluster && runningAsDevopsUser == "yes" {
+
+			saName := namespace + "sa"
+			client, err = createScopedClient(ctx, client, namespace, saName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
 		ginkgo.By("Getting ready nodes on GC 1")
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
@@ -113,7 +124,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] Volume Expansion Tests with reclaim
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvclaim)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pv = persistentvolumes[0]
 		volHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -148,7 +159,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] Volume Expansion Tests with reclaim
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if !pvDeleted {
-			err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		if !pvcDeletedInSvc {
@@ -170,7 +181,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] Volume Expansion Tests with reclaim
 		ginkgo.By("Verify volume is deleted in Supervisor Cluster")
 		err = waitTillVolumeIsDeletedInSvc(svcPVCName, poll, pollTimeoutShort)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+		err = adminClient.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
@@ -255,7 +266,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] Volume Expansion Tests with reclaim
 		pvcDeleted = true
 
 		ginkgo.By("Check GC PV exists and is released")
-		pv, err = waitForPvToBeReleased(ctx, client, pv.Name)
+		pv, err = waitForPvToBeReleased(ctx, adminClient, pv.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		oldPvUID := string(pv.UID)
 		fmt.Println("PV uuid", oldPvUID)
@@ -444,7 +455,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] Volume Expansion Tests with reclaim
 		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvclaim.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvcDeleted = true
-		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
+		err = adminClient.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvDeleted = true
 
@@ -682,7 +693,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] Volume Expansion Tests with reclaim
 		pvcDeleted = true
 
 		ginkgo.By("Check GC PV exists and is released")
-		pv, err = waitForPvToBeReleased(ctx, client, pv.Name)
+		pv, err = waitForPvToBeReleased(ctx, adminClient, pv.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		oldPvUID := string(pv.UID)
 		fmt.Println("PV uuid", oldPvUID)
@@ -902,7 +913,8 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] Volume Expansion Tests with reclaim
 		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 		svcPVC, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, svpvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+		svcPV, err := svcClient.CoreV1().PersistentVolumes().Get(ctx, svcPVC.Spec.VolumeName, metav1.GetOptions{})
+		gomega.Expect(svcPVC).NotTo(gomega.BeNil())
 		verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
 
 		//Create PVC,PV  in GC2
@@ -1040,7 +1052,8 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] Volume Expansion Tests with reclaim
 		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 		svcPVC, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, svpvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+		svcPV, err := svcClient.CoreV1().PersistentVolumes().Get(ctx, svcPVC.Spec.VolumeName, metav1.GetOptions{})
+		gomega.Expect(svcPVC).NotTo(gomega.BeNil())
 		verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
 
 		pvcNew, pvNew := createStaticPVandPVCinGuestCluster(client, ctx, namespace, svpvcName,

@@ -159,10 +159,11 @@ If we have multiple statefulsets, deployment Pods, PVCs/PVs created on a given n
 cleanup of these multiple sts creation, deleteAllStsAndPodsPVCsInNamespace is used
 */
 func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interface, ns string) {
+
+	var err error
+	adminClient, _ := initializeClusterClientsByUserRoles(c)
 	StatefulSetPoll := 10 * time.Second
 	StatefulSetTimeout := 10 * time.Minute
-	var err error
-	adminClient, c := initializeClusterClientsByUserRoles(c)
 	ssList, err := c.AppsV1().StatefulSets(ns).List(context.TODO(),
 		metav1.ListOptions{LabelSelector: labels.Everything().String()})
 	framework.ExpectNoError(err)

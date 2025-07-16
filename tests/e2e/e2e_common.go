@@ -71,6 +71,7 @@ const (
 	e2evSphereCSIDriverName                    = "csi.vsphere.vmware.com"
 	ensureAccessibilityMModeType               = "ensureObjectAccessibility"
 	envClusterFlavor                           = "CLUSTER_FLAVOR"
+	envDevopsUserName                          = "DEVOPS_USERNAME"
 	envDiskSizeLarge                           = "LARGE_DISK_SIZE"
 	envCSINamespace                            = "CSI_NAMESPACE"
 	envContentLibraryUrl                       = "CONTENT_LIB_URL"
@@ -185,6 +186,7 @@ const (
 	defaultrqLimit                            = "20Gi"
 	rqStorageType                             = ".storageclass.storage.k8s.io/requests.storage"
 	resizerContainerName                      = "csi-resizer"
+	serviceAccountKeyword                     = "ServiceAccount"
 	scParamDatastoreURL                       = "DatastoreURL"
 	scParamFsType                             = "csi.storage.k8s.io/fstype"
 	scParamStoragePolicyID                    = "storagePolicyID"
@@ -514,7 +516,6 @@ var (
 	roleKeyword               = "Role"
 	audienceForSvcAccountName = "https://kubernetes.default.svc.cluster.local"
 	envIsDevopsUser           = "IS_DEVOPS_USER"
-	serviceAccountKeyword     = "ServiceAccount"
 )
 
 // storage policy usages for storage quota validation
