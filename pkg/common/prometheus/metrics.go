@@ -58,6 +58,8 @@ const (
 	PrometheusCnsDeleteVolumeOpType = "delete-volume"
 	// PrometheusCnsAttachVolumeOpType represents the AttachVolume operation.
 	PrometheusCnsAttachVolumeOpType = "attach-volume"
+	// PrometheusCnsBatchAttachVolumeOpType represents the BatchAttachVolume operation.
+	PrometheusCnsBatchAttachVolumeOpType = "batch-volume"
 	// PrometheusCnsDetachVolumeOpType represents the DetachVolume operation.
 	PrometheusCnsDetachVolumeOpType = "detach-volume"
 	// PrometheusCnsUpdateVolumeMetadataOpType represents the UpdateVolumeMetadata operation.

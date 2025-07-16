@@ -37,6 +37,21 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
+type BatchAttach struct {
+	volumeID      string
+	SharingMode   string
+	DiskMode      string
+	ControllerKey int64
+	UnitNumber    int64
+}
+
+type BatchAttachTaskResult struct {
+	Error    error
+	DiskUUID string
+	VolumeId string
+	FaultType string
+}
+
 func validateManager(ctx context.Context, m *defaultManager) error {
 	log := logger.GetLogger(ctx)
 	if m.virtualCenter == nil {
