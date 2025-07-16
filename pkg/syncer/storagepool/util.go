@@ -29,16 +29,18 @@ import (
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	pkgruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/utils/clock"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
@@ -188,6 +190,31 @@ func makeStoragePoolName(dsName string) string {
 	return spName
 }
 
+func getK8sClient(ctx context.Context) (client.Client, error) {
+	log := logger.GetLogger(ctx)
+	// Create a client to create/udpate StoragePool instances.
+	cfg, err := config.GetConfig()
+	if err != nil {
+		log.Error("Failed to get Kubernetes config. Err: " + err.Error())
+		return nil, err
+	}
+
+	scheme := pkgruntime.NewScheme()
+	err = spv1alpha1.AddToScheme(scheme)
+	if err != nil {
+		log.Errorf("Failed to add StoragePool scheme. Err: " + err.Error())
+		return nil, err
+	}
+
+	err = corev1.AddToScheme(scheme)
+	if err != nil {
+		log.Errorf("Failed to add core v1 scheme. Err: " + err.Error())
+		return nil, err
+	}
+
+	return client.New(cfg, client.Options{Scheme: scheme})
+}
+
 // getSPClient returns the StoragePool dynamic client.
 func getSPClient(ctx context.Context) (dynamic.Interface, *schema.GroupVersionResource, error) {
 	log := logger.GetLogger(ctx)
@@ -292,15 +319,22 @@ func updateDrainStatus(ctx context.Context, storagePoolName string, newStatus st
 		if err != nil {
 			return false, err
 		}
-		// Try to get the current drain Mode.
-		sp, err := k8sDynamicClient.Resource(*spResource).Get(ctx, storagePoolName, metav1.GetOptions{})
+
+		k8sClient, err := getK8sClient(ctx)
 		if err != nil {
-			log.Errorf("Could not get StoragePool with name %v. Error: %v", storagePoolName, err)
 			return false, err
 		}
-		drainMode, _, _ := unstructured.NestedString(sp.Object, "spec", "parameters", drainModeField)
 
-		if drainMode == fullDataEvacuationMM || drainMode == ensureAccessibilityMM || drainMode == noMigrationMM {
+		sp := &spv1alpha1.StoragePool{}
+		err = k8sClient.Get(ctx, k8stypes.NamespacedName{Name: storagePoolName}, sp)
+		if err != nil {
+			log.Errorf("Could not get StoragePool with name %s. Error: %s", storagePoolName, err)
+			return false, err
+		}
+
+		// Try to get the current drain Mode.
+		drainMode, ok := sp.Spec.Parameters[drainModeField]
+		if ok && (drainMode == fullDataEvacuationMM || drainMode == ensureAccessibilityMM || drainMode == noMigrationMM) {
 			var patch map[string]interface{}
 			if newStatus == drainFailStatus {
 				log.Infof("Errorstring: %v", errorString)
@@ -350,20 +384,23 @@ func updateDrainStatus(ctx context.Context, storagePoolName string, newStatus st
 
 // getDrainMode gets the disk decommission mode for a given StoragePool.
 func getDrainMode(ctx context.Context, storagePoolName string) (mode string, found bool, err error) {
-	k8sDynamicClient, spResource, err := getSPClient(ctx)
+	k8sClient, err := getK8sClient(ctx)
 	if err != nil {
 		return "", false, err
 	}
-	sp, err := k8sDynamicClient.Resource(*spResource).Get(ctx, storagePoolName, metav1.GetOptions{})
+
+	sp := &spv1alpha1.StoragePool{}
+	err = k8sClient.Get(ctx, k8stypes.NamespacedName{Name: storagePoolName}, sp)
 	if err != nil {
 		return "", false, err
 	}
-	mode, found, err = unstructured.NestedString(sp.Object, "spec", "parameters", drainModeField)
-	return mode, found, err
+
+	mode, found = sp.Spec.Parameters[drainModeField]
+	return mode, found, nil
 }
 
 func addTargetSPAnnotationOnPVC(ctx context.Context, pvcName, namespace,
-	targetSPName string) (*unstructured.Unstructured, error) {
+	targetSPName string) error {
 	log := logger.GetLogger(ctx)
 	pvcResource := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumeclaims"}
 	patch := map[string]interface{}{
@@ -376,31 +413,33 @@ func addTargetSPAnnotationOnPVC(ctx context.Context, pvcName, namespace,
 	patchBytes, err := json.Marshal(patch)
 	if err != nil {
 		log.Errorf("Failed to marshal json to add target SP annotation. Error: %v", err)
-		return nil, err
+		return err
 	}
 
-	var updatedPVC *unstructured.Unstructured
 	task := func() (done bool, err error) {
 		k8sDynamicClient, _, err := getSPClient(ctx)
 		if err != nil {
 			return false, err
 		}
 
-		updatedPVC, err = k8sDynamicClient.Resource(pvcResource).Namespace(namespace).Patch(ctx,
+		// TODO: We need to change the following patch op to use runtime client just like everywhere else.
+		// Since this is harder to test, I'm leaving this logic untouched for now.
+		_, err = k8sDynamicClient.Resource(pvcResource).Namespace(namespace).Patch(ctx,
 			pvcName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
 		if err != nil {
-			log.Errorf("Failed to update target StoragePool annotation on PVC %v in ns %v. Error: %v",
+			log.Errorf("Failed to update target StoragePool annotation on PVC %s in ns %s. Error: %s",
 				pvcName, namespace, err)
 			return false, err
 		}
-		log.Debugf("Successfully updated target StoragePool information to %v. Updated PVC: %v",
-			targetSPName, updatedPVC.GetName())
+		log.Debugf("Successfully updated target StoragePool information to %s. Updated PVC: %s",
+			targetSPName, pvcName)
 		return true, nil
 	}
 	baseDuration := time.Duration(100) * time.Millisecond
 	thresholdDuration := time.Duration(10) * time.Second
 	_, err = ExponentialBackoff(task, baseDuration, thresholdDuration, 1.5, 5)
-	return updatedPVC, err
+
+	return err
 }
 
 // ExponentialBackoff is an algorithm which is used to spread out repeated

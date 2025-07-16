@@ -29,18 +29,17 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	k8sinternal "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/admissionhandler"
 )
 
@@ -60,8 +59,6 @@ const (
 	spPolicyAntiPreferred = "placement.beta.vmware.com/storagepool_antiAffinityPreferred"
 	// AntiAffinityRequired placement policy for storagepool.
 	spPolicyAntiRequired = "placement.beta.vmware.com/storagepool_antiAffinityRequired"
-	// Resource name to get storage class.
-	resourceName = "storagepools"
 	// StoragePool type name for vsan-direct.
 	vsanDirect                = "vsanD"
 	invalidParamsErr          = "FAILED_PLACEMENT-InvalidParams"
@@ -128,12 +125,12 @@ type migrationPlanner interface {
 // placed in bin with minimum appropriate free space.
 type relaxedFitMigrationPlanner struct {
 	volumeList      []VolumeInfo
-	storagePoolList []unstructured.Unstructured
+	storagePoolList v1alpha1.StoragePoolList
 	pvcList         []v1.PersistentVolumeClaim
 	sourceHostNames []string
 }
 
-func newRelaxedFitMigrationPlanner(volumeList []VolumeInfo, spList []unstructured.Unstructured,
+func newRelaxedFitMigrationPlanner(volumeList []VolumeInfo, spList v1alpha1.StoragePoolList,
 	allPVCList []v1.PersistentVolumeClaim, accessibleNodeNames []string) migrationPlanner {
 	return relaxedFitMigrationPlanner{
 		volumeList:      volumeList,
@@ -171,22 +168,19 @@ func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context,
 		// assigned SP for more accurate placement.
 		assignedSPName := assignedSp.Name
 		volumeToSPMap[vol.PVName] = assignedSPName
-		for idx, sp := range b.storagePoolList {
-			if sp.GetName() == assignedSPName {
-				curAllocatableCap, found, err := unstructured.NestedInt64(sp.Object,
-					"status", "capacity", "allocatableSpace")
-				if !found || err != nil {
-					log.Warnf("Could not get current allocatable capacity for SP %v. Found: %v. Error: %v.",
-						sp.GetName(), found, err)
-					break
-				}
-				err = unstructured.SetNestedField(b.storagePoolList[idx].Object,
-					curAllocatableCap-vol.SizeInBytes, "status", "capacity", "allocatableSpace")
-				if err != nil {
-					log.Warnf("Could not update allocatable space for SP %v. Error: %v", sp.GetName(), err)
-				}
-				break
+		for _, sp := range b.storagePoolList.Items {
+			if sp.GetName() != assignedSPName {
+				continue
 			}
+
+			if sp.Status.Capacity == nil || sp.Status.Capacity.AllocatableSpace == nil {
+				log.Warn("Could not find current allocatable capacity for SP " +
+					sp.GetName())
+			} else {
+				curAllocatableCap := sp.Status.Capacity.AllocatableSpace.Value()
+				sp.Status.Capacity.AllocatableSpace.Set(curAllocatableCap - vol.SizeInBytes)
+			}
+			break
 		}
 
 		// Update storagePool info in namespaceToPVCsMap so that in next loop
@@ -284,7 +278,7 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface,
 		return nil, fmt.Errorf("could not find any StoragePool to migrate volumes")
 	}
 
-	var sourceSP unstructured.Unstructured
+	var sourceSP v1alpha1.StoragePool
 	for _, sp := range spList.Items {
 		if sp.GetName() == storagePoolName {
 			sourceSP = sp
@@ -295,16 +289,11 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface,
 		return nil, fmt.Errorf("failed to find source vSAN Direct StoragePool with name %v", storagePoolName)
 	}
 
-	spType, found, err := unstructured.NestedString(sourceSP.Object, "metadata", "labels", spTypeLabelKey)
-	if !found || err != nil || spType != vsanDirect {
+	if _, ok := sourceSP.Labels[spTypeLabelKey]; !ok {
 		return nil, fmt.Errorf("given StoragePool is not a vSAN Direct Datastore")
 	}
 
-	accessibleNodes, found, err := unstructured.NestedStringSlice(sourceSP.Object, "status", "accessibleNodes")
-	if !found || err != nil {
-		log.Errorf("Could not get accessible host from storage pool %v. Err: %v", storagePoolName, err)
-		return nil, fmt.Errorf("could not get accessible host information from StoragePool %v", storagePoolName)
-	}
+	accessibleNodes := sourceSP.Status.AccessibleNodes
 	if len(accessibleNodes) != 1 {
 		log.Warnf("Unexpected number of accessible nodes found for storage pool %v. Expected 1 found %v",
 			storagePoolName, len(accessibleNodes))
@@ -325,7 +314,7 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface,
 	}
 
 	// For each volume assign a target sp for storage vMotion.
-	rfMigrationPlanner := newRelaxedFitMigrationPlanner(volumeInfoList, spList.Items, allPVCList, accessibleNodes)
+	rfMigrationPlanner := newRelaxedFitMigrationPlanner(volumeInfoList, *spList, allPVCList, accessibleNodes)
 	volumesToSPMap, err = rfMigrationPlanner.getMigrationPlan(ctx, client)
 
 	if err != nil {
@@ -338,7 +327,7 @@ func getSPForPVCPlacement(ctx context.Context,
 	client kubernetes.Interface,
 	curPVC *v1.PersistentVolumeClaim,
 	volSizeBytes int64,
-	sps []unstructured.Unstructured,
+	sps v1alpha1.StoragePoolList,
 	hostNames []string,
 	pvcList []v1.PersistentVolumeClaim,
 	spType string,
@@ -350,7 +339,7 @@ func getSPForPVCPlacement(ctx context.Context,
 
 	scName, err := GetSCNameFromPVC(curPVC)
 	if err != nil {
-		log.Errorf("Fail to get Storage class name from PVC with +v", err)
+		log.Errorf("Fail to get Storage class name from PVC with %s", err)
 		if onlinePlacement {
 			stampPVCWithError(ctx, client, curPVC, invalidParamsErr)
 		}
@@ -753,7 +742,7 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface,
 	}
 
 	assignedSP, err := getSPForPVCPlacement(ctx, client, curPVC, volSizeBytes,
-		sps.Items, hostNames, pvcList.Items, spType, true)
+		*sps, hostNames, pvcList.Items, spType, true)
 	if err != nil {
 		log.Errorf("Failed to find any SP to place PVC %v. Error :%v", curPVC.Name, err)
 		// We have already stamped PVC with corresponding error.
@@ -770,7 +759,7 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface,
 }
 
 // getStoragePoolList get all storage pool list.
-func getStoragePoolList(ctx context.Context) (*unstructured.UnstructuredList, error) {
+func getStoragePoolList(ctx context.Context) (*v1alpha1.StoragePoolList, error) {
 	log := logger.GetLogger(ctx)
 
 	cfg, err := clientconfig.GetConfig()
@@ -779,36 +768,27 @@ func getStoragePoolList(ctx context.Context) (*unstructured.UnstructuredList, er
 		return nil, err
 	}
 
-	spClient, err := dynamic.NewForConfig(cfg)
+	c, err := k8sinternal.NewClientForGroup(ctx, cfg, v1alpha1.SchemeGroupVersion.Group)
 	if err != nil {
 		log.Errorf("Failed to create StoragePool client using config. Err: %+v", err)
 		return nil, err
 	}
 
-	spResource := schema.GroupVersion{Group: apis.GroupName, Version: apis.Version}.WithResource(resourceName)
-
-	// TODO Enable label on each storage pool and use label as filter storage
-	// pool list.
-	sps, err := spClient.Resource(spResource).List(ctx, metav1.ListOptions{
-		LabelSelector: spTypeLabelKey,
-	})
-	if err != nil {
-		log.Errorf("Failed to get StoragePool list. Error: %+v", err)
-		return nil, err
-	}
-	return sps, err
+	spList := &v1alpha1.StoragePoolList{}
+	err = c.List(ctx, spList, client.HasLabels{spTypeLabelKey})
+	return spList, err
 }
 
 // preFilterSPList filter out candidate storage pool list through topology and
 // capacity.
 // XXX TODO Add health of storage pools together as a filter when related
 // metrics available.
-func preFilterSPList(ctx context.Context, sps []unstructured.Unstructured,
+func preFilterSPList(ctx context.Context, sps v1alpha1.StoragePoolList,
 	storageClassName string, hostNames []string, volSizeBytes int64) ([]StoragePoolInfo, error) {
 	log := logger.GetLogger(ctx)
-	spList := []StoragePoolInfo{}
+	spList := make([]StoragePoolInfo, 0)
 
-	totalStoragePools := len(sps)
+	totalStoragePools := len(sps.Items)
 	nonVsanDirectOrSna := 0
 	nonSCComp := 0
 	topology := 0
@@ -816,23 +796,16 @@ func preFilterSPList(ctx context.Context, sps []unstructured.Unstructured,
 	underDiskDecomm := 0
 	notEnoughCapacity := 0
 
-	for _, sp := range sps {
+	for _, sp := range sps.Items {
 		spName := sp.GetName()
-		spType, found, err := unstructured.NestedString(sp.Object, "metadata", "labels", spTypeLabelKey)
-		if !found || err != nil || (spType != vsanDirect && spType != vsanSna) {
+		spType, found := sp.Labels[spTypeLabelKey]
+		if !found || (spType != vsanDirect && spType != vsanSna) {
 			nonVsanDirectOrSna++
 			continue
 		}
 
-		// sc compatible filter.
-		scs, found, err := unstructured.NestedStringSlice(sp.Object, "status", "compatibleStorageClasses")
-		if !found || err != nil {
-			nonSCComp++
-			continue
-		}
-
 		foundMappedSC := false
-		for _, sc := range scs {
+		for _, sc := range sp.Status.CompatibleStorageClasses {
 			if storageClassName == sc {
 				foundMappedSC = true
 				break
@@ -858,13 +831,10 @@ func preFilterSPList(ctx context.Context, sps []unstructured.Unstructured,
 			continue
 		}
 
-		// The storage pool capacity is expressed in raw bytes.
-		spSize, found, err := unstructured.NestedInt64(sp.Object, "status", "capacity", "allocatableSpace")
-		if !found || err != nil {
-			notEnoughCapacity++
-			continue
+		var spSize int64
+		if sp.Status.Capacity != nil && sp.Status.Capacity.AllocatableSpace != nil {
+			spSize = sp.Status.Capacity.AllocatableSpace.Value()
 		}
-
 		if spSize > volSizeBytes { // Filter by capacity.
 			spList = append(spList, StoragePoolInfo{
 				Name:                  spName,
@@ -883,47 +853,36 @@ func preFilterSPList(ctx context.Context, sps []unstructured.Unstructured,
 }
 
 // isStoragePoolHealthy checks if the datastores in StoragePool 'sp' is healthy.
-func isStoragePoolHealthy(ctx context.Context, sp unstructured.Unstructured) bool {
+func isStoragePoolHealthy(ctx context.Context, sp v1alpha1.StoragePool) bool {
 	log := logger.GetLogger(ctx)
 	spName := sp.GetName()
-	message, found, err := unstructured.NestedString(sp.Object, "status", "error", "message")
-	if err != nil {
-		log.Debug("failed to fetch the storage pool health: ", err)
-		return false
-	}
-	if !found {
+	if sp.Status.Error == nil {
 		log.Debug(spName, " is healthy")
 		return true
 	}
-	log.Debug(spName, " is unhealthy. Reason: ", message)
+
+	log.Debug(spName, " is unhealthy. Reason: ", sp.Status.Error.Message)
 	return false
 }
 
-func isStoragePoolInDiskDecommission(ctx context.Context, sp unstructured.Unstructured) bool {
+func isStoragePoolInDiskDecommission(ctx context.Context, sp v1alpha1.StoragePool) bool {
 	log := logger.GetLogger(ctx)
 	spName := sp.GetName()
-	drainMode, found, err := unstructured.NestedString(sp.Object, "spec", "parameters", diskDecommissionModeField)
-	if err != nil {
-		log.Debugf("failed to fetch labels of storage pool %v. Err: %v", spName, err)
-		return true
-	}
+	drainMode, found := sp.Spec.Parameters[diskDecommissionModeField]
 	if !found {
+		log.Debug(spName + " is not under disk decommission")
 		return false
 	}
-	log.Debugf("%v is under disk decommission with status %v", spName, drainMode)
+
+	log.Debug(spName + " is under disk decommission with status " + drainMode)
 	return true
 }
 
 // isStoragePoolAccessibleByNodes filter out accessible storage pools from
 // a given list of candidate nodes.
-func isStoragePoolAccessibleByNodes(ctx context.Context, sp unstructured.Unstructured, hostNames []string) bool {
-	nodes, found, err := unstructured.NestedStringSlice(sp.Object, "status", "accessibleNodes")
-	if !found || err != nil {
-		return false
-	}
-
+func isStoragePoolAccessibleByNodes(ctx context.Context, sp v1alpha1.StoragePool, hostNames []string) bool {
 	for _, host := range hostNames { // filter by node candidate list.
-		for _, node := range nodes {
+		for _, node := range sp.Status.AccessibleNodes {
 			if node == host {
 				return true
 			}
