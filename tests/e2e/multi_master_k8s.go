@@ -54,6 +54,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		labelValue          string
 		scParameters        map[string]string
 		nodeNameIPMap       map[string]string
+		adminClient         clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -65,12 +66,14 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 			controllerNamespace = csiSystemNamespace
 		}
 		bootstrap()
+		var err error
+		adminClient, client = initializeClusterClientsByUserRoles(client)
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 
 		nodeNameIPMap = make(map[string]string)
 		ginkgo.By("Retrieving testbed configuration data")
-		err := mapK8sMasterNodeWithIPs(client, nodeNameIPMap)
+		err = mapK8sMasterNodeWithIPs(client, nodeNameIPMap)
 		framework.ExpectNoError(err)
 
 		labelKey = "app"
@@ -239,7 +242,13 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		"pod is running", ginkgo.Label(p0, block, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		nodeList, podList := getControllerRuntimeDetails(client, controllerNamespace)
+		var nodeList, podList []string
+		if vanillaCluster {
+			nodeList, podList = getControllerRuntimeDetails(client, controllerNamespace)
+		} else {
+			nodeList, podList = getControllerRuntimeDetails(adminClient, controllerNamespace)
+
+		}
 		ginkgo.By(fmt.Sprintf("vsphere-csi-controller pod(s) %+v is running on node(s) %+v", podList, nodeList))
 		gomega.Expect(len(podList) == 1).To(gomega.BeTrue(), "Number of vsphere-csi-controller pod running is not 1")
 
@@ -252,7 +261,6 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
 				scParameters, "", nil, "", false, "", storagePolicyName)
 		}

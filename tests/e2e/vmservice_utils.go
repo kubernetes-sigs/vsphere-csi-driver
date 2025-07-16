@@ -68,7 +68,7 @@ const vmServiceVmLabelKey = "topology.kubernetes.io/zone"
 // createTestWcpNs create a wcp namespace with given storage policy, vm class and content lib via REST API
 func createTestWcpNs(
 	vcRestSessionId string, storagePolicyId string, vmClass string, contentLibId string,
-	supervisorId string) string {
+	supervisorId string, userName string) string {
 
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
 	r := rand.New(rand.NewSource(time.Now().Unix()))
@@ -76,6 +76,12 @@ func createTestWcpNs(
 	namespace := fmt.Sprintf("csi-vmsvcns-%v", r.Intn(10000))
 	nsCreationUrl := "https://" + vcIp + "/api/vcenter/namespaces/instances/v2"
 	reqBody := fmt.Sprintf(`{
+		"access_list": [ {
+			"domain": "vsphere.local",
+			"role": "OWNER",
+			"subject": "%s",
+			"subject_type": "USER"
+		} ],
         "namespace": "%s",
         "storage_specs": [  {
             "policy": "%s"
@@ -89,7 +95,7 @@ func createTestWcpNs(
             ]
         },
         "supervisor": "%s"
-    }`, namespace, storagePolicyId, vmClass, contentLibId, supervisorId)
+    }`, userName, namespace, storagePolicyId, vmClass, contentLibId, supervisorId)
 
 	fmt.Println(reqBody)
 
