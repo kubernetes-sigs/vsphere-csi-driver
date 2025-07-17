@@ -39,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/utils/clock"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
@@ -186,6 +187,18 @@ func makeStoragePoolName(dsName string) string {
 	// spName should be in lower case and should not end with "-".
 	spName = strings.TrimSuffix(strings.ToLower(spName), "-")
 	return spName
+}
+
+func getK8sClient(ctx context.Context) (client.Client, error) {
+	log := logger.GetLogger(ctx)
+	// Create a client to create/udpate StoragePool instances.
+	cfg, err := config.GetConfig()
+	if err != nil {
+		log.Errorf("Failed to get Kubernetes config. Err: %s", err)
+		return nil, err
+	}
+
+	return k8s.NewClientForGroup(ctx, cfg, spv1alpha1.SchemeGroupVersion.Group)
 }
 
 // getSPClient returns the StoragePool dynamic client.
@@ -363,7 +376,7 @@ func getDrainMode(ctx context.Context, storagePoolName string) (mode string, fou
 }
 
 func addTargetSPAnnotationOnPVC(ctx context.Context, pvcName, namespace,
-	targetSPName string) (*unstructured.Unstructured, error) {
+	targetSPName string) error {
 	log := logger.GetLogger(ctx)
 	pvcResource := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumeclaims"}
 	patch := map[string]interface{}{
@@ -376,31 +389,33 @@ func addTargetSPAnnotationOnPVC(ctx context.Context, pvcName, namespace,
 	patchBytes, err := json.Marshal(patch)
 	if err != nil {
 		log.Errorf("Failed to marshal json to add target SP annotation. Error: %v", err)
-		return nil, err
+		return err
 	}
 
-	var updatedPVC *unstructured.Unstructured
 	task := func() (done bool, err error) {
 		k8sDynamicClient, _, err := getSPClient(ctx)
 		if err != nil {
 			return false, err
 		}
 
-		updatedPVC, err = k8sDynamicClient.Resource(pvcResource).Namespace(namespace).Patch(ctx,
+		// TODO: change the following to use runtime client just like everywhere else.
+		// Since this is harder to test, I'm leaving this logic untouched for now.
+		_, err = k8sDynamicClient.Resource(pvcResource).Namespace(namespace).Patch(ctx,
 			pvcName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
 		if err != nil {
-			log.Errorf("Failed to update target StoragePool annotation on PVC %v in ns %v. Error: %v",
+			log.Errorf("Failed to update target StoragePool annotation on PVC %s in ns %s. Error: %s",
 				pvcName, namespace, err)
 			return false, err
 		}
-		log.Debugf("Successfully updated target StoragePool information to %v. Updated PVC: %v",
-			targetSPName, updatedPVC.GetName())
+		log.Debugf("Successfully updated target StoragePool information to %s. Updated PVC: %s",
+			targetSPName, pvcName)
 		return true, nil
 	}
 	baseDuration := time.Duration(100) * time.Millisecond
 	thresholdDuration := time.Duration(10) * time.Second
 	_, err = ExponentialBackoff(task, baseDuration, thresholdDuration, 1.5, 5)
-	return updatedPVC, err
+
+	return err
 }
 
 // ExponentialBackoff is an algorithm which is used to spread out repeated
