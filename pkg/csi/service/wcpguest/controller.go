@@ -1376,11 +1376,6 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 	controllerExpandVolumeInternal := func() (
 		*csi.ControllerExpandVolumeResponse, string, error) {
-		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VolumeExtend) {
-			msg := "ExpandVolume feature is disabled on the cluster."
-			log.Warn(msg)
-			return nil, csifault.CSIUnimplementedFault, status.Error(codes.Unimplemented, msg)
-		}
 		log.Infof("ControllerExpandVolume: called with args %+v", *req)
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
