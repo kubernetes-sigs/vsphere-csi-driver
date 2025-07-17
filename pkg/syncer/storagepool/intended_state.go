@@ -31,7 +31,8 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	types2 "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -333,37 +334,39 @@ func (c *SpController) getVsanHostCapacities(ctx context.Context) (map[string]*c
 // actual state of a StoragePool in the WCP cluster.
 func (c *SpController) applyIntendedState(ctx context.Context, state *intendedState) error {
 	log := logger.GetLogger(ctx)
-	spClient, spResource, err := getSPClient(ctx)
+	k8sClient, err := getK8sClient(ctx)
 	if err != nil {
 		return err
 	}
+
 	// Get StoragePool with spName and Update if already present, otherwise
 	// Create resource.
-	sp, err := spClient.Resource(*spResource).Get(ctx, state.spName, metav1.GetOptions{})
+	sp := &v1alpha1.StoragePool{}
+	err = k8sClient.Get(ctx, types2.NamespacedName{Name: state.spName}, sp)
 	if err != nil {
 		var statusErr *k8serrors.StatusError
 		ok := errors.As(err, &statusErr)
 		if ok && statusErr.Status().Reason == metav1.StatusReasonNotFound {
 			log.Infof("Creating StoragePool instance for %s", state.spName)
-			sp := state.createUnstructuredStoragePool(ctx)
-			newSp, err := spClient.Resource(*spResource).Create(ctx, sp, metav1.CreateOptions{})
+			sp, err = state.createStoragePool(ctx, k8sClient)
 			if err != nil {
-				log.Errorf("Error creating StoragePool %s. Err: %+v", state.spName, err)
+				log.Errorf("Error creating StoragePool %s. Err: %s", state.spName, err)
 				return err
 			}
-			log.Debugf("Successfully created StoragePool %v", newSp)
+
+			log.Debug("Successfully created StoragePool " + sp.Name)
 		}
 	} else {
 		// StoragePool already exists, so Update it. We don't expect
 		// ConflictErrors since updates are synchronized with a lock.
 		log.Debugf("Updating StoragePool instance for %s", state.spName)
-		sp := state.updateUnstructuredStoragePool(ctx, sp)
-		newSp, err := spClient.Resource(*spResource).Update(ctx, sp, metav1.UpdateOptions{})
+		sp, err = state.updateStoragePool(ctx, k8sClient, *sp)
 		if err != nil {
 			log.Errorf("Error updating StoragePool %s. Err: %+v", state.spName, err)
 			return err
 		}
-		log.Debugf("Successfully updated StoragePool %v", newSp)
+
+		log.Debug("Successfully updated StoragePool " + sp.Name)
 	}
 
 	// Update the underlying dsType in the all the compatible storage classes
@@ -502,24 +505,30 @@ func (c *SpController) deleteIntendedState(ctx context.Context, spName string) (
 
 func deleteStoragePool(ctx context.Context, spName string) error {
 	log := logger.GetLogger(ctx)
-	spClient, spResource, err := getSPClient(ctx)
+	k8sClient, err := getK8sClient(ctx)
 	if err != nil {
 		return err
 	}
-	sp, err := spClient.Resource(*spResource).Get(ctx, spName, metav1.GetOptions{})
+
+	sp := &v1alpha1.StoragePool{}
+	err = k8sClient.Get(ctx, types2.NamespacedName{Name: spName}, sp)
 	if err != nil {
-		log.Errorf("Error getting StoragePool instance %s. Err: %v", spName, err)
+		log.Errorf("Error getting StoragePool instance %s. Err: %s", spName, err)
 		return err
 	}
-	driver, found, err := unstructured.NestedString(sp.Object, "spec", "driver")
-	if found && err == nil && driver == csitypes.Name {
-		log.Infof("Deleting StoragePool %s", spName)
-		err := spClient.Resource(*spResource).Delete(ctx, spName, *metav1.NewDeleteOptions(0))
-		if err != nil {
-			log.Errorf("Error deleting StoragePool %s. Err: %v", spName, err)
-			return err
-		}
+
+	if sp.Spec.Driver != csitypes.Name {
+		log.Info("Cannot delete StoragePool " + spName + " as it is not created by " + csitypes.Name)
+		return nil
 	}
+
+	log.Infof("Deleting StoragePool " + spName)
+	err = k8sClient.Delete(ctx, sp, client.GracePeriodSeconds(0))
+	if err != nil {
+		log.Errorf("Error deleting StoragePool %s. Err: %s", spName, err)
+		return err
+	}
+
 	return nil
 }
 
@@ -541,74 +550,54 @@ func (state *intendedState) getStoragePoolError() *v1alpha1.StoragePoolError {
 	return nil
 }
 
-func (state *intendedState) createUnstructuredStoragePool(ctx context.Context) *unstructured.Unstructured {
-	sp := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cns.vmware.com/v1alpha1",
-			"kind":       "StoragePool",
-			"metadata": map[string]interface{}{
-				"name": state.spName,
-				"labels": map[string]string{
-					spTypeLabelKey: strings.ReplaceAll(state.dsType, spTypePrefix, ""),
-				},
+func (state *intendedState) createStoragePool(ctx context.Context, c client.Client) (*v1alpha1.StoragePool, error) {
+	sp := &v1alpha1.StoragePool{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: state.spName,
+			Labels: map[string]string{
+				spTypeLabelKey: strings.ReplaceAll(state.dsType, spTypePrefix, ""),
 			},
-			"spec": map[string]interface{}{
-				"driver": csitypes.Name,
-				"parameters": map[string]interface{}{
-					"datastoreUrl": state.url,
-				},
+		},
+		Spec: v1alpha1.StoragePoolSpec{
+			Driver: csitypes.Name,
+			Parameters: map[string]string{
+				"datastoreUrl": state.url,
 			},
-			"status": map[string]interface{}{
-				"accessibleNodes":          state.nodes,
-				"compatibleStorageClasses": state.compatSC,
-				"capacity": map[string]interface{}{
-					"total":            state.capacity.Value(),
-					"freeSpace":        state.freeSpace.Value(),
-					"allocatableSpace": state.allocatableSpace.Value(),
-				},
+		},
+		Status: v1alpha1.StoragePoolStatus{
+			AccessibleNodes:          state.nodes,
+			CompatibleStorageClasses: state.compatSC,
+			Capacity: &v1alpha1.PoolCapacity{
+				Total:            state.capacity,
+				FreeSpace:        state.freeSpace,
+				AllocatableSpace: state.allocatableSpace,
 			},
 		},
 	}
 	spErr := state.getStoragePoolError()
 	if spErr != nil {
-		setNestedField(ctx, sp.Object, spErr.State, "status", "error", "state")
-		setNestedField(ctx, sp.Object, spErr.Message, "status", "error", "message")
+		sp.Status.Error = *spErr
 	}
-	return sp
+	err := c.Create(ctx, sp)
+	return sp, err
 }
 
-func (state *intendedState) updateUnstructuredStoragePool(ctx context.Context,
-	sp *unstructured.Unstructured) *unstructured.Unstructured {
-	log := logger.GetLogger(ctx)
-	setNestedField(ctx, sp.Object, state.url, "spec", "parameters", "datastoreUrl")
-	setNestedField(ctx, sp.Object, strings.ReplaceAll(state.dsType, spTypePrefix, ""),
-		"metadata", "labels", spTypeLabelKey)
-	setNestedField(ctx, sp.Object, state.capacity.Value(), "status", "capacity", "total")
-	setNestedField(ctx, sp.Object, state.freeSpace.Value(), "status", "capacity", "freeSpace")
-	setNestedField(ctx, sp.Object, state.allocatableSpace.Value(), "status", "capacity", "allocatableSpace")
-	err := unstructured.SetNestedStringSlice(sp.Object, state.nodes, "status", "accessibleNodes")
-	if err != nil {
-		log.Errorf("err: %v", err)
-	}
-	err = unstructured.SetNestedStringSlice(sp.Object, state.compatSC, "status", "compatibleStorageClasses")
-	if err != nil {
-		log.Errorf("err: %v", err)
-	}
+func (state *intendedState) updateStoragePool(ctx context.Context, c client.Client,
+	sp v1alpha1.StoragePool) (*v1alpha1.StoragePool, error) {
+	sp.Spec.Parameters["datastoreUrl"] = state.url
+	sp.ObjectMeta.Labels[spTypeLabelKey] = strings.ReplaceAll(state.dsType, spTypePrefix, "")
+	sp.Status.Capacity.Total = state.capacity
+	sp.Status.Capacity.FreeSpace = state.freeSpace
+	sp.Status.Capacity.AllocatableSpace = state.allocatableSpace
+	sp.Status.AccessibleNodes = state.nodes
+	sp.Status.CompatibleStorageClasses = state.compatSC
+
 	spErr := state.getStoragePoolError()
 	if spErr != nil {
-		setNestedField(ctx, sp.Object, spErr.State, "status", "error", "state")
-		setNestedField(ctx, sp.Object, spErr.Message, "status", "error", "message")
-	} else {
-		unstructured.RemoveNestedField(sp.Object, "status", "error")
+		sp.Status.Error = *spErr
 	}
-	return sp
-}
-
-func setNestedField(ctx context.Context, obj map[string]interface{}, value interface{}, fields ...string) {
-	log := logger.GetLogger(ctx)
-	if err := unstructured.SetNestedField(obj, value, fields...); err != nil {
-		log.Errorf("err: %v", err)
-	}
+	err := c.Update(ctx, &sp)
+	return &sp, err
 }
 
 // isCapacityChangeSignificant returns true if the capacity change from old to
