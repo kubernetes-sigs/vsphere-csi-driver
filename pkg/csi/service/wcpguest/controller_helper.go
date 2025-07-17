@@ -186,7 +186,7 @@ func checkPVCCondition(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 			pvc.Namespace, condition.Type)
 		if condition.Type == reqCondition {
 			pvcSize := pvc.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)]
-			if pvcSize == *reqSize {
+			if pvcSize.Value() == reqSize.Value() {
 				log.Infof("PersistentVolumeClaim %s in namespace %s is in %s condition and "+
 					"its request size is %s", pvc.Name, pvc.Namespace, condition.Type, reqSize.String())
 				return true
