@@ -349,6 +349,7 @@ const (
 	stretchedSvc          = "stretchedSvc"
 	devops                = "devops"
 	vc901                 = "vc901"
+	linkedClone           = "lc"
 )
 
 // The following variables are required to know cluster type to run common e2e
@@ -506,6 +507,11 @@ var (
 	envSharedZone1Zone2Zone3StoragePolicyName      = "SHARED_ZONE1_ZONE2_ZONE3_STORAGE_POLICY_IMM"
 	nimbusWorkerIp                                 = "NIMBUS_WORKER_IP"
 	vsanMaxFaultDomainName                         = "VSAN_MAX_FD_NAME"
+)
+
+// For linked clone
+var (
+	envStoragePolicy = "STORAGE_POLICY_NAME"
 )
 
 // storage policy usages for storage quota validation
