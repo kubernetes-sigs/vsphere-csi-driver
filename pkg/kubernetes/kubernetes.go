@@ -290,7 +290,7 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 
 		err = storagepoolAPIs.AddToScheme(scheme)
 		if err != nil {
-			log.Errorf("failed to add StoragePool scheme with error :%s", err)
+			log.Errorf("failed to add StoragePool scheme with error :%+v", err)
 			return nil, err
 		}
 	}

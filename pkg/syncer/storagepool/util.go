@@ -32,7 +32,6 @@ import (
 	v1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/runtime"
@@ -305,14 +304,21 @@ func updateDrainStatus(ctx context.Context, storagePoolName string, newStatus st
 		if err != nil {
 			return false, err
 		}
-		// Try to get the current drain Mode.
-		sp, err := k8sDynamicClient.Resource(*spResource).Get(ctx, storagePoolName, metav1.GetOptions{})
+
+		k8sClient, err := getK8sClient(ctx)
 		if err != nil {
-			log.Errorf("Could not get StoragePool with name %v. Error: %v", storagePoolName, err)
 			return false, err
 		}
-		drainMode, _, _ := unstructured.NestedString(sp.Object, "spec", "parameters", drainModeField)
 
+		sp := &spv1alpha1.StoragePool{}
+		err = k8sClient.Get(ctx, k8stypes.NamespacedName{Name: storagePoolName}, sp)
+		if err != nil {
+			log.Errorf("Could not get StoragePool with name %s. Error: %s", storagePoolName, err)
+			return false, err
+		}
+
+		// Try to get the current drain Mode.
+		drainMode := sp.Spec.Parameters[drainModeField]
 		if drainMode == fullDataEvacuationMM || drainMode == ensureAccessibilityMM || drainMode == noMigrationMM {
 			var patch map[string]interface{}
 			if newStatus == drainFailStatus {
@@ -363,16 +369,19 @@ func updateDrainStatus(ctx context.Context, storagePoolName string, newStatus st
 
 // getDrainMode gets the disk decommission mode for a given StoragePool.
 func getDrainMode(ctx context.Context, storagePoolName string) (mode string, found bool, err error) {
-	k8sDynamicClient, spResource, err := getSPClient(ctx)
+	k8sClient, err := getK8sClient(ctx)
 	if err != nil {
 		return "", false, err
 	}
-	sp, err := k8sDynamicClient.Resource(*spResource).Get(ctx, storagePoolName, metav1.GetOptions{})
+
+	sp := &spv1alpha1.StoragePool{}
+	err = k8sClient.Get(ctx, k8stypes.NamespacedName{Name: storagePoolName}, sp)
 	if err != nil {
 		return "", false, err
 	}
-	mode, found, err = unstructured.NestedString(sp.Object, "spec", "parameters", drainModeField)
-	return mode, found, err
+
+	mode, found = sp.Spec.Parameters[drainModeField]
+	return mode, found, nil
 }
 
 func addTargetSPAnnotationOnPVC(ctx context.Context, pvcName, namespace,

@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-	kubernetes2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	k8sinternal "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/admissionhandler"
 )
 
@@ -172,7 +172,7 @@ func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context,
 		volumeToSPMap[vol.PVName] = assignedSPName
 		for _, sp := range b.storagePoolList.Items {
 			if sp.GetName() == assignedSPName {
-				if sp.Status.Capacity.AllocatableSpace == nil {
+				if sp.Status.Capacity == nil || sp.Status.Capacity.AllocatableSpace == nil {
 					log.Warn("Could not find current allocatable capacity for SP " +
 						sp.GetName())
 					break
@@ -290,6 +290,10 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface,
 		return nil, fmt.Errorf("failed to find source vSAN Direct StoragePool with name %v", storagePoolName)
 	}
 
+	if sourceSP.Labels == nil {
+		return nil, fmt.Errorf("given StoragePool is not a vSAN Direct Datastore")
+	}
+	
 	if _, ok := sourceSP.Labels[spTypeLabelKey]; !ok {
 		return nil, fmt.Errorf("given StoragePool is not a vSAN Direct Datastore")
 	}
@@ -769,7 +773,7 @@ func getStoragePoolList(ctx context.Context) (*v1alpha1.StoragePoolList, error) 
 		return nil, err
 	}
 
-	c, err := kubernetes2.NewClientForGroup(ctx, cfg, v1alpha1.SchemeGroupVersion.Group)
+	c, err := k8sinternal.NewClientForGroup(ctx, cfg, v1alpha1.SchemeGroupVersion.Group)
 	if err != nil {
 		log.Errorf("Failed to create StoragePool client using config. Err: %+v", err)
 		return nil, err
@@ -799,6 +803,11 @@ func preFilterSPList(ctx context.Context, sps v1alpha1.StoragePoolList,
 
 	for _, sp := range sps.Items {
 		spName := sp.GetName()
+		if sp.Labels == nil {
+			nonVsanDirectOrSna++
+			continue
+		}
+
 		spType, found := sp.Labels[spTypeLabelKey]
 		if !found || (spType != vsanDirect && spType != vsanSna) {
 			nonVsanDirectOrSna++

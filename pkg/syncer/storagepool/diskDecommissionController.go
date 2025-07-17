@@ -235,7 +235,7 @@ func (w *DiskDecommController) DecommissionDisk(ctx context.Context, storagePool
 			return
 		}
 
-		var pvcToMigrate []v1.PersistentVolumeClaim
+		pvcToMigrate := make([]v1.PersistentVolumeClaim, 0)
 		for pvName, targetSPName := range svMotionPlan {
 			pv := &v1.PersistentVolume{}
 			err := w.k8sClient.Get(ctx, types.NamespacedName{Name: pvName}, pv)
@@ -265,7 +265,7 @@ func (w *DiskDecommController) DecommissionDisk(ctx context.Context, storagePool
 			pvc := &v1.PersistentVolumeClaim{}
 			err = w.k8sClient.Get(ctx, types.NamespacedName{
 				Name:      pvcName,
-				Namespace: pvcName,
+				Namespace: namespace,
 			}, pvc)
 			if err != nil {
 				log.Errorf("Unable to get the PVC %s in namespace %s. Error: %s",
