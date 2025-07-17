@@ -569,7 +569,6 @@ data:
   "WCP_VMService_BYOK": "false"
   "sv-pvc-snapshot-protection-finalizer": "false"
   "file-volume-with-vm-service": "false"
-  "vol-from-snapshot-on-target-ds": "false"
   "linked-clone-support": "false"
 kind: ConfigMap
 metadata:

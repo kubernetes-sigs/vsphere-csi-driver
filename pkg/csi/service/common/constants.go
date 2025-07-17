@@ -461,8 +461,9 @@ const (
 	SharedDiskFss = "supports_shared_disks"
 	// CSITranSactionSupport is an FSS for transaction support
 	CSITranSactionSupport = "csi-transaction-support"
-	// VolFromSnapshotOnTargetDs enables creation of volumes from snapshots on different datastores
-	VolFromSnapshotOnTargetDs = "vol-from-snapshot-on-target-ds"
+	// VolFromSnapshotOnTargetDs is a FSS that tells whether creation of volumes from
+	// snapshots on different datastores feature is supported in CSI.
+	VolFromSnapshotOnTargetDs = "supports_vol_from_snapshot_on_target_ds"
 	// LinkedCloneSupport is an FSS that tells whether LinkedClone feature is supported in CSI.
 	LinkedCloneSupport = "linked-clone-support"
 )
@@ -472,6 +473,7 @@ var WCPFeatureStates = map[string]struct{}{
 	CSIDetachOnSupervisor:      {},
 	WorkloadDomainIsolation:    {},
 	VPCCapabilitySupervisor:    {},
+	VolFromSnapshotOnTargetDs:  {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
