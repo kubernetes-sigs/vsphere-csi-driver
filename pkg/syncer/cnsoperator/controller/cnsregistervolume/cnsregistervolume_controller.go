@@ -203,6 +203,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
 	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
+	isMultipleClustersPerVsphereZoneEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.MultipleClustersPerVsphereZone)
 	// Fetch the CnsRegisterVolume instance.
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
@@ -326,17 +328,51 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 
 	if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
 		if workloadDomainIsolationEnabled || len(clusterComputeResourceMoIds) > 1 {
-			azClustersMap := topologyMgr.GetAZClustersMap(ctx)
-			isAccessible := isDatastoreAccessibleToAZClusters(ctx, vc, azClustersMap, volume.DatastoreUrl)
-			if !isAccessible {
-				log.Errorf("Volume: %s present on datastore: %s is not accessible to any of the AZ clusters: %v",
-					volumeID, volume.DatastoreUrl, azClustersMap)
-				setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to any of the AZ clusters")
-				_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
-				if err != nil {
-					log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
+			if isMultipleClustersPerVsphereZoneEnabled {
+				// Get zones assigned to the namespace
+				zoneMaps := commonco.ContainerOrchestratorUtility.GetZonesForNamespace(request.Namespace)
+
+				// Convert map keys to slice
+				zones := make([]string, 0, len(zoneMaps))
+				for zone := range zoneMaps {
+					zones = append(zones, zone)
 				}
-				return reconcile.Result{RequeueAfter: timeout}, nil
+				// Get active clusters in the requested zones
+				activeClusters, err := commonco.ContainerOrchestratorUtility.
+					GetActiveClustersForNamespaceInRequestedZones(ctx, request.Namespace, zones)
+				if err != nil {
+					msg := fmt.Sprintf("Failed to get active clusters for CnsRegisterVolume request. error: %+v", err)
+					log.Error(msg)
+					setInstanceError(ctx, r, instance, msg)
+					return reconcile.Result{RequeueAfter: timeout}, nil
+				}
+				// Check if volume is accessible in any of the active clusters
+				if !isDatastoreAccessibleToAZClusters(ctx, vc,
+					map[string][]string{"dummy-zone-key": activeClusters}, volume.DatastoreUrl) {
+					log.Errorf("Volume: %s present on datastore: %s is not accessible to any of the active "+
+						"cluster on the namespace: %v", volumeID, volume.DatastoreUrl, activeClusters)
+					setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to any of "+
+						"the active cluster on the namespace")
+
+					// Attempt volume cleanup
+					if _, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false); err != nil {
+						log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
+					}
+					return reconcile.Result{RequeueAfter: timeout}, nil
+				}
+			} else {
+				azClustersMap := topologyMgr.GetAZClustersMap(ctx)
+				isAccessible := isDatastoreAccessibleToAZClusters(ctx, vc, azClustersMap, volume.DatastoreUrl)
+				if !isAccessible {
+					log.Errorf("Volume: %s present on datastore: %s is not accessible to any of the AZ clusters: %v",
+						volumeID, volume.DatastoreUrl, azClustersMap)
+					setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to any of the AZ clusters")
+					_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+					if err != nil {
+						log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
+					}
+					return reconcile.Result{RequeueAfter: timeout}, nil
+				}
 			}
 		}
 	} else {
